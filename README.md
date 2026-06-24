@@ -1,1 +1,1 @@
-# blue-data-kb-source
+# blue-template
