@@ -348,11 +348,77 @@ class KBSource(GraphSource, ABC):
         return self.add_edge(database, element_id, self.EXTRACTED_FROM, extraction_id)
 
     # ------------------------------------------------------------------ #
+    # Database schema                                                      #
+    # ------------------------------------------------------------------ #
+
+    def fetch_database_schema(self, database: str) -> DataSchema:
+        """Return a DataSchema reflecting the declared classes and relations in *database*.
+
+        Entities in the returned schema correspond to :CLASS nodes; their attributes come
+        from :PROPERTY nodes connected via DEFINE_PROPERTY edges.  Relations correspond to
+        :RELATION nodes; source/target are taken from DOMAIN/RANGE edges (falling back to
+        "*" when not set), and their properties also come from DEFINE_PROPERTY edges.
+        """
+        schema = DataSchema()
+
+        # --- declared classes → DataSchema entities ---
+        for class_node in self.match_nodes(database, label=self.CLASS):
+            nid = class_node["id"]
+            props = class_node.get("properties", {})
+            class_name = props.get("name", nid)
+            schema.add_entity(class_name, description=props.get("description", ""))
+
+            for nb in self.get_neighbors(database, nid, edge_type=self.DEFINE_PROPERTY, direction="out"):
+                p = nb["node"].get("properties", {})
+                schema.add_entity_attribute(
+                    class_name,
+                    p.get("name", nb["node"]["id"]),
+                    "str",
+                    description=p.get("description", ""),
+                )
+
+        # --- declared relation types → DataSchema relations ---
+        for rel_node in self.match_nodes(database, label=self.RELATION):
+            nid = rel_node["id"]
+            props = rel_node.get("properties", {})
+            rel_name = props.get("name", nid)
+            rel_desc = props.get("description", "")
+
+            domains = [
+                nb["node"].get("properties", {}).get("name", nb["node"]["id"])
+                for nb in self.get_neighbors(database, nid, edge_type=self.DOMAIN, direction="out")
+            ] or ["*"]
+
+            ranges = [
+                nb["node"].get("properties", {}).get("name", nb["node"]["id"])
+                for nb in self.get_neighbors(database, nid, edge_type=self.RANGE, direction="out")
+            ] or ["*"]
+
+            rel_prop_nodes = [
+                nb["node"]
+                for nb in self.get_neighbors(database, nid, edge_type=self.DEFINE_PROPERTY, direction="out")
+            ]
+
+            for domain in domains:
+                for range_ in ranges:
+                    rel_key = schema.add_relation(domain, rel_name, range_, description=rel_desc)
+                    for prop_node in rel_prop_nodes:
+                        p = prop_node.get("properties", {})
+                        schema.add_relation_property(
+                            rel_key,
+                            p.get("name", prop_node["id"]),
+                            "str",
+                            description=p.get("description", ""),
+                        )
+
+        return schema
+
+    # ------------------------------------------------------------------ #
     # Meta-schema                                                          #
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def get_meta_schema() -> DataSchema:
+    def fetch_meta_schema() -> DataSchema:
         """Return a DataSchema describing the KB graph schema itself.
 
         Entities correspond to KB node types; relations correspond to KB edge types.
@@ -364,70 +430,70 @@ class KBSource(GraphSource, ABC):
 
         schema.add_entity("CLASS",
             description="Defines a category or type. Example: PERSON, COMPANY")
-        schema.add_entity_property("CLASS", "name", "str",
+        schema.add_entity_attribute("CLASS", "name", "str",
             description="name of the class")
-        schema.add_entity_property("CLASS", "description", "str",
+        schema.add_entity_attribute("CLASS", "description", "str",
             description="description of the class")
 
         schema.add_entity("RELATION",
             description="Defines the nature of a relationship between two entity classes. "
                         "Example: WORKED_AT, LIVES_IN, PURCHASED")
-        schema.add_entity_property("RELATION", "name", "str",
+        schema.add_entity_attribute("RELATION", "name", "str",
             description="name of the relation")
-        schema.add_entity_property("RELATION", "description", "str",
+        schema.add_entity_attribute("RELATION", "description", "str",
             description="description of the relation")
-        schema.add_entity_property("RELATION", "is_symmetric", "bool",
+        schema.add_entity_attribute("RELATION", "is_symmetric", "bool",
             description="boolean indicating symmetry")
 
         schema.add_entity("PROPERTY",
             description="Feature of an entity, class, relation, or fact. Example: AGE, START_DATE")
-        schema.add_entity_property("PROPERTY", "name", "str",
+        schema.add_entity_attribute("PROPERTY", "name", "str",
             description="name of the property")
-        schema.add_entity_property("PROPERTY", "description", "str",
+        schema.add_entity_attribute("PROPERTY", "description", "str",
             description="description of the property")
 
         schema.add_entity("ENTITY",
             description="A specific instance of a class. Example: Alice, IBM")
-        schema.add_entity_property("ENTITY", "name", "str",
+        schema.add_entity_attribute("ENTITY", "name", "str",
             description="name of the entity")
-        schema.add_entity_property("ENTITY", "description", "str",
+        schema.add_entity_attribute("ENTITY", "description", "str",
             description="description of the entity")
 
         schema.add_entity("FACT",
             description="Represents a specific factual relation between entities. "
                         "Example: Alice_WORKED_AT_IBM")
-        schema.add_entity_property("FACT", "name", "str",
+        schema.add_entity_attribute("FACT", "name", "str",
             description="name of the fact")
-        schema.add_entity_property("FACT", "description", "str",
+        schema.add_entity_attribute("FACT", "description", "str",
             description="description of the fact")
 
         schema.add_entity("LITERAL",
             description="Specifies a property value. Example: 18, 1998")
-        schema.add_entity_property("LITERAL", "name", "str",
+        schema.add_entity_attribute("LITERAL", "name", "str",
             description="name of the literal")
-        schema.add_entity_property("LITERAL", "description", "str",
+        schema.add_entity_attribute("LITERAL", "description", "str",
             description="description of the literal")
-        schema.add_entity_property("LITERAL", "value", "str | int | float | bool",
+        schema.add_entity_attribute("LITERAL", "value", "str | int | float | bool",
             description="value of the property")
-        schema.add_entity_property("LITERAL", "type", "NUMBER | DATE | BOOLEAN | STRING",
+        schema.add_entity_attribute("LITERAL", "type", "NUMBER | DATE | BOOLEAN | STRING",
             description="type of the value")
 
         schema.add_entity("SOURCE",
             description="A source of data.")
-        schema.add_entity_property("SOURCE", "id", "str",
+        schema.add_entity_attribute("SOURCE", "id", "str",
             description="id of the source")
-        schema.add_entity_property("SOURCE", "name", "str",
+        schema.add_entity_attribute("SOURCE", "name", "str",
             description="name of the source")
-        schema.add_entity_property("SOURCE", "description", "str",
+        schema.add_entity_attribute("SOURCE", "description", "str",
             description="description of the source")
 
         schema.add_entity("EXTRACTION",
             description="Extraction from a source.")
-        schema.add_entity_property("EXTRACTION", "name", "str",
+        schema.add_entity_attribute("EXTRACTION", "name", "str",
             description="name of the extraction")
-        schema.add_entity_property("EXTRACTION", "description", "str",
+        schema.add_entity_attribute("EXTRACTION", "description", "str",
             description="description of the extraction")
-        schema.add_entity_property("EXTRACTION", "text", "str",
+        schema.add_entity_attribute("EXTRACTION", "text", "str",
             description="text segment of extraction from source")
 
         # ---- edge types (relations) ----
