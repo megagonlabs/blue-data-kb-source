@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "blue-data-kb-source"
+version = "0.1.0"
+description = "Blue Data Knowledge-Base Source Layer"
+requires-python = ">=3.10"
+dependencies = [
+    "blue-data>=0.1.0",
+]
+
+[project.optional-dependencies]
+neo4j = ["neo4j"]
+dev   = ["pytest", "pytest-cov"]
+all   = ["neo4j"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.pyright]
+pythonVersion = "3.10"
+typeCheckingMode = "strict"
+venvPath = "."
+venv = ".venv"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+addopts = ""
+pythonpath = ["src", "."]
+testpaths = ["tests/unit"]
+
+[tool.coverage.run]
+source = ["src"]
