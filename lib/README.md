@@ -48,6 +48,7 @@ kb.create_database("main")
 
 # --- declare schema ---
 person   = kb.declare_class("main", name="PERSON",   description="A human individual")
+person_name = kb.declare_class_property("main", name="NAME", description="Name of the individual", class_id=person)
 company  = kb.declare_class("main", name="COMPANY",  description="A business organization")
 employee = kb.declare_class("main", name="EMPLOYEE", description="A person employed by an organization")
 kb.add_is_subclass_of("main", employee, person)

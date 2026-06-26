@@ -114,7 +114,7 @@ class KBSource(GraphSource, ABC):
             node_id=property_id,
         )
         if class_id is not None:
-            self.add_edge(database, node_id, self.DEFINE_PROPERTY, class_id)
+            self.add_edge(database, class_id, self.DEFINE_PROPERTY, node_id)
         return node_id
 
     def declare_relation_property(
@@ -133,7 +133,7 @@ class KBSource(GraphSource, ABC):
             node_id=property_id,
         )
         if relation_id is not None:
-            self.add_edge(database, node_id, self.DEFINE_PROPERTY, relation_id)
+            self.add_edge(database, relation_id, self.DEFINE_PROPERTY, node_id)
         return node_id
 
     # ------------------------------------------------------------------ #
@@ -404,7 +404,7 @@ class KBSource(GraphSource, ABC):
                     rel_key = schema.add_relation(domain, rel_name, range_, description=rel_desc)
                     for prop_node in rel_prop_nodes:
                         p = prop_node.get("properties", {})
-                        schema.add_relation_property(
+                        schema.add_relation_attribute(
                             rel_key,
                             p.get("name", prop_node["id"]),
                             "str",
