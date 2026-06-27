@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+*,cover
+
+# Type checking
+.pyright/
+.mypy_cache/
+
+# Ruff
+.ruff_cache/
+
+# Distribution / packaging
+*.whl
+*.tar.gz
+MANIFEST
+
+# Environment & secrets
+.env
+.envrc
+*.local
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# User database files
+*.userdb
+~/.userdb/
