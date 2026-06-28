@@ -74,7 +74,13 @@ class KBSource(GraphSource, ABC):
         description: str,
         class_id: str | None = None,
     ) -> str:
-        """Add a :CLASS node and return its graph node id."""
+        """Add a :CLASS node and return its graph node id.
+
+        Returns the existing node id if a CLASS with the same name is already present.
+        """
+        existing = self.match_nodes(database, label=self.CLASS, properties={"name": name})
+        if existing:
+            return existing[0]["id"]
         return self.add_node(
             database,
             self.CLASS,
@@ -90,7 +96,13 @@ class KBSource(GraphSource, ABC):
         is_symmetric: bool = False,
         relation_id: str | None = None,
     ) -> str:
-        """Add a :RELATION schema node and return its graph node id."""
+        """Add a :RELATION schema node and return its graph node id.
+
+        Returns the existing node id if a RELATION with the same name is already present.
+        """
+        existing = self.match_nodes(database, label=self.RELATION, properties={"name": name})
+        if existing:
+            return existing[0]["id"]
         return self.add_node(
             database,
             self.RELATION,
@@ -106,7 +118,20 @@ class KBSource(GraphSource, ABC):
         property_id: str | None = None,
         class_id: str | None = None,
     ) -> str:
-        """Add a :PROPERTY schema node and return its graph node id."""
+        """Add a :PROPERTY schema node and return its graph node id.
+
+        When *class_id* is given, checks whether a property with the same name is
+        already connected to that class via DEFINE_PROPERTY and returns it if so.
+        Without *class_id*, deduplicates globally by name across all PROPERTY nodes.
+        """
+        if class_id is not None:
+            for nb in self.get_neighbors(database, class_id, edge_type=self.DEFINE_PROPERTY, direction="out"):
+                if nb["node"].get("properties", {}).get("name") == name:
+                    return nb["node"]["id"]
+        else:
+            existing = self.match_nodes(database, label=self.PROPERTY, properties={"name": name})
+            if existing:
+                return existing[0]["id"]
         node_id = self.add_node(
             database,
             self.PROPERTY,
@@ -125,7 +150,20 @@ class KBSource(GraphSource, ABC):
         property_id: str | None = None,
         relation_id: str | None = None,
     ) -> str:
-        """Add a :PROPERTY schema node and return its graph node id."""
+        """Add a :PROPERTY schema node and return its graph node id.
+
+        When *relation_id* is given, checks whether a property with the same name is
+        already connected to that relation via DEFINE_PROPERTY and returns it if so.
+        Without *relation_id*, deduplicates globally by name across all PROPERTY nodes.
+        """
+        if relation_id is not None:
+            for nb in self.get_neighbors(database, relation_id, edge_type=self.DEFINE_PROPERTY, direction="out"):
+                if nb["node"].get("properties", {}).get("name") == name:
+                    return nb["node"]["id"]
+        else:
+            existing = self.match_nodes(database, label=self.PROPERTY, properties={"name": name})
+            if existing:
+                return existing[0]["id"]
         node_id = self.add_node(
             database,
             self.PROPERTY,
@@ -412,6 +450,88 @@ class KBSource(GraphSource, ABC):
                         )
 
         return schema
+
+    def import_database_schema(self, database: str, schema_json: dict) -> KBSource:
+        """Populate *database* from a DataSchema JSON dict and return self.
+
+        Steps:
+        - Each DataSchema entity → a :CLASS node; its ``contents.attributes``
+          become :PROPERTY nodes wired via DEFINE_PROPERTY.
+        - DataSchema relations are grouped by name so that one :RELATION node is
+          created per unique relation type.  DOMAIN and RANGE edges are wired from
+          the ``source`` / ``target`` class names found in the schema; relation
+          ``contents.attributes`` become :PROPERTY nodes via DEFINE_PROPERTY.
+
+        Usage::
+
+            kb = MyKBSource("my-kb")
+            kb.create_database("main")
+            kb.import_database_schema("main", schema.to_json())
+        """
+        schema = DataSchema.from_json(schema_json)
+
+        # --- declare classes ---
+        class_ids: dict[str, str] = {}  # class_name → graph node id
+        for entity_obj in schema.entities.values():
+            class_name = entity_obj["name"]
+            class_id = self.declare_class(
+                database,
+                name=class_name,
+                description=entity_obj.get("description", ""),
+            )
+            class_ids[class_name] = class_id
+
+            for attr_name, attr_obj in entity_obj.get("contents", {}).get("attributes", {}).items():
+                self.declare_class_property(
+                    database,
+                    name=attr_name,
+                    description=attr_obj.get("description", "") if isinstance(attr_obj, dict) else "",
+                    class_id=class_id,
+                )
+
+        # --- declare relation types (group by name to deduplicate) ---
+        # rel_name → {description, domains, ranges, attributes}
+        rel_data: dict[str, dict] = {}
+        for rel_obj in schema.relations.values():
+            rel_name = rel_obj["name"]
+            if rel_name not in rel_data:
+                rel_data[rel_name] = {
+                    "description": rel_obj.get("description", ""),
+                    "domains": [],
+                    "ranges": [],
+                    "attributes": rel_obj.get("contents", {}).get("attributes", {}),
+                }
+            source = rel_obj.get("source", "")
+            target = rel_obj.get("target", "")
+            if source and source != "*" and source not in rel_data[rel_name]["domains"]:
+                rel_data[rel_name]["domains"].append(source)
+            if target and target != "*" and target not in rel_data[rel_name]["ranges"]:
+                rel_data[rel_name]["ranges"].append(target)
+
+        for rel_name, rd in rel_data.items():
+            relation_id = self.declare_relation_type(
+                database,
+                name=rel_name,
+                description=rd["description"],
+            )
+
+            for domain_name in rd["domains"]:
+                if domain_name in class_ids:
+                    self.add_domain(database, relation_id, class_ids[domain_name])
+
+            for range_name in rd["ranges"]:
+                if range_name in class_ids:
+                    self.add_range(database, relation_id, class_ids[range_name])
+
+            for attr_name, attr_obj in rd["attributes"].items():
+                self.declare_relation_property(
+                    database,
+                    name=attr_name,
+                    description=attr_obj.get("description", "") if isinstance(attr_obj, dict) else "",
+                    relation_id=relation_id,
+                )
+
+        return self
 
     # ------------------------------------------------------------------ #
     # Meta-schema                                                          #
