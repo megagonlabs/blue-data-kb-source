@@ -474,6 +474,187 @@ class KBSource(GraphSource, ABC):
 
         return schema
 
+    # ------------------------------------------------------------------ #
+    # Database data                                                        #
+    # ------------------------------------------------------------------ #
+
+    def fetch_database_data(
+        self,
+        database: str,
+        include_provenance: bool = False,
+        compact: bool = False,
+    ) -> dict | list:
+        """Return all instance-level nodes and edges from *database*.
+
+        **Default** (``compact=False``):
+        Returns ``{"nodes": [...], "edges": [...]}`` where every item carries a
+        ``label`` (nodes) or ``type`` (edges) field so callers can filter by kind.
+
+        Node shape:  ``{"id": ..., "label": ..., "properties": {...}}``
+        Edge shape:  ``{"type": ..., "source_id": ..., "target_id": ...}``
+
+        Node labels included:  ENTITY, FACT, LITERAL
+        Edge types included:   IS_INSTANCE_OF, REPRESENTS, HEAD, TAIL,
+                               HAS_PROPERTY, IS_VALUE_OF
+
+        When *include_provenance* is ``True``, also adds SOURCE and EXTRACTION
+        nodes and EXTRACTED_FROM edges.
+
+        **Compact** (``compact=True``):
+        Returns a flat list of relation dicts, one per semantic edge:
+
+        ``IS_INSTANCE_OF``::
+
+            {"relation": "IS_INSTANCE_OF", "relation_description": ...,
+             "entity_name": ..., "class_name": ...,
+             "extraction": ...}   # extraction only when include_provenance=True
+
+        ``IS_VALUE_OF``::
+
+            {"relation": "IS_VALUE_OF", "relation_description": ...,
+             "entity_name": ..., "property_name": ...,
+             "extraction": ...}
+
+        ``REPRESENTS``::
+
+            {"relation": "REPRESENTS", "relation_description": ...,
+             "head_name": ..., "tail_name": ..., "relation_name": ...,
+             "extraction": ...}
+        """
+        if compact:
+            return self._fetch_database_data_compact(database, include_provenance)
+
+        nodes: list[dict] = []
+        edges: list[dict] = []
+
+        def _edge(type_: str, source_id: str, target_id: str) -> dict:
+            return {"type": type_, "source_id": source_id, "target_id": target_id}
+
+        # --- ENTITY nodes ---
+        for node in self.match_nodes(database, label=self.ENTITY):
+            nid = node["id"]
+            nodes.append({"id": nid, "label": self.ENTITY, "properties": node.get("properties", {})})
+            for nb in self.get_neighbors(database, nid, edge_type=self.IS_INSTANCE_OF, direction="out"):
+                edges.append(_edge(self.IS_INSTANCE_OF, nid, nb["node"]["id"]))
+            for nb in self.get_neighbors(database, nid, edge_type=self.HAS_PROPERTY, direction="out"):
+                edges.append(_edge(self.HAS_PROPERTY, nid, nb["node"]["id"]))
+            if include_provenance:
+                for nb in self.get_neighbors(database, nid, edge_type=self.EXTRACTED_FROM, direction="out"):
+                    edges.append(_edge(self.EXTRACTED_FROM, nid, nb["node"]["id"]))
+
+        # --- FACT nodes ---
+        for node in self.match_nodes(database, label=self.FACT):
+            nid = node["id"]
+            nodes.append({"id": nid, "label": self.FACT, "properties": node.get("properties", {})})
+            for nb in self.get_neighbors(database, nid, edge_type=self.REPRESENTS, direction="out"):
+                edges.append(_edge(self.REPRESENTS, nid, nb["node"]["id"]))
+            for nb in self.get_neighbors(database, nid, edge_type=self.HEAD, direction="out"):
+                edges.append(_edge(self.HEAD, nid, nb["node"]["id"]))
+            for nb in self.get_neighbors(database, nid, edge_type=self.TAIL, direction="out"):
+                edges.append(_edge(self.TAIL, nid, nb["node"]["id"]))
+            for nb in self.get_neighbors(database, nid, edge_type=self.HAS_PROPERTY, direction="out"):
+                edges.append(_edge(self.HAS_PROPERTY, nid, nb["node"]["id"]))
+            if include_provenance:
+                for nb in self.get_neighbors(database, nid, edge_type=self.EXTRACTED_FROM, direction="out"):
+                    edges.append(_edge(self.EXTRACTED_FROM, nid, nb["node"]["id"]))
+
+        # --- LITERAL nodes ---
+        for node in self.match_nodes(database, label=self.LITERAL):
+            nid = node["id"]
+            nodes.append({"id": nid, "label": self.LITERAL, "properties": node.get("properties", {})})
+            for nb in self.get_neighbors(database, nid, edge_type=self.IS_VALUE_OF, direction="out"):
+                edges.append(_edge(self.IS_VALUE_OF, nid, nb["node"]["id"]))
+            if include_provenance:
+                for nb in self.get_neighbors(database, nid, edge_type=self.EXTRACTED_FROM, direction="out"):
+                    edges.append(_edge(self.EXTRACTED_FROM, nid, nb["node"]["id"]))
+
+        # --- provenance nodes ---
+        if include_provenance:
+            for node in self.match_nodes(database, label=self.SOURCE):
+                nodes.append({"id": node["id"], "label": self.SOURCE, "properties": node.get("properties", {})})
+            for node in self.match_nodes(database, label=self.EXTRACTION):
+                nodes.append({"id": node["id"], "label": self.EXTRACTION, "properties": node.get("properties", {})})
+
+        return {"nodes": nodes, "edges": edges}
+
+    def _fetch_database_data_compact(
+        self,
+        database: str,
+        include_provenance: bool,
+    ) -> list[dict]:
+        """Compact view: one dict per IS_INSTANCE_OF, IS_VALUE_OF, or REPRESENTS edge."""
+
+        results: list[dict] = []
+
+        def _name(node: dict) -> str:
+            return node.get("properties", {}).get("name", node["id"])
+
+        def _extraction(nid: str) -> str | None:
+            for nb in self.get_neighbors(database, nid, edge_type=self.EXTRACTED_FROM, direction="out"):
+                return nb["node"].get("properties", {}).get("text")
+            return None
+
+        # --- IS_INSTANCE_OF: ENTITY → CLASS ---
+        for entity_node in self.match_nodes(database, label=self.ENTITY):
+            nid = entity_node["id"]
+            entity_name = _name(entity_node)
+            for nb in self.get_neighbors(database, nid, edge_type=self.IS_INSTANCE_OF, direction="out"):
+                entry: dict = {
+                    "relation_type": self.IS_INSTANCE_OF,
+                    "entity_name": entity_name,
+                    "class_name": _name(nb["node"]),
+                }
+                if include_provenance:
+                    entry["extraction"] = _extraction(nid)
+                results.append(entry)
+
+        # --- IS_VALUE_OF: LITERAL → PROPERTY ---
+        for literal_node in self.match_nodes(database, label=self.LITERAL):
+            nid = literal_node["id"]
+            # find the owning ENTITY or FACT via incoming HAS_PROPERTY edge
+            owner_name: str | None = None
+            for owner_nb in self.get_neighbors(database, nid, edge_type=self.HAS_PROPERTY, direction="in"):
+                owner_name = _name(owner_nb["node"])
+                break
+            for nb in self.get_neighbors(database, nid, edge_type=self.IS_VALUE_OF, direction="out"):
+                entry = {
+                    "relation_type": self.IS_VALUE_OF,
+                    "entity_name": owner_name,
+                    "property_value": _name(literal_node),
+                    "property_name": _name(nb["node"]),
+                }
+                if include_provenance:
+                    entry["extraction"] = _extraction(nid)
+                results.append(entry)
+
+        # --- REPRESENTS: FACT → RELATION (with HEAD / TAIL lookups) ---
+        for fact_node in self.match_nodes(database, label=self.FACT):
+            nid = fact_node["id"]
+            relation_name: str | None = None
+            head_name: str | None = None
+            tail_name: str | None = None
+            for nb in self.get_neighbors(database, nid, edge_type=self.REPRESENTS, direction="out"):
+                relation_name = _name(nb["node"])
+                break
+            for nb in self.get_neighbors(database, nid, edge_type=self.HEAD, direction="out"):
+                head_name = _name(nb["node"])
+                break
+            for nb in self.get_neighbors(database, nid, edge_type=self.TAIL, direction="out"):
+                tail_name = _name(nb["node"])
+                break
+            entry = {
+                "relation_type": self.REPRESENTS,
+                "entity_name": _name(fact_node),
+                "source_name": head_name,
+                "target_name": tail_name,
+                "relation_name": relation_name,
+            }
+            if include_provenance:
+                entry["extraction"] = _extraction(nid)
+            results.append(entry)
+
+        return results
+
     def import_database_schema(self, database: str, schema_json: dict) -> KBSource:
         """Populate *database* from a DataSchema JSON dict and return self.
 

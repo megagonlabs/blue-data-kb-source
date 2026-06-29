@@ -69,6 +69,8 @@ start_date_prop = kb.declare_relation_property(
 
 # --- add instances ---
 alice = kb.add_entity("main", name="Alice", entity_id="alice", class_id=employee)
+kb.add_entity_property_value("main", "Alice", literal_type="STRING", entity_id=alice, property_id=person_name)
+
 ibm   = kb.add_entity("main", name="IBM",   entity_id="ibm",   class_id=company)
 
 # --- add a fact ---
