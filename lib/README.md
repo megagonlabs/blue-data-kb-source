@@ -84,6 +84,19 @@ extraction = kb.add_extraction("main", text="Alice joined IBM in June 1998", sou
 kb.add_extracted_from("main", fact, extraction)
 ```
 
+### Reading and importing a schema
+
+Export the schema of an existing database to JSON and reload it into a fresh KB:
+
+```python
+# --- export ---
+main_schema_json = kb.fetch_database_schema("main").to_json()
+
+# --- import into a new database---
+kb.create_database("copy")
+kb.import_database_schema("copy", main_schema_json)
+```
+
 ## API
 
 ### `KBSource`
