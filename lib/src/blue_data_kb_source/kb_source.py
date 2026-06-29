@@ -200,7 +200,7 @@ class KBSource(GraphSource, ABC):
     def add_fact(
         self,
         database: str,
-        name: str,
+        name: str | None = None,
         description: str | None = None,
         fact_id: str | None = None,
         head_entity_id: str | None = None,
@@ -208,6 +208,12 @@ class KBSource(GraphSource, ABC):
         relation_id: str | None = None,
     ) -> str:
         """Add a :FACT node (property-less) and return its graph node id."""
+        if name is None:
+            head_name = self.get_node(database, head_entity_id).get("properties", {}).get("name") if head_entity_id else "?"
+            tail_name = self.get_node(database, tail_entity_id).get("properties", {}).get("name") if tail_entity_id else "?"
+            rel_name = self.get_node(database, relation_id).get("properties", {}).get("name") if relation_id else "?"
+            name = f"{head_name}_{rel_name}_{tail_name}"
+            
         node_id = self.add_node(database, self.FACT, {"name": name, "description": description}, node_id=fact_id)
         if head_entity_id is not None:
             self.add_edge(database, node_id, self.HEAD, head_entity_id)

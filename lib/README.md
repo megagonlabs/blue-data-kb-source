@@ -68,8 +68,8 @@ start_date_prop = kb.declare_relation_property(
 )
 
 # --- add instances ---
-alice = kb.add_entity("main", entity_id="alice", class_id=employee)
-ibm   = kb.add_entity("main", entity_id="ibm",   class_id=company)
+alice = kb.add_entity("main", name="Alice", entity_id="alice", class_id=employee)
+ibm   = kb.add_entity("main", name="IBM",   entity_id="ibm",   class_id=company)
 
 # --- add a fact ---
 fact = kb.add_fact("main", relation_id=worked_at, head_entity_id=alice, tail_entity_id=ibm)
@@ -79,7 +79,7 @@ kb.add_fact_property_value("main", value="1998-06-01", literal_type="DATE",
                            fact_id=fact, property_id=start_date_prop)
 
 # --- add provenance ---
-src        = kb.add_source("main", source_id="resume_alice", name="Alice's résumé", description="PDF résumé")
+src        = kb.add_source("main", source="resume_alice", name="Alice's résumé", description="PDF résumé")
 extraction = kb.add_extraction("main", text="Alice joined IBM in June 1998", source_id=src)
 kb.add_extracted_from("main", fact, extraction)
 ```
@@ -94,27 +94,29 @@ Abstract base class. Extend it alongside a concrete `GraphSource` implementation
 
 #### Schema node builders
 
+All four `declare_*` methods are **idempotent**: if a node with the same name already exists they return its id without inserting a duplicate.
+
 | Method | Returns | Description |
 |---|---|---|
 | `declare_class(database, name, description, class_id?)` | `str` | Add a `:CLASS` node |
 | `declare_relation_type(database, name, description, is_symmetric?, relation_id?)` | `str` | Add a `:RELATION` node |
-| `declare_class_property(database, name, description, property_id?, class_id?)` | `str` | Add a `:PROPERTY` node; optionally wires `DEFINE_PROPERTY` to a class |
-| `declare_relation_property(database, name, description, property_id?, relation_id?)` | `str` | Add a `:PROPERTY` node; optionally wires `DEFINE_PROPERTY` to a relation |
+| `declare_class_property(database, name, description, property_id?, class_id?)` | `str` | Add a `:PROPERTY` node; optionally wires `DEFINE_PROPERTY` from a class |
+| `declare_relation_property(database, name, description, property_id?, relation_id?)` | `str` | Add a `:PROPERTY` node; optionally wires `DEFINE_PROPERTY` from a relation |
 
 #### Instance node builders
 
 | Method | Returns | Description |
 |---|---|---|
-| `add_entity(database, entity_id, node_id?, class_id?)` | `str` | Add an `:ENTITY` node; optionally wires `IS_INSTANCE_OF` to a class |
-| `add_fact(database, node_id?, head_entity_id?, tail_entity_id?, relation_id?)` | `str` | Add a `:FACT` node; optionally wires `HEAD`, `TAIL`, and `REPRESENTS` |
-| `add_literal(database, value, literal_type, property_id?, node_id?)` | `str` | Add a `:LITERAL` node; optionally wires `IS_VALUE_OF` to a property |
+| `add_entity(database, name, description?, entity_id?, class_id?)` | `str` | Add an `:ENTITY` node; optionally wires `IS_INSTANCE_OF` to a class |
+| `add_fact(database, name?, description?, fact_id?, head_entity_id?, tail_entity_id?, relation_id?)` | `str` | Add a `:FACT` node; optionally wires `HEAD`, `TAIL`, and `REPRESENTS` |
+| `add_literal(database, value, name?, description?, literal_type?, property_id?, node_id?)` | `str` | Add a `:LITERAL` node; `literal_type` is inferred from value type if omitted; optionally wires `IS_VALUE_OF` |
 
 #### Provenance node builders
 
 | Method | Returns | Description |
 |---|---|---|
-| `add_source(database, source_id, name, description, node_id?)` | `str` | Add a `:SOURCE` node |
-| `add_extraction(database, text, node_id?, source_id?)` | `str` | Add an `:EXTRACTION` node; optionally wires `EXTRACTED_FROM` to a source |
+| `add_source(database, source, name?, description?, node_id?)` | `str` | Add a `:SOURCE` node; `name` defaults to `source` if omitted |
+| `add_extraction(database, text, name?, description?, node_id?, source_id?)` | `str` | Add an `:EXTRACTION` node; optionally wires `EXTRACTED_FROM` to a source |
 
 ---
 
@@ -150,14 +152,24 @@ Abstract base class. Extend it alongside a concrete `GraphSource` implementation
 
 | Method | Returns | Description |
 |---|---|---|
-| `add_entity_property_value(database, value, literal_type, entity_id?, property_id?)` | `str` | Creates a `:LITERAL`, wires `IS_VALUE_OF` to a property and `HAS_PROPERTY` from an entity; returns the literal node id |
-| `add_fact_property_value(database, value, literal_type, fact_id?, property_id?)` | `str` | Creates a `:LITERAL`, wires `IS_VALUE_OF` to a property and `HAS_PROPERTY` from a fact; returns the literal node id |
+| `add_entity_property_value(database, value, name?, description?, literal_type?, entity_id?, property_id?)` | `str` | Creates a `:LITERAL`, wires `IS_VALUE_OF` to a property and `HAS_PROPERTY` from an entity; returns the literal node id |
+| `add_fact_property_value(database, value, name?, description?, literal_type?, fact_id?, property_id?)` | `str` | Creates a `:LITERAL`, wires `IS_VALUE_OF` to a property and `HAS_PROPERTY` from a fact; returns the literal node id |
+
+---
+
+#### Schema query and import
+
+| Method | Returns | Description |
+|---|---|---|
+| `fetch_database_schema(database)` | `DataSchema` | Build a `DataSchema` from the `:CLASS` and `:RELATION` nodes declared in *database* |
+| `fetch_meta_schema()` *(static)* | `DataSchema` | Return the fixed `DataSchema` describing the KB graph schema itself (node and edge type taxonomy) |
+| `import_database_schema(database, schema_json)` | `KBSource` | Populate *database* from a `DataSchema.to_json()` dict; declares classes, properties, relations, and domain/range edges; returns `self` |
 
 ---
 
 ### Literal types
 
-`literal_type` must be one of: `"NUMBER"`, `"DATE"`, `"BOOLEAN"`, `"STRING"`.
+`literal_type` must be one of: `"NUMBER"`, `"DATE"`, `"BOOLEAN"`, `"STRING"`. When omitted, it is inferred from the Python type of `value` (`int`/`float` → `NUMBER`, `bool` → `BOOLEAN`, everything else → `STRING`).
 
 ## Running tests
 
