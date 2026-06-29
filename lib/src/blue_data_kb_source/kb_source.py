@@ -213,7 +213,7 @@ class KBSource(GraphSource, ABC):
             tail_name = self.get_node(database, tail_entity_id).get("properties", {}).get("name") if tail_entity_id else "?"
             rel_name = self.get_node(database, relation_id).get("properties", {}).get("name") if relation_id else "?"
             name = f"{head_name}_{rel_name}_{tail_name}"
-            
+
         node_id = self.add_node(database, self.FACT, {"name": name, "description": description}, node_id=fact_id)
         if head_entity_id is not None:
             self.add_edge(database, node_id, self.HEAD, head_entity_id)
@@ -421,6 +421,15 @@ class KBSource(GraphSource, ABC):
                     description=p.get("description", ""),
                 )
 
+        # --- IS_SUBCLASS_OF edges between CLASS nodes ---
+        for class_node in self.match_nodes(database, label=self.CLASS):
+            nid = class_node["id"]
+            child_name = class_node.get("properties", {}).get("name", nid)
+            for nb in self.get_neighbors(database, nid, edge_type=self.IS_SUBCLASS_OF, direction="out"):
+                parent_name = nb["node"].get("properties", {}).get("name", nb["node"]["id"])
+                schema.add_relation(child_name, self.IS_SUBCLASS_OF, parent_name)
+
+        
         # --- declared relation types → DataSchema relations ---
         for rel_node in self.match_nodes(database, label=self.RELATION):
             nid = rel_node["id"]
@@ -454,6 +463,14 @@ class KBSource(GraphSource, ABC):
                             "str",
                             description=p.get("description", ""),
                         )
+
+        # --- IS_SUBCLASS_OF edges between RELATION nodes ---
+        for rel_node in self.match_nodes(database, label=self.RELATION):
+            nid = rel_node["id"]
+            child_name = rel_node.get("properties", {}).get("name", nid)
+            for nb in self.get_neighbors(database, nid, edge_type=self.IS_SUBCLASS_OF, direction="out"):
+                parent_name = nb["node"].get("properties", {}).get("name", nb["node"]["id"])
+                schema.add_relation(child_name, self.IS_SUBCLASS_OF, parent_name)
 
         return schema
 
@@ -630,8 +647,6 @@ class KBSource(GraphSource, ABC):
             "Example: EMPLOYEE IS_SUBCLASS_OF PERSON"
         )
         schema.add_relation("CLASS",    "IS_SUBCLASS_OF", "CLASS",    description=_subclass_desc)
-        schema.add_relation("CLASS",    "IS_SUBCLASS_OF", "RELATION", description=_subclass_desc)
-        schema.add_relation("RELATION", "IS_SUBCLASS_OF", "CLASS",    description=_subclass_desc)
         schema.add_relation("RELATION", "IS_SUBCLASS_OF", "RELATION", description=_subclass_desc)
 
         schema.add_relation("ENTITY", "IS_INSTANCE_OF", "CLASS",
