@@ -37,7 +37,7 @@ MANIFEST
 
 # Environment & secrets
 .env
-.envrc
+*.envrc
 *.local
 
 # Editor
