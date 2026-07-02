@@ -145,7 +145,8 @@ def on_kb_change(event: dict) -> None:
     elif t == "entity_property_added":
         print(f"entity property  {event['property_name']} = {event['value']!r}")
     elif t == "fact_property_added":
-        print(f"fact property    {event['property_name']} = {event['value']!r}")
+        print(f"fact property    {event['head_entity_name']} —{event['relation_name']}→ {event['tail_entity_name']}"
+              f"  {event['property_name']} = {event['value']!r}")
 
 kb.add_change_hook("main", on_kb_change)
 
@@ -158,6 +159,9 @@ fact = kb.add_fact("main", relation_id=worked_at, head_entity_id=alice, tail_ent
 
 kb.add_entity_property_value("main", "1990-03-15", entity_id=alice, property_id=person_name)
 # → entity property  NAME = '1990-03-15'
+
+kb.add_fact_property_value("main", "1998-06-01", fact_id=fact, property_id=start_date_prop)
+# → fact property    Alice —WORKED_AT→ IBM  START_DATE = '1998-06-01'
 
 # Writes to other databases are not observed:
 kb.add_entity("other", name="Bob", class_id=employee)   # hook does not fire
@@ -173,7 +177,7 @@ Each event dict always contains `type`, `database`, and `id` (the created node i
 | `entity_added` | `name`, `class_id`, `class_name` |
 | `fact_added` | `head_entity_id`, `head_entity_name`, `tail_entity_id`, `tail_entity_name`, `relation_id`, `relation_name` |
 | `entity_property_added` | `entity_id`, `property_id`, `property_name`, `value` |
-| `fact_property_added` | `fact_id`, `property_id`, `property_name`, `value` |
+| `fact_property_added` | `fact_id`, `property_id`, `property_name`, `value`, `head_entity_name`, `tail_entity_name`, `relation_name` |
 
 Name fields are `None` when the corresponding id was not provided.
 

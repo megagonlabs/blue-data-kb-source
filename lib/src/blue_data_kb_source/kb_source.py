@@ -351,7 +351,8 @@ class KBSource(GraphSource, ABC):
             self.add_edge(database, literal_id, self.EXTRACTED_FROM, extraction_id)
         self._fire_change({"type": "fact_property_added", "database": database, "id": literal_id,
                            "fact_id": fact_id, "property_id": property_id, "value": value,
-                           "property_name": self._node_name(database, property_id)})
+                           "property_name": self._node_name(database, property_id),
+                           **self._fact_context(database, fact_id)})
         return literal_id
 
     # ------------------------------------------------------------------ #
@@ -373,7 +374,8 @@ class KBSource(GraphSource, ABC):
         ``entity_property_added``
             ``entity_id``, ``property_id``, ``property_name``, ``value``
         ``fact_property_added``
-            ``fact_id``, ``property_id``, ``property_name``, ``value``
+            ``fact_id``, ``property_id``, ``property_name``, ``value``,
+            ``head_entity_name``, ``tail_entity_name``, ``relation_name``
         """
         self.__dict__.setdefault("_kb_hooks", {}).setdefault(database, []).append(fn)
 
@@ -391,7 +393,23 @@ class KBSource(GraphSource, ABC):
     def _node_name(self, database: str, node_id: str | None) -> str | None:
         if node_id is None:
             return None
-        return self.get_node(database, node_id).get("properties", {}).get("name")
+        node = self.get_node(database, node_id)
+        if node is None:
+            return None
+        return node.get("properties", {}).get("name")
+
+    def _fact_context(self, database: str, fact_id: str | None) -> dict:
+        """Return head/tail/relation names for a fact node (for event payloads)."""
+        if fact_id is None:
+            return {"head_entity_name": None, "tail_entity_name": None, "relation_name": None}
+        def _first(edge_type: str) -> str | None:
+            nbs = self.get_neighbors(database, fact_id, edge_type=edge_type, direction="out")
+            return nbs[0]["node"].get("properties", {}).get("name") if nbs else None
+        return {
+            "head_entity_name": _first(self.HEAD),
+            "tail_entity_name": _first(self.TAIL),
+            "relation_name": _first(self.REPRESENTS),
+        }
 
     # ------------------------------------------------------------------ #
     # Provenance node builders                                             #
