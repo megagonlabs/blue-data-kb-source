@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC
-from typing import Literal
+from typing import Callable, Literal
 
 from blue_data.core.schema import DataSchema
 from blue_data.source.graph.graph_source import GraphSource
@@ -222,6 +222,9 @@ class KBSource(GraphSource, ABC):
         if text is not None:
             extraction_id = self.add_extraction(database, text=text, source_id=source_id)
             self.add_edge(database, node_id, self.EXTRACTED_FROM, extraction_id)
+        self._fire_change({"type": "entity_added", "database": database, "id": node_id,
+                           "name": name, "class_id": class_id,
+                           "class_name": self._node_name(database, class_id)})
         return node_id
 
     def add_fact(
@@ -257,6 +260,12 @@ class KBSource(GraphSource, ABC):
         if text is not None:
             extraction_id = self.add_extraction(database, text=text, source_id=source_id)
             self.add_edge(database, node_id, self.EXTRACTED_FROM, extraction_id)
+        self._fire_change({"type": "fact_added", "database": database, "id": node_id,
+                           "head_entity_id": head_entity_id, "tail_entity_id": tail_entity_id,
+                           "relation_id": relation_id,
+                           "head_entity_name": self._node_name(database, head_entity_id),
+                           "tail_entity_name": self._node_name(database, tail_entity_id),
+                           "relation_name": self._node_name(database, relation_id)})
         return node_id
 
     def add_literal(
@@ -312,6 +321,9 @@ class KBSource(GraphSource, ABC):
         if text is not None:
             extraction_id = self.add_extraction(database, text=text, source_id=source_id)
             self.add_edge(database, literal_id, self.EXTRACTED_FROM, extraction_id)
+        self._fire_change({"type": "entity_property_added", "database": database, "id": literal_id,
+                           "entity_id": entity_id, "property_id": property_id, "value": value,
+                           "property_name": self._node_name(database, property_id)})
         return literal_id
 
     def add_fact_property_value(
@@ -337,7 +349,47 @@ class KBSource(GraphSource, ABC):
         if text is not None:
             extraction_id = self.add_extraction(database, text=text, source_id=source_id)
             self.add_edge(database, literal_id, self.EXTRACTED_FROM, extraction_id)
+        self._fire_change({"type": "fact_property_added", "database": database, "id": literal_id,
+                           "fact_id": fact_id, "property_id": property_id, "value": value,
+                           "property_name": self._node_name(database, property_id)})
         return literal_id
+
+    # ------------------------------------------------------------------ #
+    # Change hooks                                                          #
+    # ------------------------------------------------------------------ #
+
+    def add_change_hook(self, fn: Callable[[dict], None]) -> None:
+        """Register *fn* to be called after every instance-level write.
+
+        *fn* receives a single dict with at minimum ``"type"``, ``"database"``,
+        and ``"id"`` keys.  Event types and their extra keys:
+
+        ``entity_added``
+            ``name``, ``class_id``
+        ``fact_added``
+            ``head_entity_id``, ``tail_entity_id``, ``relation_id``
+        ``entity_property_added``
+            ``entity_id``, ``property_id``, ``value``
+        ``fact_property_added``
+            ``fact_id``, ``property_id``, ``value``
+        """
+        self.__dict__.setdefault("_kb_hooks", []).append(fn)
+
+    def remove_change_hook(self, fn: Callable[[dict], None]) -> None:
+        """Deregister a previously added hook (no-op if not found)."""
+        try:
+            self.__dict__.get("_kb_hooks", []).remove(fn)
+        except ValueError:
+            pass
+
+    def _fire_change(self, event: dict) -> None:
+        for hook in self.__dict__.get("_kb_hooks", []):
+            hook(event)
+
+    def _node_name(self, database: str, node_id: str | None) -> str | None:
+        if node_id is None:
+            return None
+        return self.get_node(database, node_id).get("properties", {}).get("name")
 
     # ------------------------------------------------------------------ #
     # Provenance node builders                                             #

@@ -131,6 +131,50 @@ Install the optional OpenAI extra first:
 pip install "blue-data-kb-source[openai]"
 ```
 
+### Change hooks
+
+Register a callback on the KB instance to be notified whenever an entity, fact, or property value is added. Multiple hooks can be registered; all fire in registration order.
+
+```python
+def on_kb_change(event: dict) -> None:
+    t = event["type"]
+    db = event["database"]
+    if t == "entity_added":
+        print(f"[{db}] entity  {event['name']!r}  (class: {event['class_name']})")
+    elif t == "fact_added":
+        print(f"[{db}] fact    {event['head_entity_name']} —{event['relation_name']}→ {event['tail_entity_name']}")
+    elif t == "entity_property_added":
+        print(f"[{db}] entity property  {event['property_name']} = {event['value']!r}")
+    elif t == "fact_property_added":
+        print(f"[{db}] fact property    {event['property_name']} = {event['value']!r}")
+
+kb.add_change_hook(on_kb_change)
+
+# Now every write fires the hook:
+alice = kb.add_entity("main", name="Alice", class_id=employee)
+# → [main] entity  'Alice'  (class: EMPLOYEE)
+
+fact = kb.add_fact("main", relation_id=worked_at, head_entity_id=alice, tail_entity_id=ibm)
+# → [main] fact    Alice —WORKED_AT→ IBM
+
+kb.add_entity_property_value("main", "1990-03-15", entity_id=alice, property_id=person_name)
+# → [main] entity property  NAME = '1990-03-15'
+
+# Remove when no longer needed:
+kb.remove_change_hook(on_kb_change)
+```
+
+Each event dict always contains `type`, `database`, and `id` (the created node id). Extra fields per type:
+
+| `type` | extra fields |
+|---|---|
+| `entity_added` | `name`, `class_id`, `class_name` |
+| `fact_added` | `head_entity_id`, `head_entity_name`, `tail_entity_id`, `tail_entity_name`, `relation_id`, `relation_name` |
+| `entity_property_added` | `entity_id`, `property_id`, `property_name`, `value` |
+| `fact_property_added` | `fact_id`, `property_id`, `property_name`, `value` |
+
+Name fields are `None` when the corresponding id was not provided.
+
 ### Reading and importing a schema
 
 Export the schema of an existing database to JSON and reload it into a fresh KB:
@@ -197,6 +241,15 @@ All four `declare_*` methods are **idempotent**: if a node with the same name al
 |---|---|---|
 | `add_entity_property_value(database, value, name?, description?, literal_type?, entity_id?, property_id?, text?, source_id?)` | `str` | Creates a `:LITERAL`, wires `IS_VALUE_OF` and `HAS_PROPERTY` from an entity; provenance via `text`/`source_id` |
 | `add_fact_property_value(database, value, name?, description?, literal_type?, fact_id?, property_id?, text?, source_id?)` | `str` | Creates a `:LITERAL`, wires `IS_VALUE_OF` and `HAS_PROPERTY` from a fact; provenance via `text`/`source_id` |
+
+---
+
+#### Change hooks
+
+| Method | Description |
+|---|---|
+| `add_change_hook(fn)` | Register *fn* to be called after every instance-level write; *fn* receives a single event `dict` |
+| `remove_change_hook(fn)` | Deregister a previously added hook (no-op if not found) |
 
 ---
 
