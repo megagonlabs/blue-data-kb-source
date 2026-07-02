@@ -12,9 +12,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-neo4j = ["neo4j"]
-dev   = ["pytest", "pytest-cov"]
-all   = ["neo4j"]
+neo4j  = ["neo4j"]
+openai = ["openai>=1.0"]
+dev    = ["pytest", "pytest-cov"]
+all    = ["neo4j", "openai>=1.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -95,20 +95,38 @@ class KBSource(GraphSource, ABC):
         description: str,
         is_symmetric: bool = False,
         relation_id: str | None = None,
+        domain: str | list[str] | None = None,
+        range_: str | list[str] | None = None,
     ) -> str:
         """Add a :RELATION schema node and return its graph node id.
 
-        Returns the existing node id if a RELATION with the same name is already present.
+        Returns the existing node id if a RELATION with the same name is already present
+        (domain/range are not re-wired in that case).
+
+        *domain* and *range_* accept a single class name or a list of class names.
+        Each named class must already exist in *database*; a ``ValueError`` is raised
+        otherwise.
         """
         existing = self.match_nodes(database, label=self.RELATION, properties={"name": name})
         if existing:
             return existing[0]["id"]
-        return self.add_node(
+        rid = self.add_node(
             database,
             self.RELATION,
             {"name": name, "description": description, "is_symmetric": is_symmetric},
             node_id=relation_id,
         )
+        for class_name in ([domain] if isinstance(domain, str) else (domain or [])):
+            classes = self.match_nodes(database, label=self.CLASS, properties={"name": class_name})
+            if not classes:
+                raise ValueError(f"domain class '{class_name}' not found in '{database}'")
+            self.add_edge(database, rid, self.DOMAIN, classes[0]["id"])
+        for class_name in ([range_] if isinstance(range_, str) else (range_ or [])):
+            classes = self.match_nodes(database, label=self.CLASS, properties={"name": class_name})
+            if not classes:
+                raise ValueError(f"range class '{class_name}' not found in '{database}'")
+            self.add_edge(database, rid, self.RANGE, classes[0]["id"])
+        return rid
 
     def declare_class_property(
         self,
@@ -183,10 +201,16 @@ class KBSource(GraphSource, ABC):
         database: str,
         name: str,
         description: str | None = None,
-        entity_id: str| None = None,
+        entity_id: str | None = None,
         class_id: str | None = None,
+        text: str | None = None,
+        source_id: str | None = None,
     ) -> str:
-        """Add an :ENTITY node and return its graph node id."""
+        """Add an :ENTITY node and return its graph node id.
+
+        When *text* is provided an :EXTRACTION node is created from that text
+        (optionally linked to *source_id*) and wired via EXTRACTED_FROM.
+        """
         node_id = self.add_node(
             database,
             self.ENTITY,
@@ -195,6 +219,9 @@ class KBSource(GraphSource, ABC):
         )
         if class_id is not None:
             self.add_edge(database, node_id, self.IS_INSTANCE_OF, class_id)
+        if text is not None:
+            extraction_id = self.add_extraction(database, text=text, source_id=source_id)
+            self.add_edge(database, node_id, self.EXTRACTED_FROM, extraction_id)
         return node_id
 
     def add_fact(
@@ -206,8 +233,14 @@ class KBSource(GraphSource, ABC):
         head_entity_id: str | None = None,
         tail_entity_id: str | None = None,
         relation_id: str | None = None,
+        text: str | None = None,
+        source_id: str | None = None,
     ) -> str:
-        """Add a :FACT node (property-less) and return its graph node id."""
+        """Add a :FACT node and return its graph node id.
+
+        When *text* is provided an :EXTRACTION node is created from that text
+        (optionally linked to *source_id*) and wired via EXTRACTED_FROM.
+        """
         if name is None:
             head_name = self.get_node(database, head_entity_id).get("properties", {}).get("name") if head_entity_id else "?"
             tail_name = self.get_node(database, tail_entity_id).get("properties", {}).get("name") if tail_entity_id else "?"
@@ -221,6 +254,9 @@ class KBSource(GraphSource, ABC):
             self.add_edge(database, node_id, self.TAIL, tail_entity_id)
         if relation_id is not None:
             self.add_edge(database, node_id, self.REPRESENTS, relation_id)
+        if text is not None:
+            extraction_id = self.add_extraction(database, text=text, source_id=source_id)
+            self.add_edge(database, node_id, self.EXTRACTED_FROM, extraction_id)
         return node_id
 
     def add_literal(
@@ -262,11 +298,20 @@ class KBSource(GraphSource, ABC):
         literal_type: Literal["NUMBER", "DATE", "BOOLEAN", "STRING"] | None = None,
         entity_id: str | None = None,
         property_id: str | None = None,
+        text: str | None = None,
+        source_id: str | None = None,
     ) -> str:
-        """Create a :LITERAL, wire IS_VALUE_OF and HAS_PROPERTY from an entity; return literal node id."""
+        """Create a :LITERAL, wire IS_VALUE_OF and HAS_PROPERTY from an entity; return literal node id.
+
+        When *text* is provided an :EXTRACTION node is created from that text
+        (optionally linked to *source_id*) and wired via EXTRACTED_FROM from the literal.
+        """
         literal_id = self.add_literal(database, value, name=name, description=description, literal_type=literal_type, property_id=property_id)
         if entity_id is not None:
             self.add_edge(database, entity_id, self.HAS_PROPERTY, literal_id)
+        if text is not None:
+            extraction_id = self.add_extraction(database, text=text, source_id=source_id)
+            self.add_edge(database, literal_id, self.EXTRACTED_FROM, extraction_id)
         return literal_id
 
     def add_fact_property_value(
@@ -278,11 +323,20 @@ class KBSource(GraphSource, ABC):
         literal_type: Literal["NUMBER", "DATE", "BOOLEAN", "STRING"] | None = None,
         fact_id: str | None = None,
         property_id: str | None = None,
+        text: str | None = None,
+        source_id: str | None = None,
     ) -> str:
-        """Create a :LITERAL, wire IS_VALUE_OF and HAS_PROPERTY from a fact; return literal node id."""
+        """Create a :LITERAL, wire IS_VALUE_OF and HAS_PROPERTY from a fact; return literal node id.
+
+        When *text* is provided an :EXTRACTION node is created from that text
+        (optionally linked to *source_id*) and wired via EXTRACTED_FROM from the literal.
+        """
         literal_id = self.add_literal(database, value, name=name, description=description, literal_type=literal_type, property_id=property_id)
         if fact_id is not None:
             self.add_edge(database, fact_id, self.HAS_PROPERTY, literal_id)
+        if text is not None:
+            extraction_id = self.add_extraction(database, text=text, source_id=source_id)
+            self.add_edge(database, literal_id, self.EXTRACTED_FROM, extraction_id)
         return literal_id
 
     # ------------------------------------------------------------------ #
@@ -337,7 +391,7 @@ class KBSource(GraphSource, ABC):
         """(CLASS|RELATION) -[:IS_SUBCLASS_OF]-> (CLASS|RELATION)"""
         return self.add_edge(database, child_id, self.IS_SUBCLASS_OF, parent_id)
 
-    def add_define_property(
+    def _add_define_property(
         self, database: str, class_or_relation_id: str, property_id: str
     ) -> str:
         """(CLASS|RELATION) -[:DEFINE_PROPERTY]-> :PROPERTY"""
@@ -355,29 +409,29 @@ class KBSource(GraphSource, ABC):
     # Instance edge builders                                               #
     # ------------------------------------------------------------------ #
 
-    def add_is_instance_of(self, database: str, entity_id: str, class_id: str) -> str:
+    def _add_is_instance_of(self, database: str, entity_id: str, class_id: str) -> str:
         """:ENTITY -[:IS_INSTANCE_OF]-> :CLASS"""
         return self.add_edge(database, entity_id, self.IS_INSTANCE_OF, class_id)
 
-    def add_represents(self, database: str, fact_id: str, relation_id: str) -> str:
+    def _add_represents(self, database: str, fact_id: str, relation_id: str) -> str:
         """:FACT -[:REPRESENTS]-> :RELATION"""
         return self.add_edge(database, fact_id, self.REPRESENTS, relation_id)
 
-    def add_head(self, database: str, fact_id: str, entity_id: str) -> str:
+    def _add_head(self, database: str, fact_id: str, entity_id: str) -> str:
         """:FACT -[:HEAD]-> :ENTITY  (subject of the fact)"""
         return self.add_edge(database, fact_id, self.HEAD, entity_id)
 
-    def add_tail(self, database: str, fact_id: str, entity_id: str) -> str:
+    def _add_tail(self, database: str, fact_id: str, entity_id: str) -> str:
         """:FACT -[:TAIL]-> :ENTITY  (object of the fact)"""
         return self.add_edge(database, fact_id, self.TAIL, entity_id)
 
-    def add_has_property(
+    def _add_has_property(
         self, database: str, entity_or_fact_id: str, literal_id: str
     ) -> str:
         """(ENTITY|FACT) -[:HAS_PROPERTY]-> :LITERAL"""
         return self.add_edge(database, entity_or_fact_id, self.HAS_PROPERTY, literal_id)
 
-    def add_is_value_of(self, database: str, literal_id: str, property_id: str) -> str:
+    def _add_is_value_of(self, database: str, literal_id: str, property_id: str) -> str:
         """:LITERAL -[:IS_VALUE_OF]-> :PROPERTY"""
         return self.add_edge(database, literal_id, self.IS_VALUE_OF, property_id)
 
@@ -881,3 +935,443 @@ class KBSource(GraphSource, ABC):
         schema.add_relation("FACT",    "EXTRACTED_FROM", "EXTRACTION", description=_extracted_desc)
 
         return schema
+
+    # ------------------------------------------------------------------ #
+    # LLM-based text import                                                #
+    # ------------------------------------------------------------------ #
+
+    def import_text(
+        self,
+        database: str,
+        text: str,
+        queries: list[str] | None = None,
+        model: str = "gpt-4o",
+        source_id: str | None = None,
+    ) -> None:
+        """Extract KB facts from *text* using an OpenAI LLM and store them in *database*.
+
+        The LLM receives the current schema and *queries* as context, then calls
+        KB builder functions as tools to populate entities, facts, and properties.
+        When the schema lacks a suitable class, relation, or property the LLM
+        declares it first (schema expansion is automatic).
+
+        For each entity, fact, or property value created the LLM may supply the
+        verbatim text span it was extracted from. When provided, an :EXTRACTION node
+        is created and linked to *source_id* (if given) and to the created node via
+        EXTRACTED_FROM.
+
+        Args:
+            database:  Target database name.
+            text:      Source text to process.
+            queries:   Guiding extraction questions (e.g. ``["Who works where?"]``).
+            model:     OpenAI model id (default ``"gpt-4o"``).
+            source_id: Optional id of an existing :SOURCE provenance node.
+
+        Requires the ``openai`` package::
+
+            pip install openai
+            # or: pip install "blue-data-kb-source[openai]"
+        """
+        try:
+            import openai
+        except ImportError as exc:
+            raise ImportError(
+                "import_text requires the 'openai' package: pip install openai"
+            ) from exc
+        import json
+
+        # --- schema context for the system prompt ---
+        schema_str = self.fetch_database_schema(database).to_str(simplified=True)
+        queries_str = (
+            "\n".join(f"- {q}" for q in queries)
+            if queries
+            else "Extract all notable entities, relations, and property values."
+        )
+
+        system_prompt = f"""You are a knowledge base (KB) extraction agent.
+
+The KB stores:
+  CLASS     — category of entities (e.g. PERSON, COMPANY)
+  RELATION  — type of relationship (e.g. WORKED_AT, LIVES_IN)
+  PROPERTY  — attribute of a class or relation (e.g. AGE, START_DATE)
+  ENTITY    — a specific instance of a class (e.g. Alice, IBM)
+  FACT      — a specific relation between two entities
+  LITERAL   — a concrete property value (e.g. "28", "1998-06-01")
+
+Workflow:
+1. For each entity in the text: find or declare its CLASS, then call add_entity.
+2. For each relationship: find or declare the RELATION type, then call add_fact.
+3. For each attribute value: find or declare the PROPERTY on its class/relation,
+   then call add_entity_property_value or add_fact_property_value.
+4. Prefer existing schema elements; only declare new ones when nothing fits.
+5. Use names exactly as they appear in the text for entities.
+   Use UPPER_SNAKE_CASE for CLASS, RELATION, and PROPERTY names.
+6. When calling add_entity, add_fact, add_entity_property_value, or
+   add_fact_property_value, always pass the verbatim sentence or phrase from
+   the source text that the item was extracted from as the `text` argument.
+
+Current schema:
+{schema_str}
+
+Extraction queries:
+{queries_str}
+
+Work through the text systematically and stop calling tools when you are done."""
+
+        # --- OpenAI tool definitions ---
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_schema",
+                    "description": "Return the current KB schema (classes, relations, properties).",
+                    "parameters": {"type": "object", "properties": {}, "required": []},
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "find_class",
+                    "description": "Look up a CLASS node by name. Returns {id, name, description} or {id: null}.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "description": "Class name to look up"},
+                        },
+                        "required": ["name"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "find_relation_type",
+                    "description": "Look up a RELATION node by name. Returns {id, name, description} or {id: null}.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "description": "Relation name to look up"},
+                        },
+                        "required": ["name"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "find_entity",
+                    "description": "Look up an ENTITY node by name. Returns {id, name, description} or {id: null}.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "description": "Entity name to look up"},
+                        },
+                        "required": ["name"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "declare_class",
+                    "description": "Declare a CLASS in the schema (idempotent). Returns {id}.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "description": "Class name e.g. PERSON"},
+                            "description": {"type": "string", "description": "What the class represents"},
+                        },
+                        "required": ["name", "description"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "declare_class_property",
+                    "description": "Declare a PROPERTY on a CLASS (idempotent). Returns {id}.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "class_id": {"type": "string", "description": "ID of the owning class"},
+                            "name": {"type": "string", "description": "Property name e.g. AGE"},
+                            "description": {"type": "string", "description": "What the property represents"},
+                        },
+                        "required": ["class_id", "name", "description"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "declare_relation_type",
+                    "description": "Declare a RELATION type in the schema (idempotent). Returns {id}.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "description": "Relation name e.g. WORKED_AT"},
+                            "description": {"type": "string", "description": "What the relation represents"},
+                            "is_symmetric": {"type": "boolean", "description": "True when the relation is symmetric"},
+                        },
+                        "required": ["name", "description"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "declare_relation_property",
+                    "description": "Declare a PROPERTY on a RELATION (idempotent). Returns {id}.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "relation_id": {"type": "string", "description": "ID of the owning relation"},
+                            "name": {"type": "string", "description": "Property name e.g. START_DATE"},
+                            "description": {"type": "string", "description": "What the property represents"},
+                        },
+                        "required": ["relation_id", "name", "description"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "add_entity",
+                    "description": "Add an ENTITY instance. Returns {id}.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "description": "Entity name (as it appears in the text)"},
+                            "description": {"type": "string", "description": "Optional description"},
+                            "class_id": {"type": "string", "description": "ID of the class this entity belongs to"},
+                            "text": {"type": "string", "description": "Verbatim sentence or phrase this entity was extracted from"},
+                        },
+                        "required": ["name"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "add_fact",
+                    "description": "Add a FACT (relation instance between two entities). Returns {id}.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "head_entity_id": {"type": "string", "description": "ID of the subject entity"},
+                            "tail_entity_id": {"type": "string", "description": "ID of the object entity"},
+                            "relation_id": {"type": "string", "description": "ID of the relation type"},
+                            "name": {"type": "string", "description": "Optional fact name"},
+                            "text": {"type": "string", "description": "Verbatim sentence or phrase this fact was extracted from"},
+                        },
+                        "required": ["head_entity_id", "tail_entity_id", "relation_id"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "add_entity_property_value",
+                    "description": "Attach a LITERAL property value to an ENTITY. Returns {id}.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "entity_id": {"type": "string", "description": "ID of the entity"},
+                            "property_id": {"type": "string", "description": "ID of the property"},
+                            "value": {"type": "string", "description": "The literal value"},
+                            "literal_type": {
+                                "type": "string",
+                                "enum": ["NUMBER", "DATE", "BOOLEAN", "STRING"],
+                                "description": "Value type (inferred from value when omitted)",
+                            },
+                            "text": {"type": "string", "description": "Verbatim sentence or phrase this value was extracted from"},
+                        },
+                        "required": ["entity_id", "property_id", "value"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "add_fact_property_value",
+                    "description": "Attach a LITERAL property value to a FACT. Returns {id}.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "fact_id": {"type": "string", "description": "ID of the fact"},
+                            "property_id": {"type": "string", "description": "ID of the property"},
+                            "value": {"type": "string", "description": "The literal value"},
+                            "literal_type": {
+                                "type": "string",
+                                "enum": ["NUMBER", "DATE", "BOOLEAN", "STRING"],
+                                "description": "Value type (inferred from value when omitted)",
+                            },
+                            "text": {"type": "string", "description": "Verbatim sentence or phrase this value was extracted from"},
+                        },
+                        "required": ["fact_id", "property_id", "value"],
+                    },
+                },
+            },
+        ]
+
+        # --- agent loop ---
+        client = openai.OpenAI()
+        messages: list[dict] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": text},
+        ]
+
+        while True:
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,  # type: ignore[arg-type]
+                tools=tools,
+                tool_choice="auto",
+            )
+            msg = response.choices[0].message
+
+            msg_dict: dict = {"role": msg.role, "content": msg.content}
+            if msg.tool_calls:
+                msg_dict["tool_calls"] = [
+                    {
+                        "id": tc.id,
+                        "type": tc.type,
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments,
+                        },
+                    }
+                    for tc in msg.tool_calls
+                ]
+            messages.append(msg_dict)
+
+            if not msg.tool_calls:
+                break
+
+            for tc in msg.tool_calls:
+                result = self._dispatch_import_tool(
+                    database,
+                    tc.function.name,
+                    json.loads(tc.function.arguments),
+                    source_id,
+                )
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": json.dumps(result),
+                })
+
+    def _dispatch_import_tool(
+        self,
+        database: str,
+        fn: str,
+        args: dict,
+        source_id: str | None,
+    ) -> dict:
+        """Route a single tool call from import_text to the appropriate KB method."""
+        if fn == "get_schema":
+            return {"schema": self.fetch_database_schema(database).to_str(simplified=True)}
+
+        if fn == "find_class":
+            nodes = self.match_nodes(database, label=self.CLASS, properties={"name": args["name"]})
+            if nodes:
+                n = nodes[0]
+                p = n.get("properties", {})
+                return {"id": n["id"], "name": p.get("name"), "description": p.get("description")}
+            return {"id": None}
+
+        if fn == "find_relation_type":
+            nodes = self.match_nodes(database, label=self.RELATION, properties={"name": args["name"]})
+            if nodes:
+                n = nodes[0]
+                p = n.get("properties", {})
+                return {"id": n["id"], "name": p.get("name"), "description": p.get("description")}
+            return {"id": None}
+
+        if fn == "find_entity":
+            nodes = self.match_nodes(database, label=self.ENTITY, properties={"name": args["name"]})
+            if nodes:
+                n = nodes[0]
+                p = n.get("properties", {})
+                return {"id": n["id"], "name": p.get("name"), "description": p.get("description")}
+            return {"id": None}
+
+        if fn == "declare_class":
+            cid = self.declare_class(database, name=args["name"], description=args["description"])
+            return {"id": cid}
+
+        if fn == "declare_class_property":
+            pid = self.declare_class_property(
+                database,
+                name=args["name"],
+                description=args["description"],
+                class_id=args["class_id"],
+            )
+            return {"id": pid}
+
+        if fn == "declare_relation_type":
+            rid = self.declare_relation_type(
+                database,
+                name=args["name"],
+                description=args["description"],
+                is_symmetric=args.get("is_symmetric", False),
+            )
+            return {"id": rid}
+
+        if fn == "declare_relation_property":
+            pid = self.declare_relation_property(
+                database,
+                name=args["name"],
+                description=args["description"],
+                relation_id=args["relation_id"],
+            )
+            return {"id": pid}
+
+        if fn == "add_entity":
+            eid = self.add_entity(
+                database,
+                name=args["name"],
+                description=args.get("description"),
+                class_id=args.get("class_id"),
+                text=args.get("text"),
+                source_id=source_id,
+            )
+            return {"id": eid}
+
+        if fn == "add_fact":
+            fid = self.add_fact(
+                database,
+                name=args.get("name"),
+                head_entity_id=args["head_entity_id"],
+                tail_entity_id=args["tail_entity_id"],
+                relation_id=args["relation_id"],
+                text=args.get("text"),
+                source_id=source_id,
+            )
+            return {"id": fid}
+
+        if fn == "add_entity_property_value":
+            lit_id = self.add_entity_property_value(
+                database,
+                value=args["value"],
+                literal_type=args.get("literal_type"),
+                entity_id=args["entity_id"],
+                property_id=args["property_id"],
+                text=args.get("text"),
+                source_id=source_id,
+            )
+            return {"id": lit_id}
+
+        if fn == "add_fact_property_value":
+            lit_id = self.add_fact_property_value(
+                database,
+                value=args["value"],
+                literal_type=args.get("literal_type"),
+                fact_id=args["fact_id"],
+                property_id=args["property_id"],
+                text=args.get("text"),
+                source_id=source_id,
+            )
+            return {"id": lit_id}
+
+        return {"error": f"unknown tool: {fn}"}
