@@ -358,32 +358,34 @@ class KBSource(GraphSource, ABC):
     # Change hooks                                                          #
     # ------------------------------------------------------------------ #
 
-    def add_change_hook(self, fn: Callable[[dict], None]) -> None:
-        """Register *fn* to be called after every instance-level write.
+    def add_change_hook(self, database: str, fn: Callable[[dict], None]) -> None:
+        """Register *fn* to be called after every instance-level write to *database*.
 
         *fn* receives a single dict with at minimum ``"type"``, ``"database"``,
         and ``"id"`` keys.  Event types and their extra keys:
 
         ``entity_added``
-            ``name``, ``class_id``
+            ``name``, ``class_id``, ``class_name``
         ``fact_added``
-            ``head_entity_id``, ``tail_entity_id``, ``relation_id``
+            ``head_entity_id``, ``head_entity_name``,
+            ``tail_entity_id``, ``tail_entity_name``,
+            ``relation_id``, ``relation_name``
         ``entity_property_added``
-            ``entity_id``, ``property_id``, ``value``
+            ``entity_id``, ``property_id``, ``property_name``, ``value``
         ``fact_property_added``
-            ``fact_id``, ``property_id``, ``value``
+            ``fact_id``, ``property_id``, ``property_name``, ``value``
         """
-        self.__dict__.setdefault("_kb_hooks", []).append(fn)
+        self.__dict__.setdefault("_kb_hooks", {}).setdefault(database, []).append(fn)
 
-    def remove_change_hook(self, fn: Callable[[dict], None]) -> None:
-        """Deregister a previously added hook (no-op if not found)."""
+    def remove_change_hook(self, database: str, fn: Callable[[dict], None]) -> None:
+        """Deregister a previously added hook for *database* (no-op if not found)."""
         try:
-            self.__dict__.get("_kb_hooks", []).remove(fn)
+            self.__dict__.get("_kb_hooks", {}).get(database, []).remove(fn)
         except ValueError:
             pass
 
     def _fire_change(self, event: dict) -> None:
-        for hook in self.__dict__.get("_kb_hooks", []):
+        for hook in self.__dict__.get("_kb_hooks", {}).get(event["database"], []):
             hook(event)
 
     def _node_name(self, database: str, node_id: str | None) -> str | None:

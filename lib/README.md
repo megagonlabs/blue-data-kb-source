@@ -133,35 +133,37 @@ pip install "blue-data-kb-source[openai]"
 
 ### Change hooks
 
-Register a callback on the KB instance to be notified whenever an entity, fact, or property value is added. Multiple hooks can be registered; all fire in registration order.
+Register a callback on the KB instance to be notified whenever an entity, fact, or property value is added to a specific database. Multiple hooks can be registered for the same database; all fire in registration order.
 
 ```python
 def on_kb_change(event: dict) -> None:
     t = event["type"]
-    db = event["database"]
     if t == "entity_added":
-        print(f"[{db}] entity  {event['name']!r}  (class: {event['class_name']})")
+        print(f"entity  {event['name']!r}  (class: {event['class_name']})")
     elif t == "fact_added":
-        print(f"[{db}] fact    {event['head_entity_name']} —{event['relation_name']}→ {event['tail_entity_name']}")
+        print(f"fact    {event['head_entity_name']} —{event['relation_name']}→ {event['tail_entity_name']}")
     elif t == "entity_property_added":
-        print(f"[{db}] entity property  {event['property_name']} = {event['value']!r}")
+        print(f"entity property  {event['property_name']} = {event['value']!r}")
     elif t == "fact_property_added":
-        print(f"[{db}] fact property    {event['property_name']} = {event['value']!r}")
+        print(f"fact property    {event['property_name']} = {event['value']!r}")
 
-kb.add_change_hook(on_kb_change)
+kb.add_change_hook("main", on_kb_change)
 
-# Now every write fires the hook:
+# Now every write to "main" fires the hook:
 alice = kb.add_entity("main", name="Alice", class_id=employee)
-# → [main] entity  'Alice'  (class: EMPLOYEE)
+# → entity  'Alice'  (class: EMPLOYEE)
 
 fact = kb.add_fact("main", relation_id=worked_at, head_entity_id=alice, tail_entity_id=ibm)
-# → [main] fact    Alice —WORKED_AT→ IBM
+# → fact    Alice —WORKED_AT→ IBM
 
 kb.add_entity_property_value("main", "1990-03-15", entity_id=alice, property_id=person_name)
-# → [main] entity property  NAME = '1990-03-15'
+# → entity property  NAME = '1990-03-15'
+
+# Writes to other databases are not observed:
+kb.add_entity("other", name="Bob", class_id=employee)   # hook does not fire
 
 # Remove when no longer needed:
-kb.remove_change_hook(on_kb_change)
+kb.remove_change_hook("main", on_kb_change)
 ```
 
 Each event dict always contains `type`, `database`, and `id` (the created node id). Extra fields per type:
@@ -248,8 +250,8 @@ All four `declare_*` methods are **idempotent**: if a node with the same name al
 
 | Method | Description |
 |---|---|
-| `add_change_hook(fn)` | Register *fn* to be called after every instance-level write; *fn* receives a single event `dict` |
-| `remove_change_hook(fn)` | Deregister a previously added hook (no-op if not found) |
+| `add_change_hook(database, fn)` | Register *fn* to be called after every instance-level write to *database*; *fn* receives a single event `dict` |
+| `remove_change_hook(database, fn)` | Deregister a previously added hook for *database* (no-op if not found) |
 
 ---
 
