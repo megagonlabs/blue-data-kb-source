@@ -1,15 +1,16 @@
 """Click command groups for the kb CLI.
 
-State is persisted to ~/.kbdb/state.json between invocations so that IDs
-returned by one command can be supplied to the next. Override the path with
-the KBDB_STATE_FILE environment variable.
+Each database is persisted as a JSON file inside the data directory:
+
+    {KBDB_DATA_DIR}/{database}.json   (KBDB_DATA_DIR defaults to ~/.kbdb)
+
+FileGraphSource handles all I/O automatically — no explicit save step is needed.
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import os
-from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -17,49 +18,71 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from blue_data.source.graph.memory_graph_source import MemoryGraphSource
+from blue_data.source.graph.file_graph_source import FileGraphSource
 from blue_data_kb_source import KBSource
+from blue_data_kb_source._constants import (
+    CLASS,
+    ENTITY,
+    FACT,
+    HAS_PROPERTY,
+    IS_VALUE_OF,
+    META_DATABASE,
+    PROPERTY,
+    RELATION,
+)
 from blue_data_kb_source.types import KBError
 
 console = Console()
-err = Console(stderr=True)
-
-_STATE_PATH = Path(os.environ.get("KBDB_STATE_FILE", "~/.kbdb/state.json")).expanduser()
 
 
 # ------------------------------------------------------------------ #
 # Backend                                                              #
 # ------------------------------------------------------------------ #
 
-class MemoryKBSource(KBSource, MemoryGraphSource):
+class FileKBSource(KBSource, FileGraphSource):
     pass
 
 
-def _load_kb() -> MemoryKBSource:
-    kb = MemoryKBSource(name="kb")
-    if _STATE_PATH.exists():
-        try:
-            raw = json.loads(_STATE_PATH.read_text())
-            kb._nodes = defaultdict(dict, raw.get("nodes", {}))
-            kb._edges = defaultdict(dict, raw.get("edges", {}))
-        except Exception:
-            err.print("[yellow]Warning:[/yellow] could not read state file — starting fresh.")
-    return kb
+def _data_dir() -> str:
+    return str(Path(os.environ.get("KBDB_DATA_DIR", "~/.kbdb")).expanduser())
 
 
-def _save_kb(kb: MemoryKBSource) -> None:
-    _STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _STATE_PATH.write_text(json.dumps(
-        {
-            "nodes": {db: dict(nodes) for db, nodes in kb._nodes.items()},
-            "edges": {db: dict(edges) for db, edges in kb._edges.items()},
-        },
-        indent=2,
-    ))
+def _make_kb() -> FileKBSource:
+    return FileKBSource(name="kb", directory=_data_dir())
 
 
 def _run(coro: Any) -> Any:
     return asyncio.run(coro)
+
+
+def _resolve_node(
+    kb: FileKBSource,
+    db: str,
+    label: str,
+    name: str | None,
+    node_id: str | None,
+    what: str,
+) -> str:
+    """Return node_id, resolving name→id when only a name is supplied."""
+    if node_id:
+        return node_id
+    if name:
+        nodes = kb.match_nodes(db, label=label, properties={"name": name})
+        if not nodes:
+            raise click.ClickException(f"{what} '{name}' not found in database '{db}'")
+        return nodes[0]["id"]
+    raise click.ClickException(f"Provide --{what.lower()} or --{what.lower()}-id")
+
+
+def _coerce_value(raw: str, literal_type: str | None) -> str | int | float | bool:
+    if literal_type == "NUMBER":
+        try:
+            return int(raw)
+        except ValueError:
+            return float(raw)
+    if literal_type == "BOOLEAN":
+        return raw.lower() in ("true", "1", "yes")
+    return raw
 
 
 # ------------------------------------------------------------------ #
@@ -78,10 +101,11 @@ def _run(coro: Any) -> Any:
 def cli(ctx: click.Context, database: str) -> None:
     """kb — Knowledge Base CLI.
 
-    State is stored in ~/.kbdb/state.json (override: KBDB_STATE_FILE).
+    Each database is stored as {KBDB_DATA_DIR}/{database}.json
+    (KBDB_DATA_DIR defaults to ~/.kbdb).
     """
     ctx.ensure_object(dict)
-    kb = _load_kb()
+    kb = _make_kb()
     if database not in kb.fetch_databases():
         kb.create_database(database)
     ctx.obj["kb"] = kb
@@ -97,18 +121,55 @@ def database_group() -> None:
     """Database management."""
 
 
+@database_group.command("list")
+@click.option(
+    "--format", "fmt",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    show_default=True,
+)
+@click.pass_obj
+def database_list(obj: dict, fmt: str) -> None:
+    """List all databases."""
+    kb: FileKBSource = obj["kb"]
+    dbs = sorted(d for d in kb.fetch_databases() if d != META_DATABASE)
+    if fmt == "json":
+        console.print_json(json.dumps(dbs))
+    else:
+        t = Table(show_header=True, header_style="bold")
+        t.add_column("Database")
+        for d in dbs:
+            t.add_row(d)
+        console.print(t)
+
+
 @database_group.command("create")
 @click.argument("name")
 @click.pass_obj
 def database_create(obj: dict, name: str) -> None:
     """Create a new database."""
-    kb: MemoryKBSource = obj["kb"]
+    kb: FileKBSource = obj["kb"]
     try:
         kb.create_database(name)
-        _save_kb(kb)
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(f"Created database: [bold]{name}[/bold]")
+
+
+@database_group.command("delete")
+@click.argument("name")
+@click.option("--yes", is_flag=True, help="Skip confirmation prompt.")
+def database_delete(name: str, yes: bool) -> None:
+    """Delete a database and all its data."""
+    if name == META_DATABASE:
+        raise click.ClickException(f"Cannot delete the reserved '{META_DATABASE}' database.")
+    path = Path(_data_dir()) / f"{name}.json"
+    if not path.exists():
+        raise click.ClickException(f"Database '{name}' not found.")
+    if not yes:
+        click.confirm(f"Delete database '{name}'? This cannot be undone.", abort=True)
+    path.unlink()
+    console.print(f"Deleted database: [bold]{name}[/bold]")
 
 
 # ------------------------------------------------------------------ #
@@ -118,6 +179,61 @@ def database_create(obj: dict, name: str) -> None:
 @cli.group("schema")
 def schema_group() -> None:
     """Schema management."""
+
+
+@schema_group.command("show")
+@click.option(
+    "--format", "fmt",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    show_default=True,
+)
+@click.pass_obj
+def schema_show(obj: dict, fmt: str) -> None:
+    """Show classes, relations, and their properties for the current database."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    try:
+        schema = _run(kb.fetch_database_schema(db))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+
+    if fmt == "json":
+        console.print_json(json.dumps(schema.to_json()))
+        return
+
+    # ---- Classes ----
+    if schema.entities:
+        t = Table(title="Classes", show_header=True, header_style="bold")
+        t.add_column("Name",        style="bold", min_width=12)
+        t.add_column("Description")
+        t.add_column("Properties",  style="dim")
+        for entity in sorted(schema.entities.values(), key=lambda e: e["name"]):
+            attrs = ", ".join(sorted(entity.get("contents", {}).get("attributes", {}).keys()))
+            t.add_row(entity["name"], entity.get("description", ""), attrs)
+        console.print(t)
+
+    # ---- Relations ----
+    if schema.relations:
+        t = Table(title="Relations", show_header=True, header_style="bold")
+        t.add_column("Source",      style="dim",  min_width=10)
+        t.add_column("Relation",    style="bold", min_width=12)
+        t.add_column("Target",      style="dim",  min_width=10)
+        t.add_column("Description")
+        t.add_column("Properties",  style="dim")
+        for rel in sorted(schema.relations.values(), key=lambda r: r["name"]):
+            attrs = ", ".join(sorted(rel.get("contents", {}).get("attributes", {}).keys()))
+            t.add_row(
+                rel.get("source", ""),
+                rel["name"],
+                rel.get("target", ""),
+                rel.get("description", ""),
+                attrs,
+            )
+        console.print(t)
+
+    if not schema.entities and not schema.relations:
+        console.print("[dim](no schema declared)[/dim]")
 
 
 @schema_group.group("declare")
@@ -131,11 +247,10 @@ def schema_declare() -> None:
 @click.pass_obj
 def declare_class_cmd(obj: dict, name: str, description: str) -> None:
     """Declare a CLASS node (idempotent)."""
-    kb: MemoryKBSource = obj["kb"]
+    kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
         class_id = _run(kb.declare_class(db, name, description))
-        _save_kb(kb)
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(f"Declared class: [bold]{name}[/bold] (id: {class_id})")
@@ -151,11 +266,10 @@ def declare_relation_cmd(
     obj: dict, name: str, description: str, domain: str | None, range_: str | None
 ) -> None:
     """Declare a RELATION node (idempotent)."""
-    kb: MemoryKBSource = obj["kb"]
+    kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
         rel_id = _run(kb.declare_relation_type(db, name, description, domain=domain, range_=range_))
-        _save_kb(kb)
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(f"Declared relation: [bold]{name}[/bold] (id: {rel_id})")
@@ -171,14 +285,13 @@ def declare_property_cmd(
     obj: dict, name: str, description: str, class_id: str | None, relation_id: str | None
 ) -> None:
     """Declare a PROPERTY node (idempotent). Use --class or --relation to attach it."""
-    kb: MemoryKBSource = obj["kb"]
+    kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
         if class_id:
             prop_id = _run(kb.declare_class_property(db, name, description, class_id=class_id))
         else:
             prop_id = _run(kb.declare_relation_property(db, name, description, relation_id=relation_id))
-        _save_kb(kb)
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(f"Declared property: [bold]{name}[/bold] (id: {prop_id})")
@@ -195,7 +308,7 @@ def declare_property_cmd(
 @click.pass_obj
 def schema_search(obj: dict, query: str, fmt: str) -> None:
     """Search schema elements by keyword."""
-    kb: MemoryKBSource = obj["kb"]
+    kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
         results = _run(kb.search_schema(db, query))
@@ -232,11 +345,10 @@ def source_group() -> None:
 @click.pass_obj
 def source_add(obj: dict, source: str, name: str | None, description: str | None) -> None:
     """Register a source document and return its ID."""
-    kb: MemoryKBSource = obj["kb"]
+    kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
         src_id = _run(kb.add_source(db, source, name=name, description=description))
-        _save_kb(kb)
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(f"Added source: [bold]{source}[/bold] (id: {src_id})")
@@ -253,29 +365,141 @@ def entity_group() -> None:
 
 @entity_group.command("add")
 @click.argument("name")
-@click.option("--class",       "class_id",   default=None, help="Class ID.")
-@click.option("--description",               default=None, help="Optional description.")
-@click.option("--text",                      default=None, help="Source text span (creates provenance).")
-@click.option("--source",      "source_id",  default=None, help="Source node ID.")
+@click.option("--class",       "class_name",  default=None, help="Class name (resolved to id).")
+@click.option("--class-id",                   default=None, help="Class node ID (overrides --class).")
+@click.option("--description",                default=None, help="Optional description.")
+@click.option("--text",                       default=None, help="Source text span (creates provenance).")
+@click.option("--source",      "source_id",   default=None, help="Source node ID.")
 @click.pass_obj
 def entity_add(
     obj: dict,
     name: str,
+    class_name: str | None,
     class_id: str | None,
     description: str | None,
     text: str | None,
     source_id: str | None,
 ) -> None:
-    """Add an entity instance."""
-    kb: MemoryKBSource = obj["kb"]
+    """Add an entity instance.
+
+    Identify the class by name (--class PERSON) or by ID (--class-id <uuid>).
+    """
+    kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
+    resolved_class_id: str | None = None
+    if class_id or class_name:
+        resolved_class_id = _resolve_node(kb, db, CLASS, class_name, class_id, "class")
     try:
-        entity_id = _run(kb.add_entity(db, name, description=description,
-                                        class_id=class_id, text=text, source_id=source_id))
-        _save_kb(kb)
+        entity_id = _run(kb.add_entity(
+            db, name, description=description,
+            class_id=resolved_class_id, text=text, source_id=source_id,
+        ))
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(f"Added entity: [bold]{name}[/bold] (id: {entity_id})")
+
+
+# ------------------------------------------------------------------ #
+# kb entity property                                                   #
+# ------------------------------------------------------------------ #
+
+@entity_group.group("property")
+def entity_property_group() -> None:
+    """Entity property-value management."""
+
+
+@entity_property_group.command("set")
+@click.argument("value")
+@click.option("--entity",       "entity_name",   default=None, help="Entity name.")
+@click.option("--entity-id",                     default=None, help="Entity node ID (overrides --entity).")
+@click.option("--property",     "property_name", default=None, help="Property name.")
+@click.option("--property-id",                   default=None, help="Property node ID (overrides --property).")
+@click.option(
+    "--type", "literal_type",
+    type=click.Choice(["NUMBER", "DATE", "BOOLEAN", "STRING"]),
+    default=None,
+    help="Value type (inferred if omitted).",
+)
+@click.option("--text",                          default=None, help="Source text span (creates provenance).")
+@click.option("--source",       "source_id",     default=None, help="Source node ID.")
+@click.pass_obj
+def entity_property_set(
+    obj: dict,
+    value: str,
+    entity_name: str | None,
+    entity_id: str | None,
+    property_name: str | None,
+    property_id: str | None,
+    literal_type: str | None,
+    text: str | None,
+    source_id: str | None,
+) -> None:
+    """Set a property value on an entity.
+
+    \b
+    Examples:
+      kb entity property set 42 --entity Alice --property AGE --type NUMBER
+      kb entity property set "1990-03-15" --entity Alice --property BIRTH_DATE --type DATE
+    """
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    eid = _resolve_node(kb, db, ENTITY, entity_name, entity_id, "entity")
+    pid: str | None = None
+    if property_name or property_id:
+        pid = _resolve_node(kb, db, PROPERTY, property_name, property_id, "property")
+    coerced = _coerce_value(value, literal_type)
+    try:
+        lit_id = _run(kb.add_entity_property_value(
+            db, coerced,
+            entity_id=eid, property_id=pid, literal_type=literal_type,
+            text=text, source_id=source_id,
+        ))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(f"Set entity property (literal id: {lit_id})")
+
+
+@entity_property_group.command("list")
+@click.option("--entity",    "entity_name", default=None, help="Entity name.")
+@click.option("--entity-id",               default=None, help="Entity node ID (overrides --entity).")
+@click.option(
+    "--format", "fmt",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    show_default=True,
+)
+@click.pass_obj
+def entity_property_list(
+    obj: dict, entity_name: str | None, entity_id: str | None, fmt: str
+) -> None:
+    """List all property values for an entity."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    eid = _resolve_node(kb, db, ENTITY, entity_name, entity_id, "entity")
+    rows = []
+    for nb in kb.get_neighbors(db, eid, edge_type=HAS_PROPERTY, direction="out"):
+        lit = nb["node"]
+        lit_props = lit.get("properties", {})
+        prop_nbs = kb.get_neighbors(db, lit["id"], edge_type=IS_VALUE_OF, direction="out")
+        prop_name = (
+            prop_nbs[0]["node"].get("properties", {}).get("name", "?") if prop_nbs else "?"
+        )
+        rows.append({
+            "property": prop_name,
+            "value":    str(lit_props.get("value", "")),
+            "type":     lit_props.get("type", ""),
+            "id":       lit["id"],
+        })
+    if fmt == "json":
+        console.print_json(json.dumps(rows))
+    else:
+        t = Table(show_header=True, header_style="bold")
+        t.add_column("Property", style="bold")
+        t.add_column("Value")
+        t.add_column("Type",     style="dim")
+        for r in rows:
+            t.add_row(r["property"], r["value"], r["type"])
+        console.print(t)
 
 
 # ------------------------------------------------------------------ #
@@ -288,33 +512,233 @@ def fact_group() -> None:
 
 
 @fact_group.command("add")
-@click.option("--head",     "head_entity_id", required=True, help="Head entity ID.")
-@click.option("--relation", "relation_id",    required=True, help="Relation ID.")
-@click.option("--tail",     "tail_entity_id", required=True, help="Tail entity ID.")
-@click.option("--text",                        default=None,  help="Source text span (creates provenance).")
-@click.option("--source",   "source_id",       default=None,  help="Source node ID.")
+@click.option("--head",        "head_name",     default=None, help="Head entity name.")
+@click.option("--head-id",                      default=None, help="Head entity node ID (overrides --head).")
+@click.option("--relation",    "relation_name", default=None, help="Relation name.")
+@click.option("--relation-id",                  default=None, help="Relation node ID (overrides --relation).")
+@click.option("--tail",        "tail_name",     default=None, help="Tail entity name.")
+@click.option("--tail-id",                      default=None, help="Tail entity node ID (overrides --tail).")
+@click.option("--text",                         default=None, help="Source text span (creates provenance).")
+@click.option("--source",      "source_id",     default=None, help="Source node ID.")
 @click.pass_obj
 def fact_add(
     obj: dict,
-    head_entity_id: str,
-    relation_id: str,
-    tail_entity_id: str,
+    head_name: str | None,
+    head_id: str | None,
+    relation_name: str | None,
+    relation_id: str | None,
+    tail_name: str | None,
+    tail_id: str | None,
     text: str | None,
     source_id: str | None,
 ) -> None:
-    """Add a fact (relation instance) between two entities."""
-    kb: MemoryKBSource = obj["kb"]
+    """Add a fact (relation instance) between two entities.
+
+    \b
+    Resolve by name or by ID:
+      --head Alice          --tail IBM       --relation WORKED_AT
+      --head-id <uuid>      --tail-id <uuid> --relation-id <uuid>
+    """
+    kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
+    head_entity_id: str | None = None
+    if head_name or head_id:
+        head_entity_id = _resolve_node(kb, db, ENTITY, head_name, head_id, "entity")
+    resolved_relation_id: str | None = None
+    if relation_name or relation_id:
+        resolved_relation_id = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
+    tail_entity_id: str | None = None
+    if tail_name or tail_id:
+        tail_entity_id = _resolve_node(kb, db, ENTITY, tail_name, tail_id, "entity")
     try:
-        fact_id = _run(kb.add_fact(db,
-                                    head_entity_id=head_entity_id,
-                                    tail_entity_id=tail_entity_id,
-                                    relation_id=relation_id,
-                                    text=text, source_id=source_id))
-        _save_kb(kb)
+        fact_id = _run(kb.add_fact(
+            db,
+            head_entity_id=head_entity_id,
+            tail_entity_id=tail_entity_id,
+            relation_id=resolved_relation_id,
+            text=text, source_id=source_id,
+        ))
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(f"Added fact (id: {fact_id})")
+
+
+# ------------------------------------------------------------------ #
+# kb fact property                                                     #
+# ------------------------------------------------------------------ #
+
+@fact_group.group("property")
+def fact_property_group() -> None:
+    """Fact property-value management."""
+
+
+@fact_property_group.command("set")
+@click.argument("value")
+@click.option("--fact-id",                   required=True, help="Fact node ID.")
+@click.option("--property",  "property_name", default=None, help="Property name.")
+@click.option("--property-id",                default=None, help="Property node ID (overrides --property).")
+@click.option(
+    "--type", "literal_type",
+    type=click.Choice(["NUMBER", "DATE", "BOOLEAN", "STRING"]),
+    default=None,
+    help="Value type (inferred if omitted).",
+)
+@click.option("--text",                       default=None, help="Source text span (creates provenance).")
+@click.option("--source",    "source_id",     default=None, help="Source node ID.")
+@click.pass_obj
+def fact_property_set(
+    obj: dict,
+    value: str,
+    fact_id: str,
+    property_name: str | None,
+    property_id: str | None,
+    literal_type: str | None,
+    text: str | None,
+    source_id: str | None,
+) -> None:
+    """Set a property value on a fact.
+
+    \b
+    Example:
+      kb fact property set "1998-06-01" --fact-id <uuid> --property START_DATE --type DATE
+    """
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    pid: str | None = None
+    if property_name or property_id:
+        pid = _resolve_node(kb, db, PROPERTY, property_name, property_id, "property")
+    coerced = _coerce_value(value, literal_type)
+    try:
+        lit_id = _run(kb.add_fact_property_value(
+            db, coerced,
+            fact_id=fact_id, property_id=pid, literal_type=literal_type,
+            text=text, source_id=source_id,
+        ))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(f"Set fact property (literal id: {lit_id})")
+
+
+@fact_property_group.command("list")
+@click.option("--fact-id", required=True, help="Fact node ID.")
+@click.option(
+    "--format", "fmt",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    show_default=True,
+)
+@click.pass_obj
+def fact_property_list(obj: dict, fact_id: str, fmt: str) -> None:
+    """List all property values for a fact."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    rows = []
+    for nb in kb.get_neighbors(db, fact_id, edge_type=HAS_PROPERTY, direction="out"):
+        lit = nb["node"]
+        lit_props = lit.get("properties", {})
+        prop_nbs = kb.get_neighbors(db, lit["id"], edge_type=IS_VALUE_OF, direction="out")
+        prop_name = (
+            prop_nbs[0]["node"].get("properties", {}).get("name", "?") if prop_nbs else "?"
+        )
+        rows.append({
+            "property": prop_name,
+            "value":    str(lit_props.get("value", "")),
+            "type":     lit_props.get("type", ""),
+            "id":       lit["id"],
+        })
+    if fmt == "json":
+        console.print_json(json.dumps(rows))
+    else:
+        t = Table(show_header=True, header_style="bold")
+        t.add_column("Property", style="bold")
+        t.add_column("Value")
+        t.add_column("Type",     style="dim")
+        for r in rows:
+            t.add_row(r["property"], r["value"], r["type"])
+        console.print(t)
+
+
+# ------------------------------------------------------------------ #
+# kb show                                                              #
+# ------------------------------------------------------------------ #
+
+@cli.command("show")
+@click.option("--provenance", "include_provenance", is_flag=True, help="Include provenance text.")
+@click.option(
+    "--format", "fmt",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    show_default=True,
+)
+@click.pass_obj
+def show_cmd(obj: dict, include_provenance: bool, fmt: str) -> None:
+    """Show all entities, property values, and facts in the current database."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    try:
+        rows: list[dict] = _run(kb.fetch_database_data(db, include_provenance=include_provenance, compact=True))  # type: ignore[assignment]
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+
+    if fmt == "json":
+        console.print_json(json.dumps(rows))
+        return
+
+    entities   = [r for r in rows if r.get("relation_type") == "IS_INSTANCE_OF"]
+    properties = [r for r in rows if r.get("relation_type") == "IS_VALUE_OF"]
+    facts      = [r for r in rows if r.get("relation_type") == "REPRESENTS"]
+
+    if entities:
+        t = Table(title="Entities", show_header=True, header_style="bold")
+        t.add_column("Name",  style="bold")
+        t.add_column("Class", style="dim")
+        if include_provenance:
+            t.add_column("Provenance", style="dim")
+        for r in sorted(entities, key=lambda x: (x.get("class_name", ""), x.get("entity_name", ""))):
+            row = [r.get("entity_name", ""), r.get("class_name", "")]
+            if include_provenance:
+                row.append(r.get("extraction", "") or "")
+            t.add_row(*row)
+        console.print(t)
+
+    if properties:
+        t = Table(title="Property Values", show_header=True, header_style="bold")
+        t.add_column("Entity",   style="bold")
+        t.add_column("Property", style="dim")
+        t.add_column("Value")
+        if include_provenance:
+            t.add_column("Provenance", style="dim")
+        for r in sorted(properties, key=lambda x: (x.get("entity_name", ""), x.get("property_name", ""))):
+            row = [
+                r.get("entity_name", ""),
+                r.get("property_name", ""),
+                str(r.get("property_value", "")),
+            ]
+            if include_provenance:
+                row.append(r.get("extraction", "") or "")
+            t.add_row(*row)
+        console.print(t)
+
+    if facts:
+        t = Table(title="Facts", show_header=True, header_style="bold")
+        t.add_column("Head",     style="bold")
+        t.add_column("Relation", style="dim")
+        t.add_column("Tail",     style="bold")
+        if include_provenance:
+            t.add_column("Provenance", style="dim")
+        for r in sorted(facts, key=lambda x: (x.get("relation_name", ""), x.get("source_name", ""))):
+            row = [
+                r.get("source_name", ""),
+                r.get("relation_name", ""),
+                r.get("target_name", ""),
+            ]
+            if include_provenance:
+                row.append(r.get("extraction", "") or "")
+            t.add_row(*row)
+        console.print(t)
+
+    if not entities and not properties and not facts:
+        console.print("[dim](no instances)[/dim]")
 
 
 # ------------------------------------------------------------------ #
@@ -339,7 +763,7 @@ def extract_cmd(
     Requires the openai extra: pip install 'blue-data-kb-source[openai]'
     and OPENAI_API_KEY in the environment.
     """
-    kb: MemoryKBSource = obj["kb"]
+    kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
         with console.status("Extracting…"):
@@ -347,7 +771,6 @@ def extract_cmd(
                                 queries=list(queries) or None,
                                 model=model,
                                 source_id=source_id))
-        _save_kb(kb)
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print("Extraction complete.")
@@ -368,7 +791,7 @@ def extract_cmd(
 @click.pass_obj
 def answer_cmd(obj: dict, question: str, fmt: str) -> None:
     """Answer a natural language question using the knowledge base."""
-    kb: MemoryKBSource = obj["kb"]
+    kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
         results = _run(kb.answer(db, question))
@@ -400,7 +823,7 @@ def answer_cmd(obj: dict, question: str, fmt: str) -> None:
 @click.pass_obj
 def validate_cmd(obj: dict, statement: str) -> None:
     """Return supporting and counter evidence for a statement."""
-    kb: MemoryKBSource = obj["kb"]
+    kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
         result = _run(kb.validate(db, statement))

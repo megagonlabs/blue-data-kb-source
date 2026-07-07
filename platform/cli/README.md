@@ -31,10 +31,16 @@ pip install -e "../../lib[openai]"
 
 ## State persistence
 
-Graph state is serialized to `~/.kbdb/state.json` between invocations so that IDs returned by one command can be passed to the next. Override the path:
+Each database is automatically persisted as a JSON file inside the data directory — no explicit save step is needed:
+
+```
+~/.kbdb/{database}.json
+```
+
+`FileGraphSource` saves after every write operation, so IDs returned by one command can be safely passed to the next. Override the directory:
 
 ```bash
-export KBDB_STATE_FILE=/path/to/my-kb.json
+export KBDB_DATA_DIR=/path/to/my-kbdb
 ```
 
 ## Global option
@@ -48,7 +54,8 @@ kb [--database DB] COMMAND
 ## Walkthrough
 
 ```bash
-# 1. Create a database
+# 1. List and create databases
+$ kb database list
 $ kb database create main
 Created database: main
 
@@ -63,25 +70,91 @@ $ kb --database main schema declare relation WORKED_AT "Employment relationship"
     --domain PERSON --range COMPANY
 Declared relation: WORKED_AT (id: 67a75f53-…)
 
+$ kb --database main schema declare property START_DATE "Start of employment" \
+    --relation 67a75f53-…
+Declared property: START_DATE (id: 8c3d0a1e-…)
+
 # 3. Register a provenance source
 $ kb --database main source add resume_alice --name "Alice's résumé"
 Added source: resume_alice (id: a1b2c3d4-…)
 
-# 4. Add entity instances
-$ kb --database main entity add Alice --class 3b2a906c-… \
+# 4. Add entity instances (class resolved by name or by ID)
+$ kb --database main entity add Alice --class PERSON \
     --text "Alice is a software engineer." --source a1b2c3d4-…
 Added entity: Alice (id: d52378c9-…)
 
-$ kb --database main entity add IBM --class 49710e2e-…
+$ kb --database main entity add IBM --class COMPANY
 Added entity: IBM (id: 5b1a47fb-…)
 
-# 5. Add a fact
+# 5. Set and list entity property values
+$ kb --database main entity property set 42 \
+    --entity Alice --property AGE --type NUMBER
+Set entity property (literal id: 1a2b3c4d-…)
+
+$ kb --database main entity property list --entity Alice
+┏━━━━━━━━━━┳━━━━━━━┳━━━━━━━━┓
+┃ Property ┃ Value ┃ Type   ┃
+┡━━━━━━━━━━╇━━━━━━━╇━━━━━━━━┩
+│ AGE      │ 42    │ NUMBER │
+└──────────┴───────┴────────┘
+
+# 6. Add a fact (head/tail/relation resolved by name or by ID)
 $ kb --database main fact add \
-    --head d52378c9-… --relation 67a75f53-… --tail 5b1a47fb-… \
+    --head Alice --relation WORKED_AT --tail IBM \
     --text "Alice joined IBM in June 1998." --source a1b2c3d4-…
 Added fact (id: 092733dd-…)
 
-# 6. Search the schema
+# 7. Set and list fact property values
+$ kb --database main fact property set "1998-06-01" \
+    --fact-id 092733dd-… --property START_DATE --type DATE
+Set fact property (literal id: 5e6f7a8b-…)
+
+$ kb --database main fact property list --fact-id 092733dd-…
+┏━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━┓
+┃ Property   ┃ Value      ┃ Type   ┃
+┡━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━┩
+│ START_DATE │ 1998-06-01 │ DATE   │
+└────────────┴────────────┴────────┘
+
+# 8. Show the full schema
+$ kb --database main schema show
+                      Classes
+┏━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
+┃ Name      ┃ Description             ┃ Properties ┃
+┡━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━┩
+│ COMPANY   │ A business organization │            │
+│ PERSON    │ A human individual      │ AGE        │
+└───────────┴─────────────────────────┴────────────┘
+                          Relations
+┏━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
+┃ Source ┃ Relation  ┃ Target  ┃ Description            ┃ Properties ┃
+┡━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━┩
+│ PERSON │ WORKED_AT │ COMPANY │ Employment relationship │ START_DATE │
+└────────┴───────────┴─────────┴────────────────────────┴────────────┘
+
+# 9. Show all instances
+$ kb --database main show
+      Entities
+┏━━━━━━━┳━━━━━━━━━┓
+┃ Name  ┃ Class   ┃
+┡━━━━━━━╇━━━━━━━━━┩
+│ IBM   │ COMPANY │
+│ Alice │ PERSON  │
+└───────┴─────────┘
+     Property Values
+┏━━━━━━━━┳━━━━━━━━━━┳━━━━━━━┓
+┃ Entity ┃ Property ┃ Value ┃
+┡━━━━━━━━╇━━━━━━━━━━╇━━━━━━━┩
+│ Alice  │ AGE      │ 42    │
+└────────┴──────────┴───────┘
+        Facts
+┏━━━━━━━┳━━━━━━━━━━━┳━━━━━━┓
+┃ Head  ┃ Relation  ┃ Tail ┃
+┡━━━━━━━╇━━━━━━━━━━━╇━━━━━━┩
+│ Alice │ WORKED_AT │ IBM  │
+└───────┴───────────┴──────┘
+
+# 10. Search the schema
 $ kb --database main schema search employment
 ┏━━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃ Type       ┃ Name      ┃ Description             ┃
@@ -89,16 +162,16 @@ $ kb --database main schema search employment
 │ RELATION   │ WORKED_AT │ Employment relationship  │
 └────────────┴───────────┴─────────────────────────┘
 
-# 7. Answer a question
+# 11. Answer a question
 $ kb --database main answer "Where did Alice work?"
-┏━━━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃ Entity      ┃ Relation  ┃ Value ┃ Provenance                     ┃
-┡━━━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
-│ Alice       │           │       │                                │
-│ Alice → IBM │ WORKED_AT │       │ Alice joined IBM in June 1998. │
-└─────────────┴───────────┴───────┴────────────────────────────────┘
+┏━━━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Entity      ┃ Relation  ┃ Value   ┃ Provenance                     ┃
+┡━━━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ Alice       │           │         │                                │
+│ Alice → IBM │ WORKED_AT │         │ Alice joined IBM in June 1998. │
+└─────────────┴───────────┴─────────┴────────────────────────────────┘
 
-# 8. Validate a statement
+# 12. Validate a statement
 $ kb --database main validate "Alice worked at IBM"
 
 Supporting:
@@ -107,25 +180,37 @@ Supporting:
 Counter:
   (none)
 
-# 9. LLM extraction (requires openai extra and OPENAI_API_KEY)
+# 13. LLM extraction (requires openai extra and OPENAI_API_KEY)
 $ kb --database main extract \
     "Alice joined IBM as a software engineer in June 1998." \
     --query "Where did Alice work?" --query "When did she start?"
 Extraction complete.
+
+# 12. Delete a database
+$ kb database delete main --yes
+Deleted database: main
 ```
 
 ## Command reference
 
 | Command | Description |
 |---|---|
+| `kb database list [--format table\|json]` | List all databases |
 | `kb database create NAME` | Create a database |
+| `kb database delete NAME [--yes]` | Delete a database (prompts unless --yes) |
+| `kb schema show [--format table\|json]` | Show classes and relations for the current database |
+| `kb show [--provenance] [--format table\|json]` | Show all entity, property-value, and fact instances |
 | `kb schema declare class NAME DESC` | Declare a CLASS (idempotent) |
 | `kb schema declare relation NAME DESC [--domain C] [--range C]` | Declare a RELATION |
 | `kb schema declare property NAME DESC [--class ID\|--relation ID]` | Declare a PROPERTY |
 | `kb schema search QUERY [--format table\|json]` | Keyword search over schema nodes |
 | `kb source add SOURCE [--name N] [--description D]` | Register a provenance source |
-| `kb entity add NAME [--class ID] [--text T] [--source ID]` | Add an entity instance |
-| `kb fact add --head ID --relation ID --tail ID [--text T] [--source ID]` | Add a fact |
+| `kb entity add NAME [--class NAME\|--class-id ID] [--text T] [--source ID]` | Add an entity instance |
+| `kb entity property set VALUE --entity NAME\|--entity-id ID --property NAME [--type T]` | Set a property value on an entity |
+| `kb entity property list --entity NAME\|--entity-id ID [--format table\|json]` | List property values for an entity |
+| `kb fact add [--head NAME\|--head-id ID] [--relation NAME\|--relation-id ID] [--tail NAME\|--tail-id ID]` | Add a fact |
+| `kb fact property set VALUE --fact-id ID --property NAME [--type T]` | Set a property value on a fact |
+| `kb fact property list --fact-id ID [--format table\|json]` | List property values for a fact |
 | `kb answer QUESTION [--format table\|json]` | Keyword answer query |
 | `kb validate STATEMENT` | Supporting / counter evidence |
 | `kb extract TEXT [--query Q]… [--source ID] [--model M]` | LLM extraction |

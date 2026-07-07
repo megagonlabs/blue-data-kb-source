@@ -23,6 +23,9 @@ HEAD = "HEAD"
 TAIL = "TAIL"
 EXTRACTED_FROM = "EXTRACTED_FROM"
 
+# Reserved database name for the KB meta-schema
+META_DATABASE = "__meta__"
+
 # Literal types
 NUMBER = "NUMBER"
 DATE = "DATE"

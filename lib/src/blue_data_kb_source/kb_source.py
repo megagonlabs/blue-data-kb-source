@@ -22,6 +22,7 @@ from blue_data_kb_source._constants import (
     IS_SUBCLASS_OF,
     IS_VALUE_OF,
     LITERAL,
+    META_DATABASE,
     NUMBER,
     PROPERTY,
     RANGE,
@@ -331,114 +332,11 @@ class KBSource(GraphSource, ABC):
         await self._extraction.import_text(database, text, queries, model, source_id)
 
     # ------------------------------------------------------------------ #
-    # Meta-schema (static — describes the KB graph structure itself)       #
+    # Meta-schema (describes the KB graph structure itself)               #
     # ------------------------------------------------------------------ #
 
-    @staticmethod
-    def fetch_meta_schema() -> DataSchema:
-        """Return a DataSchema describing the KB graph schema itself."""
-        schema = DataSchema()
+    META_DATABASE = META_DATABASE
 
-        schema.add_entity("CLASS", description="Defines a category or type. Example: PERSON, COMPANY")
-        schema.add_entity_attribute("CLASS", "name", "str", description="name of the class")
-        schema.add_entity_attribute("CLASS", "description", "str", description="description of the class")
-
-        schema.add_entity(
-            "RELATION",
-            description="Defines the nature of a relationship between two entity classes. "
-                        "Example: WORKED_AT, LIVES_IN, PURCHASED",
-        )
-        schema.add_entity_attribute("RELATION", "name", "str", description="name of the relation")
-        schema.add_entity_attribute("RELATION", "description", "str", description="description of the relation")
-        schema.add_entity_attribute("RELATION", "is_symmetric", "bool", description="boolean indicating symmetry")
-
-        schema.add_entity("PROPERTY", description="Feature of an entity, class, relation, or fact. Example: AGE, START_DATE")
-        schema.add_entity_attribute("PROPERTY", "name", "str", description="name of the property")
-        schema.add_entity_attribute("PROPERTY", "description", "str", description="description of the property")
-
-        schema.add_entity("ENTITY", description="A specific instance of a class. Example: Alice, IBM")
-        schema.add_entity_attribute("ENTITY", "name", "str", description="name of the entity")
-        schema.add_entity_attribute("ENTITY", "description", "str", description="description of the entity")
-
-        schema.add_entity(
-            "FACT",
-            description="Represents a specific factual relation between entities. Example: Alice_WORKED_AT_IBM",
-        )
-        schema.add_entity_attribute("FACT", "name", "str", description="name of the fact")
-        schema.add_entity_attribute("FACT", "description", "str", description="description of the fact")
-
-        schema.add_entity("LITERAL", description="Specifies a property value. Example: 18, 1998")
-        schema.add_entity_attribute("LITERAL", "name", "str", description="name of the literal")
-        schema.add_entity_attribute("LITERAL", "description", "str", description="description of the literal")
-        schema.add_entity_attribute("LITERAL", "value", "str | int | float | bool", description="value of the property")
-        schema.add_entity_attribute("LITERAL", "type", "NUMBER | DATE | BOOLEAN | STRING", description="type of the value")
-
-        schema.add_entity("SOURCE", description="A source of data.")
-        schema.add_entity_attribute("SOURCE", "id", "str", description="id of the source")
-        schema.add_entity_attribute("SOURCE", "name", "str", description="name of the source")
-        schema.add_entity_attribute("SOURCE", "description", "str", description="description of the source")
-
-        schema.add_entity("EXTRACTION", description="Extraction from a source.")
-        schema.add_entity_attribute("EXTRACTION", "name", "str", description="name of the extraction")
-        schema.add_entity_attribute("EXTRACTION", "description", "str", description="description of the extraction")
-        schema.add_entity_attribute("EXTRACTION", "text", "str", description="text segment of extraction from source")
-
-        _subclass_desc = (
-            "Defines hierarchical inheritance between two schema elements. "
-            "The child inherits properties and semantics from the parent. "
-            "Example: EMPLOYEE IS_SUBCLASS_OF PERSON"
-        )
-        schema.add_relation("CLASS", "IS_SUBCLASS_OF", "CLASS", description=_subclass_desc)
-        schema.add_relation("RELATION", "IS_SUBCLASS_OF", "RELATION", description=_subclass_desc)
-
-        schema.add_relation(
-            "ENTITY", "IS_INSTANCE_OF", "CLASS",
-            description="Connects a specific entity to a class, asserting that the entity is a "
-                        "concrete realization of that class. Example: IBM IS_INSTANCE_OF COMPANY",
-        )
-
-        _define_prop_desc = (
-            "Declares that a class or relation has a given property in its schema definition. "
-            "Example: PERSON DEFINE_PROPERTY AGE"
-        )
-        schema.add_relation("CLASS", "DEFINE_PROPERTY", "PROPERTY", description=_define_prop_desc)
-        schema.add_relation("RELATION", "DEFINE_PROPERTY", "PROPERTY", description=_define_prop_desc)
-
-        schema.add_relation(
-            "LITERAL", "IS_VALUE_OF", "PROPERTY",
-            description="Links a literal value to the property it instantiates. Example: 18 IS_VALUE_OF AGE",
-        )
-
-        _has_prop_desc = "Assigns a literal value or attribute to an entity or fact instance. Example: Alice HAS_PROPERTY 28"
-        schema.add_relation("ENTITY", "HAS_PROPERTY", "LITERAL", description=_has_prop_desc)
-        schema.add_relation("FACT", "HAS_PROPERTY", "LITERAL", description=_has_prop_desc)
-
-        schema.add_relation(
-            "FACT", "REPRESENTS", "RELATION",
-            description="Connects a fact instance to the relation type it instantiates, "
-                        "grounding the fact in schema semantics. "
-                        "Example: Alice_WORKED_AT_IBM REPRESENTS WORKED_AT",
-        )
-        schema.add_relation("FACT", "HEAD", "ENTITY", description="Specifies the subject (from) entity of a fact. Example: FACT → Alice")
-        schema.add_relation("FACT", "TAIL", "ENTITY", description="Specifies the object (to) entity of a fact. Example: FACT → IBM")
-
-        schema.add_relation(
-            "RELATION", "DOMAIN", "CLASS",
-            description="Declares the valid source class of a relation (what type of entity can "
-                        "appear in HEAD position). Example: WORKED_AT DOMAIN EMPLOYEE",
-        )
-        schema.add_relation(
-            "RELATION", "RANGE", "CLASS",
-            description="Declares the valid target class of a relation (what type of entity can "
-                        "appear in TAIL position). Example: WORKED_AT RANGE ORGANIZATION",
-        )
-
-        _extracted_desc = (
-            "Links any schema element (entity, fact, or literal) to its originating extraction "
-            "record or source evidence. Example: Alice WORKED_AT IBM EXTRACTED_FROM Resume_Text_1"
-        )
-        schema.add_relation("ENTITY", "EXTRACTED_FROM", "EXTRACTION", description=_extracted_desc)
-        schema.add_relation("LITERAL", "EXTRACTED_FROM", "EXTRACTION", description=_extracted_desc)
-        schema.add_relation("FACT", "EXTRACTED_FROM", "EXTRACTION", description=_extracted_desc)
-
-        return schema
+    async def fetch_meta_schema(self) -> DataSchema:
+        """Return a DataSchema built from the persisted __meta__ database."""
+        return await self._schema.fetch_meta_schema()

@@ -7,10 +7,23 @@ from blue_data_kb_source._constants import (
     CLASS,
     DEFINE_PROPERTY,
     DOMAIN,
+    ENTITY,
+    EXTRACTED_FROM,
+    EXTRACTION,
+    FACT,
+    HAS_PROPERTY,
+    HEAD,
+    IS_INSTANCE_OF,
     IS_SUBCLASS_OF,
+    IS_VALUE_OF,
+    LITERAL,
+    META_DATABASE,
     PROPERTY,
     RANGE,
     RELATION,
+    REPRESENTS,
+    SOURCE,
+    TAIL,
 )
 from blue_data_kb_source.types import SchemaError, SchemaSearchResult
 
@@ -20,6 +33,214 @@ class SchemaManager:
 
     def __init__(self, source: GraphSource) -> None:
         self._source = source
+        self._init_meta_schema()
+
+    # ------------------------------------------------------------------ #
+    # Meta-schema bootstrap                                                #
+    # ------------------------------------------------------------------ #
+
+    def _init_meta_schema(self) -> None:
+        """Populate the reserved __meta__ database with KB graph schema nodes.
+
+        Skipped if the database already exists (idempotent across restarts).
+        """
+        if META_DATABASE in self._source.fetch_databases():
+            return
+        self._source.create_database(META_DATABASE)
+        s = self._source
+        db = META_DATABASE
+
+        # ---- CLASS nodes (one per node type) ----
+        c_class = s.add_node(db, CLASS, {
+            "name": CLASS,
+            "description": "Defines a category or type. Example: PERSON, COMPANY",
+        })
+        c_relation = s.add_node(db, CLASS, {
+            "name": RELATION,
+            "description": (
+                "Defines the nature of a relationship between two entity classes. "
+                "Example: WORKED_AT, LIVES_IN, PURCHASED"
+            ),
+        })
+        c_property = s.add_node(db, CLASS, {
+            "name": PROPERTY,
+            "description": "Feature of an entity, class, relation, or fact. Example: AGE, START_DATE",
+        })
+        c_entity = s.add_node(db, CLASS, {
+            "name": ENTITY,
+            "description": "A specific instance of a class. Example: Alice, IBM",
+        })
+        c_fact = s.add_node(db, CLASS, {
+            "name": FACT,
+            "description": "Represents a specific factual relation between entities. Example: Alice_WORKED_AT_IBM",
+        })
+        c_literal = s.add_node(db, CLASS, {
+            "name": LITERAL,
+            "description": "Specifies a property value. Example: 18, 1998",
+        })
+        c_source = s.add_node(db, CLASS, {
+            "name": SOURCE,
+            "description": "A source of data.",
+        })
+        c_extraction = s.add_node(db, CLASS, {
+            "name": EXTRACTION,
+            "description": "Extraction from a source.",
+        })
+
+        # ---- PROPERTY nodes wired to each CLASS via DEFINE_PROPERTY ----
+        def _wire_props(class_id: str, *pairs: tuple[str, str]) -> None:
+            for name, desc in pairs:
+                pid = s.add_node(db, PROPERTY, {"name": name, "description": desc})
+                s.add_edge(db, class_id, DEFINE_PROPERTY, pid)
+
+        _wire_props(c_class,
+            ("name",        "name of the class"),
+            ("description", "description of the class"),
+        )
+        _wire_props(c_relation,
+            ("name",         "name of the relation"),
+            ("description",  "description of the relation"),
+            ("is_symmetric", "boolean indicating symmetry"),
+        )
+        _wire_props(c_property,
+            ("name",        "name of the property"),
+            ("description", "description of the property"),
+        )
+        _wire_props(c_entity,
+            ("name",        "name of the entity"),
+            ("description", "description of the entity"),
+        )
+        _wire_props(c_fact,
+            ("name",        "name of the fact"),
+            ("description", "description of the fact"),
+        )
+        _wire_props(c_literal,
+            ("name",        "name of the literal"),
+            ("description", "description of the literal"),
+            ("value",       "value of the property"),
+            ("type",        "type of the value"),
+        )
+        _wire_props(c_source,
+            ("id",          "id of the source"),
+            ("name",        "name of the source"),
+            ("description", "description of the source"),
+        )
+        _wire_props(c_extraction,
+            ("name",        "name of the extraction"),
+            ("description", "description of the extraction"),
+            ("text",        "text segment of extraction from source"),
+        )
+
+        # ---- RELATION nodes ----
+        _subclass_desc = (
+            "Defines hierarchical inheritance between two schema elements. "
+            "The child inherits properties and semantics from the parent. "
+            "Example: EMPLOYEE IS_SUBCLASS_OF PERSON"
+        )
+        # Two nodes for IS_SUBCLASS_OF so fetch_database_schema emits the correct pairs
+        # (CLASS→CLASS, RELATION→RELATION) rather than a spurious cartesian product.
+        r_subclass_of_class    = s.add_node(db, RELATION, {"name": IS_SUBCLASS_OF, "description": _subclass_desc})
+        r_subclass_of_relation = s.add_node(db, RELATION, {"name": IS_SUBCLASS_OF, "description": _subclass_desc})
+        r_instance_of = s.add_node(db, RELATION, {
+            "name": IS_INSTANCE_OF,
+            "description": (
+                "Connects a specific entity to a class, asserting that the entity is a "
+                "concrete realization of that class. Example: IBM IS_INSTANCE_OF COMPANY"
+            ),
+        })
+        r_define_prop = s.add_node(db, RELATION, {
+            "name": DEFINE_PROPERTY,
+            "description": (
+                "Declares that a class or relation has a given property in its schema definition. "
+                "Example: PERSON DEFINE_PROPERTY AGE"
+            ),
+        })
+        r_is_value_of = s.add_node(db, RELATION, {
+            "name": IS_VALUE_OF,
+            "description": "Links a literal value to the property it instantiates. Example: 18 IS_VALUE_OF AGE",
+        })
+        r_has_property = s.add_node(db, RELATION, {
+            "name": HAS_PROPERTY,
+            "description": "Assigns a literal value or attribute to an entity or fact instance. Example: Alice HAS_PROPERTY 28",
+        })
+        r_represents = s.add_node(db, RELATION, {
+            "name": REPRESENTS,
+            "description": (
+                "Connects a fact instance to the relation type it instantiates, grounding the fact in "
+                "schema semantics. Example: Alice_WORKED_AT_IBM REPRESENTS WORKED_AT"
+            ),
+        })
+        r_head = s.add_node(db, RELATION, {
+            "name": HEAD,
+            "description": "Specifies the subject (from) entity of a fact. Example: FACT → Alice",
+        })
+        r_tail = s.add_node(db, RELATION, {
+            "name": TAIL,
+            "description": "Specifies the object (to) entity of a fact. Example: FACT → IBM",
+        })
+        r_domain = s.add_node(db, RELATION, {
+            "name": DOMAIN,
+            "description": (
+                "Declares the valid source class of a relation (what type of entity can "
+                "appear in HEAD position). Example: WORKED_AT DOMAIN EMPLOYEE"
+            ),
+        })
+        r_range = s.add_node(db, RELATION, {
+            "name": RANGE,
+            "description": (
+                "Declares the valid target class of a relation (what type of entity can "
+                "appear in TAIL position). Example: WORKED_AT RANGE ORGANIZATION"
+            ),
+        })
+        _extracted_desc = (
+            "Links any schema element (entity, fact, or literal) to its originating extraction "
+            "record or source evidence. Example: Alice WORKED_AT IBM EXTRACTED_FROM Resume_Text_1"
+        )
+        r_extracted_from = s.add_node(db, RELATION, {"name": EXTRACTED_FROM, "description": _extracted_desc})
+
+        # ---- DOMAIN / RANGE edges ----
+        # IS_SUBCLASS_OF: CLASS→CLASS and RELATION→RELATION (separate nodes, not cartesian product)
+        s.add_edge(db, r_subclass_of_class,    DOMAIN, c_class)
+        s.add_edge(db, r_subclass_of_class,    RANGE,  c_class)
+        s.add_edge(db, r_subclass_of_relation, DOMAIN, c_relation)
+        s.add_edge(db, r_subclass_of_relation, RANGE,  c_relation)
+        # IS_INSTANCE_OF: ENTITY→CLASS
+        s.add_edge(db, r_instance_of, DOMAIN, c_entity)
+        s.add_edge(db, r_instance_of, RANGE,  c_class)
+        # DEFINE_PROPERTY: CLASS→PROPERTY, RELATION→PROPERTY
+        s.add_edge(db, r_define_prop, DOMAIN, c_class)
+        s.add_edge(db, r_define_prop, DOMAIN, c_relation)
+        s.add_edge(db, r_define_prop, RANGE,  c_property)
+        # IS_VALUE_OF: LITERAL→PROPERTY
+        s.add_edge(db, r_is_value_of, DOMAIN, c_literal)
+        s.add_edge(db, r_is_value_of, RANGE,  c_property)
+        # HAS_PROPERTY: ENTITY→LITERAL, FACT→LITERAL
+        s.add_edge(db, r_has_property, DOMAIN, c_entity)
+        s.add_edge(db, r_has_property, DOMAIN, c_fact)
+        s.add_edge(db, r_has_property, RANGE,  c_literal)
+        # REPRESENTS: FACT→RELATION
+        s.add_edge(db, r_represents, DOMAIN, c_fact)
+        s.add_edge(db, r_represents, RANGE,  c_relation)
+        # HEAD / TAIL: FACT→ENTITY
+        s.add_edge(db, r_head, DOMAIN, c_fact)
+        s.add_edge(db, r_head, RANGE,  c_entity)
+        s.add_edge(db, r_tail, DOMAIN, c_fact)
+        s.add_edge(db, r_tail, RANGE,  c_entity)
+        # DOMAIN: RELATION→CLASS
+        s.add_edge(db, r_domain, DOMAIN, c_relation)
+        s.add_edge(db, r_domain, RANGE,  c_class)
+        # RANGE: RELATION→CLASS
+        s.add_edge(db, r_range, DOMAIN, c_relation)
+        s.add_edge(db, r_range, RANGE,  c_class)
+        # EXTRACTED_FROM: ENTITY→EXTRACTION, LITERAL→EXTRACTION, FACT→EXTRACTION
+        s.add_edge(db, r_extracted_from, DOMAIN, c_entity)
+        s.add_edge(db, r_extracted_from, DOMAIN, c_literal)
+        s.add_edge(db, r_extracted_from, DOMAIN, c_fact)
+        s.add_edge(db, r_extracted_from, RANGE,  c_extraction)
+
+    async def fetch_meta_schema(self) -> DataSchema:
+        """Return a DataSchema built from the persisted __meta__ database."""
+        return await self.fetch_database_schema(META_DATABASE)
 
     # ------------------------------------------------------------------ #
     # Declarations                                                         #
