@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "blue-data-kb-cli"
+version = "0.1.0"
+description = "CLI for Blue Data Knowledge-Base Source"
+requires-python = ">=3.10"
+dependencies = [
+    "blue-data-kb-source>=0.1.0",
+    "click>=8.0",
+    "rich>=13.0",
+]
+
+[project.scripts]
+kb = "blue_data_kb_cli.commands:cli"
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-asyncio"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pyright]
+pythonVersion = "3.10"
+typeCheckingMode = "strict"
+venvPath = "."
+venv = ".venv"
