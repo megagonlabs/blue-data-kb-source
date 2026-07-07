@@ -14,11 +14,14 @@ dependencies = [
 [project.optional-dependencies]
 neo4j  = ["neo4j"]
 openai = ["openai>=1.0"]
-dev    = ["pytest", "pytest-cov"]
+dev    = ["pytest", "pytest-asyncio", "pytest-recording", "pytest-cov"]
 all    = ["neo4j", "openai>=1.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+blue_data_kb_source = ["py.typed"]
 
 [tool.ruff]
 line-length = 100
