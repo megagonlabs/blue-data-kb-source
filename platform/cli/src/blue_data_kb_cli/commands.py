@@ -278,20 +278,39 @@ def declare_relation_cmd(
 @schema_declare.command("property")
 @click.argument("name")
 @click.argument("description")
-@click.option("--class", "class_id", default=None, help="Attach to class by ID.")
-@click.option("--relation", "relation_id", default=None, help="Attach to relation by ID.")
+@click.option("--class",       "class_name",    default=None, help="Attach to class by name.")
+@click.option("--class-id",                     default=None, help="Attach to class by ID (overrides --class).")
+@click.option("--relation",    "relation_name", default=None, help="Attach to relation by name.")
+@click.option("--relation-id",                  default=None, help="Attach to relation by ID (overrides --relation).")
 @click.pass_obj
 def declare_property_cmd(
-    obj: dict, name: str, description: str, class_id: str | None, relation_id: str | None
+    obj: dict,
+    name: str,
+    description: str,
+    class_name: str | None,
+    class_id: str | None,
+    relation_name: str | None,
+    relation_id: str | None,
 ) -> None:
-    """Declare a PROPERTY node (idempotent). Use --class or --relation to attach it."""
+    """Declare a PROPERTY node (idempotent).
+
+    Exactly one owner must be specified: --class/--class-id or --relation/--relation-id.
+    """
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
+    has_class    = bool(class_name or class_id)
+    has_relation = bool(relation_name or relation_id)
+    if not has_class and not has_relation:
+        raise click.UsageError("Provide --class/--class-id or --relation/--relation-id.")
+    if has_class and has_relation:
+        raise click.UsageError("Provide only one of --class/--class-id or --relation/--relation-id.")
     try:
-        if class_id:
-            prop_id = _run(kb.declare_class_property(db, name, description, class_id=class_id))
+        if has_class:
+            resolved_class_id = _resolve_node(kb, db, CLASS, class_name, class_id, "class")
+            prop_id = _run(kb.declare_class_property(db, name, description, class_id=resolved_class_id))
         else:
-            prop_id = _run(kb.declare_relation_property(db, name, description, relation_id=relation_id))
+            resolved_relation_id = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
+            prop_id = _run(kb.declare_relation_property(db, name, description, relation_id=resolved_relation_id))
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(f"Declared property: [bold]{name}[/bold] (id: {prop_id})")

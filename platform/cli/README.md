@@ -63,6 +63,9 @@ Created database: main
 $ kb --database main schema declare class PERSON "A human individual"
 Declared class: PERSON (id: 3b2a906c-…)
 
+$ kb --database main schema declare property AGE "Age of a person" --class PERSON
+Declared property: AGE (id: 0d9eaaac-bf07-41e6-bd6d-34f60f4c90d7)
+
 $ kb --database main schema declare class COMPANY "A business organization"
 Declared class: COMPANY (id: 49710e2e-…)
 
@@ -71,7 +74,7 @@ $ kb --database main schema declare relation WORKED_AT "Employment relationship"
 Declared relation: WORKED_AT (id: 67a75f53-…)
 
 $ kb --database main schema declare property START_DATE "Start of employment" \
-    --relation 67a75f53-…
+    --relation WORKED_AT
 Declared property: START_DATE (id: 8c3d0a1e-…)
 
 # 3. Register a provenance source
@@ -182,7 +185,7 @@ Counter:
 
 # 13. LLM extraction (requires openai extra and OPENAI_API_KEY)
 $ kb --database main extract \
-    "Alice joined IBM as a software engineer in June 1998." \
+    "Alice later joined Google as a senior engineer in May 2002." \
     --query "Where did Alice work?" --query "When did she start?"
 Extraction complete.
 
@@ -202,7 +205,7 @@ Deleted database: main
 | `kb show [--provenance] [--format table\|json]` | Show all entity, property-value, and fact instances |
 | `kb schema declare class NAME DESC` | Declare a CLASS (idempotent) |
 | `kb schema declare relation NAME DESC [--domain C] [--range C]` | Declare a RELATION |
-| `kb schema declare property NAME DESC [--class ID\|--relation ID]` | Declare a PROPERTY |
+| `kb schema declare property NAME DESC (--class NAME\|--class-id ID\|--relation NAME\|--relation-id ID)` | Declare a PROPERTY (owner required) |
 | `kb schema search QUERY [--format table\|json]` | Keyword search over schema nodes |
 | `kb source add SOURCE [--name N] [--description D]` | Register a provenance source |
 | `kb entity add NAME [--class NAME\|--class-id ID] [--text T] [--source ID]` | Add an entity instance |
