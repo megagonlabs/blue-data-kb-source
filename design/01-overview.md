@@ -1,30 +1,20 @@
-# $PROJECT_NAME$ — Overview
+# KBDB — Overview
 
 ## Objective
 
-<!-- 
-Example:
-In an agentic platform, the user is a dynamic and continuously evolving source of information. User interactions — including conversations, uploaded files, and other forms of input — may contain valuable signals that reveal structured data such as user preferences, background, context, goals, and environment. Extracting, storing, and retrieving this information when needed is essential to building agents that understand and adapt to the people they serve.
--->
+Agentic systems accumulate knowledge from a wide range of sources — documents, conversations, databases, and tool outputs. This knowledge is inherently relational: entities have types, properties, and relationships to other entities. Capturing it in a way that is structured, queryable, and attributable to its sources is essential for building agents that reason reliably and transparently over what they know.
 
-## What $PROJECT_NAME$ Does
+## What KBDB Does
 
-<!-- 
-Example:
-UserDb provides a standardized framework to capture and manage this information. Specifically, it enables the platform to:
+KBDB provides a typed knowledge-base layer for agentic pipelines. Specifically, it enables a system to:
 
-- Extract structured user information from various data sources, including interactions in a session, files uploaded, etc.
-- Persistently store and manage user-related data, metadata, and data sources
-- Allow agents to retrieve relevant user data when queried as structured data
-- Interact with users to obtain missing or incomplete user data 
-- Maintain a structured and evolving representation of user data across sessions
--->
+- Define and evolve a typed schema of entity classes, relation types, and properties — a structured vocabulary for the domain
+- Populate the knowledge base with entity instances, factual relations between entities, and property values, all grounded in the schema
+- Track the provenance of every piece of knowledge back to its source text and originating document
+- Extract structured knowledge from free text using an LLM, guided by and contributing to the current schema
+- Query the knowledge base at the schema level and the instance level
+- Notify downstream components in real time when new knowledge is added
 
 ## Design Philosophy
 
-<!-- 
-Example:
-By formalizing UserDb as a database system, this framework allows agents to access and utilize user data in the same way they interact with traditional databases such as PostgreSQL or MongoDB. Internally, UserDb will have components analogous to those found in conventional database systems where appropriate, and introduce new components specific to the challenges of managing user knowledge in an agentic context.
--->
-
-
+KBDB treats the knowledge base as a formal database — with a well-defined schema, typed data, and a clear separation between schema elements and instance data. The schema is not fixed upfront: it evolves as new data sources are processed and new concepts emerge, and each ingestion pass is both guided by the current schema and may contribute new elements to it. The structure of the knowledge base itself is represented by a consistent meta-schema, giving any tool or agent a uniform way to introspect and work with the KB's own graph structure.

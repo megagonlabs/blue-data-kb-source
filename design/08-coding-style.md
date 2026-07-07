@@ -1,10 +1,7 @@
-# $PROJECT_NAME$ — Coding Style
+# KBDB — Coding Style
 
 ## Tooling
 
-<!--
-List tools used for code formatting, linking and type checking.
--->
 | Concern | Tool | Config |
 |---------|------|--------|
 | Formatting | `ruff format` | `pyproject.toml` |
@@ -40,12 +37,12 @@ Use Python 3.10+ syntax throughout — no imports from `typing` where newer synt
 
 ```python
 # correct
-def find(self, key: str) -> dict | None: ...
-async def execute_query(self, query: str, database: str | None = None) -> list[QueryResult]: ...
+def declare_class(self, database: str, name: str, description: str) -> str: ...
+def add_entity(self, database: str, name: str, class_id: str | None = None) -> str: ...
 
 # incorrect
-from typing import Optional, Union
-def find(self, key: str) -> Optional[dict]: ...
+from typing import Optional
+def add_entity(self, database: str, name: str, class_id: Optional[str] = None) -> str: ...
 ```
 
 All packages must include a `py.typed` marker file to declare inline type information.
@@ -54,31 +51,32 @@ All packages must include a `py.typed` marker file to declare inline type inform
 
 ## Async
 
-All I/O-bound methods are `async def`. This applies uniformly across all layers — core library, reasoning, data, and interaction — not just at interface boundaries.
-
-Example:
+All I/O-bound methods are `async def`. This applies uniformly across all layers — `KBSource`, `SchemaManager`, `KnowledgeManager`, `ProvenanceTracker`, `ExtractionEngine` — not just at interface boundaries. Graph Store access and OpenAI calls are both I/O-bound.
 
 ```python
 # correct — async throughout
-class UserSource:
-    async def execute_query(self, query: str, ...) -> list[QueryResult]: ...
-    async def import_source(self, source: DataSource, ...) -> None: ...
+class KBSource:
+    async def declare_class(self, database: str, name: str, description: str) -> str: ...
+    async def add_entity(self, database: str, name: str, ...) -> str: ...
 
-class UserDataManager:
-    async def execute_query(self, query: str, database: str) -> list[tuple]: ...
+class SchemaManager:
+    async def declare_class(self, database: str, name: str, description: str) -> str: ...
+
+class ExtractionEngine:
+    async def import_text(self, database: str, text: str, ...) -> None: ...
 
 # incorrect — sync in core, async only at interface
-class UserSource:
-    def execute_query(self, query: str, ...) -> list[QueryResult]: ...
+class KBSource:
+    def declare_class(self, database: str, name: str, description: str) -> str: ...
 ```
 
 **CLI bridge** — Click commands are synchronous. Use `asyncio.run()` to call async library methods from CLI handlers:
 
 ```python
 @click.command()
-def query(text: str) -> None:
-    results = asyncio.run(source.execute_query(text))
-    ...
+def declare(name: str, description: str) -> None:
+    class_id = asyncio.run(kb.declare_class("main", name, description))
+    console.print(class_id)
 ```
 
 ---
@@ -87,11 +85,13 @@ def query(text: str) -> None:
 
 | Construct | Convention | Example |
 |-----------|-----------|---------|
-| Classes | PascalCase | `UserQueryReasoner` |
-| Async methods / functions | snake_case | `execute_query` |
-| Module-level constants | UPPER_SNAKE_CASE | `DEFAULT_TOP_K` |
-| Private members | single `_` prefix | `_identify_user_data_metrics` |
-| Modules / packages | lowercase | `reasoning/`, `metric.py` |
+| Classes | PascalCase | `SchemaManager`, `KnowledgeManager` |
+| Methods / functions | snake_case | `declare_class`, `import_text` |
+| Module-level constants | UPPER_SNAKE_CASE | `CLASS`, `RELATION`, `IS_INSTANCE_OF` |
+| Private members | single `_` prefix | `_node_name`, `_fire_change` |
+| Modules / packages | lowercase | `schema/`, `manager.py` |
+
+Node label constants and edge type constants (`CLASS`, `RELATION`, `IS_INSTANCE_OF`, etc.) are UPPER_SNAKE_CASE because they are string constants used as typed identifiers throughout the graph, not enum values.
 
 Do not use double-underscore (`__`) name mangling. Use `_` for all private members.
 
@@ -103,15 +103,14 @@ Do not use double-underscore (`__`) name mangling. Use `_` for all private membe
 - Order: stdlib → third-party → internal, each group separated by a blank line.
 - No wildcard imports (`from x import *`).
 
-Example: 
-
 ```python
-import asyncio
-from typing import Any
+from __future__ import annotations
 
-from llama_index.core import Settings
+from collections.abc import Callable
 
-from blue_data_user_source.types import QueryResult
+import openai
+
+from blue_data_kb_source.types import AnswerResult, ValidationResult
 ```
 
 Import ordering is enforced by `ruff` (isort rules).
@@ -122,17 +121,15 @@ Import ordering is enforced by `ruff` (isort rules).
 
 One-line docstring on public classes and public methods only. No docstrings on private methods, `__init__`, properties, or anything self-explanatory from the name. No multi-line parameter documentation — types belong in signatures.
 
-Example: 
-
 ```python
-class UserQueryReasoner:
-    """Orchestrates query rewriting, assessment, and interaction for a user database."""
+class SchemaManager:
+    """Manages the typed vocabulary of a knowledge base database."""
 
-    async def expand_query(self, query: str) -> list[str]:
-        """Return complementary questions that provide context for the original query."""
+    async def declare_class(self, database: str, name: str, description: str) -> str:
+        """Declare a CLASS node; return its ID (idempotent — existing name returns existing ID)."""
         ...
 
-    async def _identify_user_data_metrics(self, ...) -> list[UserDataMetric]:
+    async def _lookup_by_name(self, database: str, label: str, name: str) -> str | None:
         # no docstring — private method
         ...
 ```
@@ -143,36 +140,35 @@ class UserQueryReasoner:
 
 Write a comment only when the *why* is non-obvious: a hidden constraint, a subtle invariant, or a workaround for a specific external behaviour. Never describe what the code does — well-named identifiers already do that.
 
-Example:
-
 ```python
 # correct — explains a non-obvious constraint
-# LlamaIndex streams partial tokens; we must await the full response before scoring
-response = await llm.acomplete(prompt)
+# OpenAI tool calls may arrive in batches; process all before continuing the loop
+# to avoid interleaving schema declarations with instance creation calls
+for tool_call in message.tool_calls:
+    results.append(await self._dispatch(tool_call))
 
 # incorrect — restates the code
-# call expand_query to get expanded queries
-expanded = await self.expand_query(query)
+# look up the node by name
+existing = await self._lookup_by_name(database, label, name)
 ```
 
 ---
 
 ## Error Handling
 
-Create a base exception is defined in `types.py`. All custom exceptions inherit from it.
-
-Example:
+A `KBError` base exception is defined in `types.py`. All custom exceptions inherit from it.
 
 ```python
-class UserDbError(Exception): ...
-class QueryError(UserDbError): ...
-class ImportError(UserDbError): ...  # noqa: A001
-class InteractionError(UserDbError): ...
+class KBError(Exception): ...
+class SchemaError(KBError): ...
+class KnowledgeError(KBError): ...
+class ExtractionError(KBError): ...
+class ProvenanceError(KBError): ...
 ```
 
 - Do not catch and swallow exceptions silently.
 - Let exceptions propagate to interface boundaries, where each interface handles them appropriately:
-  - **REST API** — FastAPI exception handlers convert `UserDbError` subtypes to HTTP responses.
-  - **MCP server** — tool handlers catch `UserDbError` and return structured error responses.
-  - **CLI** — top-level Click error handler renders `UserDbError` messages via Rich.
+  - **REST API** — FastAPI exception handlers convert `KBError` subtypes to HTTP responses.
+  - **MCP server** — tool handlers catch `KBError` and return structured error responses.
+  - **CLI** — top-level Click error handler renders `KBError` messages via Rich.
 - Only catch specific exception types; never bare `except:` or `except Exception:`.

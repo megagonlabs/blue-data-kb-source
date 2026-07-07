@@ -1,13 +1,6 @@
-# $PROJECT_NAME$ — Software Stack
+# KBDB — Software Stack
 
-<!--
-List the software stack including programming language development, 3rd party libraries, LLM preferences, package and test libraries, etc. 
--->
-
-<!-- 
-Example:
-
-> Interfaces marked **provisional** are initial suggestions based on expected usage patterns. They will be revised once the respective library is installed and inspected.
+> Interfaces marked **provisional** are initial suggestions based on expected usage patterns. They will be revised once the respective component is implemented and inspected.
 
 ---
 
@@ -26,62 +19,54 @@ Example:
 
 | Concern | Choice |
 |---------|--------|
-| Abstraction layer | LlamaIndex (`llama-index-core`) |
-| Initial provider | OpenAI (`llama-index-llms-openai`) |
+| Initial provider | OpenAI (`openai>=1.0`) |
+| Interface | OpenAI function-calling (tool use) |
 
-LlamaIndex is used to provide a provider-agnostic LLM interface. All LLM calls within UserDb go through the LlamaIndex `LLM` abstraction, making it straightforward to swap providers without changing application code.
+The Extraction Engine calls the OpenAI API directly using the `openai` Python SDK. The model is configurable per call (`model` parameter on `import_text`, defaulting to `gpt-4o`). The tool loop drives schema declaration and instance creation by presenting the KB operations as OpenAI function definitions.
 
-**LlamaIndex classes used:**
+The LLM integration is isolated to the Extraction Engine. The Schema Layer, Knowledge Layer, and all other components have no LLM dependency and do not require an API key.
 
-| Class | Package | Role |
-|-------|---------|------|
-| `llama_index.core.llms.LLM` | `llama-index-core` | Abstract LLM base |
-| `llama_index.llms.openai.OpenAI` | `llama-index-llms-openai` | Initial concrete provider |
-| `llama_index.core.Settings` | `llama-index-core` | Global LLM configuration |
+**OpenAI SDK usage:**
+
+| Class / Function | Role |
+|-----------------|------|
+| `openai.OpenAI` | Client for API calls |
+| `client.chat.completions.create` | Drives the tool-use loop |
+| Function definitions (JSON Schema) | Expose KB operations as LLM-callable tools |
 
 **Configuration:**
 
-LLM provider and model are configured globally via `llama_index.core.Settings.llm` at application startup. Individual components (`UserQueryReasoner`, `UserDataMetric`) consume the LLM through this setting rather than instantiating providers directly.
-
-```python
-from llama_index.core import Settings
-from llama_index.llms.openai import OpenAI
-
-Settings.llm = OpenAI(model="gpt-4o")
-```
+The `OPENAI_API_KEY` environment variable is read by the `openai` SDK automatically. No other global configuration is required. The model and API key can also be passed explicitly at call time.
 
 ---
 
 ## Storage
 
-Both storage backends are provided by `blue-data-core`. UserDb interacts only with their abstract interfaces and does not depend on any specific backend implementation.
+Storage is provided by `blue-data` via the `GraphSource` abstract base class. KBDB interacts only with the `GraphSource` interface and does not depend on any specific backend implementation.
 
-### JSONSource
+### GraphSource
 
-Used for: user metadata (profile, contact methods, source registry), semi-structured query results.
+Used for: all schema nodes (CLASS, RELATION, PROPERTY), all instance nodes (ENTITY, FACT, LITERAL), and all provenance nodes (SOURCE, EXTRACTION), along with the typed edges that connect them.
 
-**Provisional interface** (to be revised once `blue-data-core` is installed):
-
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `set` | `set(key: str, value: dict) -> None` | Store or overwrite a JSON value |
-| `get` | `get(key: str) -> dict \| None` | Retrieve by key |
-| `delete` | `delete(key: str) -> None` | Remove a key |
-| `query` | `query(expression: str) -> list[dict]` | Query using JSONPath or equivalent expression |
-| `keys` | `keys(prefix: str = None) -> list[str]` | List all keys, optionally filtered by prefix |
-
-### VectorSource
-
-Used for: vectorized user data enabling semantic retrieval.
-
-**Provisional interface** (to be revised once `blue-data-core` is installed):
+**Interface** (from `blue_data.source.graph`):
 
 | Method | Signature | Description |
 |--------|-----------|-------------|
-| `set` | `set(key: str, text: str, metadata: dict = None) -> None` | Embed and store text with optional metadata |
-| `get` | `get(key: str) -> dict \| None` | Retrieve entry by key |
-| `delete` | `delete(key: str) -> None` | Remove an entry |
-| `query` | `query(text: str, top_k: int = 10, filters: dict = None) -> list[dict]` | Semantic similarity search |
+| `create_database` | `create_database(database: str) -> None` | Initialize a new named database |
+| `add_node` | `add_node(database, label, properties, node_id?) -> str` | Create a node; returns its ID |
+| `add_edge` | `add_edge(database, source_id, target_id, edge_type, properties?) -> str` | Create a directed edge |
+| `get_node` | `get_node(database, node_id) -> dict \| None` | Retrieve a node by ID |
+| `get_neighbors` | `get_neighbors(database, node_id, edge_type?, direction?) -> list[dict]` | Traverse edges from a node |
+| `match_nodes` | `match_nodes(database, label, properties?) -> list[dict]` | Find nodes by label and property filter |
+
+### Backends
+
+| Backend | Class | Persistence | Typical Use |
+|---------|-------|-------------|-------------|
+| Memory | `MemoryGraphSource` | None (in-process) | Development, testing, short-lived pipelines |
+| Neo4j | `Neo4jGraphSource` | Yes | Production deployments requiring durability and concurrent access |
+
+Both backends are provided by `blue-data`. KBDB selects a backend via Python MRO — the application subclasses `KBSource` alongside the chosen `GraphSource` concrete class, with no conditional logic in KBDB itself.
 
 ---
 
@@ -89,29 +74,47 @@ Used for: vectorized user data enabling semantic retrieval.
 
 ### REST API
 
+**Provisional**
+
 | Concern | Choice |
 |---------|--------|
 | Framework | FastAPI |
 | ASGI server | Uvicorn |
 
-FastAPI provides automatic OpenAPI schema generation and async request handling. Endpoints map 1:1 to `execute_query` and `import`.
+FastAPI provides automatic OpenAPI schema generation and async request handling. Endpoints map to the core schema and knowledge operations exposed by the Python library.
 
 ### MCP Server
+
+**Provisional**
 
 | Concern | Choice |
 |---------|--------|
 | Library | `mcp` (official MCP Python SDK) |
 
-Exposes UserDb operations as MCP tools for consumption by LLM agents. The `mcp` package provides the server scaffolding; tool handlers delegate directly to the Python library.
+Exposes KBDB schema, knowledge, and extraction operations as MCP tools for consumption by LLM agents. The `mcp` package provides the server scaffolding; tool handlers delegate directly to the Python library.
 
 ### CLI
+
+**Provisional**
 
 | Concern | Choice |
 |---------|--------|
 | Argument parsing | Click |
 | Output formatting | Rich |
 
-Click handles command routing and argument parsing. Rich provides formatted terminal output (tables, progress indicators) for interactive use.
+Click handles command routing and argument parsing. Rich provides formatted terminal output (tables, progress indicators) for schema inspection and interactive ingestion.
+
+---
+
+## Testing
+
+| Concern | Choice |
+|---------|--------|
+| Test runner | pytest |
+| Coverage | pytest-cov |
+| Test scope | Unit tests against `MemoryGraphSource`; integration tests against Neo4j |
+
+Unit tests exercise the full KB API using the in-memory backend with no external dependencies. Integration tests run against a live Neo4j instance to validate backend-specific behavior.
 
 ---
 
@@ -119,32 +122,28 @@ Click handles command routing and argument parsing. Rich provides formatted term
 
 ### blue-data
 
-Provides base classes and storage backends consumed by UserDb. Assumed to exist; interfaces below are provisional and will be revised once the library is installed.
+Provides the `GraphSource` abstract base class and all concrete graph backends consumed by KBDB.
 
-**Provisional classes:**
+**Classes used:**
 
-| Class | Role |
-|-------|------|
-| `DataSource` | Abstract base for all data sources |
-| `FileSource(DataSource)` | File-based data source |
-| `SessionSource(DataSource)` | Streaming session data source |
-| `Session` | Session lifecycle; exposes `cid` (session ID) and `get_source() -> SessionSource` |
-| `JSONSource(DataSource)` | JSON storage (see interface above) |
-| `VectorSource(DataSource)` | Vector storage (see interface above) |
-| `DataPlanner` | Abstract base for query planners |
-| `DataRegistry` | Abstract base for data registries; supports source registration and query execution |
+| Class | Package | Role |
+|-------|---------|------|
+| `GraphSource` | `blue_data.source.graph` | Abstract graph store base |
+| `MemoryGraphSource` | `blue_data.source.graph.memory_graph_source` | In-process graph backend |
+| `Neo4jGraphSource` | `blue_data.source.graph.neo4j_graph_source` | Neo4j graph backend |
+| `DataSchema` | `blue_data.core.schema` | Schema serialization / deserialization |
 
 ### Summary
 
 | Package | Version | Source | Role |
 |---------|---------|--------|------|
-| `blue-data` | TBD | internal | Base classes, storage backends |
-| `llama-index-core` | latest stable | PyPI | LLM abstraction, settings |
-| `llama-index-llms-openai` | latest stable | PyPI | OpenAI LLM provider |
-| `openai` | latest stable | PyPI | OpenAI SDK (transitive via LlamaIndex) |
-| `fastapi` | latest stable | PyPI | REST API framework |
-| `uvicorn` | latest stable | PyPI | ASGI server for FastAPI |
-| `mcp` | latest stable | PyPI | MCP server SDK |
-| `click` | latest stable | PyPI | CLI argument parsing |
-| `rich` | latest stable | PyPI | CLI output formatting |
--->
+| `blue-data` | ≥0.1.0 | internal | Graph store base classes and backends |
+| `openai` | ≥1.0 | PyPI | OpenAI SDK for LLM-driven extraction |
+| `neo4j` | latest stable | PyPI | Neo4j Python driver (optional backend) |
+| `fastapi` | latest stable | PyPI | REST API framework (provisional) |
+| `uvicorn` | latest stable | PyPI | ASGI server for FastAPI (provisional) |
+| `mcp` | latest stable | PyPI | MCP server SDK (provisional) |
+| `click` | latest stable | PyPI | CLI argument parsing (provisional) |
+| `rich` | latest stable | PyPI | CLI output formatting (provisional) |
+| `pytest` | latest stable | PyPI | Test runner |
+| `pytest-cov` | latest stable | PyPI | Test coverage |

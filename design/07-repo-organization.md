@@ -1,54 +1,54 @@
-# $PROJECT_NAME$ — Repo Organization
+# KBDB — Repo Organization
 
 ## Directory Tree
 
-<!-- 
-Provide a more specific repo directory structure and file contents.
--->
-
-<!--
-Example:
-
 ```
-blue-data-user-source/
+blue-data-kb-source/
 │
-├── docs/
-│   └── design/                          # design documents
+├── design/                              # design documents
 │
-├── lib/                                 # Python library (userdb PyPI package)
+├── lib/                                 # Python library (blue-data-kb-source PyPI package)
 │   ├── pyproject.toml                   # package metadata, dependencies, tool config
+│   ├── README.md                        # library usage and API reference
 │   ├── scripts/
 │   │   ├── build.sh                     # build the distribution package
+│   │   ├── install.sh                   # install blue-data (local) then this package
 │   │   └── publish.sh                   # publish to PyPI
 │   ├── src/
-│   │   └── blue_data_user_source/
-│   │       ├── __init__.py              # re-exports UserSource
-│   │       ├── source.py                # UserSource — NLQI and main entry point
-│   │       ├── types.py                 # shared result types and query models
+│   │   └── blue_data_kb_source/
+│   │       ├── __init__.py              # re-exports KBSource
+│   │       ├── kb_source.py             # KBSource — entry point and component coordinator
+│   │       ├── types.py                 # shared result types and data contracts
 │   │       │
-│   │       ├── reasoning/
+│   │       ├── schema/
 │   │       │   ├── __init__.py
-│   │       │   ├── reasoner.py          # UserQueryReasoner
-│   │       │   └── metric.py            # UserDataMetric
+│   │       │   └── manager.py           # SchemaManager
 │   │       │
-│   │       ├── data/
+│   │       ├── knowledge/
 │   │       │   ├── __init__.py
-│   │       │   ├── manager.py           # UserDataManager
-│   │       │   ├── planner.py           # UserDataPlanner
-│   │       │   └── registry.py          # UserDataRegistry
+│   │       │   └── manager.py           # KnowledgeManager
 │   │       │
-│   │       └── interaction/
+│   │       ├── provenance/
+│   │       │   ├── __init__.py
+│   │       │   └── tracker.py           # ProvenanceTracker
+│   │       │
+│   │       ├── notification/
+│   │       │   ├── __init__.py
+│   │       │   └── notifier.py          # ChangeNotifier
+│   │       │
+│   │       └── extraction/
 │   │           ├── __init__.py
-│   │           ├── contact.py           # ContactManager, ContactMethod
-│   │           └── manager.py           # InteractionManager
+│   │           └── engine.py            # ExtractionEngine and LLM agent loop
 │   │
 │   └── tests/
-│       ├── conftest.py                  # shared fixtures and in-memory doubles
-│       ├── cassettes/                   # recorded LLM HTTP responses (VCR)
+│       ├── conftest.py                  # shared fixtures and MemoryKBSource instances
+│       ├── cassettes/                   # recorded OpenAI HTTP responses (VCR)
 │       └── unit/
-│           ├── reasoning/
-│           ├── data/
-│           └── interaction/
+│           ├── schema/                  # SchemaManager tests
+│           ├── knowledge/               # KnowledgeManager tests
+│           ├── provenance/              # ProvenanceTracker tests
+│           ├── notification/            # ChangeNotifier tests
+│           └── extraction/              # ExtractionEngine tests
 │
 └── platform/                            # External interface services
     ├── api/                             # REST API service
@@ -58,10 +58,10 @@ blue-data-user-source/
     │   │   ├── build.sh                 # build Docker image
     │   │   └── deploy.sh                # deploy service
     │   ├── src/
-    │   │   └── blue_data_user_api/
+    │   │   └── blue_data_kb_api/
     │   │       ├── __init__.py
     │   │       ├── app.py               # FastAPI app factory
-    │   │       └── routes.py            # /query, /import, /databases endpoints
+    │   │       └── routes.py            # /schema, /knowledge, /extract endpoints
     │   └── tests/
     │       └── unit/
     │
@@ -72,7 +72,7 @@ blue-data-user-source/
     │   │   ├── build.sh
     │   │   └── deploy.sh
     │   ├── src/
-    │   │   └── blue_data_user_mcp/
+    │   │   └── blue_data_kb_mcp/
     │   │       ├── __init__.py
     │   │       └── server.py            # MCP server and tool definitions
     │   └── tests/
@@ -84,62 +84,59 @@ blue-data-user-source/
         │   ├── build.sh                 # build distributable
         │   └── deploy.sh                # publish CLI package
         ├── src/
-        │   └── blue_data_user_cli/
+        │   └── blue_data_kb_cli/
         │       ├── __init__.py
         │       └── commands.py          # Click command groups
         └── tests/
             └── unit/
 ```
--->
+
 ---
 
 ## Layout Rationale
-
-<!-- 
-Provide high-level guidance on repo structure, useful for expanding the directory structure as work continues.
--->
-
-<!-- 
-Example:
 
 ### `lib/` — the Python library
 
 All core business logic lives under `lib/src/`. This is the only artifact published to PyPI. The `src/` layout within `lib/` prevents the package from being accidentally importable from the project root during development.
 
-`lib/scripts/` provides two scripts:
+`lib/scripts/` provides three scripts:
 
 | Script | Purpose |
 |--------|---------|
 | `build.sh` | Builds the wheel and sdist via `python -m build` |
+| `install.sh` | Installs `blue-data` from its local path, then installs this package in editable mode |
 | `publish.sh` | Publishes to PyPI via `twine upload` |
 
 ### Module-to-architecture mapping
 
-| Module | Architecture layer |
-|--------|--------------------|
-| `source.py` | Natural Language Query Interface |
-| `reasoning/` | Reasoning Layer |
-| `data/` | Data Management Layer |
-| `interaction/` | Interaction Layer |
+| Module | Architecture component |
+|--------|----------------------|
+| `kb_source.py` | `KBSource` — entry point, delegates to all components |
+| `schema/manager.py` | `SchemaManager` — Schema Layer |
+| `knowledge/manager.py` | `KnowledgeManager` — Knowledge Layer |
+| `provenance/tracker.py` | `ProvenanceTracker` — Knowledge Layer |
+| `notification/notifier.py` | `ChangeNotifier` — Knowledge Layer |
+| `extraction/engine.py` | `ExtractionEngine` — Extraction Engine |
+| `types.py` | Shared result types and data contracts |
+
+### `types.py`
+
+Shared result types used across all layers are defined in `lib/src/blue_data_kb_source/types.py`. This prevents circular imports and provides a single source of truth for data contracts between components (e.g. `AnswerResult`, `ValidationResult`, `EnrichmentResult`, `SchemaSearchResult`).
 
 ### `platform/` — external interface services
 
-Each external interface is an independent deployable unit under `platform/`. They depend on `lib` but contain no business logic — each is a thin adapter over `UserSource`. Separating them from `lib` keeps the library free of server and CLI dependencies and allows each service to be built, versioned, and deployed independently.
+Each external interface is an independent deployable unit under `platform/`. They depend on `lib` but contain no business logic — each is a thin adapter over `KBSource`. Separating them from `lib` keeps the library free of server and CLI dependencies and allows each service to be built, versioned, and deployed independently.
 
 Each platform service follows the same internal structure:
 
 | Path | Purpose |
 |------|---------|
 | `pyproject.toml` | Package metadata and dependencies (includes `lib` as a dependency) |
-| `Dockerfile` | Container image definition (api and mcp only) |
+| `Dockerfile` | Container image definition (`api` and `mcp` only) |
 | `scripts/build.sh` | Builds the service artifact (Docker image or distribution package) |
 | `scripts/deploy.sh` | Deploys the service to the target environment |
 | `src/<package>/` | Interface adapter code |
 | `tests/unit/` | Unit tests for the adapter layer |
-
-### `types.py`
-
-Shared result types and query models used across layers are defined in `lib/src/blue_data_user_source/types.py`. This prevents circular imports and provides a single source of truth for data contracts between components.
 
 ### `tests/`
 
@@ -147,13 +144,14 @@ Library tests live under `lib/tests/`. Each platform service has its own `tests/
 
 ```
 lib/tests/
-├── conftest.py          # shared fixtures: UserSource instance, in-memory doubles
-├── cassettes/           # VCR cassettes for recorded LLM responses
+├── conftest.py          # shared fixtures: MemoryKBSource instance, pre-populated schemas
+├── cassettes/           # VCR cassettes for recorded OpenAI responses (extraction tests)
 └── unit/
-    ├── reasoning/        # UserQueryReasoner, UserDataMetric
-    ├── data/             # UserDataManager, UserDataPlanner, UserDataRegistry
-    └── interaction/      # ContactManager, InteractionManager
+    ├── schema/          # SchemaManager: declare, consolidate, search, import/export
+    ├── knowledge/       # KnowledgeManager: add, answer, validate, enrich
+    ├── provenance/      # ProvenanceTracker: source and extraction node wiring
+    ├── notification/    # ChangeNotifier: hook registration, event delivery
+    └── extraction/      # ExtractionEngine: tool dispatch, schema extension, provenance
 ```
 
-Platform adapter tests use the same in-memory doubles (imported from `lib/tests/`) and test only the translation layer: request parsing, response serialization, and error mapping.
--->
+Platform adapter tests use the same `MemoryKBSource` fixtures (imported from `lib/tests/conftest.py`) and test only the translation layer: request parsing, response serialization, and error mapping.

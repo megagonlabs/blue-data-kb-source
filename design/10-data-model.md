@@ -1,219 +1,322 @@
-# $PROJECT_NAME$ — Data Model
+# KBDB — Data Model
 
 ## Overview
 
-<!--
-Describe overview of the data model
--->
+KBDB stores all data as a typed property graph. Every piece of knowledge — schema elements and instance data alike — is represented as a node or an edge, each carrying a label that identifies its role. The graph is divided into named databases; a single `KBSource` instance may hold multiple independent databases.
 
-<!--
-Example: 
+The graph has two distinct layers that are kept strictly separate:
 
-UserDb maintains two parallel per-user stores:
+- **Schema layer** — CLASS, RELATION, and PROPERTY nodes that define the vocabulary of the domain
+- **Instance layer** — ENTITY, FACT, and LITERAL nodes that hold concrete knowledge grounded in the schema
 
-- **JSONSource** — structured key-value store; holds both user metadata and user data entries; supports JSONPath queries
-- **VectorSource** — semantic key-value store; mirrors user data entries only; supports vector similarity search
+A third layer records where knowledge came from:
 
-Both stores are addressed by user ID. User data entries are written to both stores simultaneously (dual-write). The JSON store is the system of record.
-
--->
-
-<!-- Describe more specifics 
--->
-
-<!--
-Example: 
-
-## 1. User ID
-
-Each user database is addressed by a string user ID. The format is an opaque string; examples in this document use Firebase-style UIDs (e.g., `5WgRzdacRdOEvj8JBmCXFZSvWmH3`).
+- **Provenance layer** — SOURCE and EXTRACTION nodes that link every instance item back to its originating document and text span
 
 ---
 
-## 2. JSONSource
+## 1. Databases
 
-### 2.1 Structure
-
-A user's JSON database is divided into two namespaces:
-
-| Namespace | Contents |
-|-----------|----------|
-| `metadata` | Structured profile, contact methods, and source registry |
-| `data` | Arbitrary user data entries |
+Each database is an independent named graph within a `KBSource`. Node IDs are unique within a database but not across databases. All operations are scoped to a single database; there is no cross-database querying.
 
 ---
 
-### 2.2 User Metadata
+## 2. Node Types
 
-#### General Profile
-
-An extensible document. Required fields:
+Every node carries:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `name` | string | Display name |
-| `picture` | string | Profile picture URL |
-| `last_login` | ISO 8601 datetime | Most recent login timestamp |
+| `id` | string | Unique identifier within the database; auto-generated if not provided |
+| `name` | string | Human-readable name; used for display and idempotency checks |
+| `description` | string \| null | Optional longer description |
 
-Additional fields may be present depending on the authentication provider or import source.
+Additional fields are specific to each label.
+
+---
+
+### 2.1 Schema Nodes
+
+#### CLASS
+
+Represents a category of entity. Used as the type of ENTITY instances.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | |
+| `name` | string | Uppercase by convention (e.g., `PERSON`, `COMPANY`) |
+| `description` | string \| null | |
 
 **Example:**
-
-```json
-{
-  "name": "Ada Lovelace",
-  "picture": "https://example.com/avatar.jpg",
-  "last_login": "2026-05-12T09:00:00Z",
-  "timezone": "America/New_York"
-}
+```
+label:       CLASS
+id:          "cls-001"
+name:        "EMPLOYEE"
+description: "A person employed by an organization"
 ```
 
-#### Contact Methods
+---
 
-A list of contact method entries. Each entry:
+#### RELATION
+
+Represents a typed relationship between entities. Used as the type of FACT instances.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `type` | string | Channel type (e.g., `"email"`, `"phone"`, `"sms"`, `"x"`) |
-| `value` | string | Channel-specific address or handle |
-| `preference` | integer | Relative priority; lower value = higher priority |
-| `verified` | boolean | Whether the channel has been verified |
-| `last_use` | ISO 8601 datetime | Most recent use timestamp |
+| `id` | string | |
+| `name` | string | Uppercase by convention (e.g., `WORKED_AT`, `FOUNDED`) |
+| `description` | string \| null | |
+| `is_symmetric` | boolean | Whether the relation holds in both directions |
 
 **Example:**
-
-```json
-[
-  { "type": "email", "value": "ada@example.com",  "preference": 1, "verified": true, "last_use": "2026-05-12T09:00:00Z" },
-  { "type": "phone", "value": "+15551234567",      "preference": 2, "verified": false, "last_use": "2026-05-12T10:00:00Z" },
-  { "type": "x",     "value": "@ada",              "preference": 3, "verified": false, "last_use": "2026-05-12T11:00:00Z" }
-]
+```
+label:        RELATION
+id:           "rel-001"
+name:         "WORKED_AT"
+description:  "Employment relationship between a person and a company"
+is_symmetric: false
 ```
 
-#### Source Registry
+---
 
-A list of registered external source entries. Each entry:
+#### PROPERTY
+
+Represents an attribute that can be attached to a CLASS or RELATION. Used to type LITERAL values.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `source_id` | string | Unique identifier for the registered source |
-| `source_type` | string | One of `"file"`, `"session"`, or other registered types |
-| `location` | string | Filesystem path, URL, or session ID identifying the source |
-| `registered_at` | ISO 8601 datetime | When the source was registered |
-| `queries` | list[string] | Queries run at import time; empty for Type 1 registrations |
+| `id` | string | |
+| `name` | string | Uppercase by convention (e.g., `NAME`, `START_DATE`) |
+| `description` | string \| null | |
 
 **Example:**
-
-```json
-[
-  {
-    "source_id": "src-abc123",
-    "source_type": "file",
-    "location": "~/resume.txt",
-    "registered_at": "2026-05-01T10:00:00Z",
-    "queries": ["What skills does the user have?"]
-  },
-  {
-    "source_id": "src-xyz789",
-    "source_type": "session",
-    "location": "session-id-value",
-    "registered_at": "2026-05-10T08:30:00Z",
-    "queries": []
-  }
-]
+```
+label:       PROPERTY
+id:          "prop-001"
+name:        "START_DATE"
+description: "Date when employment began"
 ```
 
 ---
 
-### 2.3 User Data Entries
+### 2.2 Instance Nodes
 
-Arbitrary key-value data extracted from user sources or stored through queries. Keys are **not** unique — multiple entries may share the same key (e.g., `"skills"` populated independently from a resume and a session).
+#### ENTITY
 
-Each entry:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `key` | string | Semantic label for the data (e.g., `"skills"`, `"job_preferences"`) |
-| `value` | JSON array | One or more values associated with the key |
-| `metadata` | object | Entry-level provenance metadata (see below) |
-
-#### Entry Metadata
+A concrete instance of a CLASS.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `date` | ISO 8601 datetime | When the entry was created or last updated |
-| `agent` | string | Identifier of the agent that created the entry |
-| `source_id` | string \| null | ID of the source the entry was derived from; `null` for entries not tied to a specific source |
+| `id` | string | |
+| `name` | string | The entity's display name (e.g., `"Alice"`, `"IBM"`) |
+| `description` | string \| null | |
 
 **Example:**
-
-```json
-{
-  "key": "skills",
-  "value": ["Python", "SQL", "machine learning"],
-  "metadata": {
-    "date": "2026-05-01T10:05:00Z",
-    "agent": "import-agent-v1",
-    "source_id": "src-abc123"
-  }
-}
 ```
-
-**Example — same key, different source:**
-
-```json
-{
-  "key": "skills",
-  "value": ["project management", "stakeholder communication"],
-  "metadata": {
-    "date": "2026-05-10T09:15:00Z",
-    "agent": "session-agent-v1",
-    "source_id": "src-xyz789"
-  }
-}
+label:       ENTITY
+id:          "ent-001"
+name:        "Alice"
+description: null
 ```
 
 ---
 
-## 3. VectorSource
+#### FACT
 
-The Vector store mirrors all user data entries from the JSON store. User metadata (profile, contact methods, source registry) is **not** stored in the Vector store.
-
-### 3.1 Vector Entry
-
-Each user data entry is stored as a vectorized record. Both the key and the value are independently embedded.
+A concrete instance of a RELATION, connecting two ENTITY nodes.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `key_vector` | float[] | Embedding of the key string |
-| `value_vector` | float[] | Embedding of the serialized value array |
-| `key` | string | Original key, stored verbatim for retrieval |
-| `value` | JSON array | Original value, stored verbatim for retrieval |
-| `metadata` | object | Same metadata object as the corresponding JSONSource entry |
+| `id` | string | |
+| `name` | string \| null | Optional label for the fact (e.g., `"Alice at IBM"`) |
+| `description` | string \| null | |
 
-Semantic search may operate on key vectors, value vectors, or both, depending on query intent.
-
-### 3.2 Embedding Model
-
-The embedding model used to vectorize keys and values is pluggable and selected at deployment time. All entries within a single user database must be produced by the same model version; a model change requires re-embedding the entire database.
-
----
-
-## 4. Synchronization
-
-Every write to a user data entry is applied to both JSONSource and VectorSource within the same operation before the write is acknowledged (dual-write). JSONSource is the system of record.
-
-User metadata writes (profile, contact methods, source registry) target JSONSource only.
+**Example:**
+```
+label: FACT
+id:    "fact-001"
+name:  null
+```
 
 ---
 
-## 5. Source Types
+#### LITERAL
 
-| `source_type` | Class | Description |
-|---------------|-------|-------------|
-| `"file"` | `FileSource` | Uploaded or local file (e.g., a resume) |
-| `"session"` | `SessionSource` | Active or historical conversational session |
+A typed scalar value attached to an ENTITY or FACT via a PROPERTY.
 
-Additional source types may be registered as extensions.
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | |
+| `name` | string \| null | |
+| `value` | string \| number \| boolean | The stored value |
+| `literal_type` | string | One of `STRING`, `NUMBER`, `DATE`, `BOOLEAN` |
 
--->
+`literal_type` is inferred from the Python value type when not supplied: `int`/`float` → `NUMBER`, `bool` → `BOOLEAN`, everything else → `STRING`.
+
+**Example:**
+```
+label:        LITERAL
+id:           "lit-001"
+value:        "1998-06-01"
+literal_type: "DATE"
+```
+
+---
+
+### 2.3 Provenance Nodes
+
+#### SOURCE
+
+Represents an originating document or data source. Serves as the top-level anchor for provenance chains.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | |
+| `name` | string | Human-readable name for the source (e.g., `"Alice's résumé"`) |
+| `source` | string | Opaque source identifier (e.g., filename, URL, session ID) |
+| `description` | string \| null | |
+
+**Example:**
+```
+label:       SOURCE
+id:          "src-001"
+name:        "Alice's résumé"
+source:      "resume_alice.pdf"
+description: "PDF résumé uploaded 2026-06-01"
+```
+
+---
+
+#### EXTRACTION
+
+Captures a verbatim text span that an entity, fact, or literal was drawn from. Each instance item gets its own EXTRACTION node, even when multiple items share the same source passage.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | |
+| `text` | string | The verbatim text span |
+| `name` | string \| null | |
+| `description` | string \| null | |
+
+**Example:**
+```
+label: EXTRACTION
+id:    "ext-001"
+text:  "Alice joined IBM as a software engineer in June 1998."
+```
+
+---
+
+## 3. Edge Types
+
+All edges are directed. Source and target node labels constrain which connections are valid.
+
+### 3.1 Schema Edges
+
+| Edge type | Source label | Target label | Meaning |
+|-----------|-------------|-------------|---------|
+| `IS_SUBCLASS_OF` | CLASS | CLASS | Child class inherits from parent class |
+| `DEFINE_PROPERTY` | CLASS or RELATION | PROPERTY | The class or relation owns this property |
+| `DOMAIN` | RELATION | CLASS | Valid head entity type for the relation |
+| `RANGE` | RELATION | CLASS | Valid tail entity type for the relation |
+
+**Example — schema fragment:**
+```
+(EMPLOYEE) --[IS_SUBCLASS_OF]--> (PERSON)
+(WORKED_AT) --[DOMAIN]--> (EMPLOYEE)
+(WORKED_AT) --[RANGE]---> (COMPANY)
+(WORKED_AT) --[DEFINE_PROPERTY]--> (START_DATE)
+```
+
+---
+
+### 3.2 Instance Edges
+
+| Edge type | Source label | Target label | Meaning |
+|-----------|-------------|-------------|---------|
+| `IS_INSTANCE_OF` | ENTITY | CLASS | Entity belongs to this class |
+| `REPRESENTS` | FACT | RELATION | Fact is an instance of this relation type |
+| `HEAD` | FACT | ENTITY | The head (subject) entity of the fact |
+| `TAIL` | FACT | ENTITY | The tail (object) entity of the fact |
+| `HAS_PROPERTY` | ENTITY or FACT | LITERAL | The entity or fact has this property value |
+| `IS_VALUE_OF` | LITERAL | PROPERTY | The literal is a value of this property type |
+
+**Example — instance fragment:**
+```
+(Alice) --[IS_INSTANCE_OF]--> (EMPLOYEE)
+(IBM)   --[IS_INSTANCE_OF]--> (COMPANY)
+
+(fact-001) --[REPRESENTS]--> (WORKED_AT)
+(fact-001) --[HEAD]---------> (Alice)
+(fact-001) --[TAIL]---------> (IBM)
+
+(fact-001) --[HAS_PROPERTY]--> (lit-001:"1998-06-01")
+(lit-001)  --[IS_VALUE_OF]---> (START_DATE)
+```
+
+---
+
+### 3.3 Provenance Edges
+
+| Edge type | Source label | Target label | Meaning |
+|-----------|-------------|-------------|---------|
+| `EXTRACTED_FROM` | ENTITY, FACT, or LITERAL | EXTRACTION | Instance was drawn from this text span |
+| `EXTRACTED_FROM` | EXTRACTION | SOURCE | Text span came from this source document |
+
+One EXTRACTION node is created per instance item. The same SOURCE node may be the target of many EXTRACTION→SOURCE edges when multiple items are drawn from the same document.
+
+**Example — provenance chain:**
+```
+(Alice)    --[EXTRACTED_FROM]--> (ext-001:"Alice joined IBM...")
+(fact-001) --[EXTRACTED_FROM]--> (ext-001:"Alice joined IBM...")
+(lit-001)  --[EXTRACTED_FROM]--> (ext-001:"...in June 1998.")
+(ext-001)  --[EXTRACTED_FROM]--> (src-001:"Alice's résumé")
+```
+
+---
+
+## 4. Meta-Schema
+
+The meta-schema is a fixed `DataSchema` that describes KBDB's own graph structure — the node labels and edge types — using the same CLASS/RELATION/PROPERTY vocabulary as any other KBDB schema. It is returned by `fetch_meta_schema()` and never stored in any user database.
+
+It allows any agent or tool to inspect the structure of the KB graph itself without hard-coding label names, enabling generic graph traversal, introspection, and tooling.
+
+**Meta-schema classes (node labels as classes):**
+
+| Name | Description |
+|------|-------------|
+| `CLASS` | A schema class node |
+| `RELATION` | A schema relation type node |
+| `PROPERTY` | A schema property node |
+| `ENTITY` | An instance entity node |
+| `FACT` | An instance fact node |
+| `LITERAL` | A typed scalar value node |
+| `SOURCE` | A provenance source document node |
+| `EXTRACTION` | A provenance text span node |
+
+**Meta-schema relations (edge types as relations):**
+
+| Name | Domain | Range | Description |
+|------|--------|-------|-------------|
+| `IS_SUBCLASS_OF` | CLASS | CLASS | Class hierarchy |
+| `DEFINE_PROPERTY` | CLASS or RELATION | PROPERTY | Property ownership |
+| `DOMAIN` | RELATION | CLASS | Valid head type |
+| `RANGE` | RELATION | CLASS | Valid tail type |
+| `IS_INSTANCE_OF` | ENTITY | CLASS | Entity classification |
+| `REPRESENTS` | FACT | RELATION | Fact typing |
+| `HEAD` | FACT | ENTITY | Fact subject |
+| `TAIL` | FACT | ENTITY | Fact object |
+| `HAS_PROPERTY` | ENTITY or FACT | LITERAL | Property value attachment |
+| `IS_VALUE_OF` | LITERAL | PROPERTY | Property type reference |
+| `EXTRACTED_FROM` | ENTITY, FACT, LITERAL, or EXTRACTION | EXTRACTION or SOURCE | Provenance link |
+
+---
+
+## 5. Literal Types
+
+| `literal_type` | Python types | Description |
+|---------------|-------------|-------------|
+| `STRING` | `str` | Default; used for text, names, identifiers |
+| `NUMBER` | `int`, `float` | Numeric values |
+| `DATE` | `str` (ISO 8601) | Dates and datetimes stored as strings |
+| `BOOLEAN` | `bool` | True/false values |

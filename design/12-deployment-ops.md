@@ -1,49 +1,49 @@
-# $PROJECT_NAME$ — Deployment / Ops
+# KBDB — Deployment / Ops
 
 ## Overview
 
-$PROJECT_NAME$  is distributed in two forms:
+KBDB is distributed in two forms:
 
-- **PyPI package** — the Python library, for embedding in other Python applications
-- **Docker image** — packages the REST API and MCP server for standalone deployment
+- **PyPI package** (`blue-data-kb-source`) — the Python library, for embedding KBDB in other Python applications
+- **Docker image** (`blue-data-kb-server`) — packages the REST API and MCP server for standalone deployment
 
-Production deployments are self-hosted. Operators provision and manage their own storage backends and observability infrastructure. UserDb emits to standard interfaces and does not assume any specific platform.
+Production deployments are self-hosted. Operators provision and manage their own graph backend and observability infrastructure. KBDB emits to standard interfaces and does not assume any specific platform.
 
 ---
 
 ## 1. Versioning
 
-UserDb follows [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`). Version is declared once in `pyproject.toml` and read from there by all build tooling.
+KBDB follows [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`). Version is declared once in `lib/pyproject.toml` and read from there by all build tooling.
 
 - **PATCH** — bug fixes, no interface changes
 - **MINOR** — backwards-compatible new features
-- **MAJOR** — breaking changes to the Python library API or data model
+- **MAJOR** — breaking changes to the Python library API or graph data model
 
 ---
 
 ## 2. PyPI Package
 
-The python package exposes the Python library. It does not include the REST API, MCP server, or CLI by default. Those are available as optional extras:
-
-Example:
+The `blue-data-kb-source` package exposes the Python library (`KBSource` and related classes). It does not include the REST API, MCP server, or CLI by default. Those are available as optional extras:
 
 ```
-pip install userdb               # library only
-pip install userdb[server]       # library + REST API + MCP server
-pip install userdb[cli]          # library + CLI
-pip install userdb[all]          # everything
+pip install blue-data-kb-source                  # library only (MemoryGraphSource backend)
+pip install blue-data-kb-source[neo4j]           # library + Neo4j backend
+pip install blue-data-kb-source[openai]          # library + LLM extraction support
+pip install blue-data-kb-source[server]          # library + REST API + MCP server
+pip install blue-data-kb-source[cli]             # library + CLI
+pip install blue-data-kb-source[all]             # everything
 ```
 
 ---
 
 ## 3. Docker Image
 
-The docker image runs both the REST API (Uvicorn/FastAPI) and the MCP server as a combined process. The image is published to a container registry alongside each release.
+The `blue-data-kb-server` image runs both the REST API (Uvicorn/FastAPI) and the MCP server as a combined process. The image is published to a container registry alongside each release.
 
 | Port | Service |
 |------|---------|
 | `8000` | REST API (HTTP) |
-| `8001` | MCP Server |
+| `8001` | MCP server |
 
 **Base image:** `python:3.12-slim`
 
@@ -53,48 +53,38 @@ The docker image runs both the REST API (Uvicorn/FastAPI) and the MCP server as 
 
 ---
 
-## 4. Storage Backends
+## 4. Storage Backend
 
-<!-- Describe storage backends
--->
+KBDB does not bundle or manage the graph backend. The operator provisions a **Neo4j** instance and provides its connection details via environment variables.
 
-<!--
-Example:
-UserDb does not bundle or manage storage backends. The operator provisions:
+Neo4j must be available before KBDB starts. KBDB will fail at startup if the backend is unreachable.
 
-- A **JSON backend** (e.g., Redis, MongoDB) and provides its connection details via environment variables
-- A **Vector backend** (e.g., ChromaDB) and provides its connection details via environment variables
-
-Both backends must be available before UserDb starts. UserDb will fail at startup if a backend is unreachable.
--->
-
-### Reference docker-compose
-
-A `docker-compose.yml` is provided in the repository root for local development and operator reference. It starts UserDb alongside minimal backend instances.
-
-Example:
+For local development and operator reference, a `docker-compose.yml` is provided in the repository root:
 
 ```yaml
 services:
-  userdb:
-    image: userdb-server:latest
+  kbdb:
+    image: blue-data-kb-server:latest
     ports:
       - "8000:8000"
       - "8001:8001"
     env_file: .env
     depends_on:
-      - redis
-      - chromadb
+      neo4j:
+        condition: service_healthy
 
-  redis:
-    image: redis:7-alpine
+  neo4j:
+    image: neo4j:5
     ports:
-      - "6379:6379"
-
-  chromadb:
-    image: chromadb/chroma:latest
-    ports:
-      - "8002:8000"
+      - "7474:7474"   # HTTP browser
+      - "7687:7687"   # Bolt protocol
+    environment:
+      NEO4J_AUTH: neo4j/password
+    healthcheck:
+      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "password", "RETURN 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 ```
 
 ---
@@ -103,76 +93,70 @@ services:
 
 All configuration is via environment variables. There are no configuration files — operators use `.env` files, secrets managers, or platform-native injection.
 
-<!-- Describe config properties
--->
-
-<!--
-Example: 
-
 ### Core
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `USERDB_DATABASE` | No | — | Default user database ID used when none is specified per request |
+| `KBDB_DATABASE` | No | — | Default database name used when none is specified per request |
+| `KBDB_GRAPH_BACKEND` | No | `memory` | Graph backend to use: `memory` or `neo4j` |
 
 ### Storage
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `USERDB_JSON_BACKEND_URL` | Yes | Connection URL for the JSON backend (e.g., `redis://localhost:6379`) |
-| `USERDB_VECTOR_BACKEND_URL` | Yes | Connection URL for the Vector backend (e.g., `http://localhost:8002`) |
+| `KBDB_NEO4J_URI` | Yes (neo4j backend) | Neo4j Bolt URI (e.g., `bolt://localhost:7687`) |
+| `KBDB_NEO4J_USER` | Yes (neo4j backend) | Neo4j username |
+| `KBDB_NEO4J_PASSWORD` | Yes (neo4j backend) | Neo4j password |
 
-### LLM and Embeddings
+### LLM
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `OPENAI_API_KEY` | Yes (default provider) | API key for the LLM and embedding model provider |
-| `USERDB_LLM_MODEL` | No | LLM model name (default: `gpt-4o`) |
-| `USERDB_EMBED_MODEL` | No | Embedding model name (default: `text-embedding-3-small`) |
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `OPENAI_API_KEY` | Yes (extraction) | — | OpenAI API key; only required when `import_text` is used |
+| `KBDB_LLM_MODEL` | No | `gpt-4o` | OpenAI model used by the Extraction Engine |
 
 ### Server
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `USERDB_REST_PORT` | No | `8000` | Port for the REST API |
-| `USERDB_MCP_PORT` | No | `8001` | Port for the MCP server |
-| `USERDB_REST_ENABLED` | No | `true` | Set to `false` to disable the REST API |
-| `USERDB_MCP_ENABLED` | No | `true` | Set to `false` to disable the MCP server |
-
--->
+| `KBDB_REST_PORT` | No | `8000` | Port for the REST API |
+| `KBDB_MCP_PORT` | No | `8001` | Port for the MCP server |
+| `KBDB_REST_ENABLED` | No | `true` | Set to `false` to disable the REST API |
+| `KBDB_MCP_ENABLED` | No | `true` | Set to `false` to disable the MCP server |
 
 ### Observability
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | No | — | OpenTelemetry collector endpoint; tracing disabled if unset |
-| `OTEL_SERVICE_NAME` | No | `userdb` | Service name reported in traces and metrics |
+| `OTEL_SERVICE_NAME` | No | `kbdb` | Service name reported in traces and metrics |
 
 ---
 
 ## 6. Observability
 
-Emits structured logs, metrics, and traces. Operators wire these into their own observability stack.
+KBDB emits structured logs, metrics, and traces. Operators wire these into their own observability stack.
 
 ### Structured Logging
 
-All log output is JSON-formatted to stdout. Log level is controlled by the standard `LOG_LEVEL` environment variable (`DEBUG`, `INFO`, `WARNING`, `ERROR`; default: `INFO`).
+All log output is JSON-formatted to stdout. Log level is controlled by the `LOG_LEVEL` environment variable (`DEBUG`, `INFO`, `WARNING`, `ERROR`; default: `INFO`).
 
-Each log line includes: `timestamp`, `level`, `service`, `trace_id` (when a trace is active), and a `message` field.
+Each log line includes: `timestamp`, `level`, `service`, `database`, `trace_id` (when a trace is active), and a `message` field.
 
 ### Metrics
 
-Metrics are exposed via a Prometheus-compatible `/metrics` endpoint on the REST API port. Key metrics:
-
-Example:
+Metrics are exposed via a Prometheus-compatible `/metrics` endpoint on the REST API port.
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `userdb_requests_total` | Counter | Total requests by operation (`query`, `import`) and status |
-| `userdb_request_duration_seconds` | Histogram | End-to-end request latency |
-| `userdb_llm_calls_total` | Counter | LLM API calls by component and status |
-| `userdb_llm_duration_seconds` | Histogram | LLM call latency |
-| `userdb_storage_ops_total` | Counter | Storage operations by store (`json`, `vector`), op type, and status |
+| `kbdb_requests_total` | Counter | Total requests by operation and status |
+| `kbdb_request_duration_seconds` | Histogram | End-to-end request latency |
+| `kbdb_llm_calls_total` | Counter | OpenAI API calls by status |
+| `kbdb_llm_duration_seconds` | Histogram | OpenAI call latency |
+| `kbdb_graph_ops_total` | Counter | Graph store operations by type (`add_node`, `add_edge`, `get_node`, `match_nodes`) and status |
+| `kbdb_graph_op_duration_seconds` | Histogram | Graph operation latency |
+| `kbdb_schema_elements_total` | Gauge | Count of schema nodes (CLASS, RELATION, PROPERTY) per database |
+| `kbdb_instance_nodes_total` | Gauge | Count of instance nodes (ENTITY, FACT, LITERAL) per database |
 
 ### Tracing
 
@@ -181,12 +165,13 @@ Distributed tracing uses [OpenTelemetry](https://opentelemetry.io/) with OTLP ex
 Trace spans are created at:
 
 - Each external interface request
-- Each Reasoning Layer operation (query rewrite, data assessment)
-- Each DML operation (query plan, query execution)
-- Each storage read/write
-- Each LLM call
+- Each Schema Manager operation (declare, search, consolidate, import/export)
+- Each Knowledge Manager operation (add, answer, validate, enrich)
+- Each Provenance Tracker operation
+- Each graph store read/write
+- Each OpenAI API call (Extraction Engine)
 
-All spans include `user_id` (hashed) and `operation` as attributes. Raw user data is never included in span attributes.
+All spans include `database` and `operation` as attributes. No knowledge base content is ever included in span attributes.
 
 ---
 
@@ -196,7 +181,8 @@ The CI/CD platform is not yet selected. Regardless of platform, the pipeline def
 
 | Stage | Trigger | Actions |
 |-------|---------|---------|
-| **Verify** | Every push / PR | Run unit tests, type check (pyright), lint |
+| **Verify** | Every push / PR | Run unit tests, type check (`pyright`), lint (`ruff`) |
+| **Integration** | Every push to `main` | Run integration tests against a Neo4j container |
 | **Build** | Every push to `main` | Build PyPI package, build Docker image |
 | **Publish** | Git tag (`v*.*.*`) | Publish to PyPI, push Docker image to registry |
 
@@ -206,7 +192,7 @@ The **Verify** stage must pass before any merge. The **Publish** stage is gated 
 
 ## 8. Release Process
 
-1. Bump version in `pyproject.toml`
+1. Bump version in `lib/pyproject.toml`
 2. Update `CHANGELOG.md`
 3. Merge to `main`
 4. Push a tag: `git tag v1.2.3 && git push origin v1.2.3`

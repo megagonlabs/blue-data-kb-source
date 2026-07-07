@@ -1,149 +1,108 @@
-# $PROJECT_NAME$ — High Level Architecture
-
-<!-- 
-Example: 
-
-> Reference image: `03-high-level-architecture.png`
--->
+# KBDB — High Level Architecture
 
 ## Diagram
 
-<!-- 
-Provide a high-level architecture diagram.
--->
-
-<!-- 
-Example: 
-
 ```
-                      External Interfaces
+                   External Interfaces
 
-  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
-  │ Python Lib  │  │ MCP Server  │  │  REST API   │  │     CLI     │
-  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘
-         └────────────────┴────────────────┴────────────────┘
-                                    │
-                                    ▼
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                                   UserDb                                     │
-│                                                                              │
-│  ┌──────────────────────────────┐   ┌──────────────────────────────────────┐ │
-│  │  Natural Language Query      │   │        Data Management Layer         │ │
-│  │       Interface              │   │                                      │ │
-│  └──────────────────────────────┘   │  ┌────────────────────────────────┐  │ │
-│                                     │  │         Query Planner           │  │ │
-│  ┌──────────────────────────────┐   │  └────────────────────────────────┘  │ │
-│  │       Reasoning Layer        │   │  ┌────────────────────────────────┐  │ │
-│  │                              │   │  │         Query Executor          │  │ │
-│  │  ┌────────────────────────┐  │   │  └────────────────────────────────┘  │ │
-│  │  │     Query Rewriter     │  │   │  ┌────────────────────────────────┐  │ │
-│  │  └────────────────────────┘  │   │  │        Source Manager          │  │ │
-│  │  ┌────────────────────────┐  │   │  └────────────────────────────────┘  │ │
-│  │  │     Data Assessor      │  │   └─────────────────────────┬────────────┘ │
-│  │  └────────────────────────┘  │                             │              │
-│  └──────────────────────────────┘                             │              │
-│                                                               │              │
-│  ┌──────────────────────────────┐                             │              │
-│  │      Interaction Layer       │                             │              │
-│  │                              │                             │              │
-│  │  ┌────────────────────────┐  │                             │              │
-│  │  │    Contact Manager     │  │                             │              │
-│  │  └────────────────────────┘  │                             │              │
-│  │  ┌────────────────────────┐  │                             │              │
-│  │  │  Interaction Manager    │  │                             │              │
-│  │  └────────────────────────┘  │                             │              │
-│  └──────────────────────────────┘                             │              │
-│                                                               │              │
-└───────────────────────────────────────────────────────────────┼──────────────┘
-                                                                │
-                                                    ┌───────────▼──────────┐
-                                                    │   ┌──────┐ ┌──────┐  │
-                                                    │   │ JSON │ │Vector│  │
-                                                    │   └──────┘ └──────┘  │
-                                                    └──────────────────────┘
+┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
+│ Python Lib  │  │ MCP Server  │  │  REST API   │  │     CLI     │
+└──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘
+       └────────────────┴────────────────┴────────────────┘
+                                  │
+                                  ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                               KBDB                                  │
+│                                                                     │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │                       Schema Layer                          │   │
+│  │                                                             │   │
+│  │  ┌──────────────────────────────────────────────────────┐   │   │
+│  │  │                   Schema Manager                     │   │   │
+│  │  └──────────────────────────────────────────────────────┘   │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  ┌──────────────────────────┐  ┌────────────────────────────────┐  │
+│  │    Extraction Engine     │  │        Knowledge Layer         │  │
+│  │                          │  │                                │  │
+│  │  ┌──────────────────┐    │  │  ┌────────────────────────┐   │  │
+│  │  │    LLM Agent     │    │  │  │  Knowledge Manager     │   │  │
+│  │  └──────────────────┘    │  │  └────────────────────────┘   │  │
+│  └──────────────────────────┘  │  ┌────────────────────────┐   │  │
+│                                │  │  Provenance Tracker    │   │  │
+│                                │  └────────────────────────┘   │  │
+│                                │  ┌────────────────────────┐   │  │
+│                                │  │   Change Notifier      │   │  │
+│                                │  └────────────────────────┘   │  │
+│                                └────────────────────────────────┘  │
+└─────────────────────────────────────────────┬───────────────────────┘
+                                              │
+                              ┌───────────────▼──────────────┐
+                              │  ┌──────────┐  ┌──────────┐  │
+                              │  │  Memory  │  │  Neo4j   │  │
+                              │  └──────────┘  └──────────┘  │
+                              └──────────────────────────────┘
 ```
--->
 
 ## Components
 
-<!-- 
-Describe each component in the architecture
--->
-
-<!-- 
-Example:
-
 ### External Interfaces
 
-Four interface adapters sit in front of UserDb and delegate to the Natural Language Query Interface. They share no internal logic — each is a thin translation layer over the Python library.
+Four interface adapters sit in front of KBDB and delegate to the core library. They share no internal logic — each is a thin translation layer over the Python library.
 
-**Python Library** — Native Python API (`UserSource` and related classes). Used to embed UserDb directly in Python applications.
+**Python Library** — Native Python API (`KBSource` and related classes). Used to embed KBDB directly in Python applications and agentic pipelines.
 
-**MCP Server** — Exposes `execute_query` and `import` as MCP tools, enabling LLM agents to interact with UserDb within an agentic context.
+**MCP Server** — Exposes schema declaration, instance ingestion, and query operations as MCP tools, enabling LLM agents to interact with KBDB within an agentic context.
 
-**REST API** — HTTP/JSON interface (FastAPI). Enables non-Python services and remote clients to call UserDb over the network.
+**REST API** — HTTP/JSON interface (FastAPI). Enables non-Python services and remote clients to call KBDB over the network.
 
-**CLI** — Command-line interface (Click + Rich). Used for interactive development, debugging, and scripting.
+**CLI** — Command-line interface (Click + Rich). Used for interactive development, debugging, scripting, and schema inspection.
 
-### Natural Language Query Interface
-The entry point for all retrieval from UserDb. Accepts natural language queries from agents.
+### Schema Layer
 
-- All retrieval is expressed as natural language queries
-- Ingestion may optionally accompany a query; when it does, the ingested data is evaluated against the query and relevant data is extracted
-- Queries are forwarded to the Reasoning Layer for processing
-- Responses can be returned as structured data or in natural language
+Manages the typed vocabulary of the knowledge base — classes, relation types, properties, and class hierarchies.
 
-### Reasoning Layer
-Interprets queries and query results through reasoning agents.
+- Provides idempotent declaration of schema elements: a repeated declaration for an already-existing name is a no-op
+- Maintains hierarchical relationships between classes (subclass) and between relations (sub-relation)
+- Supports domain and range constraints that specify the valid head and tail types for each relation
+- Exports the schema to a portable representation and imports it from that representation into any database
+- Exposes the meta-schema — a fixed description of KBDB's own graph structure — for introspection by agents and tools
+- Supports schema consolidation: merging or splitting classes, relations, and properties, propagating the resulting changes to all affected instances
+- Supports schema search: filtering schema elements by natural language query or keywords, enabling agents and tools to discover what the schema already captures before declaring new elements
 
-- Incoming queries are rewritten as necessary given user context, the query intent, and available data, sources
-- Assesses query results against metrics such as freshness and completeness
-- Determines whether results require verification with the user or further interaction before being returned
+**Schema Manager** — Handles all schema declaration, hierarchy wiring, domain/range constraints, import/export, consolidation, and search operations.
 
-**Query Rewriter** — Rewrites incoming natural language queries given user context and available data to improve retrieval accuracy.
+### Knowledge Layer
 
-**Data Assessor** — Evaluates query results against quality metrics (freshness, completeness, and others) and determines whether user interaction is needed before the result can be returned.
+Populates the knowledge base with concrete data and answers queries over it — entity instances, factual relations, property values, and the reasoning operations that work across them.
 
-### Interaction Layer
-Manages interaction with the user through various contact methods.
+- All instance data is grounded in the schema: entities belong to classes, facts represent typed relations, and property values are typed literals
+- Provenance is tracked at the individual item level: each entity, fact, and property value can carry a link to the exact source text span it was drawn from
+- Downstream components are notified in real time whenever new data is written
+- Supports natural language queries answered directly from instances, using the schema to interpret and scope the question
+- Supports validation: given a statement, returns supporting and counter evidence drawn from existing facts and property values
+- Supports enrichment: given a query, returns related knowledge that bears on the query without necessarily answering it directly — surfacing context, adjacent facts, and related entities
 
-- Maintains a set of contact methods (e.g. email, SMS, system I/O, active session)
-- Contact methods are stored and retrieved as per-user metadata in the Data Management Layer
-- Conversation mechanics are specific to each contact method
-- Requests originate from the Reasoning Layer and responses are returned to the Reasoning Layer
+**Knowledge Manager** — Creates and stores entity, fact, and literal nodes; wires the typed edges that connect them to their schema elements and to each other; and handles answer, validate, and enrich queries over the instance graph.
 
-**Contact Manager** — Maintains and selects the appropriate contact method for a given user and query context.
+**Provenance Tracker** — Records the origin of each piece of knowledge by creating extraction nodes that capture the verbatim source text and linking them to both the item and the originating source document.
 
-**Interaction Manager** — Conducts the actual interaction with the user using the method provided by the Contact Manager, adapting conversation mechanics accordingly.
+**Change Notifier** — Fires registered hooks synchronously after each instance write, delivering a structured event that describes the change — including the names of the affected entities, relations, and properties — to any registered listener.
 
-### Data Management Layer
-Manages user data and metadata across all storage types and sources.
+### Extraction Engine
 
-- Stores and retrieves user metadata (general profile, contact methods, etc.)
-- Stores and retrieves user data across generic stores (JSON, Vector, and others)
-- Manages user-specific sources such as uploaded files and active sessions
-- Uses the Source Manager to identify data sources relevant to a given query
-- Decomposes queries into subqueries when necessary and constructs a fetch plan across relevant sources
-- Executes queries against data sources via the Source Manager
+Reads free text and populates the knowledge base by calling into the Schema Layer and Knowledge Layer using an LLM as the reasoning core.
 
-**Query Planner** — Interprets an incoming query, identifies relevant data sources via the Source Manager, and produces an execution plan, breaking the query into subqueries as needed.
+- The LLM is given the current schema and a set of guiding queries, then asked to identify entities, facts, and property values in the text
+- When the text introduces concepts not covered by the current schema, the LLM extends the schema before creating the corresponding instances
+- Each item created during extraction is linked to the verbatim text span the LLM identified as its source
 
-**Query Executor** — Carries out the execution plan produced by the Query Planner, dispatching subqueries to the appropriate data sources and assembling the results.
+**LLM Agent** — Orchestrates the extraction loop: reads the schema, calls schema and instance tools in sequence, and records the source text span for each item it creates.
 
-**Source Manager** — Maintains the catalog of all data sources available for a user (generic stores, uploaded files, active sessions, etc.) and provides source lookup for the Query Planner and Query Executor.
+### Graph Store
 
-### Storage
+Stores all schema and instance data as a typed graph of nodes and edges. The store is abstract — multiple backends are supported and can be swapped without changing any application code.
 
-**JSON Store** — Manages key-value JSON data.
+**Memory** — In-process graph store. Used for development, testing, and short-lived pipelines where persistence is not required.
 
-- Abstract store with pluggable backends (e.g. Redis, MongoDB)
-- Stores data given a key and value
-- Supports structured queries (e.g. JSONPath)
-
-**Vector Store** — Manages key-value vector data.
-
-- Abstract store with pluggable backends (e.g. ChromaDB)
-- Converts keys and values to vectors via an embedding model before storage
-- Stores metadata alongside each vector entry (e.g. type (key or value) timestamp, source, associated key or value vector id)
-- Supports semantic queries (e.g. vector similarity search) given a natural language query
--->
+**Neo4j** — Persistent graph database backend. Used for production deployments where the knowledge base must survive process restarts and support concurrent access.
