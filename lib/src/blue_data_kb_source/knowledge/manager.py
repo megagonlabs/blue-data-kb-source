@@ -369,11 +369,29 @@ class KnowledgeManager:
     # NL queries                                                           #
     # ------------------------------------------------------------------ #
 
-    async def answer(self, database: str, question: str, model: str = "gpt-4o") -> list[AnswerResult]:
-        return await self._query.answer(database, question, model)
+    async def answer(
+        self,
+        database: str,
+        question: str,
+        model: str = "gpt-4o",
+        natural_language: bool = False,
+    ) -> list[AnswerResult] | str:
+        results = await self._query.answer(database, question, model)
+        if natural_language:
+            return await self._query.answer_as_text(question, results, model)
+        return results
 
-    async def validate(self, database: str, statement: str, model: str = "gpt-4o") -> ValidationResult:
-        return await self._query.validate(database, statement, model)
+    async def validate(
+        self,
+        database: str,
+        statement: str,
+        model: str = "gpt-4o",
+        natural_language: bool = False,
+    ) -> ValidationResult | str:
+        result = await self._query.validate(database, statement, model)
+        if natural_language:
+            return await self._query.validate_as_text(statement, result, model)
+        return result
 
     async def enrich(self, database: str, query: str, depth: int = 2, model: str = "gpt-4o") -> list[EnrichmentResult]:
         return await self._query.enrich(database, query, depth, model)

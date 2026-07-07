@@ -2,8 +2,8 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 
-def _mock_openai(result_payload):
-    """Return a patched openai.AsyncOpenAI that immediately calls return_result."""
+def _agent_response(result_payload):
+    """Build a mock chat response that immediately calls return_result."""
     tc = MagicMock()
     tc.id = "call_0"
     tc.type = "function"
@@ -18,9 +18,37 @@ def _mock_openai(result_payload):
     response = MagicMock()
     response.choices = [MagicMock()]
     response.choices[0].message = msg
+    return response
 
+
+def _text_response(text):
+    """Build a mock chat response with plain text content (no tool calls)."""
+    msg = MagicMock()
+    msg.role = "assistant"
+    msg.content = text
+    msg.tool_calls = None
+
+    response = MagicMock()
+    response.choices = [MagicMock()]
+    response.choices[0].message = msg
+    return response
+
+
+def _mock_openai(result_payload):
+    """Patch openai.AsyncOpenAI for a single agent call (return_result)."""
     mock_client = MagicMock()
-    mock_client.chat.completions.create = AsyncMock(return_value=response)
+    mock_client.chat.completions.create = AsyncMock(
+        return_value=_agent_response(result_payload)
+    )
+    return MagicMock(return_value=mock_client)
+
+
+def _mock_openai_nl(result_payload, nl_text):
+    """Patch openai.AsyncOpenAI for agent call followed by NL completion call."""
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(
+        side_effect=[_agent_response(result_payload), _text_response(nl_text)]
+    )
     return MagicMock(return_value=mock_client)
 
 
@@ -341,3 +369,53 @@ async def test_enrich_no_results_for_unknown_entity(populated_kb):
     with patch("openai.AsyncOpenAI", _mock_openai([])):
         results = await populated_kb.enrich("test", "zzz_not_a_person_zzz")
     assert results == []
+
+
+# ------------------------------------------------------------------ #
+# answer natural_language=True                                         #
+# ------------------------------------------------------------------ #
+
+_ANSWER_NL_TEXT = "Alice worked at IBM starting in June 1998."
+
+async def test_answer_natural_language_returns_string(populated_kb):
+    with patch("openai.AsyncOpenAI", _mock_openai_nl(_ANSWER_PAYLOAD, _ANSWER_NL_TEXT)):
+        result = await populated_kb.answer("test", "Where did Alice work?", natural_language=True)
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+async def test_answer_natural_language_contains_expected_content(populated_kb):
+    with patch("openai.AsyncOpenAI", _mock_openai_nl(_ANSWER_PAYLOAD, _ANSWER_NL_TEXT)):
+        result = await populated_kb.answer("test", "Where did Alice work?", natural_language=True)
+    assert result == _ANSWER_NL_TEXT
+
+
+async def test_answer_default_returns_structured(populated_kb):
+    with patch("openai.AsyncOpenAI", _mock_openai(_ANSWER_PAYLOAD)):
+        result = await populated_kb.answer("test", "Where did Alice work?")
+    assert isinstance(result, list)
+
+
+# ------------------------------------------------------------------ #
+# validate natural_language=True                                       #
+# ------------------------------------------------------------------ #
+
+_VALIDATE_NL_TEXT = "The statement is supported: Alice did work at IBM according to the knowledge base."
+
+async def test_validate_natural_language_returns_string(populated_kb):
+    with patch("openai.AsyncOpenAI", _mock_openai_nl(_VALIDATE_PAYLOAD, _VALIDATE_NL_TEXT)):
+        result = await populated_kb.validate("test", "Alice worked at IBM", natural_language=True)
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+async def test_validate_natural_language_contains_expected_content(populated_kb):
+    with patch("openai.AsyncOpenAI", _mock_openai_nl(_VALIDATE_PAYLOAD, _VALIDATE_NL_TEXT)):
+        result = await populated_kb.validate("test", "Alice worked at IBM", natural_language=True)
+    assert result == _VALIDATE_NL_TEXT
+
+
+async def test_validate_default_returns_structured(populated_kb):
+    with patch("openai.AsyncOpenAI", _mock_openai(_VALIDATE_PAYLOAD)):
+        result = await populated_kb.validate("test", "Alice worked at IBM")
+    assert hasattr(result, "supporting")

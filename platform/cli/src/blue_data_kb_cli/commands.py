@@ -807,20 +807,25 @@ def extract_cmd(
     default="table",
     show_default=True,
 )
+@click.option("--natural-language", "natural_language", is_flag=True, default=False,
+              help="Return a prose answer instead of a structured table.")
 @click.pass_obj
-def answer_cmd(obj: dict, question: str, fmt: str) -> None:
+def answer_cmd(obj: dict, question: str, fmt: str, natural_language: bool) -> None:
     """Answer a natural language question using the knowledge base."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
-        results = _run(kb.answer(db, question))
+        result = _run(kb.answer(db, question, natural_language=natural_language))
     except KBError as exc:
         raise click.ClickException(str(exc))
+    if natural_language:
+        console.print(result)
+        return
     if fmt == "json":
         console.print_json(json.dumps([
             {"entity": r.entity, "relation": r.relation,
              "value": r.value, "provenance": r.provenance}
-            for r in results
+            for r in result
         ]))
     else:
         t = Table(show_header=True, header_style="bold")
@@ -828,7 +833,7 @@ def answer_cmd(obj: dict, question: str, fmt: str) -> None:
         t.add_column("Relation")
         t.add_column("Value")
         t.add_column("Provenance")
-        for r in results:
+        for r in result:
             t.add_row(r.entity or "", r.relation or "", r.value or "", r.provenance or "")
         console.print(t)
 
@@ -839,15 +844,21 @@ def answer_cmd(obj: dict, question: str, fmt: str) -> None:
 
 @cli.command("validate")
 @click.argument("statement")
+@click.option("--natural-language", "natural_language", is_flag=True, default=False,
+              help="Return a prose assessment instead of supporting/counter lists.")
 @click.pass_obj
-def validate_cmd(obj: dict, statement: str) -> None:
+def validate_cmd(obj: dict, statement: str, natural_language: bool) -> None:
     """Return supporting and counter evidence for a statement."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
-        result = _run(kb.validate(db, statement))
+        result = _run(kb.validate(db, statement, natural_language=natural_language))
     except KBError as exc:
         raise click.ClickException(str(exc))
+
+    if natural_language:
+        console.print(result)
+        return
 
     console.print("\n[bold]Supporting:[/bold]")
     if result.supporting:
