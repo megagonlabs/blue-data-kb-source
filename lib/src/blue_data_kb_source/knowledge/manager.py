@@ -18,11 +18,13 @@ from blue_data_kb_source._constants import (
     EXTRACTION,
     TAIL,
 )
+from blue_data_kb_source.knowledge.engine import QueryEngine
 from blue_data_kb_source.types import AnswerResult, EnrichmentResult, ValidationResult
 
 if TYPE_CHECKING:
     from blue_data_kb_source.notification.notifier import ChangeNotifier
     from blue_data_kb_source.provenance.tracker import ProvenanceTracker
+    from blue_data_kb_source.schema.manager import SchemaManager
 
 
 class KnowledgeManager:
@@ -33,10 +35,12 @@ class KnowledgeManager:
         source: GraphSource,
         provenance_tracker: ProvenanceTracker,
         change_notifier: ChangeNotifier,
+        schema_manager: SchemaManager,
     ) -> None:
         self._source = source
         self._provenance = provenance_tracker
         self._notifier = change_notifier
+        self._query = QueryEngine(source, schema_manager)
 
     # ------------------------------------------------------------------ #
     # Helpers                                                              #
@@ -365,114 +369,11 @@ class KnowledgeManager:
     # NL queries                                                           #
     # ------------------------------------------------------------------ #
 
-    async def answer(self, database: str, question: str) -> list[AnswerResult]:
-        """Return knowledge items relevant to *question* via keyword graph search."""
-        keywords = [w.lower() for w in question.split() if len(w) > 2]
-        results: list[AnswerResult] = []
-        seen: set[str] = set()
+    async def answer(self, database: str, question: str, model: str = "gpt-4o") -> list[AnswerResult]:
+        return await self._query.answer(database, question, model)
 
-        def _matches(text: str) -> bool:
-            t = (text or "").lower()
-            return any(kw in t for kw in keywords)
+    async def validate(self, database: str, statement: str, model: str = "gpt-4o") -> ValidationResult:
+        return await self._query.validate(database, statement, model)
 
-        for entity_node in self._source.match_nodes(database, label=ENTITY):
-            props = entity_node.get("properties", {})
-            name = props.get("name", "")
-            nid = entity_node["id"]
-            if _matches(name) or _matches(props.get("description", "") or ""):
-                if nid not in seen:
-                    seen.add(nid)
-                    results.append(AnswerResult(entity=name, provenance=self._provenance_text(database, nid)))
-
-        for fact_node in self._source.match_nodes(database, label=FACT):
-            nid = fact_node["id"]
-            name = fact_node.get("properties", {}).get("name", "")
-            if _matches(name):
-                if nid not in seen:
-                    seen.add(nid)
-                    rel_name = self._node_name(database, self._first_neighbor(database, nid, REPRESENTS))
-                    head_name = self._node_name(database, self._first_neighbor(database, nid, HEAD))
-                    tail_name = self._node_name(database, self._first_neighbor(database, nid, TAIL))
-                    label = f"{head_name} → {tail_name}" if head_name and tail_name else name
-                    results.append(AnswerResult(entity=label, relation=rel_name, provenance=self._provenance_text(database, nid)))
-
-        for literal_node in self._source.match_nodes(database, label=LITERAL):
-            nid = literal_node["id"]
-            props = literal_node.get("properties", {})
-            value = str(props.get("value", ""))
-            name = props.get("name", value)
-            if _matches(name) or _matches(value):
-                if nid not in seen:
-                    seen.add(nid)
-                    prop_name = self._node_name(database, self._first_neighbor(database, nid, IS_VALUE_OF))
-                    results.append(AnswerResult(value=value, relation=prop_name, provenance=self._provenance_text(database, nid)))
-
-        return results
-
-    async def validate(self, database: str, statement: str) -> ValidationResult:
-        """Return supporting evidence from the graph for *statement* via keyword matching."""
-        keywords = [w.lower() for w in statement.split() if len(w) > 2]
-        supporting: list[dict] = []
-        counter: list[dict] = []
-
-        for fact_node in self._source.match_nodes(database, label=FACT):
-            nid = fact_node["id"]
-            fact_name = fact_node.get("properties", {}).get("name", "")
-            head_name = self._node_name(database, self._first_neighbor(database, nid, HEAD))
-            tail_name = self._node_name(database, self._first_neighbor(database, nid, TAIL))
-            rel_name = self._node_name(database, self._first_neighbor(database, nid, REPRESENTS))
-            all_text = " ".join(filter(None, [fact_name, head_name, tail_name, rel_name])).lower()
-            match_count = sum(1 for kw in keywords if kw in all_text)
-            if match_count > 0:
-                supporting.append({
-                    "fact": fact_name,
-                    "head": head_name,
-                    "tail": tail_name,
-                    "relation": rel_name,
-                    "match_score": match_count,
-                })
-
-        return ValidationResult(supporting=supporting, counter=counter)
-
-    async def enrich(self, database: str, query: str, depth: int = 2) -> list[EnrichmentResult]:
-        """Return knowledge within *depth* hops of entities matching *query*."""
-        keywords = [w.lower() for w in query.split() if len(w) > 2]
-        results: list[EnrichmentResult] = []
-        visited: set[str] = set()
-
-        seeds: list[tuple[str, int]] = [
-            (node["id"], 0)
-            for node in self._source.match_nodes(database, label=ENTITY)
-            if any(kw in node.get("properties", {}).get("name", "").lower() for kw in keywords)
-        ]
-
-        queue = list(seeds)
-        while queue:
-            node_id, dist = queue.pop(0)
-            if node_id in visited:
-                continue
-            visited.add(node_id)
-            for edge_type in (HEAD, TAIL):
-                for nb in self._source.get_neighbors(database, node_id, edge_type=edge_type, direction="in"):
-                    fact_node = nb["node"]
-                    fact_id = fact_node["id"]
-                    if fact_id in visited:
-                        continue
-                    visited.add(fact_id)
-                    rel_name = self._node_name(database, self._first_neighbor(database, fact_id, REPRESENTS))
-                    head_name = self._node_name(database, self._first_neighbor(database, fact_id, HEAD))
-                    tail_name = self._node_name(database, self._first_neighbor(database, fact_id, TAIL))
-                    entity_label = (
-                        f"{head_name} → {tail_name}"
-                        if head_name and tail_name
-                        else fact_node.get("properties", {}).get("name")
-                    )
-                    results.append(EnrichmentResult(entity=entity_label, relation=rel_name, distance=dist + 1))
-                    if dist + 1 < depth:
-                        for end_type in (HEAD, TAIL):
-                            for fact_nb in self._source.get_neighbors(database, fact_id, edge_type=end_type, direction="out"):
-                                eid = fact_nb["node"]["id"]
-                                if eid not in visited:
-                                    queue.append((eid, dist + 1))
-
-        return results
+    async def enrich(self, database: str, query: str, depth: int = 2, model: str = "gpt-4o") -> list[EnrichmentResult]:
+        return await self._query.enrich(database, query, depth, model)

@@ -23,7 +23,7 @@ pip install -e ../../lib
 pip install -e .
 ```
 
-For LLM extraction support, also install the `openai` extra on the library:
+For LLM features (`answer`, `validate`, `extract`), also install the `openai` extra on the library:
 
 ```bash
 pip install -e "../../lib[openai]"
@@ -214,8 +214,8 @@ Deleted database: main
 | `kb fact add [--head NAME\|--head-id ID] [--relation NAME\|--relation-id ID] [--tail NAME\|--tail-id ID]` | Add a fact |
 | `kb fact property set VALUE --fact-id ID --property NAME [--type T]` | Set a property value on a fact |
 | `kb fact property list --fact-id ID [--format table\|json]` | List property values for a fact |
-| `kb answer QUESTION [--format table\|json]` | Keyword answer query |
-| `kb validate STATEMENT` | Supporting / counter evidence |
+| `kb answer QUESTION [--model M] [--format table\|json]` | LLM answer query |
+| `kb validate STATEMENT [--model M]` | LLM supporting / counter evidence |
 | `kb extract TEXT [--query Q]… [--source ID] [--model M]` | LLM extraction |
 
 Exit codes: `0` success · `1` KBError · `2` bad arguments.

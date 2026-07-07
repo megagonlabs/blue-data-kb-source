@@ -1,3 +1,29 @@
+import json
+from unittest.mock import AsyncMock, MagicMock, patch
+
+
+def _mock_openai(result_payload):
+    """Return a patched openai.AsyncOpenAI that immediately calls return_result."""
+    tc = MagicMock()
+    tc.id = "call_0"
+    tc.type = "function"
+    tc.function.name = "return_result"
+    tc.function.arguments = json.dumps({"result": result_payload})
+
+    msg = MagicMock()
+    msg.role = "assistant"
+    msg.content = None
+    msg.tool_calls = [tc]
+
+    response = MagicMock()
+    response.choices = [MagicMock()]
+    response.choices[0].message = msg
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(return_value=response)
+    return MagicMock(return_value=mock_client)
+
+
 # ------------------------------------------------------------------ #
 # add_entity                                                           #
 # ------------------------------------------------------------------ #
@@ -229,38 +255,53 @@ async def test_fetch_database_data_compact_has_relation_entries(populated_kb):
 
 
 # ------------------------------------------------------------------ #
-# answer                                                               #
+# answer  (QueryEngine — openai patched)                              #
 # ------------------------------------------------------------------ #
 
+_ANSWER_PAYLOAD = [
+    {"entity": "Alice",        "relation": None,       "value": None, "provenance": "Alice is a software engineer."},
+    {"entity": "Alice → IBM",  "relation": "WORKED_AT","value": None, "provenance": "Alice joined IBM in June 1998."},
+]
+
 async def test_answer_finds_entity_by_name(populated_kb):
-    results = await populated_kb.answer("test", "Where did Alice work?")
+    with patch("openai.AsyncOpenAI", _mock_openai(_ANSWER_PAYLOAD)):
+        results = await populated_kb.answer("test", "Where did Alice work?")
     entities = [r.entity for r in results if r.entity]
     assert any("Alice" in e for e in entities)
 
 
 async def test_answer_returns_provenance(populated_kb):
-    results = await populated_kb.answer("test", "Alice")
+    with patch("openai.AsyncOpenAI", _mock_openai(_ANSWER_PAYLOAD)):
+        results = await populated_kb.answer("test", "Alice")
     alice_result = next((r for r in results if r.entity and "Alice" in r.entity), None)
     assert alice_result is not None
     assert alice_result.provenance is not None
 
 
 async def test_answer_returns_empty_for_unknown_term(populated_kb):
-    results = await populated_kb.answer("test", "zzz_unknown_zzz")
+    with patch("openai.AsyncOpenAI", _mock_openai([])):
+        results = await populated_kb.answer("test", "zzz_unknown_zzz")
     assert results == []
 
 
 # ------------------------------------------------------------------ #
-# validate                                                             #
+# validate  (QueryEngine — openai patched)                            #
 # ------------------------------------------------------------------ #
 
+_VALIDATE_PAYLOAD = {
+    "supporting": [{"fact": "Alice_WORKED_AT_IBM", "head": "Alice", "tail": "IBM", "relation": "WORKED_AT"}],
+    "counter": [],
+}
+
 async def test_validate_returns_supporting_facts(populated_kb):
-    result = await populated_kb.validate("test", "Alice worked at IBM")
+    with patch("openai.AsyncOpenAI", _mock_openai(_VALIDATE_PAYLOAD)):
+        result = await populated_kb.validate("test", "Alice worked at IBM")
     assert len(result.supporting) > 0
 
 
 async def test_validate_supporting_fact_has_expected_fields(populated_kb):
-    result = await populated_kb.validate("test", "Alice worked at IBM")
+    with patch("openai.AsyncOpenAI", _mock_openai(_VALIDATE_PAYLOAD)):
+        result = await populated_kb.validate("test", "Alice worked at IBM")
     fact = result.supporting[0]
     assert "fact" in fact
     assert "head" in fact
@@ -269,26 +310,34 @@ async def test_validate_supporting_fact_has_expected_fields(populated_kb):
 
 
 async def test_validate_counter_empty_by_default(populated_kb):
-    result = await populated_kb.validate("test", "Alice worked at IBM")
+    with patch("openai.AsyncOpenAI", _mock_openai(_VALIDATE_PAYLOAD)):
+        result = await populated_kb.validate("test", "Alice worked at IBM")
     assert result.counter == []
 
 
 # ------------------------------------------------------------------ #
-# enrich                                                               #
+# enrich  (QueryEngine — openai patched)                              #
 # ------------------------------------------------------------------ #
 
+_ENRICH_PAYLOAD = [
+    {"entity": "Alice → IBM", "relation": "WORKED_AT", "value": None, "distance": 1},
+]
+
 async def test_enrich_finds_connected_facts(populated_kb):
-    results = await populated_kb.enrich("test", "Alice")
+    with patch("openai.AsyncOpenAI", _mock_openai(_ENRICH_PAYLOAD)):
+        results = await populated_kb.enrich("test", "Alice")
     assert len(results) > 0
     assert all(r.distance >= 1 for r in results)
     assert all(r.distance <= 2 for r in results)
 
 
 async def test_enrich_result_includes_relation_name(populated_kb):
-    results = await populated_kb.enrich("test", "Alice")
+    with patch("openai.AsyncOpenAI", _mock_openai(_ENRICH_PAYLOAD)):
+        results = await populated_kb.enrich("test", "Alice")
     assert any(r.relation == "WORKED_AT" for r in results)
 
 
 async def test_enrich_no_results_for_unknown_entity(populated_kb):
-    results = await populated_kb.enrich("test", "zzz_not_a_person_zzz")
+    with patch("openai.AsyncOpenAI", _mock_openai([])):
+        results = await populated_kb.enrich("test", "zzz_not_a_person_zzz")
     assert results == []

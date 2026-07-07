@@ -59,23 +59,29 @@ Command-line interface built with Click and Rich. Thin wrapper over the Python l
 ### Answer Path
 
 1. Caller submits a natural language question
-2. Knowledge Manager interprets the question using the schema (classes, relations, and property types as context)
-3. Knowledge Manager retrieves matching entities, facts, and property values from the Graph Store
-4. Results are assembled into a structured or natural language response and returned
+2. Knowledge Manager delegates to Query Engine
+3. Query Engine fetches the current schema and constructs a system prompt with schema context and the question
+4. LLM agent loop: the agent calls read-only graph tools (`search_entities`, `get_entity_facts`, `get_entity_properties`, `get_fact_properties`, `get_neighbors`) until it has enough information
+5. Agent calls `return_result` with a structured list of `{entity, relation, value, provenance}` items
+6. Query Engine unpacks the payload into `AnswerResult` objects and returns them to the caller
 
 ### Validate Path
 
 1. Caller submits a statement to be validated
-2. Knowledge Manager searches the instance graph for facts and property values that bear on the statement
-3. Supporting evidence (facts that confirm the statement) and counter evidence (facts that contradict it) are collected
-4. Evidence is returned alongside confidence indicators derived from provenance and source count
+2. Knowledge Manager delegates to Query Engine
+3. Query Engine fetches the current schema and constructs a system prompt directing the agent to find supporting and counter evidence
+4. LLM agent loop: the agent uses graph tools to search for facts that confirm or contradict the statement
+5. Agent calls `return_result` with `{supporting: [...], counter: [...]}` where each item is `{fact, head, tail, relation}`
+6. Query Engine unpacks the payload into a `ValidationResult` and returns it to the caller
 
 ### Enrich Path
 
-1. Caller submits a query
-2. Knowledge Manager identifies entities and relations relevant to the query
-3. Knowledge Manager traverses the graph outward from those entities, collecting adjacent facts, related entities, and contextual property values
-4. The enriched context — related but not necessarily directly answering the query — is returned for use by the caller
+1. Caller submits a query and an optional depth limit
+2. Knowledge Manager delegates to Query Engine
+3. Query Engine fetches the current schema and constructs a system prompt directing the agent to traverse the graph up to `depth` hops from seed entities
+4. LLM agent loop: the agent uses `search_entities` to find seeds, then `get_neighbors` and `get_entity_facts` to explore outward
+5. Agent calls `return_result` with a list of `{entity, relation, value, distance}` items
+6. Query Engine unpacks the payload into `EnrichmentResult` objects and returns them to the caller
 
 ---
 
@@ -142,7 +148,7 @@ The Knowledge Layer populates the knowledge base with instance data and answers 
 **Responsibilities**
 
 - Create entity, fact, and literal nodes; wire their typed schema edges
-- Execute answer, validate, and enrich queries over the instance graph
+- Delegate answer, validate, and enrich queries to the Query Engine
 - Delegate provenance creation to the Provenance Tracker
 - Trigger the Change Notifier after each write
 
@@ -155,26 +161,42 @@ For each new entity, fact, or property value:
 3. If `text` is provided: delegate to Provenance Tracker
 4. Trigger Change Notifier with a fully enriched event
 
-**Answer**
+**Answer / Validate / Enrich**
 
-1. Parse the question to identify the target entity class, relation, or property type
-2. Retrieve all matching instances and their connected values from the Graph Store
-3. Rank by relevance and return a structured result set
+All three operations are delegated directly to the Query Engine. `KnowledgeManager` exposes them as part of its public interface but contains no query logic itself.
 
-**Validate**
+### Query Engine
 
-1. Parse the statement into a subject, predicate, and object
-2. Traverse the instance graph for facts where subject and predicate match
-3. Compare the object of each retrieved fact against the stated value
-4. Classify each as supporting or counter evidence
-5. Return both sets with provenance references
+**Responsibilities**
 
-**Enrich**
+- Implement answer, validate, and enrich using a shared LLM agent loop
+- Provide the agent with the current database schema as context and a read-only tool set over the instance graph
+- Intercept the agent's `return_result` tool call to capture the structured payload and exit the loop
+- Parse the payload into typed result objects (`AnswerResult`, `ValidationResult`, `EnrichmentResult`)
 
-1. Identify anchor entities in the query (by name or class)
-2. Traverse outgoing and incoming facts from each anchor up to a configurable depth
-3. Collect adjacent entities, facts, and property values as enrichment context
-4. Return the enrichment set, deduplicated and ranked by proximity to the anchor
+**Tool Set**
+
+The LLM agent has access to the following read-only tools during each query:
+
+| Tool | Description |
+|------|-------------|
+| `get_schema` | Return the current database schema (classes, relations, properties) |
+| `search_entities` | Search ENTITY nodes by keyword against name and description |
+| `get_entity_facts` | Return all facts involving an entity as head or tail |
+| `get_entity_properties` | Return all property values attached to an entity |
+| `get_fact_properties` | Return all property values attached to a fact |
+| `get_neighbors` | BFS from an entity through facts up to a given depth |
+| `return_result` | Terminal tool — delivers the final structured payload and ends the loop |
+
+**Agent Loop**
+
+1. Fetch the current schema via `SchemaManager.fetch_database_schema` and serialize it into the system prompt
+2. Submit the system prompt and user message to the LLM with the full tool set
+3. Receive tool calls from the LLM:
+   - If `return_result`: capture the `result` payload, append a `"done"` tool response, and break
+   - Otherwise: dispatch to the appropriate graph traversal and append the JSON result
+4. Repeat from step 3 until `return_result` is called or the LLM stops issuing tool calls
+5. Parse and return the captured payload as typed result objects
 
 ### Provenance Tracker
 

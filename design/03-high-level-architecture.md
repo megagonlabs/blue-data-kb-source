@@ -27,8 +27,12 @@
 │  │                          │  │                                │  │
 │  │  ┌──────────────────┐    │  │  ┌────────────────────────┐   │  │
 │  │  │    LLM Agent     │    │  │  │  Knowledge Manager     │   │  │
-│  │  └──────────────────┘    │  │  └────────────────────────┘   │  │
-│  └──────────────────────────┘  │  ┌────────────────────────┐   │  │
+│  │  └──────────────────┘    │  │  │  ┌──────────────────┐  │   │  │
+│  └──────────────────────────┘  │  │  │  Query Engine    │  │   │  │
+│                                │  │  │  (LLM Agent)     │  │   │  │
+│                                │  │  └──────────────────┘  │   │  │
+│                                │  └────────────────────────┘   │  │
+│                                │  ┌────────────────────────┐   │  │
 │                                │  │  Provenance Tracker    │   │  │
 │                                │  └────────────────────────┘   │  │
 │                                │  ┌────────────────────────┐   │  │
@@ -83,7 +87,9 @@ Populates the knowledge base with concrete data and answers queries over it — 
 - Supports validation: given a statement, returns supporting and counter evidence drawn from existing facts and property values
 - Supports enrichment: given a query, returns related knowledge that bears on the query without necessarily answering it directly — surfacing context, adjacent facts, and related entities
 
-**Knowledge Manager** — Creates and stores entity, fact, and literal nodes; wires the typed edges that connect them to their schema elements and to each other; and handles answer, validate, and enrich queries over the instance graph.
+**Knowledge Manager** — Creates and stores entity, fact, and literal nodes; wires the typed edges that connect them to their schema elements and to each other; and delegates answer, validate, and enrich queries to the Query Engine.
+
+**Query Engine** — An LLM agent embedded inside the Knowledge Manager that handles answer, validate, and enrich queries. It is given the current schema and a read-only tool set over the instance graph, reasons over the data, and returns a structured result. Not exposed at the `KBSource` level.
 
 **Provenance Tracker** — Records the origin of each piece of knowledge by creating extraction nodes that capture the verbatim source text and linking them to both the item and the originating source document.
 

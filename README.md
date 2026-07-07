@@ -28,7 +28,7 @@ blue-data-kb-source/
 
 - Python 3.10+
 - [`blue-data`](../blue-data/lib) (local dependency)
-- OpenAI API key — only needed for LLM extraction (`import_text` / `kb extract`)
+- OpenAI API key — needed for LLM extraction (`import_text` / `kb extract`) and LLM querying (`answer` / `validate` / `enrich`)
 
 ```bash
 export OPENAI_API_KEY=sk-...
@@ -37,28 +37,44 @@ export OPENAI_API_KEY=sk-...
 ## Quick start
 
 ```bash
-# Install the library
-cd lib && pip install -e ../../blue-data/lib && pip install -e . && cd ..
+# Install the library (with OpenAI support for LLM features)
+cd lib && pip install -e ../../blue-data/lib && pip install -e ".[openai]" && cd ..
 
 # Install the CLI
-cd platform/cli && pip install -e . && cd ../..
+cd platform/cli && bash scripts/install.sh && cd ../..
+
+# Databases are persisted automatically under ~/.kbdb/
+# Override the directory:
+export KBDB_DATA_DIR=/path/to/my-kbdb
 
 # Create a database
 kb database create main
 
-# Declare a schema
+# Declare a schema (names used everywhere — no IDs needed)
 kb --database main schema declare class PERSON "A human individual"
 kb --database main schema declare class COMPANY "A business organization"
 kb --database main schema declare relation WORKED_AT "Employment relationship" \
     --domain PERSON --range COMPANY
+kb --database main schema declare property AGE "Age of a person" --class PERSON
 
-# Add entities and a fact
-ALICE=$(kb --database main entity add Alice --class <person-id> | grep -oP '\(id: \K[^)]+')
-IBM=$(kb --database main entity add IBM --class <company-id> | grep -oP '\(id: \K[^)]+')
-kb --database main fact add --head "$ALICE" --relation <worked-at-id> --tail "$IBM" \
+# Add entities and a fact by name
+kb --database main entity add Alice --class PERSON \
+    --text "Alice is a software engineer."
+kb --database main entity add IBM --class COMPANY
+
+kb --database main fact add \
+    --head Alice --relation WORKED_AT --tail IBM \
     --text "Alice joined IBM in June 1998."
 
-# Query
+# Set and list property values
+kb --database main entity property set 30 --entity Alice --property AGE --type NUMBER
+kb --database main entity property list --entity Alice
+
+# Show schema and instances
+kb --database main schema show
+kb --database main show
+
+# LLM query (requires OPENAI_API_KEY)
 kb --database main answer "Where did Alice work?"
 kb --database main validate "Alice worked at IBM"
 

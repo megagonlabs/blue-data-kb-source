@@ -109,7 +109,83 @@ The service receives each event in order and, upon seeing a new `WORKED_AT` fact
 
 ---
 
-## Scenario 7: Schema Export and Reuse
+## Scenario 7: LLM-Powered Querying
+
+A knowledge base has been populated from multiple résumés and news articles. A developer wants to query it in natural language without writing graph traversal code. They call `answer`, `validate`, and `enrich` on the knowledge base. Internally, each call runs an LLM agent that is given the current schema and a set of read-only graph tools. The agent reasons over the graph, calls the appropriate tools to gather evidence, and returns a structured result.
+
+**Example:**
+
+The knowledge base contains Alice's résumé (IBM, Google) and a TechCrunch article (Acme AI, 2018).
+
+```python
+# Question answering
+answers = await kb.answer("main", "Where has Alice worked?")
+# → [AnswerResult(entity="Alice → IBM",    relation="WORKED_AT", provenance="Alice joined IBM in June 1998."),
+#    AnswerResult(entity="Alice → Google", relation="WORKED_AT", provenance="She later moved to Google in 2005."),
+#    AnswerResult(entity="Alice → Acme AI", relation="FOUNDED",  provenance="Alice founded Acme AI in 2018.")]
+
+# Statement validation
+result = await kb.validate("main", "Alice founded a company in 2018.")
+# → ValidationResult(
+#       supporting=[{"fact": "Alice_FOUNDED_Acme AI", "head": "Alice", "tail": "Acme AI", "relation": "FOUNDED"}],
+#       counter=[]
+#   )
+
+# Graph enrichment
+context = await kb.enrich("main", "Alice's career", depth=2)
+# → [EnrichmentResult(entity="Alice → IBM",    relation="WORKED_AT", distance=1),
+#    EnrichmentResult(entity="Alice → Google", relation="WORKED_AT", distance=1),
+#    EnrichmentResult(entity="Alice → Acme AI", relation="FOUNDED",   distance=1)]
+```
+
+The agent loop is invisible to the caller — only the final structured result is returned. A custom model can be chosen by passing `model=` to any of the three methods.
+
+---
+
+## Scenario 8: Schema Consolidation
+
+During ingestion from several sources, redundant or overlapping schema elements accumulate. Two separate extraction runs have produced both a `COMPANY` class and a `CORPORATION` class, and all facts referencing `CORPORATION` need to be migrated to `COMPANY`. A developer calls `consolidate_schema` to merge them. The Schema Manager identifies every instance wired to `CORPORATION`, rewires those edges to `COMPANY`, and removes `CORPORATION` from the schema. The operation is transparent to any downstream queries: all facts that previously pointed to `CORPORATION` now resolve correctly under `COMPANY`.
+
+**Example:**
+
+Before consolidation, the schema has two overlapping classes:
+```
+COMPANY     CLASS  "A business organization"
+CORPORATION CLASS  "A commercial entity"
+```
+
+And two EMPLOYEE entities referencing different classes:
+```
+Alice —IS_INSTANCE_OF→ EMPLOYEE
+IBM   —IS_INSTANCE_OF→ COMPANY
+Acme  —IS_INSTANCE_OF→ CORPORATION
+```
+
+After merging `CORPORATION` into `COMPANY`:
+
+```python
+await kb.consolidate_schema(
+    "main",
+    operation="merge",
+    source_names=["CORPORATION"],
+    target_name="COMPANY",
+)
+```
+
+Result:
+```
+COMPANY CLASS  "A business organization"
+# CORPORATION removed
+
+Acme —IS_INSTANCE_OF→ COMPANY   # rewired automatically
+IBM  —IS_INSTANCE_OF→ COMPANY   # unchanged
+```
+
+A subsequent call to `fetch_database_schema` returns only `COMPANY`, and `answer("main", "What companies are in the KB?")` correctly returns both IBM and Acme.
+
+---
+
+## Scenario 9: Schema Export and Reuse
 
 A team has invested effort in defining a rich domain schema in one knowledge base. A second team building a related agent wants to start from the same vocabulary rather than redefine it from scratch. The first team exports the schema to a portable representation and shares it. The second team imports it into a fresh knowledge base, which now contains all the same classes, relations, and property definitions. Each team then extends the schema independently as their ingestion needs diverge.
 

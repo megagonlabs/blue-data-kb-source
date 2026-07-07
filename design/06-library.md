@@ -6,7 +6,7 @@
 
 ## KBSource(GraphSource)
 
-Entry point for all KBDB operations. Abstract base class — must be subclassed together with a concrete `GraphSource` backend using Python MRO. Instantiates and coordinates the `SchemaManager`, `KnowledgeManager`, `ProvenanceTracker`, `ChangeNotifier`, and `ExtractionEngine` components.
+Entry point for all KBDB operations. Abstract base class — must be subclassed together with a concrete `GraphSource` backend using Python MRO. Instantiates and coordinates the `SchemaManager`, `KnowledgeManager` (which internally owns a `QueryEngine`), `ProvenanceTracker`, `ChangeNotifier`, and `ExtractionEngine` components.
 
 ### Constructor
 
@@ -87,9 +87,9 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `add_fact(database, name?, description?, fact_id?, head_entity_id?, tail_entity_id?, relation_id?, text?, source_id?)` | `str` | Create a FACT node |
 | `add_entity_property_value(database, value, name?, description?, literal_type?, entity_id?, property_id?, text?, source_id?)` | `str` | Create a LITERAL and wire it to an entity |
 | `add_fact_property_value(database, value, name?, description?, literal_type?, fact_id?, property_id?, text?, source_id?)` | `str` | Create a LITERAL and wire it to a fact |
-| `answer(database, question)` | `list[dict]` | Answer a natural language question from the instance graph |
-| `validate(database, statement)` | `dict` | Return supporting and counter evidence for a statement |
-| `enrich(database, query)` | `list[dict]` | Return related knowledge bearing on a query |
+| `answer(database, question, model?)` | `list[AnswerResult]` | Answer a natural language question using an LLM agent over the instance graph |
+| `validate(database, statement, model?)` | `ValidationResult` | Return supporting and counter evidence for a statement using an LLM agent |
+| `enrich(database, query, depth?, model?)` | `list[EnrichmentResult]` | Return related knowledge bearing on a query using an LLM agent |
 
 #### Provenance operations (delegate to `ProvenanceTracker`)
 
@@ -202,12 +202,12 @@ Merges or splits schema elements and propagates the changes to all affected inst
 
 ## KnowledgeManager
 
-Populates the knowledge base with instance data and executes queries over it. Delegates provenance creation to `ProvenanceTracker` and change notification to `ChangeNotifier` after each write.
+Populates the knowledge base with instance data and delegates natural language queries to the `QueryEngine`. Delegates provenance creation to `ProvenanceTracker` and change notification to `ChangeNotifier` after each write.
 
 ### Constructor
 
 ```python
-KnowledgeManager(source, provenance_tracker, change_notifier)
+KnowledgeManager(source, provenance_tracker, change_notifier, schema_manager)
 ```
 
 ### Methods
@@ -224,16 +224,40 @@ Creates an ENTITY node.
 4. Call `ChangeNotifier.fire({"type": "entity_added", ...})`
 5. Return entity ID
 
-#### `answer(database, question)`
+#### `answer(database, question, model="gpt-4o")`
 
-Answers a natural language question from the instance graph using the schema as context.
+Delegates to `QueryEngine.answer`. Returns a list of `AnswerResult` objects.
 
-**Algorithm**
+#### `validate(database, statement, model="gpt-4o")`
 
-1. Identify target entity class, relation type, or property type from `question` using the schema
-2. Retrieve matching ENTITY, FACT, or LITERAL nodes from the Graph Store
-3. For each result: traverse connected edges to resolve names and related values
-4. Return a list of `{"entity", "relation", "value", "provenance"}` dicts ranked by relevance
+Delegates to `QueryEngine.validate`. Returns a `ValidationResult`.
+
+#### `enrich(database, query, depth=2, model="gpt-4o")`
+
+Delegates to `QueryEngine.enrich`. Returns a list of `EnrichmentResult` objects.
+
+---
+
+## QueryEngine
+
+LLM agent for answering, validating, and enriching queries over the instance graph. Owned by `KnowledgeManager` — not exposed at the `KBSource` level.
+
+### Constructor
+
+```python
+QueryEngine(source, schema_manager)
+```
+
+**Parameters**
+
+- `source` — the parent `KBSource` instance; used for all read-only Graph Store access
+- `schema_manager` — the `SchemaManager` instance; used to fetch schema context before each agent call
+
+### Methods
+
+#### `answer(database, question, model="gpt-4o")`
+
+Fetches the schema, constructs a system prompt, and runs the agent loop. The agent calls graph tools to find relevant entities, facts, and property values, then calls `return_result` with a list of `{entity, relation, value, provenance}` items. Returns a list of `AnswerResult` objects.
 
 **Example**
 
@@ -242,22 +266,14 @@ Input: `"Where did Alice work?"`
 Output:
 ```python
 [
-    {"entity": "Alice", "relation": "WORKED_AT", "value": "IBM",    "provenance": "Alice's résumé"},
-    {"entity": "Alice", "relation": "WORKED_AT", "value": "Google", "provenance": "Alice's résumé"},
+    AnswerResult(entity="Alice",        relation=None,       value=None, provenance="Alice is a software engineer."),
+    AnswerResult(entity="Alice → IBM",  relation="WORKED_AT", value=None, provenance="Alice joined IBM in June 1998."),
 ]
 ```
 
-#### `validate(database, statement)`
+#### `validate(database, statement, model="gpt-4o")`
 
-Returns supporting and counter evidence for a natural language statement.
-
-**Algorithm**
-
-1. Parse `statement` into subject entity, relation, and object
-2. Look up the subject entity and traverse outgoing FACT edges matching the relation
-3. For each fact: compare the connected tail entity against the stated object
-4. Classify each as supporting (match) or counter (mismatch) evidence
-5. Return `{"supporting": [...], "counter": [...]}` with provenance for each item
+Fetches the schema, constructs a system prompt directing the agent to find supporting and counter evidence, and runs the agent loop. The agent calls `return_result` with `{supporting: [...], counter: [...]}` where each item is `{fact, head, tail, relation}`. Returns a `ValidationResult`.
 
 **Example**
 
@@ -265,36 +281,39 @@ Input: `"Alice worked at IBM."`
 
 Output:
 ```python
-{
-    "supporting": [{"fact": "Alice —WORKED_AT→ IBM", "source": "Alice's résumé"}],
-    "counter":    []
-}
+ValidationResult(
+    supporting=[{"fact": "Alice_WORKED_AT_IBM", "head": "Alice", "tail": "IBM", "relation": "WORKED_AT"}],
+    counter=[]
+)
 ```
 
-#### `enrich(database, query, depth=2)`
+#### `enrich(database, query, depth=2, model="gpt-4o")`
 
-Returns related knowledge bearing on a query without necessarily answering it directly.
-
-**Algorithm**
-
-1. Identify anchor entities from `query` by name or class match
-2. From each anchor: traverse outgoing and incoming FACT edges up to `depth` hops
-3. Collect all encountered ENTITY, FACT, and LITERAL nodes along the traversal paths
-4. Deduplicate and rank results by graph distance from the anchors
-5. Return a list of `{"entity", "relation", "value", "distance"}` dicts
+Fetches the schema, constructs a system prompt directing the agent to traverse the graph up to `depth` hops from seed entities, and runs the agent loop. The agent uses `search_entities` to find seeds, then `get_neighbors` and `get_entity_facts` to explore, then calls `return_result` with a list of `{entity, relation, value, distance}` items. Returns a list of `EnrichmentResult` objects.
 
 **Example**
 
-Input: `"Alice's career in technology"`
+Input: `"Alice's career in technology"`, depth 2
 
 Output (partial):
 ```python
 [
-    {"entity": "Alice",  "relation": "WORKED_AT",  "value": "IBM",    "distance": 1},
-    {"entity": "Alice",  "relation": "WORKED_AT",  "value": "Google", "distance": 1},
-    {"entity": "IBM",    "relation": "FOUNDED",    "value": "1911",   "distance": 2},
+    EnrichmentResult(entity="Alice → IBM",    relation="WORKED_AT", value=None, distance=1),
+    EnrichmentResult(entity="Alice → Google", relation="WORKED_AT", value=None, distance=1),
 ]
 ```
+
+### Tool Set
+
+| Tool | Description |
+|------|-------------|
+| `get_schema` | Return the current database schema as a string |
+| `search_entities` | Keyword search over ENTITY name and description |
+| `get_entity_facts` | All facts involving an entity as head or tail |
+| `get_entity_properties` | All property values attached to an entity |
+| `get_fact_properties` | All property values attached to a fact |
+| `get_neighbors` | BFS from an entity through facts up to a given depth |
+| `return_result` | Terminal tool — delivers the structured payload and ends the loop |
 
 ---
 

@@ -103,23 +103,32 @@ asyncio.run(main())
 
 ### Querying the knowledge base
 
+`answer`, `validate`, and `enrich` run an LLM agent (via `QueryEngine`) that is given the current schema and a set of read-only graph tools. The agent reasons over the graph, calls tools to gather evidence, and returns a structured result. Requires `openai` and `OPENAI_API_KEY`.
+
 ```python
+import os
+os.environ["OPENAI_API_KEY"] = "sk-..."
+
 async def query(kb):
-    # Natural language answer: keyword search over entities, facts, and literals
+    # Answer a natural language question — LLM agent traverses entities and facts
     answers = await kb.answer("main", "Where did Alice work?")
     for a in answers:
         print(a.entity, a.relation, a.value, a.provenance)
 
-    # Validate a statement: returns supporting and counter evidence from the graph
+    # Validate a statement — LLM agent returns supporting and counter evidence
     result = await kb.validate("main", "Alice worked at IBM")
-    print(result.supporting)  # list of matching facts
+    print(result.supporting)   # list of {fact, head, tail, relation} dicts
+    print(result.counter)      # list of contradicting evidence
 
-    # Enrich: BFS from matching entities, returns related knowledge up to depth hops
+    # Enrich — LLM agent BFS from seed entities up to depth hops
     related = await kb.enrich("main", "Alice", depth=2)
     for r in related:
         print(r.entity, r.relation, r.distance)
 
-    # Search the schema by keyword
+    # All three accept an optional model parameter (default: "gpt-4o")
+    answers = await kb.answer("main", "Where did Alice work?", model="gpt-4o-mini")
+
+    # Search the schema by keyword (no LLM — direct name/description match)
     hits = await kb.search_schema("main", "employment")
     for h in hits:
         print(h.type, h.name, h.description)
@@ -248,7 +257,7 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | `await declare_relation_property(database, name, description, property_id?, relation_id?)` | `str` | Add a `:PROPERTY` node; optionally wires `DEFINE_PROPERTY` from a relation |
 | `await add_is_subclass_of(database, child_id, parent_id)` | `None` | Wire `IS_SUBCLASS_OF` between two CLASS or RELATION nodes |
 | `await fetch_database_schema(database)` | `DataSchema` | Build a `DataSchema` from the `:CLASS` and `:RELATION` nodes declared in *database* |
-| `fetch_meta_schema()` *(static)* | `DataSchema` | Return the fixed `DataSchema` describing the KB graph schema itself (node and edge type taxonomy) |
+| `await fetch_meta_schema()` | `DataSchema` | Return the fixed `DataSchema` describing the KB graph schema itself (node and edge type taxonomy) |
 | `await import_database_schema(database, schema_json)` | `None` | Populate *database* from a `DataSchema.to_json()` dict; declares classes, properties, relations, and domain/range edges |
 | `await search_schema(database, query)` | `list[SchemaSearchResult]` | Return CLASS/RELATION/PROPERTY nodes whose name or description contains *query* (case-insensitive) |
 | `await consolidate_schema(database, operation, source_names, target_name, predicate?)` | `None` | Merge or split schema elements and rewire instances; `operation="merge"` supported |
@@ -263,9 +272,9 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | `await add_fact(database, name?, description?, fact_id?, head_entity_id?, tail_entity_id?, relation_id?, text?, source_id?)` | `str` | Add a `:FACT` node; optionally wires `HEAD`, `TAIL`, `REPRESENTS`; provenance via `text`/`source_id` |
 | `await add_entity_property_value(database, value, name?, description?, literal_type?, entity_id?, property_id?, text?, source_id?)` | `str` | Create a `:LITERAL`, wire `IS_VALUE_OF` and `HAS_PROPERTY` from an entity; provenance via `text`/`source_id` |
 | `await add_fact_property_value(database, value, name?, description?, literal_type?, fact_id?, property_id?, text?, source_id?)` | `str` | Create a `:LITERAL`, wire `IS_VALUE_OF` and `HAS_PROPERTY` from a fact; provenance via `text`/`source_id` |
-| `await answer(database, question)` | `list[AnswerResult]` | Keyword graph search over entities, facts, and literals relevant to *question* |
-| `await validate(database, statement)` | `ValidationResult` | Return supporting and counter evidence from the graph for *statement* |
-| `await enrich(database, query, depth?)` | `list[EnrichmentResult]` | BFS from entities matching *query* up to *depth* hops; returns related knowledge |
+| `await answer(database, question, model?)` | `list[AnswerResult]` | LLM agent answers a natural language question by traversing the instance graph |
+| `await validate(database, statement, model?)` | `ValidationResult` | LLM agent returns supporting and counter evidence for a statement |
+| `await enrich(database, query, depth?, model?)` | `list[EnrichmentResult]` | LLM agent traverses the graph up to *depth* hops from seed entities and returns related knowledge |
 
 ---
 
@@ -321,7 +330,7 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 
 ## Running tests
 
-Tests require `pytest-asyncio` (configured with `asyncio_mode = "auto"`) and `pytest-recording` for LLM cassettes.
+Tests require `pytest-asyncio` (configured with `asyncio_mode = "auto"`). LLM calls in `answer`/`validate`/`enrich` tests are mocked via `unittest.mock.patch` — no API key needed to run the suite.
 
 ```bash
 cd lib
@@ -344,11 +353,10 @@ lib/
 │       ├── types.py            # result types and exception hierarchy
 │       ├── kb_source.py        # KBSource abstract class (coordinator)
 │       ├── schema/             # SchemaManager
-│       ├── knowledge/          # KnowledgeManager
+│       ├── knowledge/          # KnowledgeManager + QueryEngine (LLM agent)
 │       ├── provenance/         # ProvenanceTracker
 │       ├── notification/       # ChangeNotifier
 │       └── extraction/         # ExtractionEngine (LLM agent)
 └── tests/
-    ├── unit/
-    └── integration/
+    └── unit/
 ```

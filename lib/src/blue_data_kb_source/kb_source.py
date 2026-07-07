@@ -108,7 +108,7 @@ class KBSource(GraphSource, ABC):
         self._notifier = ChangeNotifier()
         self._provenance = ProvenanceTracker(self)
         self._schema = SchemaManager(self)
-        self._knowledge = KnowledgeManager(self, self._provenance, self._notifier)
+        self._knowledge = KnowledgeManager(self, self._provenance, self._notifier, self._schema)
         self._extraction = ExtractionEngine(self, self._schema, self._knowledge)
 
     # ------------------------------------------------------------------ #
@@ -259,14 +259,14 @@ class KBSource(GraphSource, ABC):
     ) -> dict | list:
         return await self._knowledge.fetch_database_data(database, include_provenance, compact)
 
-    async def answer(self, database: str, question: str) -> list[AnswerResult]:
-        return await self._knowledge.answer(database, question)
+    async def answer(self, database: str, question: str, model: str = "gpt-4o") -> list[AnswerResult]:
+        return await self._knowledge.answer(database, question, model)
 
-    async def validate(self, database: str, statement: str) -> ValidationResult:
-        return await self._knowledge.validate(database, statement)
+    async def validate(self, database: str, statement: str, model: str = "gpt-4o") -> ValidationResult:
+        return await self._knowledge.validate(database, statement, model)
 
-    async def enrich(self, database: str, query: str, depth: int = 2) -> list[EnrichmentResult]:
-        return await self._knowledge.enrich(database, query, depth)
+    async def enrich(self, database: str, query: str, depth: int = 2, model: str = "gpt-4o") -> list[EnrichmentResult]:
+        return await self._knowledge.enrich(database, query, depth, model)
 
     # ------------------------------------------------------------------ #
     # Provenance operations → ProvenanceTracker                           #
