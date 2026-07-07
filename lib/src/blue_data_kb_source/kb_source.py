@@ -107,7 +107,7 @@ class KBSource(GraphSource, ABC):
         super().__init__(*args, **kwargs)
         self._notifier = ChangeNotifier()
         self._provenance = ProvenanceTracker(self)
-        self._schema = SchemaManager(self)
+        self._schema = SchemaManager(self, self._notifier)
         self._knowledge = KnowledgeManager(self, self._provenance, self._notifier, self._schema)
         self._extraction = ExtractionEngine(self, self._schema, self._knowledge)
 

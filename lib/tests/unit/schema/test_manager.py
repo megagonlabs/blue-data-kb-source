@@ -4,6 +4,16 @@ from blue_data_kb_source.types import SchemaError
 
 
 # ------------------------------------------------------------------ #
+# Helpers                                                             #
+# ------------------------------------------------------------------ #
+
+def _collect_events(kb, database: str) -> list[dict]:
+    events: list[dict] = []
+    kb.add_change_hook(database, events.append)
+    return events
+
+
+# ------------------------------------------------------------------ #
 # declare_class                                                        #
 # ------------------------------------------------------------------ #
 
@@ -287,3 +297,99 @@ async def test_consolidate_schema_unsupported_op_raises(kb):
 async def test_consolidate_schema_missing_source_raises(kb):
     with pytest.raises(SchemaError):
         await kb.consolidate_schema("test", "merge", ["DOES_NOT_EXIST"], "TARGET")
+
+
+# ------------------------------------------------------------------ #
+# Schema change hooks                                                  #
+# ------------------------------------------------------------------ #
+
+async def test_declare_class_fires_hook(kb):
+    events = _collect_events(kb, "test")
+    await kb.declare_class("test", "PERSON", "A human individual")
+    ev = next(e for e in events if e["type"] == "class_declared")
+    assert ev["name"] == "PERSON"
+    assert ev["description"] == "A human individual"
+    assert ev["database"] == "test"
+    assert "id" in ev
+
+
+async def test_declare_class_idempotent_does_not_fire_hook(kb):
+    events = _collect_events(kb, "test")
+    await kb.declare_class("test", "PERSON", "A human individual")
+    count_before = len(events)
+    await kb.declare_class("test", "PERSON", "Different description")
+    assert len(events) == count_before
+
+
+async def test_declare_relation_fires_hook(kb):
+    events = _collect_events(kb, "test")
+    await kb.declare_class("test", "PERSON", "")
+    await kb.declare_class("test", "COMPANY", "")
+    await kb.declare_relation_type("test", "WORKED_AT", "Employment", domain="PERSON", range_="COMPANY")
+    ev = next(e for e in events if e["type"] == "relation_declared")
+    assert ev["name"] == "WORKED_AT"
+    assert ev["domain"] == ["PERSON"]
+    assert ev["range"] == ["COMPANY"]
+    assert ev["database"] == "test"
+
+
+async def test_declare_relation_idempotent_does_not_fire_hook(kb):
+    events = _collect_events(kb, "test")
+    await kb.declare_relation_type("test", "WORKED_AT", "Employment")
+    count_before = len(events)
+    await kb.declare_relation_type("test", "WORKED_AT", "Employment again")
+    assert len(events) == count_before
+
+
+async def test_declare_class_property_fires_hook(kb):
+    events = _collect_events(kb, "test")
+    class_id = await kb.declare_class("test", "PERSON", "")
+    await kb.declare_class_property("test", "AGE", "Age of person", class_id=class_id)
+    ev = next(e for e in events if e["type"] == "class_property_declared")
+    assert ev["name"] == "AGE"
+    assert ev["class_id"] == class_id
+    assert ev["class_name"] == "PERSON"
+    assert ev["database"] == "test"
+
+
+async def test_declare_relation_property_fires_hook(kb):
+    events = _collect_events(kb, "test")
+    rel_id = await kb.declare_relation_type("test", "WORKED_AT", "")
+    await kb.declare_relation_property("test", "START_DATE", "Start date", relation_id=rel_id)
+    ev = next(e for e in events if e["type"] == "relation_property_declared")
+    assert ev["name"] == "START_DATE"
+    assert ev["relation_id"] == rel_id
+    assert ev["relation_name"] == "WORKED_AT"
+    assert ev["database"] == "test"
+
+
+async def test_add_is_subclass_of_class_fires_hook(kb):
+    events = _collect_events(kb, "test")
+    person_id   = await kb.declare_class("test", "PERSON", "")
+    employee_id = await kb.declare_class("test", "EMPLOYEE", "")
+    await kb.add_is_subclass_of("test", employee_id, person_id)
+    ev = next(e for e in events if e["type"] == "class_subclass")
+    assert ev["child_id"]   == employee_id
+    assert ev["child_name"] == "EMPLOYEE"
+    assert ev["parent_id"]  == person_id
+    assert ev["parent_name"] == "PERSON"
+    assert ev["database"] == "test"
+
+
+async def test_add_is_subclass_of_relation_fires_hook(kb):
+    events = _collect_events(kb, "test")
+    parent_id = await kb.declare_relation_type("test", "WORKS_FOR", "")
+    child_id  = await kb.declare_relation_type("test", "CONTRACTED_BY", "")
+    await kb.add_is_subclass_of("test", child_id, parent_id)
+    ev = next(e for e in events if e["type"] == "relation_subclass")
+    assert ev["child_id"]   == child_id
+    assert ev["child_name"] == "CONTRACTED_BY"
+    assert ev["parent_id"]  == parent_id
+    assert ev["parent_name"] == "WORKS_FOR"
+
+
+async def test_schema_hooks_scoped_to_database(kb):
+    kb.create_database("other")
+    events = _collect_events(kb, "test")
+    await kb.declare_class("other", "THING", "")
+    assert not any(e["type"] == "class_declared" for e in events)

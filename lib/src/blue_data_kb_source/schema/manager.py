@@ -27,13 +27,23 @@ from blue_data_kb_source._constants import (
 )
 from blue_data_kb_source.types import SchemaError, SchemaSearchResult
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from blue_data_kb_source.notification.notifier import ChangeNotifier
+
 
 class SchemaManager:
     """Manages schema-level nodes (CLASS, RELATION, PROPERTY) and schema-level edges."""
 
-    def __init__(self, source: GraphSource) -> None:
+    def __init__(self, source: GraphSource, notifier: "ChangeNotifier | None" = None) -> None:
         self._source = source
+        self._notifier = notifier
         self._init_meta_schema()
+
+    def _fire(self, event: dict) -> None:
+        if self._notifier is not None:
+            self._notifier.fire(event)
 
     # ------------------------------------------------------------------ #
     # Meta-schema bootstrap                                                #
@@ -256,12 +266,15 @@ class SchemaManager:
         existing = self._source.match_nodes(database, label=CLASS, properties={"name": name})
         if existing:
             return existing[0]["id"]
-        return self._source.add_node(
+        node_id = self._source.add_node(
             database,
             CLASS,
             {"name": name, "description": description},
             node_id=class_id,
         )
+        self._fire({"type": "class_declared", "database": database, "id": node_id,
+                    "name": name, "description": description})
+        return node_id
 
     async def declare_relation_type(
         self,
@@ -282,16 +295,21 @@ class SchemaManager:
             {"name": name, "description": description, "is_symmetric": is_symmetric},
             node_id=relation_id,
         )
-        for class_name in ([domain] if isinstance(domain, str) else (domain or [])):
+        domain_names: list[str] = [domain] if isinstance(domain, str) else list(domain or [])
+        range_names: list[str] = [range_] if isinstance(range_, str) else list(range_ or [])
+        for class_name in domain_names:
             classes = self._source.match_nodes(database, label=CLASS, properties={"name": class_name})
             if not classes:
                 raise SchemaError(f"domain class '{class_name}' not found in '{database}'")
             self._source.add_edge(database, rid, DOMAIN, classes[0]["id"])
-        for class_name in ([range_] if isinstance(range_, str) else (range_ or [])):
+        for class_name in range_names:
             classes = self._source.match_nodes(database, label=CLASS, properties={"name": class_name})
             if not classes:
                 raise SchemaError(f"range class '{class_name}' not found in '{database}'")
             self._source.add_edge(database, rid, RANGE, classes[0]["id"])
+        self._fire({"type": "relation_declared", "database": database, "id": rid,
+                    "name": name, "description": description, "is_symmetric": is_symmetric,
+                    "domain": domain_names, "range": range_names})
         return rid
 
     async def declare_class_property(
@@ -318,6 +336,13 @@ class SchemaManager:
         )
         if class_id is not None:
             self._source.add_edge(database, class_id, DEFINE_PROPERTY, node_id)
+        class_name = (
+            (self._source.get_node(database, class_id) or {}).get("properties", {}).get("name")
+            if class_id is not None else None
+        )
+        self._fire({"type": "class_property_declared", "database": database, "id": node_id,
+                    "name": name, "description": description,
+                    "class_id": class_id, "class_name": class_name})
         return node_id
 
     async def declare_relation_property(
@@ -344,10 +369,30 @@ class SchemaManager:
         )
         if relation_id is not None:
             self._source.add_edge(database, relation_id, DEFINE_PROPERTY, node_id)
+        relation_name = (
+            (self._source.get_node(database, relation_id) or {}).get("properties", {}).get("name")
+            if relation_id is not None else None
+        )
+        self._fire({"type": "relation_property_declared", "database": database, "id": node_id,
+                    "name": name, "description": description,
+                    "relation_id": relation_id, "relation_name": relation_name})
         return node_id
 
     async def add_is_subclass_of(self, database: str, child_id: str, parent_id: str) -> None:
         self._source.add_edge(database, child_id, IS_SUBCLASS_OF, parent_id)
+        child_node  = self._source.get_node(database, child_id)  or {}
+        parent_node = self._source.get_node(database, parent_id) or {}
+        child_label = child_node.get("label", "")
+        event_type = "class_subclass" if child_label == CLASS else "relation_subclass"
+        self._fire({
+            "type": event_type,
+            "database": database,
+            "id": child_id,
+            "child_id":   child_id,
+            "child_name":  child_node.get("properties",  {}).get("name"),
+            "parent_id":  parent_id,
+            "parent_name": parent_node.get("properties", {}).get("name"),
+        })
 
     # ------------------------------------------------------------------ #
     # Schema export / import                                               #
