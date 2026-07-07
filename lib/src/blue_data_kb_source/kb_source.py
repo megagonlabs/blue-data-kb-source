@@ -313,16 +313,26 @@ class KBSource(GraphSource, ABC):
     # ------------------------------------------------------------------ #
 
     def add_change_hook(self, database: str, fn: Callable[[dict], None]) -> None:
-        """Register *fn* to be called after every instance-level write to *database*.
+        """Register *fn* to be called after every schema or instance-level write to *database*.
 
         *fn* receives a dict with at minimum ``"type"``, ``"database"``, ``"id"``.
+        Schema events fire only when a new element is created; idempotent repeats do not re-fire.
 
-        Event types and extra keys:
+        Schema event types and extra keys:
+        ``class_declared``             — ``name``, ``description``
+        ``relation_declared``          — ``name``, ``description``, ``is_symmetric``,
+                                         ``domain`` (list), ``range`` (list)
+        ``class_property_declared``    — ``name``, ``description``, ``class_id``, ``class_name``
+        ``relation_property_declared`` — ``name``, ``description``, ``relation_id``, ``relation_name``
+        ``class_subclass``             — ``child_id``, ``child_name``, ``parent_id``, ``parent_name``
+        ``relation_subclass``          — ``child_id``, ``child_name``, ``parent_id``, ``parent_name``
+
+        Instance event types and extra keys:
         ``entity_added``          — ``name``, ``class_id``, ``class_name``
-        ``fact_added``            — ``head/tail_entity_id/name``, ``relation_id/name``
-        ``entity_property_added`` — ``entity_id``, ``property_id/name``, ``value``
-        ``fact_property_added``   — ``fact_id``, ``property_id/name``, ``value``,
-                                    ``head/tail_entity_name``, ``relation_name``
+        ``fact_added``            — ``name``, ``head/tail_entity_id/name``, ``relation_id/name``
+        ``entity_property_added`` — ``entity_id``, ``entity_name``, ``property_id/name``, ``value``
+        ``fact_property_added``   — ``fact_id``, ``fact_name``, ``property_id/name``, ``value``,
+                                    ``head/tail_entity_id/name``, ``relation_id``, ``relation_name``
         """
         self._notifier.add_hook(database, fn)
 

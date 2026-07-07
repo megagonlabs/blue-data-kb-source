@@ -62,11 +62,24 @@ class KnowledgeManager:
 
     def _fact_context(self, database: str, fact_id: str | None) -> dict:
         if fact_id is None:
-            return {"head_entity_name": None, "tail_entity_name": None, "relation_name": None}
+            return {
+                "fact_name": None,
+                "head_entity_id": None, "head_entity_name": None,
+                "tail_entity_id": None, "tail_entity_name": None,
+                "relation_id": None,   "relation_name": None,
+            }
+        fact_node = self._source.get_node(database, fact_id)
+        head_id = self._first_neighbor(database, fact_id, HEAD)
+        tail_id = self._first_neighbor(database, fact_id, TAIL)
+        rel_id  = self._first_neighbor(database, fact_id, REPRESENTS)
         return {
-            "head_entity_name": self._node_name(database, self._first_neighbor(database, fact_id, HEAD)),
-            "tail_entity_name": self._node_name(database, self._first_neighbor(database, fact_id, TAIL)),
-            "relation_name": self._node_name(database, self._first_neighbor(database, fact_id, REPRESENTS)),
+            "fact_name":       (fact_node or {}).get("properties", {}).get("name"),
+            "head_entity_id":  head_id,
+            "head_entity_name": self._node_name(database, head_id),
+            "tail_entity_id":  tail_id,
+            "tail_entity_name": self._node_name(database, tail_id),
+            "relation_id":     rel_id,
+            "relation_name":   self._node_name(database, rel_id),
         }
 
     def _provenance_text(self, database: str, node_id: str) -> str | None:
@@ -139,6 +152,7 @@ class KnowledgeManager:
             "type": "fact_added",
             "database": database,
             "id": node_id,
+            "name": name,
             "head_entity_id": head_entity_id,
             "tail_entity_id": tail_entity_id,
             "relation_id": relation_id,
@@ -203,9 +217,10 @@ class KnowledgeManager:
             "database": database,
             "id": literal_id,
             "entity_id": entity_id,
+            "entity_name": self._node_name(database, entity_id),
             "property_id": property_id,
-            "value": value,
             "property_name": self._node_name(database, property_id),
+            "value": value,
         })
         return literal_id
 

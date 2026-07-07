@@ -174,53 +174,93 @@ pip install "blue-data-kb-source[openai]"
 
 ### Change hooks
 
-Register a callback on the KB instance to be notified whenever an entity, fact, or property value is added to a specific database. Multiple hooks can be registered for the same database; all fire in registration order. Hooks are synchronous (`def`, not `async def`).
+Register a callback on the KB instance to be notified whenever the schema or instance data changes in a specific database. Hooks cover both schema declarations and instance writes. Multiple hooks can be registered for the same database; all fire in registration order. Hooks are synchronous (`def`, not `async def`).
+
+Schema events fire only when a new element is actually created — idempotent repeated declarations do not re-fire.
 
 ```python
 def on_kb_change(event: dict) -> None:
     t = event["type"]
-    if t == "entity_added":
-        print(f"entity  {event['name']!r}  (class: {event['class_name']})")
+    # --- schema events ---
+    if t == "class_declared":
+        print(f"class      {event['name']!r}")
+    elif t == "relation_declared":
+        print(f"relation   {event['name']!r}  ({event['domain']} → {event['range']})")
+    elif t == "class_property_declared":
+        print(f"property   {event['name']!r}  on class {event['class_name']!r}")
+    elif t == "relation_property_declared":
+        print(f"property   {event['name']!r}  on relation {event['relation_name']!r}")
+    elif t == "class_subclass":
+        print(f"subclass   {event['child_name']} IS_SUBCLASS_OF {event['parent_name']}")
+    elif t == "relation_subclass":
+        print(f"subrelation {event['child_name']} IS_SUBCLASS_OF {event['parent_name']}")
+    # --- instance events ---
+    elif t == "entity_added":
+        print(f"entity     {event['name']!r}  (class: {event['class_name']})")
     elif t == "fact_added":
-        print(f"fact    {event['head_entity_name']} —{event['relation_name']}→ {event['tail_entity_name']}")
+        print(f"fact       {event['head_entity_name']} —{event['relation_name']}→ {event['tail_entity_name']}")
     elif t == "entity_property_added":
-        print(f"entity property  {event['property_name']} = {event['value']!r}")
+        print(f"entity property  {event['entity_name']}.{event['property_name']} = {event['value']!r}")
     elif t == "fact_property_added":
-        print(f"fact property    {event['head_entity_name']} —{event['relation_name']}→ {event['tail_entity_name']}"
-              f"  {event['property_name']} = {event['value']!r}")
+        print(f"fact property    {event['fact_name']}  {event['property_name']} = {event['value']!r}"
+              f"  ({event['head_entity_name']} —{event['relation_name']}→ {event['tail_entity_name']})")
 
 kb.add_change_hook("main", on_kb_change)
 
-# Now every write to "main" fires the hook:
-alice = await kb.add_entity("main", name="Alice", class_id=employee)
-# → entity  'Alice'  (class: EMPLOYEE)
+# Schema declarations fire the hook:
+person   = await kb.declare_class("main", "PERSON", "A human individual")
+# → class      'PERSON'
+
+worked_at = await kb.declare_relation_type("main", "WORKED_AT", "Employment", domain="PERSON", range_="COMPANY")
+# → relation   'WORKED_AT'  (['PERSON'] → ['COMPANY'])
+
+await kb.declare_class_property("main", "AGE", "Age", class_id=person)
+# → property   'AGE'  on class 'PERSON'
+
+employee = await kb.declare_class("main", "EMPLOYEE", "")
+await kb.add_is_subclass_of("main", employee, person)
+# → subclass   EMPLOYEE IS_SUBCLASS_OF PERSON
+
+# Repeated declarations are idempotent and do NOT re-fire:
+await kb.declare_class("main", "PERSON", "ignored")   # hook does not fire
+
+# Instance writes fire the hook:
+alice = await kb.add_entity("main", name="Alice", class_id=person)
+# → entity     'Alice'  (class: PERSON)
 
 fact = await kb.add_fact("main", relation_id=worked_at, head_entity_id=alice, tail_entity_id=ibm)
-# → fact    Alice —WORKED_AT→ IBM
-
-await kb.add_entity_property_value("main", "1990-03-15", entity_id=alice, property_id=person_name)
-# → entity property  NAME = '1990-03-15'
-
-await kb.add_fact_property_value("main", "1998-06-01", fact_id=fact, property_id=start_date_prop)
-# → fact property    Alice —WORKED_AT→ IBM  START_DATE = '1998-06-01'
+# → fact       Alice —WORKED_AT→ IBM
 
 # Writes to other databases are not observed:
-await kb.add_entity("other", name="Bob", class_id=employee)   # hook does not fire
+await kb.add_entity("other", name="Bob", class_id=person)   # hook does not fire
 
 # Remove when no longer needed:
 kb.remove_change_hook("main", on_kb_change)
 ```
 
-Each event dict always contains `type`, `database`, and `id` (the created node id). Extra fields per type:
+Each event dict always contains `type`, `database`, and `id`. Extra fields by type:
+
+**Schema events**
+
+| `type` | extra fields |
+|---|---|
+| `class_declared` | `name`, `description` |
+| `relation_declared` | `name`, `description`, `is_symmetric`, `domain` (list), `range` (list) |
+| `class_property_declared` | `name`, `description`, `class_id`, `class_name` |
+| `relation_property_declared` | `name`, `description`, `relation_id`, `relation_name` |
+| `class_subclass` | `child_id`, `child_name`, `parent_id`, `parent_name` |
+| `relation_subclass` | `child_id`, `child_name`, `parent_id`, `parent_name` |
+
+**Instance events**
 
 | `type` | extra fields |
 |---|---|
 | `entity_added` | `name`, `class_id`, `class_name` |
-| `fact_added` | `head_entity_id`, `head_entity_name`, `tail_entity_id`, `tail_entity_name`, `relation_id`, `relation_name` |
-| `entity_property_added` | `entity_id`, `property_id`, `property_name`, `value` |
-| `fact_property_added` | `fact_id`, `property_id`, `property_name`, `value`, `head_entity_name`, `tail_entity_name`, `relation_name` |
+| `fact_added` | `name`, `head_entity_id`, `head_entity_name`, `tail_entity_id`, `tail_entity_name`, `relation_id`, `relation_name` |
+| `entity_property_added` | `entity_id`, `entity_name`, `property_id`, `property_name`, `value` |
+| `fact_property_added` | `fact_id`, `fact_name`, `property_id`, `property_name`, `value`, `head_entity_id`, `head_entity_name`, `tail_entity_id`, `tail_entity_name`, `relation_id`, `relation_name` |
 
-Name fields are `None` when the corresponding id was not provided.
+Name and id fields are `None` when the corresponding node was not provided.
 
 ### Reading and importing a schema
 
@@ -269,7 +309,7 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | Method | Returns | Description |
 |---|---|---|
 | `await add_entity(database, name, description?, entity_id?, class_id?, text?, source_id?)` | `str` | Add an `:ENTITY` node; optionally wires `IS_INSTANCE_OF`; when `text` is given creates a per-item `:EXTRACTION` (linked to `source_id`) and wires `EXTRACTED_FROM` |
-| `await add_fact(database, name?, description?, fact_id?, head_entity_id?, tail_entity_id?, relation_id?, text?, source_id?)` | `str` | Add a `:FACT` node; optionally wires `HEAD`, `TAIL`, `REPRESENTS`; provenance via `text`/`source_id` |
+| `await add_fact(database, name?, description?, fact_id?, head_entity_id?, tail_entity_id?, relation_id?, text?, source_id?)` | `str` | Add a `:FACT` node; auto-names from head/relation/tail if `name` is omitted; optionally wires `HEAD`, `TAIL`, `REPRESENTS`; provenance via `text`/`source_id` |
 | `await add_entity_property_value(database, value, name?, description?, literal_type?, entity_id?, property_id?, text?, source_id?)` | `str` | Create a `:LITERAL`, wire `IS_VALUE_OF` and `HAS_PROPERTY` from an entity; provenance via `text`/`source_id` |
 | `await add_fact_property_value(database, value, name?, description?, literal_type?, fact_id?, property_id?, text?, source_id?)` | `str` | Create a `:LITERAL`, wire `IS_VALUE_OF` and `HAS_PROPERTY` from a fact; provenance via `text`/`source_id` |
 | `await answer(database, question, model?)` | `list[AnswerResult]` | LLM agent answers a natural language question by traversing the instance graph |
