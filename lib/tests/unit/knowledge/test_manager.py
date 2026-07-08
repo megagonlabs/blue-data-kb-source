@@ -294,16 +294,16 @@ _ANSWER_PAYLOAD = [
 async def test_answer_finds_entity_by_name(populated_kb):
     with patch("openai.AsyncOpenAI", _mock_openai(_ANSWER_PAYLOAD)):
         results = await populated_kb.answer("test", "Where did Alice work?")
-    entities = [r.entity for r in results if r.entity]
+    entities = [r["entity"] for r in results if r.get("entity")]
     assert any("Alice" in e for e in entities)
 
 
 async def test_answer_returns_provenance(populated_kb):
     with patch("openai.AsyncOpenAI", _mock_openai(_ANSWER_PAYLOAD)):
         results = await populated_kb.answer("test", "Alice")
-    alice_result = next((r for r in results if r.entity and "Alice" in r.entity), None)
+    alice_result = next((r for r in results if r.get("entity") and "Alice" in r["entity"]), None)
     assert alice_result is not None
-    assert alice_result.provenance is not None
+    assert alice_result.get("provenance") is not None
 
 
 async def test_answer_returns_empty_for_unknown_term(populated_kb):

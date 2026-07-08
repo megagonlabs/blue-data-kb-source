@@ -822,19 +822,17 @@ def answer_cmd(obj: dict, question: str, fmt: str, natural_language: bool) -> No
         console.print(result)
         return
     if fmt == "json":
-        console.print_json(json.dumps([
-            {"entity": r.entity, "relation": r.relation,
-             "value": r.value, "provenance": r.provenance}
-            for r in result
-        ]))
+        console.print_json(json.dumps(result))
     else:
+        if not result:
+            console.print("(no results)")
+            return
+        columns: list[str] = list(dict.fromkeys(k for row in result for k in row))
         t = Table(show_header=True, header_style="bold")
-        t.add_column("Entity")
-        t.add_column("Relation")
-        t.add_column("Value")
-        t.add_column("Provenance")
-        for r in result:
-            t.add_row(r.entity or "", r.relation or "", r.value or "", r.provenance or "")
+        for col in columns:
+            t.add_column(col.replace("_", " ").title())
+        for row in result:
+            t.add_row(*[str(row.get(col, "")) for col in columns])
         console.print(t)
 
 

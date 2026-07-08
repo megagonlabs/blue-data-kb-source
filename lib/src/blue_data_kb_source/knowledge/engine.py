@@ -16,7 +16,7 @@ from blue_data_kb_source._constants import (
     REPRESENTS,
     TAIL,
 )
-from blue_data_kb_source.types import AnswerResult, EnrichmentResult, KBError, ValidationResult
+from blue_data_kb_source.types import EnrichmentResult, KBError, ValidationResult
 
 if TYPE_CHECKING:
     from blue_data_kb_source.schema.manager import SchemaManager
@@ -147,17 +147,19 @@ _ANSWER_PROMPT = """\
 You are a knowledge base query agent. Use the provided tools to search the knowledge
 base and answer the question below.
 
-When you have gathered enough information, call return_result with a JSON array:
+When you have gathered enough information, call return_result with a JSON array, where each element is a dictionary with 
+keys corresponding to the entity name and properties, fact name and properties, or literal value and provenance, corresponding to the
+question asked.
+
+The structure of each element should be as follows:
 
   {{"result": [
-    {{"entity": "<entity name or 'head → tail'>",
-      "relation": "<relation name or null>",
-      "value":    "<literal value or null>",
-      "provenance": "<verbatim source text or null>"}},
+    {{"<key_1>": "<value_1>",
+      "<key_2>": "<value_2>",
+      ..."}},
     ...
   ]}}
 
-Include an entry for each relevant entity, fact, or property value you find.
 Return an empty array if nothing relevant exists.
 
 Current schema:
@@ -253,19 +255,11 @@ class QueryEngine:
         database: str,
         question: str,
         model: str = "gpt-4o",
-    ) -> list[AnswerResult]:
+    ) -> list[dict]:
         schema_str = (await self._schema.fetch_database_schema(database)).to_str(simplified=True)
         system = _ANSWER_PROMPT.format(schema=schema_str, question=question)
         raw = await self._run_agent(database, system, question, model)
-        return [
-            AnswerResult(
-                entity=item.get("entity"),
-                relation=item.get("relation"),
-                value=item.get("value"),
-                provenance=item.get("provenance"),
-            )
-            for item in (raw if isinstance(raw, list) else [])
-        ]
+        return raw if isinstance(raw, list) else []
 
     async def validate(
         self,
@@ -306,12 +300,12 @@ class QueryEngine:
     async def answer_as_text(
         self,
         question: str,
-        results: list[AnswerResult],
+        results: list[dict],
         model: str = "gpt-4o",
     ) -> str:
         results_str = "\n".join(
-            f"- entity={r.entity!r} relation={r.relation!r} value={r.value!r} provenance={r.provenance!r}"
-            for r in results
+            "- " + ", ".join(f"{k}={v!r}" for k, v in item.items())
+            for item in results
         ) or "(none)"
         prompt = _ANSWER_NL_PROMPT.format(question=question, results=results_str)
         return await self._complete(prompt, model)
@@ -390,11 +384,14 @@ class QueryEngine:
                 args = json.loads(tc.function.arguments)
 
                 if fn == "return_result":
+                    print(f"Received final result payload: {args.get('result')}")
                     result_payload = args.get("result")
                     messages.append({"role": "tool", "tool_call_id": tc.id, "content": "done"})
                     done = True
                 else:
+                    print(f"Dispatching tool {fn} with args: {args}")
                     tool_result = await self._dispatch_tool(database, fn, args)
+                    print(f"Tool {fn} returned: {tool_result}")
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc.id,
@@ -404,6 +401,7 @@ class QueryEngine:
             if done:
                 break
 
+        print(f"Final result payload: {result_payload}")
         return result_payload
 
     # ------------------------------------------------------------------ #

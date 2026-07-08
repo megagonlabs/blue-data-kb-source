@@ -19,7 +19,7 @@ from blue_data_kb_source._constants import (
     TAIL,
 )
 from blue_data_kb_source.knowledge.engine import QueryEngine
-from blue_data_kb_source.types import AnswerResult, EnrichmentResult, ValidationResult
+from blue_data_kb_source.types import EnrichmentResult, ValidationResult
 
 if TYPE_CHECKING:
     from blue_data_kb_source.notification.notifier import ChangeNotifier
@@ -390,7 +390,7 @@ class KnowledgeManager:
         question: str,
         model: str = "gpt-4o",
         natural_language: bool = False,
-    ) -> list[AnswerResult] | str:
+    ) -> list[dict] | str:
         results = await self._query.answer(database, question, model)
         if natural_language:
             return await self._query.answer_as_text(question, results, model)

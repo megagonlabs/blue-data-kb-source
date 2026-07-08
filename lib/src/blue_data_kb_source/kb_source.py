@@ -38,7 +38,6 @@ from blue_data_kb_source.notification.notifier import ChangeNotifier
 from blue_data_kb_source.provenance.tracker import ProvenanceTracker
 from blue_data_kb_source.schema.manager import SchemaManager
 from blue_data_kb_source.types import (
-    AnswerResult,
     EnrichmentResult,
     SchemaSearchResult,
     ValidationResult,
@@ -265,7 +264,7 @@ class KBSource(GraphSource, ABC):
         question: str,
         model: str = "gpt-4o",
         natural_language: bool = False,
-    ) -> list[AnswerResult] | str:
+    ) -> list[dict] | str:
         return await self._knowledge.answer(database, question, model, natural_language)
 
     async def validate(
