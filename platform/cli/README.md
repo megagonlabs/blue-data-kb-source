@@ -137,6 +137,8 @@ $ kb --database main schema list
 
 # 9. List all instances
 $ kb --database main data list
+# optionally with provenance:
+# $ kb --database main data list --show-provenance
       Entities
 ┏━━━━━━━┳━━━━━━━━━┓
 ┃ Name  ┃ Class   ┃
@@ -207,14 +209,17 @@ Deleted database: main
 | `kb schema declare relation NAME DESC [--domain C] [--range C]` | Declare a RELATION |
 | `kb schema declare property NAME DESC (--class NAME\|--class-id ID\|--relation NAME\|--relation-id ID)` | Declare a PROPERTY (owner required) |
 | `kb schema search QUERY [--format table\|json]` | Keyword search over schema nodes |
-| `kb data list [--provenance] [--format table\|json]` | List all entity, property-value, and fact instances |
+| `kb data list [--show-provenance] [--format table\|json]` | List all entity, property-value, and fact instances |
 | `kb data source add SOURCE [--name N] [--description D]` | Register a provenance source |
+| `kb data source list [--format table\|json]` | List all registered provenance sources |
 | `kb data entity add NAME [--class NAME\|--class-id ID] [--text T] [--source ID]` | Add an entity instance |
+| `kb data entity list [--show-provenance] [--format table\|json]` | List all entity instances |
 | `kb data entity property set VALUE --entity NAME\|--entity-id ID --property NAME [--type T]` | Set a property value on an entity |
-| `kb data entity property list --entity NAME\|--entity-id ID [--format table\|json]` | List property values for an entity |
+| `kb data entity property list --entity NAME\|--entity-id ID [--show-provenance] [--format table\|json]` | List property values for an entity |
 | `kb data fact add [--head NAME\|--head-id ID] [--relation NAME\|--relation-id ID] [--tail NAME\|--tail-id ID]` | Add a fact |
+| `kb data fact list [--show-provenance] [--format table\|json]` | List all facts |
 | `kb data fact property set VALUE --fact-id ID --property NAME [--type T]` | Set a property value on a fact |
-| `kb data fact property list --fact-id ID [--format table\|json]` | List property values for a fact |
+| `kb data fact property list --fact-id ID [--show-provenance] [--format table\|json]` | List property values for a fact |
 | `kb data answer QUESTION [--natural-language] [--format table\|json]` | LLM answer query; `--natural-language` returns prose instead of a table |
 | `kb data validate STATEMENT [--natural-language]` | LLM supporting / counter evidence; `--natural-language` returns a prose assessment |
 | `kb data extract TEXT [--query Q]… [--source ID] [--model M]` | LLM extraction |

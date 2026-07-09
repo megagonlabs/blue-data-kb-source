@@ -23,12 +23,18 @@ from blue_data_kb_source import KBSource
 from blue_data_kb_source._constants import (
     CLASS,
     ENTITY,
+    EXTRACTED_FROM,
     FACT,
     HAS_PROPERTY,
+    HEAD,
+    IS_INSTANCE_OF,
     IS_VALUE_OF,
     META_DATABASE,
     PROPERTY,
     RELATION,
+    REPRESENTS,
+    SOURCE,
+    TAIL,
 )
 from blue_data_kb_source.types import KBError
 
@@ -96,6 +102,11 @@ def _coerce_value(raw: str, literal_type: str | None) -> str | int | float | boo
     if literal_type == "BOOLEAN":
         return raw.lower() in ("true", "1", "yes")
     return raw
+
+
+def _provenance_text(kb: FileKBSource, db: str, node_id: str) -> str:
+    nbs = kb.get_neighbors(db, node_id, edge_type=EXTRACTED_FROM, direction="out")
+    return nbs[0]["node"].get("properties", {}).get("text", "") if nbs else ""
 
 
 # ------------------------------------------------------------------ #
@@ -405,6 +416,42 @@ def source_add(obj: dict, source: str, name: str | None, description: str | None
     console.print(f"Added source: [bold]{source}[/bold] (id: {src_id})")
 
 
+@source_group.command("list")
+@click.option(
+    "--format", "fmt",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    show_default=True,
+)
+@click.pass_obj
+def source_list(obj: dict, fmt: str) -> None:
+    """List all registered provenance sources."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    rows = [
+        {
+            "id":          n["id"],
+            "name":        n.get("properties", {}).get("name", ""),
+            "source":      n.get("properties", {}).get("source", ""),
+            "description": n.get("properties", {}).get("description", ""),
+        }
+        for n in kb.match_nodes(db, label=SOURCE)
+    ]
+    if fmt == "json":
+        console.print_json(json.dumps(rows))
+    else:
+        if not rows:
+            console.print("[dim](no sources)[/dim]")
+            return
+        t = Table(show_header=True, header_style="bold")
+        t.add_column("Name",        style="bold")
+        t.add_column("Source",      style="dim")
+        t.add_column("Description", style="dim")
+        for r in sorted(rows, key=lambda x: x["name"]):
+            t.add_row(r["name"], r["source"], r["description"])
+        console.print(t)
+
+
 # ------------------------------------------------------------------ #
 # kb data entity                                                       #
 # ------------------------------------------------------------------ #
@@ -448,6 +495,53 @@ def entity_add(
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(f"Added entity: [bold]{name}[/bold] (id: {entity_id})")
+
+
+@entity_group.command("list")
+@click.option("--show-provenance", "show_provenance", is_flag=True, help="Include provenance text.")
+@click.option(
+    "--format", "fmt",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    show_default=True,
+)
+@click.pass_obj
+def entity_list(obj: dict, show_provenance: bool, fmt: str) -> None:
+    """List all entity instances."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    rows = []
+    for node in kb.match_nodes(db, label=ENTITY):
+        nid = node["id"]
+        class_nbs = kb.get_neighbors(db, nid, edge_type=IS_INSTANCE_OF, direction="out")
+        class_name = (
+            class_nbs[0]["node"].get("properties", {}).get("name", "") if class_nbs else ""
+        )
+        row: dict = {
+            "id":    nid,
+            "name":  node.get("properties", {}).get("name", ""),
+            "class": class_name,
+        }
+        if show_provenance:
+            row["provenance"] = _provenance_text(kb, db, nid)
+        rows.append(row)
+    if fmt == "json":
+        console.print_json(json.dumps(rows))
+    else:
+        if not rows:
+            console.print("[dim](no entities)[/dim]")
+            return
+        t = Table(show_header=True, header_style="bold")
+        t.add_column("Name",  style="bold")
+        t.add_column("Class", style="dim")
+        if show_provenance:
+            t.add_column("Provenance", style="dim")
+        for r in sorted(rows, key=lambda x: (x["class"], x["name"])):
+            row_cells = [r["name"], r["class"]]
+            if show_provenance:
+                row_cells.append(r.get("provenance", ""))
+            t.add_row(*row_cells)
+        console.print(t)
 
 
 # ------------------------------------------------------------------ #
@@ -511,8 +605,9 @@ def entity_property_set(
 
 
 @entity_property_group.command("list")
-@click.option("--entity",    "entity_name", default=None, help="Entity name.")
-@click.option("--entity-id",               default=None, help="Entity node ID (overrides --entity).")
+@click.option("--entity",          "entity_name",    default=None, help="Entity name.")
+@click.option("--entity-id",                         default=None, help="Entity node ID (overrides --entity).")
+@click.option("--show-provenance", "show_provenance", is_flag=True, help="Include provenance text.")
 @click.option(
     "--format", "fmt",
     type=click.Choice(["table", "json"]),
@@ -521,7 +616,7 @@ def entity_property_set(
 )
 @click.pass_obj
 def entity_property_list(
-    obj: dict, entity_name: str | None, entity_id: str | None, fmt: str
+    obj: dict, entity_name: str | None, entity_id: str | None, show_provenance: bool, fmt: str
 ) -> None:
     """List all property values for an entity."""
     kb: FileKBSource = obj["kb"]
@@ -535,12 +630,15 @@ def entity_property_list(
         prop_name = (
             prop_nbs[0]["node"].get("properties", {}).get("name", "?") if prop_nbs else "?"
         )
-        rows.append({
+        row: dict = {
             "property": prop_name,
             "value":    str(lit_props.get("value", "")),
             "type":     lit_props.get("type", ""),
             "id":       lit["id"],
-        })
+        }
+        if show_provenance:
+            row["provenance"] = _provenance_text(kb, db, lit["id"])
+        rows.append(row)
     if fmt == "json":
         console.print_json(json.dumps(rows))
     else:
@@ -548,8 +646,13 @@ def entity_property_list(
         t.add_column("Property", style="bold")
         t.add_column("Value")
         t.add_column("Type",     style="dim")
+        if show_provenance:
+            t.add_column("Provenance", style="dim")
         for r in rows:
-            t.add_row(r["property"], r["value"], r["type"])
+            row_cells = [r["property"], r["value"], r["type"]]
+            if show_provenance:
+                row_cells.append(r.get("provenance", ""))
+            t.add_row(*row_cells)
         console.print(t)
 
 
@@ -614,6 +717,65 @@ def fact_add(
     console.print(f"Added fact (id: {fact_id})")
 
 
+@fact_group.command("list")
+@click.option("--show-provenance", "show_provenance", is_flag=True, help="Include provenance text.")
+@click.option(
+    "--format", "fmt",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    show_default=True,
+)
+@click.pass_obj
+def fact_list(obj: dict, show_provenance: bool, fmt: str) -> None:
+    """List all facts."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+
+    def _name(node_id: str | None) -> str:
+        if node_id is None:
+            return ""
+        n = kb.get_node(db, node_id)
+        return (n or {}).get("properties", {}).get("name", "") if n else ""
+
+    def _first(node_id: str, edge: str) -> str | None:
+        nbs = kb.get_neighbors(db, node_id, edge_type=edge, direction="out")
+        return nbs[0]["node"]["id"] if nbs else None
+
+    rows = []
+    for node in kb.match_nodes(db, label=FACT):
+        nid = node["id"]
+        head_id = _first(nid, HEAD)
+        tail_id = _first(nid, TAIL)
+        rel_id  = _first(nid, REPRESENTS)
+        row: dict = {
+            "id":       nid,
+            "head":     _name(head_id),
+            "relation": _name(rel_id),
+            "tail":     _name(tail_id),
+        }
+        if show_provenance:
+            row["provenance"] = _provenance_text(kb, db, nid)
+        rows.append(row)
+    if fmt == "json":
+        console.print_json(json.dumps(rows))
+    else:
+        if not rows:
+            console.print("[dim](no facts)[/dim]")
+            return
+        t = Table(show_header=True, header_style="bold")
+        t.add_column("Head",     style="bold")
+        t.add_column("Relation", style="dim")
+        t.add_column("Tail",     style="bold")
+        if show_provenance:
+            t.add_column("Provenance", style="dim")
+        for r in sorted(rows, key=lambda x: (x["relation"], x["head"])):
+            row_cells = [r["head"], r["relation"], r["tail"]]
+            if show_provenance:
+                row_cells.append(r.get("provenance", ""))
+            t.add_row(*row_cells)
+        console.print(t)
+
+
 # ------------------------------------------------------------------ #
 # kb fact property                                                     #
 # ------------------------------------------------------------------ #
@@ -671,7 +833,8 @@ def fact_property_set(
 
 
 @fact_property_group.command("list")
-@click.option("--fact-id", required=True, help="Fact node ID.")
+@click.option("--fact-id",         required=True,    help="Fact node ID.")
+@click.option("--show-provenance", "show_provenance", is_flag=True, help="Include provenance text.")
 @click.option(
     "--format", "fmt",
     type=click.Choice(["table", "json"]),
@@ -679,7 +842,7 @@ def fact_property_set(
     show_default=True,
 )
 @click.pass_obj
-def fact_property_list(obj: dict, fact_id: str, fmt: str) -> None:
+def fact_property_list(obj: dict, fact_id: str, show_provenance: bool, fmt: str) -> None:
     """List all property values for a fact."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
@@ -691,12 +854,15 @@ def fact_property_list(obj: dict, fact_id: str, fmt: str) -> None:
         prop_name = (
             prop_nbs[0]["node"].get("properties", {}).get("name", "?") if prop_nbs else "?"
         )
-        rows.append({
+        row: dict = {
             "property": prop_name,
             "value":    str(lit_props.get("value", "")),
             "type":     lit_props.get("type", ""),
             "id":       lit["id"],
-        })
+        }
+        if show_provenance:
+            row["provenance"] = _provenance_text(kb, db, lit["id"])
+        rows.append(row)
     if fmt == "json":
         console.print_json(json.dumps(rows))
     else:
@@ -704,8 +870,13 @@ def fact_property_list(obj: dict, fact_id: str, fmt: str) -> None:
         t.add_column("Property", style="bold")
         t.add_column("Value")
         t.add_column("Type",     style="dim")
+        if show_provenance:
+            t.add_column("Provenance", style="dim")
         for r in rows:
-            t.add_row(r["property"], r["value"], r["type"])
+            row_cells = [r["property"], r["value"], r["type"]]
+            if show_provenance:
+                row_cells.append(r.get("provenance", ""))
+            t.add_row(*row_cells)
         console.print(t)
 
 
@@ -714,7 +885,7 @@ def fact_property_list(obj: dict, fact_id: str, fmt: str) -> None:
 # ------------------------------------------------------------------ #
 
 @data_group.command("list")
-@click.option("--provenance", "include_provenance", is_flag=True, help="Include provenance text.")
+@click.option("--show-provenance", "show_provenance", is_flag=True, help="Include provenance text.")
 @click.option(
     "--format", "fmt",
     type=click.Choice(["table", "json"]),
@@ -722,12 +893,12 @@ def fact_property_list(obj: dict, fact_id: str, fmt: str) -> None:
     show_default=True,
 )
 @click.pass_obj
-def list_cmd(obj: dict, include_provenance: bool, fmt: str) -> None:
+def list_cmd(obj: dict, show_provenance: bool, fmt: str) -> None:
     """List all entities, property values, and facts in the current database."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
-        rows: list[dict] = _run(kb.fetch_database_data(db, include_provenance=include_provenance, compact=True))  # type: ignore[assignment]
+        rows: list[dict] = _run(kb.fetch_database_data(db, include_provenance=show_provenance, compact=True))  # type: ignore[assignment]
     except KBError as exc:
         raise click.ClickException(str(exc))
 
@@ -743,11 +914,11 @@ def list_cmd(obj: dict, include_provenance: bool, fmt: str) -> None:
         t = Table(title="Entities", show_header=True, header_style="bold")
         t.add_column("Name",  style="bold")
         t.add_column("Class", style="dim")
-        if include_provenance:
+        if show_provenance:
             t.add_column("Provenance", style="dim")
         for r in sorted(entities, key=lambda x: (x.get("class_name", ""), x.get("entity_name", ""))):
             row = [r.get("entity_name", ""), r.get("class_name", "")]
-            if include_provenance:
+            if show_provenance:
                 row.append(r.get("extraction", "") or "")
             t.add_row(*row)
         console.print(t)
@@ -757,7 +928,7 @@ def list_cmd(obj: dict, include_provenance: bool, fmt: str) -> None:
         t.add_column("Entity",   style="bold")
         t.add_column("Property", style="dim")
         t.add_column("Value")
-        if include_provenance:
+        if show_provenance:
             t.add_column("Provenance", style="dim")
         for r in sorted(properties, key=lambda x: (x.get("entity_name", ""), x.get("property_name", ""))):
             row = [
@@ -765,7 +936,7 @@ def list_cmd(obj: dict, include_provenance: bool, fmt: str) -> None:
                 r.get("property_name", ""),
                 str(r.get("property_value", "")),
             ]
-            if include_provenance:
+            if show_provenance:
                 row.append(r.get("extraction", "") or "")
             t.add_row(*row)
         console.print(t)
@@ -775,7 +946,7 @@ def list_cmd(obj: dict, include_provenance: bool, fmt: str) -> None:
         t.add_column("Head",     style="bold")
         t.add_column("Relation", style="dim")
         t.add_column("Tail",     style="bold")
-        if include_provenance:
+        if show_provenance:
             t.add_column("Provenance", style="dim")
         for r in sorted(facts, key=lambda x: (x.get("relation_name", ""), x.get("source_name", ""))):
             row = [
@@ -783,7 +954,7 @@ def list_cmd(obj: dict, include_provenance: bool, fmt: str) -> None:
                 r.get("relation_name", ""),
                 r.get("target_name", ""),
             ]
-            if include_provenance:
+            if show_provenance:
                 row.append(r.get("extraction", "") or "")
             t.add_row(*row)
         console.print(t)
