@@ -204,7 +204,7 @@ def schema_group() -> None:
     """Schema management."""
 
 
-@schema_group.command("show")
+@schema_group.command("list")
 @click.option(
     "--format", "fmt",
     type=click.Choice(["table", "json"]),
@@ -212,8 +212,8 @@ def schema_group() -> None:
     show_default=True,
 )
 @click.pass_obj
-def schema_show(obj: dict, fmt: str) -> None:
-    """Show classes, relations, and their properties for the current database."""
+def schema_list(obj: dict, fmt: str) -> None:
+    """List classes, relations, and their properties for the current database."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
@@ -704,7 +704,7 @@ def fact_property_list(obj: dict, fact_id: str, fmt: str) -> None:
 # kb show                                                              #
 # ------------------------------------------------------------------ #
 
-@cli.command("show")
+@cli.command("list")
 @click.option("--provenance", "include_provenance", is_flag=True, help="Include provenance text.")
 @click.option(
     "--format", "fmt",
@@ -713,8 +713,8 @@ def fact_property_list(obj: dict, fact_id: str, fmt: str) -> None:
     show_default=True,
 )
 @click.pass_obj
-def show_cmd(obj: dict, include_provenance: bool, fmt: str) -> None:
-    """Show all entities, property values, and facts in the current database."""
+def list_cmd(obj: dict, include_provenance: bool, fmt: str) -> None:
+    """List all entities, property values, and facts in the current database."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:

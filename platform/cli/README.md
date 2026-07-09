@@ -49,7 +49,7 @@ export KBDB_DATA_DIR=/path/to/my-kbdb
 kb [--database DB] COMMAND
 ```
 
-`--database` selects the target database and defaults to `"default"`. Set it permanently via the `KBDB_DATABASE` environment variable.
+`--database` selects the target database. The default is read from `~/.kbdb/.selected.database` (written by `kb database select`); if that file does not exist the database named `"default"` is used. Override for a single command with `--database`, or set `KBDB_DATABASE` to make it the environment-level default.
 
 ## Walkthrough
 
@@ -119,8 +119,8 @@ $ kb --database main fact property list --fact-id 092733dd-…
 │ START_DATE │ 1998-06-01 │ DATE   │
 └────────────┴────────────┴────────┘
 
-# 8. Show the full schema
-$ kb --database main schema show
+# 8. List the full schema
+$ kb --database main schema list
                       Classes
 ┏━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
 ┃ Name      ┃ Description             ┃ Properties ┃
@@ -135,8 +135,8 @@ $ kb --database main schema show
 │ PERSON │ WORKED_AT │ COMPANY │ Employment relationship │ START_DATE │
 └────────┴───────────┴─────────┴────────────────────────┴────────────┘
 
-# 9. Show all instances
-$ kb --database main show
+# 9. List all instances
+$ kb --database main list
       Entities
 ┏━━━━━━━┳━━━━━━━━━┓
 ┃ Name  ┃ Class   ┃
@@ -189,7 +189,7 @@ $ kb --database main extract \
     --query "Where did Alice work?" --query "When did she start?"
 Extraction complete.
 
-# 12. Delete a database
+# 14. Delete a database
 $ kb database delete main --yes
 Deleted database: main
 ```
@@ -201,8 +201,9 @@ Deleted database: main
 | `kb database list [--format table\|json]` | List all databases |
 | `kb database create NAME` | Create a database |
 | `kb database delete NAME [--yes]` | Delete a database (prompts unless --yes) |
-| `kb schema show [--format table\|json]` | Show classes and relations for the current database |
-| `kb show [--provenance] [--format table\|json]` | Show all entity, property-value, and fact instances |
+| `kb database select NAME` | Set the default target database |
+| `kb schema list [--format table\|json]` | List classes and relations for the current database |
+| `kb list [--provenance] [--format table\|json]` | List all entity, property-value, and fact instances |
 | `kb schema declare class NAME DESC` | Declare a CLASS (idempotent) |
 | `kb schema declare relation NAME DESC [--domain C] [--range C]` | Declare a RELATION |
 | `kb schema declare property NAME DESC (--class NAME\|--class-id ID\|--relation NAME\|--relation-id ID)` | Declare a PROPERTY (owner required) |
