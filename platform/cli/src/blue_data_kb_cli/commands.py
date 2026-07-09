@@ -463,11 +463,12 @@ def entity_group() -> None:
 
 @entity_group.command("add")
 @click.argument("name")
-@click.option("--class",       "class_name",  default=None, help="Class name (resolved to id).")
-@click.option("--class-id",                   default=None, help="Class node ID (overrides --class).")
-@click.option("--description",                default=None, help="Optional description.")
-@click.option("--text",                       default=None, help="Source text span (creates provenance).")
-@click.option("--source",      "source_id",   default=None, help="Source node ID.")
+@click.option("--class",       "class_name",   default=None, help="Class name (resolved to id).")
+@click.option("--class-id",                    default=None, help="Class node ID (overrides --class).")
+@click.option("--description",                 default=None, help="Optional description.")
+@click.option("--text",                        default=None, help="Source text span (creates provenance).")
+@click.option("--source",      "source_name",  default=None, help="Source name.")
+@click.option("--source-id",                   default=None, help="Source node ID (overrides --source).")
 @click.pass_obj
 def entity_add(
     obj: dict,
@@ -476,6 +477,7 @@ def entity_add(
     class_id: str | None,
     description: str | None,
     text: str | None,
+    source_name: str | None,
     source_id: str | None,
 ) -> None:
     """Add an entity instance.
@@ -487,10 +489,13 @@ def entity_add(
     resolved_class_id: str | None = None
     if class_id or class_name:
         resolved_class_id = _resolve_node(kb, db, CLASS, class_name, class_id, "class")
+    resolved_source_id: str | None = None
+    if source_name or source_id:
+        resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
     try:
         entity_id = _run(kb.add_entity(
             db, name, description=description,
-            class_id=resolved_class_id, text=text, source_id=source_id,
+            class_id=resolved_class_id, text=text, source_id=resolved_source_id,
         ))
     except KBError as exc:
         raise click.ClickException(str(exc))
@@ -566,7 +571,8 @@ def entity_property_group() -> None:
     help="Value type (inferred if omitted).",
 )
 @click.option("--text",                          default=None, help="Source text span (creates provenance).")
-@click.option("--source",       "source_id",     default=None, help="Source node ID.")
+@click.option("--source",       "source_name",   default=None, help="Source name.")
+@click.option("--source-id",                     default=None, help="Source node ID (overrides --source).")
 @click.pass_obj
 def entity_property_set(
     obj: dict,
@@ -577,14 +583,15 @@ def entity_property_set(
     property_id: str | None,
     literal_type: str | None,
     text: str | None,
+    source_name: str | None,
     source_id: str | None,
 ) -> None:
     """Set a property value on an entity.
 
     \b
     Examples:
-      kb entity property set 42 --entity Alice --property AGE --type NUMBER
-      kb entity property set "1990-03-15" --entity Alice --property BIRTH_DATE --type DATE
+      kb data entity property set 42 --entity Alice --property AGE --type NUMBER
+      kb data entity property set "1990-03-15" --entity Alice --property BIRTH_DATE --type DATE
     """
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
@@ -592,12 +599,15 @@ def entity_property_set(
     pid: str | None = None
     if property_name or property_id:
         pid = _resolve_node(kb, db, PROPERTY, property_name, property_id, "property")
+    resolved_source_id: str | None = None
+    if source_name or source_id:
+        resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
     coerced = _coerce_value(value, literal_type)
     try:
         lit_id = _run(kb.add_entity_property_value(
             db, coerced,
             entity_id=eid, property_id=pid, literal_type=literal_type,
-            text=text, source_id=source_id,
+            text=text, source_id=resolved_source_id,
         ))
     except KBError as exc:
         raise click.ClickException(str(exc))
@@ -673,7 +683,8 @@ def fact_group() -> None:
 @click.option("--tail",        "tail_name",     default=None, help="Tail entity name.")
 @click.option("--tail-id",                      default=None, help="Tail entity node ID (overrides --tail).")
 @click.option("--text",                         default=None, help="Source text span (creates provenance).")
-@click.option("--source",      "source_id",     default=None, help="Source node ID.")
+@click.option("--source",      "source_name",   default=None, help="Source name.")
+@click.option("--source-id",                    default=None, help="Source node ID (overrides --source).")
 @click.pass_obj
 def fact_add(
     obj: dict,
@@ -684,6 +695,7 @@ def fact_add(
     tail_name: str | None,
     tail_id: str | None,
     text: str | None,
+    source_name: str | None,
     source_id: str | None,
 ) -> None:
     """Add a fact (relation instance) between two entities.
@@ -704,13 +716,16 @@ def fact_add(
     tail_entity_id: str | None = None
     if tail_name or tail_id:
         tail_entity_id = _resolve_node(kb, db, ENTITY, tail_name, tail_id, "entity")
+    resolved_source_id: str | None = None
+    if source_name or source_id:
+        resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
     try:
         fact_id = _run(kb.add_fact(
             db,
             head_entity_id=head_entity_id,
             tail_entity_id=tail_entity_id,
             relation_id=resolved_relation_id,
-            text=text, source_id=source_id,
+            text=text, source_id=resolved_source_id,
         ))
     except KBError as exc:
         raise click.ClickException(str(exc))
@@ -787,9 +802,9 @@ def fact_property_group() -> None:
 
 @fact_property_group.command("set")
 @click.argument("value")
-@click.option("--fact-id",                   required=True, help="Fact node ID.")
-@click.option("--property",  "property_name", default=None, help="Property name.")
-@click.option("--property-id",                default=None, help="Property node ID (overrides --property).")
+@click.option("--fact-id",                    required=True, help="Fact node ID.")
+@click.option("--property",  "property_name", default=None,  help="Property name.")
+@click.option("--property-id",                default=None,  help="Property node ID (overrides --property).")
 @click.option(
     "--type", "literal_type",
     type=click.Choice(["NUMBER", "DATE", "BOOLEAN", "STRING"]),
@@ -797,7 +812,8 @@ def fact_property_group() -> None:
     help="Value type (inferred if omitted).",
 )
 @click.option("--text",                       default=None, help="Source text span (creates provenance).")
-@click.option("--source",    "source_id",     default=None, help="Source node ID.")
+@click.option("--source",    "source_name",   default=None, help="Source name.")
+@click.option("--source-id",                  default=None, help="Source node ID (overrides --source).")
 @click.pass_obj
 def fact_property_set(
     obj: dict,
@@ -807,25 +823,29 @@ def fact_property_set(
     property_id: str | None,
     literal_type: str | None,
     text: str | None,
+    source_name: str | None,
     source_id: str | None,
 ) -> None:
     """Set a property value on a fact.
 
     \b
     Example:
-      kb fact property set "1998-06-01" --fact-id <uuid> --property START_DATE --type DATE
+      kb data fact property set "1998-06-01" --fact-id <uuid> --property START_DATE --type DATE
     """
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     pid: str | None = None
     if property_name or property_id:
         pid = _resolve_node(kb, db, PROPERTY, property_name, property_id, "property")
+    resolved_source_id: str | None = None
+    if source_name or source_id:
+        resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
     coerced = _coerce_value(value, literal_type)
     try:
         lit_id = _run(kb.add_fact_property_value(
             db, coerced,
             fact_id=fact_id, property_id=pid, literal_type=literal_type,
-            text=text, source_id=source_id,
+            text=text, source_id=resolved_source_id,
         ))
     except KBError as exc:
         raise click.ClickException(str(exc))
@@ -969,14 +989,16 @@ def list_cmd(obj: dict, show_provenance: bool, fmt: str) -> None:
 
 @data_group.command("extract")
 @click.argument("text")
-@click.option("--query",  "queries",   multiple=True, help="Guiding question (repeatable).")
-@click.option("--source", "source_id", default=None,  help="Source node ID for provenance.")
-@click.option("--model",               default="gpt-4o", show_default=True, help="OpenAI model.")
+@click.option("--query",     "queries",     multiple=True, help="Guiding question (repeatable).")
+@click.option("--source",    "source_name", default=None,  help="Source name for provenance.")
+@click.option("--source-id",               default=None,  help="Source node ID (overrides --source).")
+@click.option("--model",                   default="gpt-4o", show_default=True, help="OpenAI model.")
 @click.pass_obj
 def extract_cmd(
     obj: dict,
     text: str,
     queries: tuple[str, ...],
+    source_name: str | None,
     source_id: str | None,
     model: str,
 ) -> None:
@@ -987,12 +1009,15 @@ def extract_cmd(
     """
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
+    resolved_source_id: str | None = None
+    if source_name or source_id:
+        resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
     try:
         with console.status("Extracting…"):
             _run(kb.import_text(db, text,
                                 queries=list(queries) or None,
                                 model=model,
-                                source_id=source_id))
+                                source_id=resolved_source_id))
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print("Extraction complete.")
