@@ -738,6 +738,216 @@ def schema_relation_list(obj: dict, fmt: str) -> None:
         console.print(t)
 
 
+# ------------------------------------------------------------------ #
+# kb schema relation parent / child                                    #
+# ------------------------------------------------------------------ #
+
+def _relation_ancestors(kb: FileKBSource, db: str, relation_id: str, visited: set[str] | None = None) -> list[dict]:
+    """Return all ancestor relations via IS_SUBCLASS_OF, breadth-first."""
+    if visited is None:
+        visited = set()
+    results: list[dict] = []
+    queue = [relation_id]
+    while queue:
+        current = queue.pop(0)
+        for nb in kb.get_neighbors(db, current, edge_type=IS_SUBCLASS_OF, direction="out"):
+            node = nb["node"]
+            nid = node["id"]
+            if nid not in visited:
+                visited.add(nid)
+                results.append(node)
+                queue.append(nid)
+    return results
+
+
+def _relation_descendants(kb: FileKBSource, db: str, relation_id: str, visited: set[str] | None = None) -> list[dict]:
+    """Return all descendant relations via IS_SUBCLASS_OF, breadth-first."""
+    if visited is None:
+        visited = set()
+    results: list[dict] = []
+    queue = [relation_id]
+    while queue:
+        current = queue.pop(0)
+        for nb in kb.get_neighbors(db, current, edge_type=IS_SUBCLASS_OF, direction="in"):
+            node = nb["node"]
+            nid = node["id"]
+            if nid not in visited:
+                visited.add(nid)
+                results.append(node)
+                queue.append(nid)
+    return results
+
+
+def _build_relation_parent_tree(kb: FileKBSource, db: str, relation_id: str, tree: Tree, visited: set[str]) -> None:
+    for nb in kb.get_neighbors(db, relation_id, edge_type=IS_SUBCLASS_OF, direction="out"):
+        node = nb["node"]
+        nid = node["id"]
+        name = node.get("properties", {}).get("name", nid)
+        branch = tree.add(f"[bold]{name}[/bold]")
+        if nid not in visited:
+            visited.add(nid)
+            _build_relation_parent_tree(kb, db, nid, branch, visited)
+
+
+def _build_relation_child_tree(kb: FileKBSource, db: str, relation_id: str, tree: Tree, visited: set[str]) -> None:
+    for nb in kb.get_neighbors(db, relation_id, edge_type=IS_SUBCLASS_OF, direction="in"):
+        node = nb["node"]
+        nid = node["id"]
+        name = node.get("properties", {}).get("name", nid)
+        branch = tree.add(f"[bold]{name}[/bold]")
+        if nid not in visited:
+            visited.add(nid)
+            _build_relation_child_tree(kb, db, nid, branch, visited)
+
+
+@schema_relation_group.group("parent")
+def schema_relation_parent_group() -> None:
+    """Relation parent (IS_SUBCLASS_OF) management."""
+
+
+@schema_relation_parent_group.command("add")
+@click.option("--relation",    "relation_name", default=None, required=False, help="Child relation name.")
+@click.option("--relation-id",                  default=None, required=False, help="Child relation node ID.")
+@click.option("--parent",      "parent_name",   default=None, required=False, help="Parent relation name.")
+@click.option("--parent-id",                    default=None, required=False, help="Parent relation node ID.")
+@click.pass_obj
+def schema_relation_parent_add(
+    obj: dict, relation_name: str | None, relation_id: str | None,
+    parent_name: str | None, parent_id: str | None,
+) -> None:
+    """Wire child IS_SUBCLASS_OF parent for relations."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    resolved_child  = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
+    resolved_parent = _resolve_node(kb, db, RELATION, parent_name,   parent_id,   "parent relation")
+    try:
+        _run(kb.add_is_subclass_of(db, resolved_child, resolved_parent))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(
+        f"[bold]{relation_name or relation_id}[/bold] is now a sub-relation of "
+        f"[bold]{parent_name or parent_id}[/bold]"
+    )
+
+
+@schema_relation_parent_group.command("remove")
+@click.option("--relation",    "relation_name", default=None, required=False, help="Child relation name.")
+@click.option("--relation-id",                  default=None, required=False, help="Child relation node ID.")
+@click.option("--parent",      "parent_name",   default=None, required=False, help="Parent relation name.")
+@click.option("--parent-id",                    default=None, required=False, help="Parent relation node ID.")
+@click.pass_obj
+def schema_relation_parent_remove(
+    obj: dict, relation_name: str | None, relation_id: str | None,
+    parent_name: str | None, parent_id: str | None,
+) -> None:
+    """Remove IS_SUBCLASS_OF edge between child and parent relations."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    resolved_child  = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
+    resolved_parent = _resolve_node(kb, db, RELATION, parent_name,   parent_id,   "parent relation")
+    try:
+        kb.delete_edge(db, resolved_child, IS_SUBCLASS_OF, resolved_parent)
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(
+        f"Removed IS_SUBCLASS_OF: [bold]{relation_name or relation_id}[/bold]"
+        f" → [bold]{parent_name or parent_id}[/bold]"
+    )
+
+
+@schema_relation_parent_group.command("list")
+@click.option("--relation",    "relation_name", default=None, required=False, help="Relation name.")
+@click.option("--relation-id",                  default=None, required=False, help="Relation node ID.")
+@click.option("--recursive", is_flag=True, default=False, help="Include all ancestors.")
+@click.option(
+    "--format", "fmt",
+    type=click.Choice(["table", "json", "tree"]),
+    default="table",
+    show_default=True,
+)
+@click.pass_obj
+def schema_relation_parent_list(
+    obj: dict, relation_name: str | None, relation_id: str | None, recursive: bool, fmt: str,
+) -> None:
+    """List parent relations (direct or all ancestors)."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    resolved_id = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
+    root_label  = relation_name or relation_id
+    if recursive:
+        nodes = _relation_ancestors(kb, db, resolved_id)
+    else:
+        nodes = [nb["node"] for nb in kb.get_neighbors(db, resolved_id, edge_type=IS_SUBCLASS_OF, direction="out")]
+    if fmt == "json":
+        console.print_json(json.dumps([
+            {"name": n.get("properties", {}).get("name", n["id"]), "id": n["id"]}
+            for n in nodes
+        ]))
+    elif fmt == "tree":
+        t = Tree(f"[bold]{root_label}[/bold]")
+        _build_relation_parent_tree(kb, db, resolved_id, t, visited=set())
+        console.print(t)
+    else:
+        if not nodes:
+            console.print("[dim](no parents)[/dim]")
+            return
+        t = Table(show_header=True, header_style="bold")
+        t.add_column("Name", style="bold", min_width=14)
+        t.add_column("ID",   style="dim")
+        for n in nodes:
+            t.add_row(n.get("properties", {}).get("name", n["id"]), n["id"])
+        console.print(t)
+
+
+@schema_relation_group.group("child")
+def schema_relation_child_group() -> None:
+    """Relation child (sub-relations) management."""
+
+
+@schema_relation_child_group.command("list")
+@click.option("--relation",    "relation_name", default=None, required=False, help="Relation name.")
+@click.option("--relation-id",                  default=None, required=False, help="Relation node ID.")
+@click.option("--recursive", is_flag=True, default=False, help="Include all descendants.")
+@click.option(
+    "--format", "fmt",
+    type=click.Choice(["table", "json", "tree"]),
+    default="table",
+    show_default=True,
+)
+@click.pass_obj
+def schema_relation_child_list(
+    obj: dict, relation_name: str | None, relation_id: str | None, recursive: bool, fmt: str,
+) -> None:
+    """List child relations (direct sub-relations or all descendants)."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    resolved_id = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
+    root_label  = relation_name or relation_id
+    if recursive:
+        nodes = _relation_descendants(kb, db, resolved_id)
+    else:
+        nodes = [nb["node"] for nb in kb.get_neighbors(db, resolved_id, edge_type=IS_SUBCLASS_OF, direction="in")]
+    if fmt == "json":
+        console.print_json(json.dumps([
+            {"name": n.get("properties", {}).get("name", n["id"]), "id": n["id"]}
+            for n in nodes
+        ]))
+    elif fmt == "tree":
+        t = Tree(f"[bold]{root_label}[/bold]")
+        _build_relation_child_tree(kb, db, resolved_id, t, visited=set())
+        console.print(t)
+    else:
+        if not nodes:
+            console.print("[dim](no children)[/dim]")
+            return
+        t = Table(show_header=True, header_style="bold")
+        t.add_column("Name", style="bold", min_width=14)
+        t.add_column("ID",   style="dim")
+        for n in nodes:
+            t.add_row(n.get("properties", {}).get("name", n["id"]), n["id"])
+        console.print(t)
+
+
 @schema_relation_group.group("property")
 def schema_relation_property_group() -> None:
     """Relation property management."""
