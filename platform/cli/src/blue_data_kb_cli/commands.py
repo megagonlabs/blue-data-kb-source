@@ -1048,25 +1048,23 @@ def extract_cmd(
 @click.argument("question")
 @click.option(
     "--format", "fmt",
-    type=click.Choice(["table", "json"]),
+    type=click.Choice(["table", "json", "nl"]),
     default="table",
     show_default=True,
+    help="Output format: table, json, or nl (prose natural-language answer).",
 )
-@click.option("--natural-language", "natural_language", is_flag=True, default=False,
-              help="Return a prose answer instead of a structured table.")
 @click.pass_obj
-def answer_cmd(obj: dict, question: str, fmt: str, natural_language: bool) -> None:
+def answer_cmd(obj: dict, question: str, fmt: str) -> None:
     """Answer a natural language question using the knowledge base."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
-        result = _run(kb.answer(db, question, natural_language=natural_language))
+        result = _run(kb.answer(db, question, natural_language=(fmt == "nl")))
     except KBError as exc:
         raise click.ClickException(str(exc))
-    if natural_language:
+    if fmt == "nl":
         console.print(result)
-        return
-    if fmt == "json":
+    elif fmt == "json":
         console.print_json(json.dumps(result))
     else:
         if not result:
