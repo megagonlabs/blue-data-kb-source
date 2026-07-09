@@ -236,38 +236,89 @@ def schema_list(obj: dict, fmt: str) -> None:
         console.print_json(json.dumps(schema.to_json()))
         return
 
+    if not schema.entities and not schema.relations:
+        console.print("[dim](no schema declared)[/dim]")
+        return
+
+    # IS_SUBCLASS_OF entries appear in schema.relations; separate them out
+    class_names = set(schema.entities.keys())
+    subclass_rels = [r for r in schema.relations.values() if r["name"] == "IS_SUBCLASS_OF"]
+    real_relations = {k: v for k, v in schema.relations.items() if v["name"] != "IS_SUBCLASS_OF"}
+    class_hierarchy  = [(r["source"], r["target"]) for r in subclass_rels if r["source"] in class_names]
+    relation_hierarchy = [(r["source"], r["target"]) for r in subclass_rels if r["source"] not in class_names]
+
     # ---- Classes ----
     if schema.entities:
         t = Table(title="Classes", show_header=True, header_style="bold")
         t.add_column("Name",        style="bold", min_width=12)
         t.add_column("Description")
-        t.add_column("Properties",  style="dim")
         for entity in sorted(schema.entities.values(), key=lambda e: e["name"]):
-            attrs = ", ".join(sorted(entity.get("contents", {}).get("attributes", {}).keys()))
-            t.add_row(entity["name"], entity.get("description", ""), attrs)
+            t.add_row(entity["name"], entity.get("description", ""))
+        console.print(t)
+
+    # ---- Class Properties ----
+    class_props = [
+        (entity["name"], attr_name, attr.get("description", ""))
+        for entity in schema.entities.values()
+        for attr_name, attr in entity.get("contents", {}).get("attributes", {}).items()
+    ]
+    if class_props:
+        t = Table(title="Class Properties", show_header=True, header_style="bold")
+        t.add_column("Class",       style="bold", min_width=12)
+        t.add_column("Property",    style="bold", min_width=12)
+        t.add_column("Description")
+        for row in sorted(class_props):
+            t.add_row(*row)
+        console.print(t)
+
+    # ---- Class Hierarchy ----
+    if class_hierarchy:
+        t = Table(title="Class Hierarchy", show_header=True, header_style="bold")
+        t.add_column("Child",  style="bold", min_width=12)
+        t.add_column("Parent", style="dim",  min_width=12)
+        for child, parent in sorted(class_hierarchy):
+            t.add_row(child, parent)
         console.print(t)
 
     # ---- Relations ----
-    if schema.relations:
+    if real_relations:
         t = Table(title="Relations", show_header=True, header_style="bold")
-        t.add_column("Source",      style="dim",  min_width=10)
-        t.add_column("Relation",    style="bold", min_width=12)
-        t.add_column("Target",      style="dim",  min_width=10)
+        t.add_column("Source",   style="dim",  min_width=10)
+        t.add_column("Relation", style="bold", min_width=12)
+        t.add_column("Target",   style="dim",  min_width=10)
         t.add_column("Description")
-        t.add_column("Properties",  style="dim")
-        for rel in sorted(schema.relations.values(), key=lambda r: r["name"]):
-            attrs = ", ".join(sorted(rel.get("contents", {}).get("attributes", {}).keys()))
+        for rel in sorted(real_relations.values(), key=lambda r: r["name"]):
             t.add_row(
                 rel.get("source", ""),
                 rel["name"],
                 rel.get("target", ""),
                 rel.get("description", ""),
-                attrs,
             )
         console.print(t)
 
-    if not schema.entities and not schema.relations:
-        console.print("[dim](no schema declared)[/dim]")
+    # ---- Relation Properties ----
+    rel_props = [
+        (rel["name"], attr_name, attr.get("description", ""))
+        for rel in real_relations.values()
+        for attr_name, attr in rel.get("contents", {}).get("attributes", {}).items()
+    ]
+    if rel_props:
+        t = Table(title="Relation Properties", show_header=True, header_style="bold")
+        t.add_column("Relation", style="bold", min_width=12)
+        t.add_column("Property", style="bold", min_width=12)
+        t.add_column("Description")
+        for row in sorted(rel_props):
+            t.add_row(*row)
+        console.print(t)
+
+    # ---- Relation Hierarchy ----
+    if relation_hierarchy:
+        t = Table(title="Relation Hierarchy", show_header=True, header_style="bold")
+        t.add_column("Child",  style="bold", min_width=12)
+        t.add_column("Parent", style="dim",  min_width=12)
+        for child, parent in sorted(relation_hierarchy):
+            t.add_row(child, parent)
+        console.print(t)
 
 
 @schema_group.group("declare")
