@@ -207,6 +207,10 @@ Deleted database: main
 | `kb schema list [--format table\|json]` | List classes, relations, properties, and hierarchy |
 | `kb schema class add NAME DESC` | Declare a CLASS (idempotent) |
 | `kb schema class list [--format table\|json]` | List all declared classes |
+| `kb schema class parent add [--class NAME\|--class-id ID] [--parent NAME\|--parent-id ID]` | Wire IS_SUBCLASS_OF from child to parent |
+| `kb schema class parent remove [--class NAME\|--class-id ID] [--parent NAME\|--parent-id ID]` | Remove IS_SUBCLASS_OF edge |
+| `kb schema class parent list [--class NAME\|--class-id ID] [--recursive] [--format table\|json\|tree]` | List parent classes (direct or all ancestors) |
+| `kb schema class child list [--class NAME\|--class-id ID] [--recursive] [--format table\|json\|tree]` | List child classes (direct subclasses or all descendants) |
 | `kb schema class property add NAME DESC [--class NAME\|--class-id ID]` | Declare a property on a class |
 | `kb schema class property list [--class NAME\|--class-id ID] [--format table\|json]` | List class properties (optionally filtered by class) |
 | `kb schema relation add NAME DESC [--domain C] [--range C]` | Declare a RELATION (idempotent) |

@@ -17,6 +17,7 @@ from typing import Any
 import click
 from rich.console import Console
 from rich.table import Table
+from rich.tree import Tree
 
 from blue_data.source.graph.file_graph_source import FileGraphSource
 from blue_data_kb_source import KBSource
@@ -28,6 +29,7 @@ from blue_data_kb_source._constants import (
     HAS_PROPERTY,
     HEAD,
     IS_INSTANCE_OF,
+    IS_SUBCLASS_OF,
     IS_VALUE_OF,
     META_DATABASE,
     PROPERTY,
@@ -376,6 +378,216 @@ def schema_class_list(obj: dict, fmt: str) -> None:
         t.add_column("Description")
         for r in rows:
             t.add_row(r["name"], r["description"])
+        console.print(t)
+
+
+# ------------------------------------------------------------------ #
+# kb schema class parent / child                                       #
+# ------------------------------------------------------------------ #
+
+def _class_ancestors(kb: FileKBSource, db: str, class_id: str, visited: set[str] | None = None) -> list[dict]:
+    """Return all ancestor classes via IS_SUBCLASS_OF, breadth-first."""
+    if visited is None:
+        visited = set()
+    results: list[dict] = []
+    queue = [class_id]
+    while queue:
+        current = queue.pop(0)
+        for nb in kb.get_neighbors(db, current, edge_type=IS_SUBCLASS_OF, direction="out"):
+            node = nb["node"]
+            nid = node["id"]
+            if nid not in visited:
+                visited.add(nid)
+                results.append(node)
+                queue.append(nid)
+    return results
+
+
+def _class_descendants(kb: FileKBSource, db: str, class_id: str, visited: set[str] | None = None) -> list[dict]:
+    """Return all descendant classes via IS_SUBCLASS_OF, breadth-first."""
+    if visited is None:
+        visited = set()
+    results: list[dict] = []
+    queue = [class_id]
+    while queue:
+        current = queue.pop(0)
+        for nb in kb.get_neighbors(db, current, edge_type=IS_SUBCLASS_OF, direction="in"):
+            node = nb["node"]
+            nid = node["id"]
+            if nid not in visited:
+                visited.add(nid)
+                results.append(node)
+                queue.append(nid)
+    return results
+
+
+def _build_parent_tree(kb: FileKBSource, db: str, class_id: str, label: str, tree: Tree, visited: set[str]) -> None:
+    """Recursively attach parent nodes to a Rich Tree."""
+    for nb in kb.get_neighbors(db, class_id, edge_type=IS_SUBCLASS_OF, direction="out"):
+        node = nb["node"]
+        nid = node["id"]
+        name = node.get("properties", {}).get("name", nid)
+        branch = tree.add(f"[bold]{name}[/bold]")
+        if nid not in visited:
+            visited.add(nid)
+            _build_parent_tree(kb, db, nid, name, branch, visited)
+
+
+def _build_child_tree(kb: FileKBSource, db: str, class_id: str, label: str, tree: Tree, visited: set[str]) -> None:
+    """Recursively attach child nodes to a Rich Tree."""
+    for nb in kb.get_neighbors(db, class_id, edge_type=IS_SUBCLASS_OF, direction="in"):
+        node = nb["node"]
+        nid = node["id"]
+        name = node.get("properties", {}).get("name", nid)
+        branch = tree.add(f"[bold]{name}[/bold]")
+        if nid not in visited:
+            visited.add(nid)
+            _build_child_tree(kb, db, nid, name, branch, visited)
+
+
+@schema_class_group.group("parent")
+def schema_class_parent_group() -> None:
+    """Class parent (IS_SUBCLASS_OF) management."""
+
+
+@schema_class_parent_group.command("add")
+@click.option("--class",     "class_name",  default=None, required=False, help="Child class name.")
+@click.option("--class-id",                 default=None, required=False, help="Child class node ID.")
+@click.option("--parent",    "parent_name", default=None, required=False, help="Parent class name.")
+@click.option("--parent-id",                default=None, required=False, help="Parent class node ID.")
+@click.pass_obj
+def schema_class_parent_add(
+    obj: dict, class_name: str | None, class_id: str | None,
+    parent_name: str | None, parent_id: str | None,
+) -> None:
+    """Wire child IS_SUBCLASS_OF parent."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    resolved_child  = _resolve_node(kb, db, CLASS, class_name,  class_id,  "class")
+    resolved_parent = _resolve_node(kb, db, CLASS, parent_name, parent_id, "parent class")
+    try:
+        _run(kb.add_is_subclass_of(db, resolved_child, resolved_parent))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    child_label  = class_name  or class_id
+    parent_label = parent_name or parent_id
+    console.print(f"[bold]{child_label}[/bold] is now a subclass of [bold]{parent_label}[/bold]")
+
+
+@schema_class_parent_group.command("remove")
+@click.option("--class",     "class_name",  default=None, required=False, help="Child class name.")
+@click.option("--class-id",                 default=None, required=False, help="Child class node ID.")
+@click.option("--parent",    "parent_name", default=None, required=False, help="Parent class name.")
+@click.option("--parent-id",                default=None, required=False, help="Parent class node ID.")
+@click.pass_obj
+def schema_class_parent_remove(
+    obj: dict, class_name: str | None, class_id: str | None,
+    parent_name: str | None, parent_id: str | None,
+) -> None:
+    """Remove IS_SUBCLASS_OF edge between child and parent."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    resolved_child  = _resolve_node(kb, db, CLASS, class_name,  class_id,  "class")
+    resolved_parent = _resolve_node(kb, db, CLASS, parent_name, parent_id, "parent class")
+    try:
+        kb.delete_edge(db, resolved_child, IS_SUBCLASS_OF, resolved_parent)
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    child_label  = class_name  or class_id
+    parent_label = parent_name or parent_id
+    console.print(f"Removed IS_SUBCLASS_OF: [bold]{child_label}[/bold] → [bold]{parent_label}[/bold]")
+
+
+@schema_class_parent_group.command("list")
+@click.option("--class",     "class_name", default=None, required=False, help="Class name.")
+@click.option("--class-id",               default=None, required=False, help="Class node ID.")
+@click.option("--recursive", is_flag=True, default=False, help="Include all ancestors.")
+@click.option(
+    "--format", "fmt",
+    type=click.Choice(["table", "json", "tree"]),
+    default="table",
+    show_default=True,
+)
+@click.pass_obj
+def schema_class_parent_list(
+    obj: dict, class_name: str | None, class_id: str | None, recursive: bool, fmt: str,
+) -> None:
+    """List parent classes (direct or all ancestors)."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    resolved_id = _resolve_node(kb, db, CLASS, class_name, class_id, "class")
+    root_label  = class_name or class_id
+    if recursive:
+        nodes = _class_ancestors(kb, db, resolved_id)
+    else:
+        nodes = [nb["node"] for nb in kb.get_neighbors(db, resolved_id, edge_type=IS_SUBCLASS_OF, direction="out")]
+    if fmt == "json":
+        console.print_json(json.dumps([
+            {"name": n.get("properties", {}).get("name", n["id"]), "id": n["id"]}
+            for n in nodes
+        ]))
+    elif fmt == "tree":
+        t = Tree(f"[bold]{root_label}[/bold]")
+        _build_parent_tree(kb, db, resolved_id, root_label, t, visited=set())
+        console.print(t)
+    else:
+        if not nodes:
+            console.print("[dim](no parents)[/dim]")
+            return
+        t = Table(show_header=True, header_style="bold")
+        t.add_column("Name", style="bold", min_width=14)
+        t.add_column("ID",   style="dim")
+        for n in nodes:
+            t.add_row(n.get("properties", {}).get("name", n["id"]), n["id"])
+        console.print(t)
+
+
+@schema_class_group.group("child")
+def schema_class_child_group() -> None:
+    """Class child (subclasses) management."""
+
+
+@schema_class_child_group.command("list")
+@click.option("--class",     "class_name", default=None, required=False, help="Class name.")
+@click.option("--class-id",               default=None, required=False, help="Class node ID.")
+@click.option("--recursive", is_flag=True, default=False, help="Include all descendants.")
+@click.option(
+    "--format", "fmt",
+    type=click.Choice(["table", "json", "tree"]),
+    default="table",
+    show_default=True,
+)
+@click.pass_obj
+def schema_class_child_list(
+    obj: dict, class_name: str | None, class_id: str | None, recursive: bool, fmt: str,
+) -> None:
+    """List child classes (direct subclasses or all descendants)."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    resolved_id = _resolve_node(kb, db, CLASS, class_name, class_id, "class")
+    root_label  = class_name or class_id
+    if recursive:
+        nodes = _class_descendants(kb, db, resolved_id)
+    else:
+        nodes = [nb["node"] for nb in kb.get_neighbors(db, resolved_id, edge_type=IS_SUBCLASS_OF, direction="in")]
+    if fmt == "json":
+        console.print_json(json.dumps([
+            {"name": n.get("properties", {}).get("name", n["id"]), "id": n["id"]}
+            for n in nodes
+        ]))
+    elif fmt == "tree":
+        t = Tree(f"[bold]{root_label}[/bold]")
+        _build_child_tree(kb, db, resolved_id, root_label, t, visited=set())
+        console.print(t)
+    else:
+        if not nodes:
+            console.print("[dim](no children)[/dim]")
+            return
+        t = Table(show_header=True, header_style="bold")
+        t.add_column("Name", style="bold", min_width=14)
+        t.add_column("ID",   style="dim")
+        for n in nodes:
+            t.add_row(n.get("properties", {}).get("name", n["id"]), n["id"])
         console.print(t)
 
 
