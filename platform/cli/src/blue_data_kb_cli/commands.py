@@ -47,6 +47,19 @@ def _data_dir() -> str:
     return str(Path(os.environ.get("KBDB_DATA_DIR", "~/.kbdb")).expanduser())
 
 
+def _selected_database_path() -> Path:
+    return Path(_data_dir()) / ".selected.database"
+
+
+def _default_database() -> str:
+    p = _selected_database_path()
+    if p.exists():
+        name = p.read_text().strip()
+        if name:
+            return name
+    return "default"
+
+
 def _make_kb() -> FileKBSource:
     return FileKBSource(name="kb", directory=_data_dir())
 
@@ -93,9 +106,9 @@ def _coerce_value(raw: str, literal_type: str | None) -> str | int | float | boo
 @click.option(
     "--database",
     envvar="KBDB_DATABASE",
-    default="default",
+    default=_default_database,
     show_default=True,
-    help="Target database. Overrides KBDB_DATABASE.",
+    help="Target database. Overrides KBDB_DATABASE. Defaults to selection in ~/.kbdb/.selected.database.",
 )
 @click.pass_context
 def cli(ctx: click.Context, database: str) -> None:
@@ -170,6 +183,16 @@ def database_delete(name: str, yes: bool) -> None:
         click.confirm(f"Delete database '{name}'? This cannot be undone.", abort=True)
     path.unlink()
     console.print(f"Deleted database: [bold]{name}[/bold]")
+
+
+@database_group.command("select")
+@click.argument("name")
+def database_select(name: str) -> None:
+    """Set the default target database for subsequent commands."""
+    p = _selected_database_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(name)
+    console.print(f"Default database set to: [bold]{name}[/bold]")
 
 
 # ------------------------------------------------------------------ #
