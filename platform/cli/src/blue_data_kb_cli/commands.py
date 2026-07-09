@@ -1619,9 +1619,11 @@ def list_cmd(obj: dict, show_provenance: bool, fmt: str) -> None:
         console.print_json(json.dumps(rows))
         return
 
-    entities   = [r for r in rows if r.get("relation_type") == "IS_INSTANCE_OF"]
-    properties = [r for r in rows if r.get("relation_type") == "IS_VALUE_OF"]
-    facts      = [r for r in rows if r.get("relation_type") == "REPRESENTS"]
+    entities    = [r for r in rows if r.get("relation_type") == "IS_INSTANCE_OF"]
+    all_props   = [r for r in rows if r.get("relation_type") == "IS_VALUE_OF"]
+    ent_props   = [r for r in all_props if r.get("owner_label") != "FACT"]
+    fact_props  = [r for r in all_props if r.get("owner_label") == "FACT"]
+    facts       = [r for r in rows if r.get("relation_type") == "REPRESENTS"]
 
     if entities:
         t = Table(title="Entities", show_header=True, header_style="bold")
@@ -1636,19 +1638,15 @@ def list_cmd(obj: dict, show_provenance: bool, fmt: str) -> None:
             t.add_row(*row)
         console.print(t)
 
-    if properties:
-        t = Table(title="Property Values", show_header=True, header_style="bold")
+    if ent_props:
+        t = Table(title="Entity Property Values", show_header=True, header_style="bold")
         t.add_column("Entity",   style="bold")
         t.add_column("Property", style="dim")
         t.add_column("Value")
         if show_provenance:
             t.add_column("Provenance", style="dim")
-        for r in sorted(properties, key=lambda x: (x.get("entity_name", ""), x.get("property_name", ""))):
-            row = [
-                r.get("entity_name", ""),
-                r.get("property_name", ""),
-                str(r.get("property_value", "")),
-            ]
+        for r in sorted(ent_props, key=lambda x: (x.get("entity_name", ""), x.get("property_name", ""))):
+            row = [r.get("entity_name", ""), r.get("property_name", ""), str(r.get("property_value", ""))]
             if show_provenance:
                 row.append(r.get("extraction", "") or "")
             t.add_row(*row)
@@ -1662,17 +1660,35 @@ def list_cmd(obj: dict, show_provenance: bool, fmt: str) -> None:
         if show_provenance:
             t.add_column("Provenance", style="dim")
         for r in sorted(facts, key=lambda x: (x.get("relation_name", ""), x.get("source_name", ""))):
+            row = [r.get("source_name", ""), r.get("relation_name", ""), r.get("target_name", "")]
+            if show_provenance:
+                row.append(r.get("extraction", "") or "")
+            t.add_row(*row)
+        console.print(t)
+
+    if fact_props:
+        t = Table(title="Fact Property Values", show_header=True, header_style="bold")
+        t.add_column("Head",     style="bold")
+        t.add_column("Relation", style="dim")
+        t.add_column("Tail",     style="bold")
+        t.add_column("Property", style="dim")
+        t.add_column("Value")
+        if show_provenance:
+            t.add_column("Provenance", style="dim")
+        for r in sorted(fact_props, key=lambda x: (x.get("relation_name", ""), x.get("head_name", ""), x.get("property_name", ""))):
             row = [
-                r.get("source_name", ""),
+                r.get("head_name", ""),
                 r.get("relation_name", ""),
-                r.get("target_name", ""),
+                r.get("tail_name", ""),
+                r.get("property_name", ""),
+                str(r.get("property_value", "")),
             ]
             if show_provenance:
                 row.append(r.get("extraction", "") or "")
             t.add_row(*row)
         console.print(t)
 
-    if not entities and not properties and not facts:
+    if not entities and not all_props and not facts:
         console.print("[dim](no instances)[/dim]")
 
 

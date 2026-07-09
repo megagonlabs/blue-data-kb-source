@@ -339,16 +339,32 @@ class KnowledgeManager:
         for literal_node in self._source.match_nodes(database, label=LITERAL):
             nid = literal_node["id"]
             owner_name: str | None = None
+            owner_label: str | None = None
+            owner_id: str | None = None
             for owner_nb in self._source.get_neighbors(database, nid, edge_type=HAS_PROPERTY, direction="in"):
-                owner_name = _name(owner_nb["node"])
+                owner_node  = owner_nb["node"]
+                owner_name  = _name(owner_node)
+                owner_label = owner_node.get("label")
+                owner_id    = owner_node.get("id")
                 break
             for nb in self._source.get_neighbors(database, nid, edge_type=IS_VALUE_OF, direction="out"):
                 entry = {
                     "relation_type": IS_VALUE_OF,
-                    "entity_name": owner_name,
+                    "owner_label":   owner_label,
+                    "entity_name":   owner_name,
                     "property_value": _name(literal_node),
-                    "property_name": _name(nb["node"]),
+                    "property_name":  _name(nb["node"]),
                 }
+                if owner_label == FACT and owner_id:
+                    for h in self._source.get_neighbors(database, owner_id, edge_type=HEAD, direction="out"):
+                        entry["head_name"] = _name(h["node"])
+                        break
+                    for t in self._source.get_neighbors(database, owner_id, edge_type=TAIL, direction="out"):
+                        entry["tail_name"] = _name(t["node"])
+                        break
+                    for r in self._source.get_neighbors(database, owner_id, edge_type=REPRESENTS, direction="out"):
+                        entry["relation_name"] = _name(r["node"])
+                        break
                 if include_provenance:
                     entry["extraction"] = self._provenance_text(database, nid)
                 results.append(entry)
