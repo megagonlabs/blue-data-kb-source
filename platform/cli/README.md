@@ -82,11 +82,11 @@ $ kb --database main data source add resume_alice --name "Alice's résumé"
 Added source: resume_alice (id: a1b2c3d4-…)
 
 # 4. Add entity instances (class and source resolved by name)
-$ kb --database main data entity add Alice --class PERSON \
+$ kb --database main data entity add --name Alice --class PERSON \
     --text "Alice is a software engineer." --source "Alice's résumé"
 Added entity: Alice (id: d52378c9-…)
 
-$ kb --database main data entity add IBM --class COMPANY
+$ kb --database main data entity add --name IBM --class COMPANY
 Added entity: IBM (id: 5b1a47fb-…)
 
 # 5. Set and list entity property values
@@ -212,13 +212,13 @@ Deleted database: main
 | `kb data list [--show-provenance] [--format table\|json]` | List all entity, property-value, and fact instances |
 | `kb data source add SOURCE [--name N] [--description D]` | Register a provenance source |
 | `kb data source list [--format table\|json]` | List all registered provenance sources |
-| `kb data entity add NAME [--class NAME\|--class-id ID] [--text T] [--source NAME\|--source-id ID]` | Add an entity instance |
+| `kb data entity add [--name NAME] [--class NAME\|--class-id ID] [--description D] [--text T] [--source NAME\|--source-id ID]` | Add an entity instance |
 | `kb data entity list [--show-provenance] [--format table\|json]` | List all entity instances |
-| `kb data entity property set VALUE --entity NAME\|--entity-id ID --property NAME [--type T] [--source NAME\|--source-id ID]` | Set a property value on an entity |
+| `kb data entity property set VALUE [--name N] [--description D] --entity NAME\|--entity-id ID --property NAME [--type T] [--source NAME\|--source-id ID]` | Set a property value on an entity |
 | `kb data entity property list --entity NAME\|--entity-id ID [--show-provenance] [--format table\|json]` | List property values for an entity |
-| `kb data fact add [--head NAME\|--head-id ID] [--relation NAME\|--relation-id ID] [--tail NAME\|--tail-id ID] [--source NAME\|--source-id ID]` | Add a fact |
+| `kb data fact add [--name N] [--description D] [--head NAME\|--head-id ID] [--relation NAME\|--relation-id ID] [--tail NAME\|--tail-id ID] [--source NAME\|--source-id ID]` | Add a fact |
 | `kb data fact list [--show-provenance] [--format table\|json]` | List all facts |
-| `kb data fact property set VALUE --fact-id ID --property NAME [--type T] [--source NAME\|--source-id ID]` | Set a property value on a fact |
+| `kb data fact property set VALUE [--name N] [--description D] --fact-id ID --property NAME [--type T] [--source NAME\|--source-id ID]` | Set a property value on a fact |
 | `kb data fact property list --fact-id ID [--show-provenance] [--format table\|json]` | List property values for a fact |
 | `kb data answer QUESTION [--natural-language] [--format table\|json]` | LLM answer query; `--natural-language` returns prose instead of a table |
 | `kb data validate STATEMENT [--natural-language]` | LLM supporting / counter evidence; `--natural-language` returns a prose assessment |

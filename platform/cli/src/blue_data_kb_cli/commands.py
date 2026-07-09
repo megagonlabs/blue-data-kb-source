@@ -462,7 +462,7 @@ def entity_group() -> None:
 
 
 @entity_group.command("add")
-@click.argument("name")
+@click.option("--name",                        default=None, help="Entity name.")
 @click.option("--class",       "class_name",   default=None, help="Class name (resolved to id).")
 @click.option("--class-id",                    default=None, help="Class node ID (overrides --class).")
 @click.option("--description",                 default=None, help="Optional description.")
@@ -472,7 +472,7 @@ def entity_group() -> None:
 @click.pass_obj
 def entity_add(
     obj: dict,
-    name: str,
+    name: str | None,
     class_name: str | None,
     class_id: str | None,
     description: str | None,
@@ -499,7 +499,8 @@ def entity_add(
         ))
     except KBError as exc:
         raise click.ClickException(str(exc))
-    console.print(f"Added entity: [bold]{name}[/bold] (id: {entity_id})")
+    label = f"[bold]{name}[/bold]" if name else ""
+    console.print(f"Added entity{': ' + label if label else ''} (id: {entity_id})")
 
 
 @entity_group.command("list")
@@ -560,6 +561,8 @@ def entity_property_group() -> None:
 
 @entity_property_group.command("set")
 @click.argument("value")
+@click.option("--name",                          default=None, help="Literal name (defaults to value).")
+@click.option("--description",                   default=None, help="Optional description.")
 @click.option("--entity",       "entity_name",   default=None, help="Entity name.")
 @click.option("--entity-id",                     default=None, help="Entity node ID (overrides --entity).")
 @click.option("--property",     "property_name", default=None, help="Property name.")
@@ -577,6 +580,8 @@ def entity_property_group() -> None:
 def entity_property_set(
     obj: dict,
     value: str,
+    name: str | None,
+    description: str | None,
     entity_name: str | None,
     entity_id: str | None,
     property_name: str | None,
@@ -606,6 +611,7 @@ def entity_property_set(
     try:
         lit_id = _run(kb.add_entity_property_value(
             db, coerced,
+            name=name, description=description,
             entity_id=eid, property_id=pid, literal_type=literal_type,
             text=text, source_id=resolved_source_id,
         ))
@@ -676,6 +682,8 @@ def fact_group() -> None:
 
 
 @fact_group.command("add")
+@click.option("--name",                         default=None, help="Fact name (auto-generated from head/relation/tail if omitted).")
+@click.option("--description",                  default=None, help="Optional description.")
 @click.option("--head",        "head_name",     default=None, help="Head entity name.")
 @click.option("--head-id",                      default=None, help="Head entity node ID (overrides --head).")
 @click.option("--relation",    "relation_name", default=None, help="Relation name.")
@@ -688,6 +696,8 @@ def fact_group() -> None:
 @click.pass_obj
 def fact_add(
     obj: dict,
+    name: str | None,
+    description: str | None,
     head_name: str | None,
     head_id: str | None,
     relation_name: str | None,
@@ -722,6 +732,8 @@ def fact_add(
     try:
         fact_id = _run(kb.add_fact(
             db,
+            name=name,
+            description=description,
             head_entity_id=head_entity_id,
             tail_entity_id=tail_entity_id,
             relation_id=resolved_relation_id,
@@ -802,6 +814,8 @@ def fact_property_group() -> None:
 
 @fact_property_group.command("set")
 @click.argument("value")
+@click.option("--name",                       default=None,  help="Literal name (defaults to value).")
+@click.option("--description",                default=None,  help="Optional description.")
 @click.option("--fact-id",                    required=True, help="Fact node ID.")
 @click.option("--property",  "property_name", default=None,  help="Property name.")
 @click.option("--property-id",                default=None,  help="Property node ID (overrides --property).")
@@ -818,6 +832,8 @@ def fact_property_group() -> None:
 def fact_property_set(
     obj: dict,
     value: str,
+    name: str | None,
+    description: str | None,
     fact_id: str,
     property_name: str | None,
     property_id: str | None,
@@ -844,6 +860,7 @@ def fact_property_set(
     try:
         lit_id = _run(kb.add_fact_property_value(
             db, coerced,
+            name=name, description=description,
             fact_id=fact_id, property_id=pid, literal_type=literal_type,
             text=text, source_id=resolved_source_id,
         ))
