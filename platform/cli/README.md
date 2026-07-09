@@ -78,23 +78,23 @@ $ kb --database main schema declare property START_DATE "Start of employment" \
 Declared property: START_DATE (id: 8c3d0a1e-…)
 
 # 3. Register a provenance source
-$ kb --database main source add resume_alice --name "Alice's résumé"
+$ kb --database main data source add resume_alice --name "Alice's résumé"
 Added source: resume_alice (id: a1b2c3d4-…)
 
 # 4. Add entity instances (class resolved by name or by ID)
-$ kb --database main entity add Alice --class PERSON \
+$ kb --database main data entity add Alice --class PERSON \
     --text "Alice is a software engineer." --source a1b2c3d4-…
 Added entity: Alice (id: d52378c9-…)
 
-$ kb --database main entity add IBM --class COMPANY
+$ kb --database main data entity add IBM --class COMPANY
 Added entity: IBM (id: 5b1a47fb-…)
 
 # 5. Set and list entity property values
-$ kb --database main entity property set 42 \
+$ kb --database main data entity property set 42 \
     --entity Alice --property AGE --type NUMBER
 Set entity property (literal id: 1a2b3c4d-…)
 
-$ kb --database main entity property list --entity Alice
+$ kb --database main data entity property list --entity Alice
 ┏━━━━━━━━━━┳━━━━━━━┳━━━━━━━━┓
 ┃ Property ┃ Value ┃ Type   ┃
 ┡━━━━━━━━━━╇━━━━━━━╇━━━━━━━━┩
@@ -102,17 +102,17 @@ $ kb --database main entity property list --entity Alice
 └──────────┴───────┴────────┘
 
 # 6. Add a fact (head/tail/relation resolved by name or by ID)
-$ kb --database main fact add \
+$ kb --database main data fact add \
     --head Alice --relation WORKED_AT --tail IBM \
     --text "Alice joined IBM in June 1998." --source a1b2c3d4-…
 Added fact (id: 092733dd-…)
 
 # 7. Set and list fact property values
-$ kb --database main fact property set "1998-06-01" \
+$ kb --database main data fact property set "1998-06-01" \
     --fact-id 092733dd-… --property START_DATE --type DATE
 Set fact property (literal id: 5e6f7a8b-…)
 
-$ kb --database main fact property list --fact-id 092733dd-…
+$ kb --database main data fact property list --fact-id 092733dd-…
 ┏━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━┓
 ┃ Property   ┃ Value      ┃ Type   ┃
 ┡━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━┩
@@ -136,7 +136,7 @@ $ kb --database main schema list
 └────────┴───────────┴─────────┴────────────────────────┴────────────┘
 
 # 9. List all instances
-$ kb --database main list
+$ kb --database main data list
       Entities
 ┏━━━━━━━┳━━━━━━━━━┓
 ┃ Name  ┃ Class   ┃
@@ -166,7 +166,7 @@ $ kb --database main schema search employment
 └────────────┴───────────┴─────────────────────────┘
 
 # 11. Answer a question
-$ kb --database main answer "Where did Alice work?"
+$ kb --database main data answer "Where did Alice work?"
 ┏━━━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃ Entity      ┃ Relation  ┃ Value   ┃ Provenance                     ┃
 ┡━━━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
@@ -175,7 +175,7 @@ $ kb --database main answer "Where did Alice work?"
 └─────────────┴───────────┴─────────┴────────────────────────────────┘
 
 # 12. Validate a statement
-$ kb --database main validate "Alice worked at IBM"
+$ kb --database main data validate "Alice worked at IBM"
 
 Supporting:
   • Alice —WORKED_AT→ IBM
@@ -184,7 +184,7 @@ Counter:
   (none)
 
 # 13. LLM extraction (requires openai extra and OPENAI_API_KEY)
-$ kb --database main extract \
+$ kb --database main data extract \
     "Alice later joined Google as a senior engineer in May 2002." \
     --query "Where did Alice work?" --query "When did she start?"
 Extraction complete.
@@ -203,21 +203,21 @@ Deleted database: main
 | `kb database delete NAME [--yes]` | Delete a database (prompts unless --yes) |
 | `kb database select NAME` | Set the default target database |
 | `kb schema list [--format table\|json]` | List classes and relations for the current database |
-| `kb list [--provenance] [--format table\|json]` | List all entity, property-value, and fact instances |
 | `kb schema declare class NAME DESC` | Declare a CLASS (idempotent) |
 | `kb schema declare relation NAME DESC [--domain C] [--range C]` | Declare a RELATION |
 | `kb schema declare property NAME DESC (--class NAME\|--class-id ID\|--relation NAME\|--relation-id ID)` | Declare a PROPERTY (owner required) |
 | `kb schema search QUERY [--format table\|json]` | Keyword search over schema nodes |
-| `kb source add SOURCE [--name N] [--description D]` | Register a provenance source |
-| `kb entity add NAME [--class NAME\|--class-id ID] [--text T] [--source ID]` | Add an entity instance |
-| `kb entity property set VALUE --entity NAME\|--entity-id ID --property NAME [--type T]` | Set a property value on an entity |
-| `kb entity property list --entity NAME\|--entity-id ID [--format table\|json]` | List property values for an entity |
-| `kb fact add [--head NAME\|--head-id ID] [--relation NAME\|--relation-id ID] [--tail NAME\|--tail-id ID]` | Add a fact |
-| `kb fact property set VALUE --fact-id ID --property NAME [--type T]` | Set a property value on a fact |
-| `kb fact property list --fact-id ID [--format table\|json]` | List property values for a fact |
-| `kb answer QUESTION [--natural-language] [--format table\|json]` | LLM answer query; `--natural-language` returns prose instead of a table |
-| `kb validate STATEMENT [--natural-language]` | LLM supporting / counter evidence; `--natural-language` returns a prose assessment |
-| `kb extract TEXT [--query Q]… [--source ID] [--model M]` | LLM extraction |
+| `kb data list [--provenance] [--format table\|json]` | List all entity, property-value, and fact instances |
+| `kb data source add SOURCE [--name N] [--description D]` | Register a provenance source |
+| `kb data entity add NAME [--class NAME\|--class-id ID] [--text T] [--source ID]` | Add an entity instance |
+| `kb data entity property set VALUE --entity NAME\|--entity-id ID --property NAME [--type T]` | Set a property value on an entity |
+| `kb data entity property list --entity NAME\|--entity-id ID [--format table\|json]` | List property values for an entity |
+| `kb data fact add [--head NAME\|--head-id ID] [--relation NAME\|--relation-id ID] [--tail NAME\|--tail-id ID]` | Add a fact |
+| `kb data fact property set VALUE --fact-id ID --property NAME [--type T]` | Set a property value on a fact |
+| `kb data fact property list --fact-id ID [--format table\|json]` | List property values for a fact |
+| `kb data answer QUESTION [--natural-language] [--format table\|json]` | LLM answer query; `--natural-language` returns prose instead of a table |
+| `kb data validate STATEMENT [--natural-language]` | LLM supporting / counter evidence; `--natural-language` returns a prose assessment |
+| `kb data extract TEXT [--query Q]… [--source ID] [--model M]` | LLM extraction |
 
 Exit codes: `0` success · `1` KBError · `2` bad arguments.
 

@@ -372,10 +372,19 @@ def schema_search(obj: dict, query: str, fmt: str) -> None:
 
 
 # ------------------------------------------------------------------ #
-# kb source                                                            #
+# kb data                                                              #
 # ------------------------------------------------------------------ #
 
-@cli.group("source")
+@cli.group("data")
+def data_group() -> None:
+    """Instance data management."""
+
+
+# ------------------------------------------------------------------ #
+# kb data source                                                       #
+# ------------------------------------------------------------------ #
+
+@data_group.group("source")
 def source_group() -> None:
     """Provenance source management."""
 
@@ -397,10 +406,10 @@ def source_add(obj: dict, source: str, name: str | None, description: str | None
 
 
 # ------------------------------------------------------------------ #
-# kb entity                                                            #
+# kb data entity                                                       #
 # ------------------------------------------------------------------ #
 
-@cli.group("entity")
+@data_group.group("entity")
 def entity_group() -> None:
     """Entity instance management."""
 
@@ -545,10 +554,10 @@ def entity_property_list(
 
 
 # ------------------------------------------------------------------ #
-# kb fact                                                              #
+# kb data fact                                                         #
 # ------------------------------------------------------------------ #
 
-@cli.group("fact")
+@data_group.group("fact")
 def fact_group() -> None:
     """Fact management."""
 
@@ -701,10 +710,10 @@ def fact_property_list(obj: dict, fact_id: str, fmt: str) -> None:
 
 
 # ------------------------------------------------------------------ #
-# kb show                                                              #
+# kb data list                                                         #
 # ------------------------------------------------------------------ #
 
-@cli.command("list")
+@data_group.command("list")
 @click.option("--provenance", "include_provenance", is_flag=True, help="Include provenance text.")
 @click.option(
     "--format", "fmt",
@@ -784,10 +793,10 @@ def list_cmd(obj: dict, include_provenance: bool, fmt: str) -> None:
 
 
 # ------------------------------------------------------------------ #
-# kb extract                                                           #
+# kb data extract                                                      #
 # ------------------------------------------------------------------ #
 
-@cli.command("extract")
+@data_group.command("extract")
 @click.argument("text")
 @click.option("--query",  "queries",   multiple=True, help="Guiding question (repeatable).")
 @click.option("--source", "source_id", default=None,  help="Source node ID for provenance.")
@@ -819,10 +828,10 @@ def extract_cmd(
 
 
 # ------------------------------------------------------------------ #
-# kb answer                                                            #
+# kb data answer                                                       #
 # ------------------------------------------------------------------ #
 
-@cli.command("answer")
+@data_group.command("answer")
 @click.argument("question")
 @click.option(
     "--format", "fmt",
@@ -860,10 +869,10 @@ def answer_cmd(obj: dict, question: str, fmt: str, natural_language: bool) -> No
 
 
 # ------------------------------------------------------------------ #
-# kb validate                                                          #
+# kb data validate                                                     #
 # ------------------------------------------------------------------ #
 
-@cli.command("validate")
+@data_group.command("validate")
 @click.argument("statement")
 @click.option("--natural-language", "natural_language", is_flag=True, default=False,
               help="Return a prose assessment instead of supporting/counter lists.")
