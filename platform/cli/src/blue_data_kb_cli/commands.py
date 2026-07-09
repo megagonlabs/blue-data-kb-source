@@ -1053,13 +1053,14 @@ def extract_cmd(
     show_default=True,
     help="Output format: table, json, or nl (prose natural-language answer).",
 )
+@click.option("--model", default="gpt-4o", show_default=True, help="OpenAI model.")
 @click.pass_obj
-def answer_cmd(obj: dict, question: str, fmt: str) -> None:
+def answer_cmd(obj: dict, question: str, fmt: str, model: str) -> None:
     """Answer a natural language question using the knowledge base."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
-        result = _run(kb.answer(db, question, natural_language=(fmt == "nl")))
+        result = _run(kb.answer(db, question, model=model, natural_language=(fmt == "nl")))
     except KBError as exc:
         raise click.ClickException(str(exc))
     if fmt == "nl":
@@ -1087,13 +1088,14 @@ def answer_cmd(obj: dict, question: str, fmt: str) -> None:
 @click.argument("statement")
 @click.option("--natural-language", "natural_language", is_flag=True, default=False,
               help="Return a prose assessment instead of supporting/counter lists.")
+@click.option("--model", default="gpt-4o", show_default=True, help="OpenAI model.")
 @click.pass_obj
-def validate_cmd(obj: dict, statement: str, natural_language: bool) -> None:
+def validate_cmd(obj: dict, statement: str, natural_language: bool, model: str) -> None:
     """Return supporting and counter evidence for a statement."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
-        result = _run(kb.validate(db, statement, natural_language=natural_language))
+        result = _run(kb.validate(db, statement, model=model, natural_language=natural_language))
     except KBError as exc:
         raise click.ClickException(str(exc))
 

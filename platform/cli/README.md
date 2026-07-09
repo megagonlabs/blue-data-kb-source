@@ -220,8 +220,8 @@ Deleted database: main
 | `kb data fact list [--show-provenance] [--format table\|json]` | List all facts |
 | `kb data fact property set VALUE [--name N] [--description D] --fact-id ID --property NAME [--type T] [--source NAME\|--source-id ID]` | Set a property value on a fact |
 | `kb data fact property list --fact-id ID [--show-provenance] [--format table\|json]` | List property values for a fact |
-| `kb data answer QUESTION [--format table\|json\|nl]` | LLM answer query; `--format nl` returns a prose answer |
-| `kb data validate STATEMENT [--natural-language]` | LLM supporting / counter evidence; `--natural-language` returns a prose assessment |
+| `kb data answer QUESTION [--format table\|json\|nl] [--model M]` | LLM answer query; `--format nl` returns a prose answer |
+| `kb data validate STATEMENT [--natural-language] [--model M]` | LLM supporting / counter evidence; `--natural-language` returns a prose assessment |
 | `kb data extract TEXT [--query Q]… [--source NAME\|--source-id ID] [--model M]` | LLM extraction |
 
 Exit codes: `0` success · `1` KBError · `2` bad arguments.
