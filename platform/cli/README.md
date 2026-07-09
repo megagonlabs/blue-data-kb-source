@@ -60,22 +60,22 @@ $ kb database create main
 Created database: main
 
 # 2. Declare schema
-$ kb --database main schema declare class PERSON "A human individual"
-Declared class: PERSON (id: 3b2a906c-…)
+$ kb --database main schema class add PERSON "A human individual"
+Added class: PERSON (id: 3b2a906c-…)
 
-$ kb --database main schema declare property AGE "Age of a person" --class PERSON
-Declared property: AGE (id: 0d9eaaac-bf07-41e6-bd6d-34f60f4c90d7)
+$ kb --database main schema class property add AGE "Age of a person" --class PERSON
+Added class property: AGE (id: 0d9eaaac-bf07-41e6-bd6d-34f60f4c90d7)
 
-$ kb --database main schema declare class COMPANY "A business organization"
-Declared class: COMPANY (id: 49710e2e-…)
+$ kb --database main schema class add COMPANY "A business organization"
+Added class: COMPANY (id: 49710e2e-…)
 
-$ kb --database main schema declare relation WORKED_AT "Employment relationship" \
+$ kb --database main schema relation add WORKED_AT "Employment relationship" \
     --domain PERSON --range COMPANY
-Declared relation: WORKED_AT (id: 67a75f53-…)
+Added relation: WORKED_AT (id: 67a75f53-…)
 
-$ kb --database main schema declare property START_DATE "Start of employment" \
+$ kb --database main schema relation property add START_DATE "Start of employment" \
     --relation WORKED_AT
-Declared property: START_DATE (id: 8c3d0a1e-…)
+Added relation property: START_DATE (id: 8c3d0a1e-…)
 
 # 3. Register a provenance source
 $ kb --database main data source add resume_alice --name "Alice's résumé"
@@ -204,10 +204,15 @@ Deleted database: main
 | `kb database create NAME` | Create a database |
 | `kb database delete NAME [--yes]` | Delete a database (prompts unless --yes) |
 | `kb database select NAME` | Set the default target database |
-| `kb schema list [--format table\|json]` | List classes and relations for the current database |
-| `kb schema declare class NAME DESC` | Declare a CLASS (idempotent) |
-| `kb schema declare relation NAME DESC [--domain C] [--range C]` | Declare a RELATION |
-| `kb schema declare property NAME DESC (--class NAME\|--class-id ID\|--relation NAME\|--relation-id ID)` | Declare a PROPERTY (owner required) |
+| `kb schema list [--format table\|json]` | List classes, relations, properties, and hierarchy |
+| `kb schema class add NAME DESC` | Declare a CLASS (idempotent) |
+| `kb schema class list [--format table\|json]` | List all declared classes |
+| `kb schema class property add NAME DESC [--class NAME\|--class-id ID]` | Declare a property on a class |
+| `kb schema class property list [--class NAME\|--class-id ID] [--format table\|json]` | List class properties (optionally filtered by class) |
+| `kb schema relation add NAME DESC [--domain C] [--range C]` | Declare a RELATION (idempotent) |
+| `kb schema relation list [--format table\|json]` | List all declared relations |
+| `kb schema relation property add NAME DESC [--relation NAME\|--relation-id ID]` | Declare a property on a relation |
+| `kb schema relation property list [--relation NAME\|--relation-id ID] [--format table\|json]` | List relation properties (optionally filtered by relation) |
 | `kb schema search QUERY [--format table\|json]` | Keyword search over schema nodes |
 | `kb data list [--show-provenance] [--format table\|json]` | List all entity, property-value, and fact instances |
 | `kb data source add SOURCE [--name N] [--description D]` | Register a provenance source |

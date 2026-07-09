@@ -321,16 +321,20 @@ def schema_list(obj: dict, fmt: str) -> None:
         console.print(t)
 
 
-@schema_group.group("declare")
-def schema_declare() -> None:
-    """Declare schema elements."""
+# ------------------------------------------------------------------ #
+# kb schema class                                                      #
+# ------------------------------------------------------------------ #
+
+@schema_group.group("class")
+def schema_class_group() -> None:
+    """Class schema management."""
 
 
-@schema_declare.command("class")
+@schema_class_group.command("add")
 @click.argument("name")
 @click.argument("description")
 @click.pass_obj
-def declare_class_cmd(obj: dict, name: str, description: str) -> None:
+def schema_class_add(obj: dict, name: str, description: str) -> None:
     """Declare a CLASS node (idempotent)."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
@@ -338,16 +342,136 @@ def declare_class_cmd(obj: dict, name: str, description: str) -> None:
         class_id = _run(kb.declare_class(db, name, description))
     except KBError as exc:
         raise click.ClickException(str(exc))
-    console.print(f"Declared class: [bold]{name}[/bold] (id: {class_id})")
+    console.print(f"Added class: [bold]{name}[/bold] (id: {class_id})")
 
 
-@schema_declare.command("relation")
+@schema_class_group.command("list")
+@click.option(
+    "--format", "fmt",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    show_default=True,
+)
+@click.pass_obj
+def schema_class_list(obj: dict, fmt: str) -> None:
+    """List all declared classes."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    try:
+        schema = _run(kb.fetch_database_schema(db))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    rows = [
+        {"name": e["name"], "description": e.get("description", "")}
+        for e in sorted(schema.entities.values(), key=lambda e: e["name"])
+    ]
+    if fmt == "json":
+        console.print_json(json.dumps(rows))
+    else:
+        if not rows:
+            console.print("[dim](no classes)[/dim]")
+            return
+        t = Table(show_header=True, header_style="bold")
+        t.add_column("Name",        style="bold", min_width=12)
+        t.add_column("Description")
+        for r in rows:
+            t.add_row(r["name"], r["description"])
+        console.print(t)
+
+
+@schema_class_group.group("property")
+def schema_class_property_group() -> None:
+    """Class property management."""
+
+
+@schema_class_property_group.command("add")
+@click.argument("name")
+@click.argument("description")
+@click.option("--class",    "class_name", default=None, help="Owning class name.")
+@click.option("--class-id",              default=None, help="Owning class node ID (overrides --class).")
+@click.pass_obj
+def schema_class_property_add(
+    obj: dict, name: str, description: str, class_name: str | None, class_id: str | None
+) -> None:
+    """Declare a PROPERTY on a class (idempotent)."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    resolved_class_id: str | None = None
+    if class_name or class_id:
+        resolved_class_id = _resolve_node(kb, db, CLASS, class_name, class_id, "class")
+    try:
+        prop_id = _run(kb.declare_class_property(db, name, description, class_id=resolved_class_id))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(f"Added class property: [bold]{name}[/bold] (id: {prop_id})")
+
+
+@schema_class_property_group.command("list")
+@click.option("--class",    "class_name", default=None, help="Filter by class name.")
+@click.option("--class-id",              default=None, help="Filter by class node ID.")
+@click.option(
+    "--format", "fmt",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    show_default=True,
+)
+@click.pass_obj
+def schema_class_property_list(
+    obj: dict, class_name: str | None, class_id: str | None, fmt: str
+) -> None:
+    """List class properties, optionally filtered by class."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    if class_name or class_id:
+        resolved_class_id = _resolve_node(kb, db, CLASS, class_name, class_id, "class")
+    else:
+        resolved_class_id = None
+    try:
+        schema = _run(kb.fetch_database_schema(db))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    rows = []
+    for ent in sorted(schema.entities.values(), key=lambda e: e["name"]):
+        if resolved_class_id and ent.get("id") != resolved_class_id:
+            if class_name and ent["name"] != class_name:
+                continue
+        for attr_name, attr in ent.get("contents", {}).get("attributes", {}).items():
+            rows.append({
+                "class":       ent["name"],
+                "property":    attr_name,
+                "description": attr.get("description", ""),
+            })
+    if fmt == "json":
+        console.print_json(json.dumps(rows))
+    else:
+        if not rows:
+            console.print("[dim](no class properties)[/dim]")
+            return
+        t = Table(show_header=True, header_style="bold")
+        t.add_column("Class",       style="bold", min_width=12)
+        t.add_column("Property",    style="bold", min_width=12)
+        t.add_column("Description")
+        for r in sorted(rows, key=lambda r: (r["class"], r["property"])):
+            t.add_row(r["class"], r["property"], r["description"])
+        console.print(t)
+
+
+# ------------------------------------------------------------------ #
+# kb schema relation                                                   #
+# ------------------------------------------------------------------ #
+
+@schema_group.group("relation")
+def schema_relation_group() -> None:
+    """Relation schema management."""
+
+
+@schema_relation_group.command("add")
 @click.argument("name")
 @click.argument("description")
 @click.option("--domain", default=None, help="Domain class name.")
 @click.option("--range", "range_", default=None, help="Range class name.")
 @click.pass_obj
-def declare_relation_cmd(
+def schema_relation_add(
     obj: dict, name: str, description: str, domain: str | None, range_: str | None
 ) -> None:
     """Declare a RELATION node (idempotent)."""
@@ -357,48 +481,127 @@ def declare_relation_cmd(
         rel_id = _run(kb.declare_relation_type(db, name, description, domain=domain, range_=range_))
     except KBError as exc:
         raise click.ClickException(str(exc))
-    console.print(f"Declared relation: [bold]{name}[/bold] (id: {rel_id})")
+    console.print(f"Added relation: [bold]{name}[/bold] (id: {rel_id})")
 
 
-@schema_declare.command("property")
-@click.argument("name")
-@click.argument("description")
-@click.option("--class",       "class_name",    default=None, help="Attach to class by name.")
-@click.option("--class-id",                     default=None, help="Attach to class by ID (overrides --class).")
-@click.option("--relation",    "relation_name", default=None, help="Attach to relation by name.")
-@click.option("--relation-id",                  default=None, help="Attach to relation by ID (overrides --relation).")
+@schema_relation_group.command("list")
+@click.option(
+    "--format", "fmt",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    show_default=True,
+)
 @click.pass_obj
-def declare_property_cmd(
-    obj: dict,
-    name: str,
-    description: str,
-    class_name: str | None,
-    class_id: str | None,
-    relation_name: str | None,
-    relation_id: str | None,
-) -> None:
-    """Declare a PROPERTY node (idempotent).
-
-    Exactly one owner must be specified: --class/--class-id or --relation/--relation-id.
-    """
+def schema_relation_list(obj: dict, fmt: str) -> None:
+    """List all declared relations."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
-    has_class    = bool(class_name or class_id)
-    has_relation = bool(relation_name or relation_id)
-    if not has_class and not has_relation:
-        raise click.UsageError("Provide --class/--class-id or --relation/--relation-id.")
-    if has_class and has_relation:
-        raise click.UsageError("Provide only one of --class/--class-id or --relation/--relation-id.")
     try:
-        if has_class:
-            resolved_class_id = _resolve_node(kb, db, CLASS, class_name, class_id, "class")
-            prop_id = _run(kb.declare_class_property(db, name, description, class_id=resolved_class_id))
-        else:
-            resolved_relation_id = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
-            prop_id = _run(kb.declare_relation_property(db, name, description, relation_id=resolved_relation_id))
+        schema = _run(kb.fetch_database_schema(db))
     except KBError as exc:
         raise click.ClickException(str(exc))
-    console.print(f"Declared property: [bold]{name}[/bold] (id: {prop_id})")
+    real_relations = {k: v for k, v in schema.relations.items() if v["name"] != "IS_SUBCLASS_OF"}
+    rows = [
+        {
+            "name":        r["name"],
+            "source":      r.get("source", ""),
+            "target":      r.get("target", ""),
+            "description": r.get("description", ""),
+        }
+        for r in sorted(real_relations.values(), key=lambda r: r["name"])
+    ]
+    if fmt == "json":
+        console.print_json(json.dumps(rows))
+    else:
+        if not rows:
+            console.print("[dim](no relations)[/dim]")
+            return
+        t = Table(show_header=True, header_style="bold")
+        t.add_column("Name",        style="bold", min_width=12)
+        t.add_column("Source",      min_width=10)
+        t.add_column("Target",      min_width=10)
+        t.add_column("Description")
+        for r in rows:
+            t.add_row(r["name"], r["source"], r["target"], r["description"])
+        console.print(t)
+
+
+@schema_relation_group.group("property")
+def schema_relation_property_group() -> None:
+    """Relation property management."""
+
+
+@schema_relation_property_group.command("add")
+@click.argument("name")
+@click.argument("description")
+@click.option("--relation",    "relation_name", default=None, help="Owning relation name.")
+@click.option("--relation-id",                  default=None, help="Owning relation node ID (overrides --relation).")
+@click.pass_obj
+def schema_relation_property_add(
+    obj: dict, name: str, description: str, relation_name: str | None, relation_id: str | None
+) -> None:
+    """Declare a PROPERTY on a relation (idempotent)."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    resolved_relation_id: str | None = None
+    if relation_name or relation_id:
+        resolved_relation_id = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
+    try:
+        prop_id = _run(kb.declare_relation_property(db, name, description, relation_id=resolved_relation_id))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(f"Added relation property: [bold]{name}[/bold] (id: {prop_id})")
+
+
+@schema_relation_property_group.command("list")
+@click.option("--relation",    "relation_name", default=None, help="Filter by relation name.")
+@click.option("--relation-id",                  default=None, help="Filter by relation node ID.")
+@click.option(
+    "--format", "fmt",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    show_default=True,
+)
+@click.pass_obj
+def schema_relation_property_list(
+    obj: dict, relation_name: str | None, relation_id: str | None, fmt: str
+) -> None:
+    """List relation properties, optionally filtered by relation."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    if relation_name or relation_id:
+        resolved_relation_id = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
+    else:
+        resolved_relation_id = None
+    try:
+        schema = _run(kb.fetch_database_schema(db))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    real_relations = {k: v for k, v in schema.relations.items() if v["name"] != "IS_SUBCLASS_OF"}
+    rows = []
+    for rel in sorted(real_relations.values(), key=lambda r: r["name"]):
+        if resolved_relation_id and rel.get("id") != resolved_relation_id:
+            if relation_name and rel["name"] != relation_name:
+                continue
+        for attr_name, attr in rel.get("contents", {}).get("attributes", {}).items():
+            rows.append({
+                "relation":    rel["name"],
+                "property":    attr_name,
+                "description": attr.get("description", ""),
+            })
+    if fmt == "json":
+        console.print_json(json.dumps(rows))
+    else:
+        if not rows:
+            console.print("[dim](no relation properties)[/dim]")
+            return
+        t = Table(show_header=True, header_style="bold")
+        t.add_column("Relation",    style="bold", min_width=12)
+        t.add_column("Property",    style="bold", min_width=12)
+        t.add_column("Description")
+        for r in sorted(rows, key=lambda r: (r["relation"], r["property"])):
+            t.add_row(r["relation"], r["property"], r["description"])
+        console.print(t)
 
 
 @schema_group.command("search")
