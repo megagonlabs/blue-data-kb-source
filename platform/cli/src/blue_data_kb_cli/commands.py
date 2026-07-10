@@ -1260,6 +1260,57 @@ def source_list(obj: dict, fmt: str) -> None:
         console.print(t)
 
 
+@source_group.command("update")
+@click.option("--source",      "source_name", default=None, help="Source name.")
+@click.option("--source-id",                  default=None, help="Source node ID (overrides --source).")
+@click.option("--name",                       default=None, help="New name.")
+@click.option("--description",                default=None, help="New description.")
+@click.pass_obj
+def source_update(
+    obj: dict, source_name: str | None, source_id: str | None,
+    name: str | None, description: str | None,
+) -> None:
+    """Update the name and/or description of a source."""
+    if not name and not description:
+        raise click.UsageError("Provide at least one of --name or --description.")
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    sid = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
+    try:
+        _run(kb.update_source(db, sid, name=name, description=description))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(f"Updated source: [bold]{name or source_name or source_id}[/bold]")
+
+
+@source_group.command("delete")
+@click.option("--source",    "source_name", default=None, help="Source name.")
+@click.option("--source-id",               default=None, help="Source node ID (overrides --source).")
+@click.option("--yes",       is_flag=True,  default=False, help="Skip confirmation prompt.")
+@click.pass_obj
+def source_delete(
+    obj: dict, source_name: str | None, source_id: str | None, yes: bool,
+) -> None:
+    """Delete a source and all its extraction records.
+
+    Instance nodes (entities, facts, property values) are preserved;
+    only the provenance links to this source are removed.
+    """
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    sid = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
+    label = source_name or source_id
+    if not yes:
+        click.confirm(
+            f"Delete source '{label}' and its extraction records?", abort=True
+        )
+    try:
+        _run(kb.delete_source(db, sid))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(f"Deleted source: [bold]{label}[/bold]")
+
+
 # ------------------------------------------------------------------ #
 # kb data entity                                                       #
 # ------------------------------------------------------------------ #

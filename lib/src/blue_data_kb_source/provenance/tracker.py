@@ -67,3 +67,26 @@ class ProvenanceTracker:
         extraction_id: str,
     ) -> None:
         self._source.add_edge(database, element_id, EXTRACTED_FROM, extraction_id)
+
+    async def update_source(
+        self,
+        database: str,
+        source_id: str,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        props = {k: v for k, v in {"name": name, "description": description}.items() if v is not None}
+        if not props:
+            raise ValueError("At least one of name or description must be provided.")
+        self._source.update_node(database, source_id, props)
+
+    async def delete_source(self, database: str, source_id: str) -> None:
+        """Delete a SOURCE node and all its EXTRACTION nodes.
+
+        Instance nodes (ENTITY, FACT, LITERAL) are preserved; only the
+        EXTRACTED_FROM edges from instances to the deleted EXTRACTIONs
+        are removed (via delete_node's edge cleanup).
+        """
+        for nb in self._source.get_neighbors(database, source_id, edge_type=EXTRACTED_FROM, direction="in"):
+            self._source.delete_node(database, nb["node"]["id"])
+        self._source.delete_node(database, source_id)

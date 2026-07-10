@@ -394,6 +394,18 @@ class KBSource(GraphSource, ABC):
     async def add_extracted_from(self, database: str, element_id: str, extraction_id: str) -> None:
         await self._provenance.add_extracted_from(database, element_id, extraction_id)
 
+    async def update_source(
+        self,
+        database: str,
+        source_id: str,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        await self._provenance.update_source(database, source_id, name, description)
+
+    async def delete_source(self, database: str, source_id: str) -> None:
+        await self._provenance.delete_source(database, source_id)
+
     # ------------------------------------------------------------------ #
     # Change hooks → ChangeNotifier                                        #
     # ------------------------------------------------------------------ #
