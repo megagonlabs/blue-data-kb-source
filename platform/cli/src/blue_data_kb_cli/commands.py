@@ -539,7 +539,7 @@ def schema_class_parent_remove(
     resolved_child  = _resolve_node(kb, db, CLASS, class_name,  class_id,  "class")
     resolved_parent = _resolve_node(kb, db, CLASS, parent_name, parent_id, "parent class")
     try:
-        kb.delete_edge(db, resolved_child, IS_SUBCLASS_OF, resolved_parent)
+        _run(kb.remove_is_subclass_of(db, resolved_child, resolved_parent))
     except KBError as exc:
         raise click.ClickException(str(exc))
     child_label  = class_name  or class_id
@@ -1000,7 +1000,7 @@ def schema_relation_parent_remove(
     resolved_child  = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
     resolved_parent = _resolve_node(kb, db, RELATION, parent_name,   parent_id,   "parent relation")
     try:
-        kb.delete_edge(db, resolved_child, IS_SUBCLASS_OF, resolved_parent)
+        _run(kb.remove_is_subclass_of(db, resolved_child, resolved_parent))
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(

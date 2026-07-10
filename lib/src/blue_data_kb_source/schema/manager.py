@@ -439,6 +439,9 @@ class SchemaManager:
             raise SchemaError("Property has existing values. Delete them before removing the property.")
         self._source.delete_node(database, property_id)
 
+    async def remove_is_subclass_of(self, database: str, child_id: str, parent_id: str) -> None:
+        self._source.delete_edge(database, child_id, IS_SUBCLASS_OF, parent_id)
+
     async def add_is_subclass_of(self, database: str, child_id: str, parent_id: str) -> None:
         self._source.add_edge(database, child_id, IS_SUBCLASS_OF, parent_id)
         child_node  = self._source.get_node(database, child_id)  or {}

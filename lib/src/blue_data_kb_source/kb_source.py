@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from abc import ABC
 from typing import Any, Callable, Literal
 
@@ -196,6 +197,9 @@ class KBSource(GraphSource, ABC):
 
     async def delete_property(self, database: str, property_id: str) -> None:
         await self._schema.delete_property(database, property_id)
+
+    async def remove_is_subclass_of(self, database: str, child_id: str, parent_id: str) -> None:
+        await self._schema.remove_is_subclass_of(database, child_id, parent_id)
 
     async def add_is_subclass_of(self, database: str, child_id: str, parent_id: str) -> None:
         await self._schema.add_is_subclass_of(database, child_id, parent_id)
@@ -469,3 +473,293 @@ class KBSource(GraphSource, ABC):
     async def fetch_meta_schema(self) -> DataSchema:
         """Return a DataSchema built from the persisted __meta__ database."""
         return await self._schema.fetch_meta_schema()
+
+    # ------------------------------------------------------------------ #
+    # execute_query — synchronous KB operation dispatch                   #
+    # ------------------------------------------------------------------ #
+
+    def execute_query(self, query, database=None, collection=None, optional_properties=None):
+        """Execute a KB operation.
+
+        query must be a dict with:
+            op – one of:
+
+            Schema:
+                "KB.DECLARE_CLASS"             name, description, class_id (opt)
+                "KB.DECLARE_RELATION"          name, description, domain (opt), range (opt), is_symmetric (opt), relation_id (opt)
+                "KB.DECLARE_CLASS_PROPERTY"    name, description, class_id (opt), property_id (opt)
+                "KB.DECLARE_RELATION_PROPERTY" name, description, relation_id (opt), property_id (opt)
+                "KB.UPDATE_CLASS"              class_id, name (opt), description (opt)
+                "KB.UPDATE_RELATION"           relation_id, name (opt), description (opt)
+                "KB.UPDATE_PROPERTY"           property_id, name (opt), description (opt)
+                "KB.DELETE_CLASS"              class_id
+                "KB.DELETE_RELATION"           relation_id
+                "KB.DELETE_PROPERTY"           property_id
+                "KB.ADD_SUBCLASS"              child_id, parent_id
+                "KB.REMOVE_SUBCLASS"           child_id, parent_id
+                "KB.GET_SCHEMA"                –
+                "KB.SEARCH_SCHEMA"             query
+
+            Knowledge:
+                "KB.ADD_ENTITY"                name, class_id (opt), description (opt), entity_id (opt), text (opt), source_id (opt)
+                "KB.ADD_FACT"                  head_entity_id (opt), relation_id (opt), tail_entity_id (opt), name (opt), description (opt), fact_id (opt), text (opt), source_id (opt)
+                "KB.ADD_ENTITY_PROPERTY"       entity_id, property_id, value, literal_type (opt), name (opt), description (opt), text (opt), source_id (opt)
+                "KB.ADD_FACT_PROPERTY"         fact_id, property_id, value, literal_type (opt), name (opt), description (opt), text (opt), source_id (opt)
+                "KB.UPDATE_ENTITY"             entity_id, name (opt), description (opt)
+                "KB.UPDATE_FACT"               fact_id, name (opt), description (opt)
+                "KB.UPDATE_ENTITY_PROPERTY"    entity_id, property_id, value (opt), name (opt), description (opt)
+                "KB.UPDATE_FACT_PROPERTY"      fact_id, property_id, value (opt), name (opt), description (opt)
+                "KB.DELETE_ENTITY"             entity_id, cascade (opt, default False)
+                "KB.DELETE_FACT"               fact_id
+                "KB.DELETE_ENTITY_PROPERTY"    entity_id, property_id
+                "KB.DELETE_FACT_PROPERTY"      fact_id, property_id
+                "KB.GET_DATA"                  include_provenance (opt), compact (opt)
+
+            Provenance:
+                "KB.ADD_SOURCE"                source, name (opt), description (opt), node_id (opt)
+                "KB.ADD_EXTRACTION"            text, name (opt), description (opt), source_id (opt), node_id (opt)
+                "KB.LINK_EXTRACTION"           element_id, extraction_id
+                "KB.UPDATE_SOURCE"             source_id, name (opt), description (opt)
+                "KB.DELETE_SOURCE"             source_id
+
+        GRAPH.* ops are also accepted and forwarded to the GraphSource implementation.
+        """
+        if not isinstance(query, dict):
+            raise ValueError("KBSource.execute_query expects query as a dict with 'op' and operation-specific fields")
+
+        op = (query.get("op") or "").upper()
+
+        def _r(coro):
+            return asyncio.run(coro)
+
+        # -- Schema --------------------------------------------------------
+
+        if op == "KB.DECLARE_CLASS":
+            return _r(self.declare_class(
+                database,
+                name=query["name"],
+                description=query["description"],
+                class_id=query.get("class_id"),
+            ))
+
+        if op == "KB.DECLARE_RELATION":
+            return _r(self.declare_relation_type(
+                database,
+                name=query["name"],
+                description=query["description"],
+                is_symmetric=query.get("is_symmetric", False),
+                relation_id=query.get("relation_id"),
+                domain=query.get("domain"),
+                range_=query.get("range"),
+            ))
+
+        if op == "KB.DECLARE_CLASS_PROPERTY":
+            return _r(self.declare_class_property(
+                database,
+                name=query["name"],
+                description=query["description"],
+                property_id=query.get("property_id"),
+                class_id=query.get("class_id"),
+            ))
+
+        if op == "KB.DECLARE_RELATION_PROPERTY":
+            return _r(self.declare_relation_property(
+                database,
+                name=query["name"],
+                description=query["description"],
+                property_id=query.get("property_id"),
+                relation_id=query.get("relation_id"),
+            ))
+
+        if op == "KB.UPDATE_CLASS":
+            _r(self.update_class(database, query["class_id"], query.get("name"), query.get("description")))
+            return None
+
+        if op == "KB.UPDATE_RELATION":
+            _r(self.update_relation(database, query["relation_id"], query.get("name"), query.get("description")))
+            return None
+
+        if op == "KB.UPDATE_PROPERTY":
+            _r(self.update_property(database, query["property_id"], query.get("name"), query.get("description")))
+            return None
+
+        if op == "KB.DELETE_CLASS":
+            _r(self.delete_class(database, query["class_id"]))
+            return None
+
+        if op == "KB.DELETE_RELATION":
+            _r(self.delete_relation(database, query["relation_id"]))
+            return None
+
+        if op == "KB.DELETE_PROPERTY":
+            _r(self.delete_property(database, query["property_id"]))
+            return None
+
+        if op == "KB.ADD_SUBCLASS":
+            _r(self.add_is_subclass_of(database, query["child_id"], query["parent_id"]))
+            return None
+
+        if op == "KB.REMOVE_SUBCLASS":
+            _r(self.remove_is_subclass_of(database, query["child_id"], query["parent_id"]))
+            return None
+
+        if op == "KB.GET_SCHEMA":
+            return _r(self.fetch_database_schema(database))
+
+        if op == "KB.SEARCH_SCHEMA":
+            return _r(self.search_schema(database, query["query"]))
+
+        # -- Knowledge -----------------------------------------------------
+
+        if op == "KB.ADD_ENTITY":
+            return _r(self.add_entity(
+                database,
+                name=query["name"],
+                description=query.get("description"),
+                entity_id=query.get("entity_id"),
+                class_id=query.get("class_id"),
+                text=query.get("text"),
+                source_id=query.get("source_id"),
+            ))
+
+        if op == "KB.ADD_FACT":
+            return _r(self.add_fact(
+                database,
+                name=query.get("name"),
+                description=query.get("description"),
+                fact_id=query.get("fact_id"),
+                head_entity_id=query.get("head_entity_id"),
+                tail_entity_id=query.get("tail_entity_id"),
+                relation_id=query.get("relation_id"),
+                text=query.get("text"),
+                source_id=query.get("source_id"),
+            ))
+
+        if op == "KB.ADD_ENTITY_PROPERTY":
+            return _r(self.add_entity_property_value(
+                database,
+                value=query["value"],
+                name=query.get("name"),
+                description=query.get("description"),
+                literal_type=query.get("literal_type"),
+                entity_id=query.get("entity_id"),
+                property_id=query.get("property_id"),
+                text=query.get("text"),
+                source_id=query.get("source_id"),
+            ))
+
+        if op == "KB.ADD_FACT_PROPERTY":
+            return _r(self.add_fact_property_value(
+                database,
+                value=query["value"],
+                name=query.get("name"),
+                description=query.get("description"),
+                literal_type=query.get("literal_type"),
+                fact_id=query.get("fact_id"),
+                property_id=query.get("property_id"),
+                text=query.get("text"),
+                source_id=query.get("source_id"),
+            ))
+
+        if op == "KB.UPDATE_ENTITY":
+            _r(self.update_entity(database, query["entity_id"], query.get("name"), query.get("description")))
+            return None
+
+        if op == "KB.UPDATE_FACT":
+            _r(self.update_fact(database, query["fact_id"], query.get("name"), query.get("description")))
+            return None
+
+        if op == "KB.UPDATE_ENTITY_PROPERTY":
+            _r(self.update_entity_property_value(
+                database,
+                entity_id=query["entity_id"],
+                property_id=query["property_id"],
+                value=query.get("value"),
+                name=query.get("name"),
+                description=query.get("description"),
+            ))
+            return None
+
+        if op == "KB.UPDATE_FACT_PROPERTY":
+            _r(self.update_fact_property_value(
+                database,
+                fact_id=query["fact_id"],
+                property_id=query["property_id"],
+                value=query.get("value"),
+                name=query.get("name"),
+                description=query.get("description"),
+            ))
+            return None
+
+        if op == "KB.DELETE_ENTITY":
+            _r(self.delete_entity(database, query["entity_id"], cascade=query.get("cascade", False)))
+            return None
+
+        if op == "KB.DELETE_FACT":
+            _r(self.delete_fact(database, query["fact_id"]))
+            return None
+
+        if op == "KB.DELETE_ENTITY_PROPERTY":
+            _r(self.delete_entity_property_value(database, query["entity_id"], query["property_id"]))
+            return None
+
+        if op == "KB.DELETE_FACT_PROPERTY":
+            _r(self.delete_fact_property_value(database, query["fact_id"], query["property_id"]))
+            return None
+
+        if op == "KB.GET_DATA":
+            return _r(self.fetch_database_data(
+                database,
+                include_provenance=query.get("include_provenance", False),
+                compact=query.get("compact", False),
+            ))
+
+        # -- Provenance ----------------------------------------------------
+
+        if op == "KB.ADD_SOURCE":
+            return _r(self.add_source(
+                database,
+                source=query["source"],
+                name=query.get("name"),
+                description=query.get("description"),
+                node_id=query.get("node_id"),
+            ))
+
+        if op == "KB.ADD_EXTRACTION":
+            return _r(self.add_extraction(
+                database,
+                text=query["text"],
+                name=query.get("name"),
+                description=query.get("description"),
+                node_id=query.get("node_id"),
+                source_id=query.get("source_id"),
+            ))
+
+        if op == "KB.LINK_EXTRACTION":
+            _r(self.add_extracted_from(database, query["element_id"], query["extraction_id"]))
+            return None
+
+        if op == "KB.UPDATE_SOURCE":
+            _r(self.update_source(database, query["source_id"], query.get("name"), query.get("description")))
+            return None
+
+        if op == "KB.DELETE_SOURCE":
+            _r(self.delete_source(database, query["source_id"]))
+            return None
+
+        # -- Fall through to GRAPH.* ops -----------------------------------
+
+        if op.startswith("GRAPH."):
+            return super().execute_query(query, database=database, collection=collection, optional_properties=optional_properties)
+
+        raise ValueError(
+            f"Unsupported KBSource operation: {op!r}. "
+            "Supported KB ops: KB.DECLARE_CLASS, KB.DECLARE_RELATION, KB.DECLARE_CLASS_PROPERTY, "
+            "KB.DECLARE_RELATION_PROPERTY, KB.UPDATE_CLASS, KB.UPDATE_RELATION, KB.UPDATE_PROPERTY, "
+            "KB.DELETE_CLASS, KB.DELETE_RELATION, KB.DELETE_PROPERTY, KB.ADD_SUBCLASS, KB.REMOVE_SUBCLASS, "
+            "KB.GET_SCHEMA, KB.SEARCH_SCHEMA, KB.ADD_ENTITY, KB.ADD_FACT, KB.ADD_ENTITY_PROPERTY, "
+            "KB.ADD_FACT_PROPERTY, KB.UPDATE_ENTITY, KB.UPDATE_FACT, KB.UPDATE_ENTITY_PROPERTY, "
+            "KB.UPDATE_FACT_PROPERTY, KB.DELETE_ENTITY, KB.DELETE_FACT, KB.DELETE_ENTITY_PROPERTY, "
+            "KB.DELETE_FACT_PROPERTY, KB.GET_DATA, KB.ADD_SOURCE, KB.ADD_EXTRACTION, KB.LINK_EXTRACTION, "
+            "KB.UPDATE_SOURCE, KB.DELETE_SOURCE. Also accepts GRAPH.* ops."
+        )
