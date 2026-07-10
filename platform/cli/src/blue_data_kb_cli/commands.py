@@ -23,6 +23,7 @@ from blue_data.source.graph.file_graph_source import FileGraphSource
 from blue_data_kb_source import KBSource
 from blue_data_kb_source._constants import (
     CLASS,
+    DEFINE_PROPERTY,
     ENTITY,
     EXTRACTED_FROM,
     FACT,
@@ -93,6 +94,31 @@ def _resolve_node(
             raise click.ClickException(f"{what} '{name}' not found in database '{db}'")
         return nodes[0]["id"]
     raise click.ClickException(f"Provide --{what.lower()} or --{what.lower()}-id")
+
+
+def _resolve_owned_property(
+    kb: FileKBSource,
+    db: str,
+    property_name: str | None,
+    property_id: str | None,
+    owner_id: str | None,
+) -> str:
+    """Resolve a PROPERTY node, filtering by owner (class/relation) when provided."""
+    if property_id:
+        return property_id
+    if not property_name:
+        raise click.ClickException("Provide --property or --property-id")
+    if owner_id:
+        for nb in kb.get_neighbors(db, owner_id, edge_type=DEFINE_PROPERTY, direction="out"):
+            if nb["node"].get("properties", {}).get("name") == property_name:
+                return nb["node"]["id"]
+        raise click.ClickException(
+            f"Property '{property_name}' not found on the specified class/relation in '{db}'"
+        )
+    nodes = kb.match_nodes(db, label=PROPERTY, properties={"name": property_name})
+    if not nodes:
+        raise click.ClickException(f"Property '{property_name}' not found in database '{db}'")
+    return nodes[0]["id"]
 
 
 def _coerce_value(raw: str, literal_type: str | None) -> str | int | float | bool:
@@ -379,6 +405,29 @@ def schema_class_list(obj: dict, fmt: str) -> None:
         for r in rows:
             t.add_row(r["name"], r["description"])
         console.print(t)
+
+
+@schema_class_group.command("update")
+@click.option("--class",     "class_name", default=None, help="Class name.")
+@click.option("--class-id",               default=None, help="Class node ID (overrides --class).")
+@click.option("--name",                   default=None, help="New name.")
+@click.option("--description",            default=None, help="New description.")
+@click.pass_obj
+def schema_class_update(
+    obj: dict, class_name: str | None, class_id: str | None,
+    name: str | None, description: str | None,
+) -> None:
+    """Update the name and/or description of a class."""
+    if not name and not description:
+        raise click.UsageError("Provide at least one of --name or --description.")
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    cid = _resolve_node(kb, db, CLASS, class_name, class_id, "class")
+    try:
+        _run(kb.update_class(db, cid, name=name, description=description))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(f"Updated class: [bold]{name or class_name or class_id}[/bold]")
 
 
 # ------------------------------------------------------------------ #
@@ -668,6 +717,36 @@ def schema_class_property_list(
         console.print(t)
 
 
+@schema_class_property_group.command("update")
+@click.option("--property",  "property_name", default=None, help="Property name.")
+@click.option("--property-id",                default=None, help="Property node ID (overrides --property).")
+@click.option("--class",     "class_name",    default=None, help="Owning class name (disambiguates).")
+@click.option("--class-id",                   default=None, help="Owning class node ID (disambiguates).")
+@click.option("--name",                       default=None, help="New name.")
+@click.option("--description",                default=None, help="New description.")
+@click.pass_obj
+def schema_class_property_update(
+    obj: dict,
+    property_name: str | None, property_id: str | None,
+    class_name: str | None, class_id: str | None,
+    name: str | None, description: str | None,
+) -> None:
+    """Update the name and/or description of a class property."""
+    if not name and not description:
+        raise click.UsageError("Provide at least one of --name or --description.")
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    owner_id: str | None = None
+    if class_name or class_id:
+        owner_id = _resolve_node(kb, db, CLASS, class_name, class_id, "class")
+    pid = _resolve_owned_property(kb, db, property_name, property_id, owner_id)
+    try:
+        _run(kb.update_property(db, pid, name=name, description=description))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(f"Updated class property: [bold]{name or property_name or property_id}[/bold]")
+
+
 # ------------------------------------------------------------------ #
 # kb schema relation                                                   #
 # ------------------------------------------------------------------ #
@@ -736,6 +815,29 @@ def schema_relation_list(obj: dict, fmt: str) -> None:
         for r in rows:
             t.add_row(r["name"], r["source"], r["target"], r["description"])
         console.print(t)
+
+
+@schema_relation_group.command("update")
+@click.option("--relation",    "relation_name", default=None, help="Relation name.")
+@click.option("--relation-id",                  default=None, help="Relation node ID (overrides --relation).")
+@click.option("--name",                         default=None, help="New name.")
+@click.option("--description",                  default=None, help="New description.")
+@click.pass_obj
+def schema_relation_update(
+    obj: dict, relation_name: str | None, relation_id: str | None,
+    name: str | None, description: str | None,
+) -> None:
+    """Update the name and/or description of a relation."""
+    if not name and not description:
+        raise click.UsageError("Provide at least one of --name or --description.")
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    rid = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
+    try:
+        _run(kb.update_relation(db, rid, name=name, description=description))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(f"Updated relation: [bold]{name or relation_name or relation_id}[/bold]")
 
 
 # ------------------------------------------------------------------ #
@@ -1024,6 +1126,36 @@ def schema_relation_property_list(
         for r in sorted(rows, key=lambda r: (r["relation"], r["property"])):
             t.add_row(r["relation"], r["property"], r["description"])
         console.print(t)
+
+
+@schema_relation_property_group.command("update")
+@click.option("--property",    "property_name",  default=None, help="Property name.")
+@click.option("--property-id",                   default=None, help="Property node ID (overrides --property).")
+@click.option("--relation",    "relation_name",  default=None, help="Owning relation name (disambiguates).")
+@click.option("--relation-id",                   default=None, help="Owning relation node ID (disambiguates).")
+@click.option("--name",                          default=None, help="New name.")
+@click.option("--description",                   default=None, help="New description.")
+@click.pass_obj
+def schema_relation_property_update(
+    obj: dict,
+    property_name: str | None, property_id: str | None,
+    relation_name: str | None, relation_id: str | None,
+    name: str | None, description: str | None,
+) -> None:
+    """Update the name and/or description of a relation property."""
+    if not name and not description:
+        raise click.UsageError("Provide at least one of --name or --description.")
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    owner_id: str | None = None
+    if relation_name or relation_id:
+        owner_id = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
+    pid = _resolve_owned_property(kb, db, property_name, property_id, owner_id)
+    try:
+        _run(kb.update_property(db, pid, name=name, description=description))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(f"Updated relation property: [bold]{name or property_name or property_id}[/bold]")
 
 
 @schema_group.command("search")

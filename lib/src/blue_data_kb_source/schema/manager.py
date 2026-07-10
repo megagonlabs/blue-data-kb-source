@@ -378,6 +378,42 @@ class SchemaManager:
                     "relation_id": relation_id, "relation_name": relation_name})
         return node_id
 
+    async def update_class(
+        self,
+        database: str,
+        class_id: str,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        props = {k: v for k, v in {"name": name, "description": description}.items() if v is not None}
+        if not props:
+            raise SchemaError("At least one of name or description must be provided.")
+        self._source.update_node(database, class_id, props)
+
+    async def update_relation(
+        self,
+        database: str,
+        relation_id: str,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        props = {k: v for k, v in {"name": name, "description": description}.items() if v is not None}
+        if not props:
+            raise SchemaError("At least one of name or description must be provided.")
+        self._source.update_node(database, relation_id, props)
+
+    async def update_property(
+        self,
+        database: str,
+        property_id: str,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        props = {k: v for k, v in {"name": name, "description": description}.items() if v is not None}
+        if not props:
+            raise SchemaError("At least one of name or description must be provided.")
+        self._source.update_node(database, property_id, props)
+
     async def add_is_subclass_of(self, database: str, child_id: str, parent_id: str) -> None:
         self._source.add_edge(database, child_id, IS_SUBCLASS_OF, parent_id)
         child_node  = self._source.get_node(database, child_id)  or {}

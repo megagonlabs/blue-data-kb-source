@@ -161,6 +161,33 @@ class KBSource(GraphSource, ABC):
             database, name, description, property_id, relation_id
         )
 
+    async def update_class(
+        self,
+        database: str,
+        class_id: str,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        await self._schema.update_class(database, class_id, name, description)
+
+    async def update_relation(
+        self,
+        database: str,
+        relation_id: str,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        await self._schema.update_relation(database, relation_id, name, description)
+
+    async def update_property(
+        self,
+        database: str,
+        property_id: str,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        await self._schema.update_property(database, property_id, name, description)
+
     async def add_is_subclass_of(self, database: str, child_id: str, parent_id: str) -> None:
         await self._schema.add_is_subclass_of(database, child_id, parent_id)
 
