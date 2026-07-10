@@ -747,7 +747,7 @@ class KBSource(GraphSource, ABC):
             _r(self.delete_source(database, query["source_id"]))
             return None
 
-        # -- Fall through to GRAPH.* ops -----------------------------------
+        # -- Fall through to GRAPH.* ops ----------------------------------
 
         if op.startswith("GRAPH."):
             return super().execute_query(query, database=database, collection=collection, optional_properties=optional_properties)
@@ -763,3 +763,22 @@ class KBSource(GraphSource, ABC):
             "KB.DELETE_FACT_PROPERTY, KB.GET_DATA, KB.ADD_SOURCE, KB.ADD_EXTRACTION, KB.LINK_EXTRACTION, "
             "KB.UPDATE_SOURCE, KB.DELETE_SOURCE. Also accepts GRAPH.* ops."
         )
+
+    def execute_query_nl(
+        self,
+        query: str,
+        database: str | None = None,
+        collection: str | None = None,
+        schema: dict | None = None,
+        llm_fn=None,
+        optional_properties: dict | None = None,
+    ) -> list[dict]:
+        """Answer a natural-language question against the KB.
+
+        Delegates to ``answer`` with ``natural_language=False`` so the result is
+        always a structured ``list[dict]``.  The model is taken from
+        ``optional_properties["model"]``; defaults to ``"gpt-4o"``.
+        ``llm_fn``, ``collection``, and ``schema`` are ignored.
+        """
+        model = (optional_properties or {}).get("model", "gpt-4o")
+        return asyncio.run(self.answer(database, question=query, model=model, natural_language=False))
