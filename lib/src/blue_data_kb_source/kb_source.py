@@ -188,6 +188,15 @@ class KBSource(GraphSource, ABC):
     ) -> None:
         await self._schema.update_property(database, property_id, name, description)
 
+    async def delete_class(self, database: str, class_id: str) -> None:
+        await self._schema.delete_class(database, class_id)
+
+    async def delete_relation(self, database: str, relation_id: str) -> None:
+        await self._schema.delete_relation(database, relation_id)
+
+    async def delete_property(self, database: str, property_id: str) -> None:
+        await self._schema.delete_property(database, property_id)
+
     async def add_is_subclass_of(self, database: str, child_id: str, parent_id: str) -> None:
         await self._schema.add_is_subclass_of(database, child_id, parent_id)
 

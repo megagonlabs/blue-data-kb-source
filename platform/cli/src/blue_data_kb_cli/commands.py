@@ -747,6 +747,58 @@ def schema_class_property_update(
     console.print(f"Updated class property: [bold]{name or property_name or property_id}[/bold]")
 
 
+@schema_class_property_group.command("delete")
+@click.option("--property",  "property_name", default=None, help="Property name.")
+@click.option("--property-id",                default=None, help="Property node ID (overrides --property).")
+@click.option("--class",     "class_name",    default=None, help="Owning class name (disambiguates).")
+@click.option("--class-id",                   default=None, help="Owning class node ID (disambiguates).")
+@click.option("--yes",       is_flag=True,    default=False, help="Skip confirmation prompt.")
+@click.pass_obj
+def schema_class_property_delete(
+    obj: dict,
+    property_name: str | None, property_id: str | None,
+    class_name: str | None, class_id: str | None,
+    yes: bool,
+) -> None:
+    """Delete a class property (errors if values exist)."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    owner_id: str | None = None
+    if class_name or class_id:
+        owner_id = _resolve_node(kb, db, CLASS, class_name, class_id, "class")
+    pid = _resolve_owned_property(kb, db, property_name, property_id, owner_id)
+    label = property_name or property_id
+    if not yes:
+        click.confirm(f"Delete class property '{label}'?", abort=True)
+    try:
+        _run(kb.delete_property(db, pid))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(f"Deleted class property: [bold]{label}[/bold]")
+
+
+@schema_class_group.command("delete")
+@click.option("--class",    "class_name", default=None, help="Class name.")
+@click.option("--class-id",               default=None, help="Class node ID (overrides --class).")
+@click.option("--yes",      is_flag=True, default=False, help="Skip confirmation prompt.")
+@click.pass_obj
+def schema_class_delete(
+    obj: dict, class_name: str | None, class_id: str | None, yes: bool,
+) -> None:
+    """Delete a class (errors if instances or subclasses exist)."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    cid = _resolve_node(kb, db, CLASS, class_name, class_id, "class")
+    label = class_name or class_id
+    if not yes:
+        click.confirm(f"Delete class '{label}'?", abort=True)
+    try:
+        _run(kb.delete_class(db, cid))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(f"Deleted class: [bold]{label}[/bold]")
+
+
 # ------------------------------------------------------------------ #
 # kb schema relation                                                   #
 # ------------------------------------------------------------------ #
@@ -1156,6 +1208,58 @@ def schema_relation_property_update(
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(f"Updated relation property: [bold]{name or property_name or property_id}[/bold]")
+
+
+@schema_relation_property_group.command("delete")
+@click.option("--property",    "property_name",  default=None, help="Property name.")
+@click.option("--property-id",                   default=None, help="Property node ID (overrides --property).")
+@click.option("--relation",    "relation_name",  default=None, help="Owning relation name (disambiguates).")
+@click.option("--relation-id",                   default=None, help="Owning relation node ID (disambiguates).")
+@click.option("--yes",         is_flag=True,     default=False, help="Skip confirmation prompt.")
+@click.pass_obj
+def schema_relation_property_delete(
+    obj: dict,
+    property_name: str | None, property_id: str | None,
+    relation_name: str | None, relation_id: str | None,
+    yes: bool,
+) -> None:
+    """Delete a relation property (errors if values exist)."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    owner_id: str | None = None
+    if relation_name or relation_id:
+        owner_id = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
+    pid = _resolve_owned_property(kb, db, property_name, property_id, owner_id)
+    label = property_name or property_id
+    if not yes:
+        click.confirm(f"Delete relation property '{label}'?", abort=True)
+    try:
+        _run(kb.delete_property(db, pid))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(f"Deleted relation property: [bold]{label}[/bold]")
+
+
+@schema_relation_group.command("delete")
+@click.option("--relation",    "relation_name", default=None, help="Relation name.")
+@click.option("--relation-id",                  default=None, help="Relation node ID (overrides --relation).")
+@click.option("--yes",         is_flag=True,    default=False, help="Skip confirmation prompt.")
+@click.pass_obj
+def schema_relation_delete(
+    obj: dict, relation_name: str | None, relation_id: str | None, yes: bool,
+) -> None:
+    """Delete a relation (errors if facts or sub-relations exist)."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    rid = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
+    label = relation_name or relation_id
+    if not yes:
+        click.confirm(f"Delete relation '{label}'?", abort=True)
+    try:
+        _run(kb.delete_relation(db, rid))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(f"Deleted relation: [bold]{label}[/bold]")
 
 
 @schema_group.command("search")

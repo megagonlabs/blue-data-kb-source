@@ -414,6 +414,31 @@ class SchemaManager:
             raise SchemaError("At least one of name or description must be provided.")
         self._source.update_node(database, property_id, props)
 
+    async def delete_class(self, database: str, class_id: str) -> None:
+        if self._source.get_neighbors(database, class_id, edge_type=IS_INSTANCE_OF, direction="in"):
+            raise SchemaError("Class has entity instances. Delete them before removing the class.")
+        if self._source.get_neighbors(database, class_id, edge_type=IS_SUBCLASS_OF, direction="in"):
+            raise SchemaError(
+                "Class is a parent of other classes. "
+                "Remove subclass relationships first with `kb schema class parent remove`."
+            )
+        self._source.delete_node(database, class_id)
+
+    async def delete_relation(self, database: str, relation_id: str) -> None:
+        if self._source.get_neighbors(database, relation_id, edge_type=REPRESENTS, direction="in"):
+            raise SchemaError("Relation has fact instances. Delete them before removing the relation.")
+        if self._source.get_neighbors(database, relation_id, edge_type=IS_SUBCLASS_OF, direction="in"):
+            raise SchemaError(
+                "Relation is a parent of other relations. "
+                "Remove subclass relationships first with `kb schema relation parent remove`."
+            )
+        self._source.delete_node(database, relation_id)
+
+    async def delete_property(self, database: str, property_id: str) -> None:
+        if self._source.get_neighbors(database, property_id, edge_type=IS_VALUE_OF, direction="in"):
+            raise SchemaError("Property has existing values. Delete them before removing the property.")
+        self._source.delete_node(database, property_id)
+
     async def add_is_subclass_of(self, database: str, child_id: str, parent_id: str) -> None:
         self._source.add_edge(database, child_id, IS_SUBCLASS_OF, parent_id)
         child_node  = self._source.get_node(database, child_id)  or {}

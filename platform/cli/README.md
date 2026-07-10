@@ -215,6 +215,8 @@ Deleted database: main
 | `kb schema class property add NAME DESC [--class NAME\|--class-id ID]` | Declare a property on a class |
 | `kb schema class property list [--class NAME\|--class-id ID] [--format table\|json]` | List class properties (optionally filtered by class) |
 | `kb schema class property update --property NAME\|--property-id ID [--class NAME\|--class-id ID] [--name N] [--description D]` | Update the name and/or description of a class property; --class disambiguates when the name is shared |
+| `kb schema class property delete --property NAME\|--property-id ID [--class NAME\|--class-id ID] [--yes]` | Delete a class property (errors if values exist); --class disambiguates |
+| `kb schema class delete --class NAME\|--class-id ID [--yes]` | Delete a class (errors if instances or subclasses exist) |
 | `kb schema relation add NAME DESC [--domain C] [--range C]` | Declare a RELATION (idempotent) |
 | `kb schema relation list [--format table\|json]` | List all declared relations |
 | `kb schema relation update --relation NAME\|--relation-id ID [--name N] [--description D]` | Update the name and/or description of a relation |
@@ -225,6 +227,8 @@ Deleted database: main
 | `kb schema relation property add NAME DESC [--relation NAME\|--relation-id ID]` | Declare a property on a relation |
 | `kb schema relation property list [--relation NAME\|--relation-id ID] [--format table\|json]` | List relation properties (optionally filtered by relation) |
 | `kb schema relation property update --property NAME\|--property-id ID [--relation NAME\|--relation-id ID] [--name N] [--description D]` | Update the name and/or description of a relation property; --relation disambiguates when the name is shared |
+| `kb schema relation property delete --property NAME\|--property-id ID [--relation NAME\|--relation-id ID] [--yes]` | Delete a relation property (errors if values exist); --relation disambiguates |
+| `kb schema relation delete --relation NAME\|--relation-id ID [--yes]` | Delete a relation (errors if facts or sub-relations exist) |
 | `kb schema search QUERY [--format table\|json]` | Keyword search over schema nodes |
 | `kb data list [--show-provenance] [--format table\|json]` | List all entity, property-value, and fact instances |
 | `kb data source add SOURCE [--name N] [--description D]` | Register a provenance source |
