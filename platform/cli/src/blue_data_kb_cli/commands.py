@@ -1382,6 +1382,30 @@ def entity_update(
     console.print(f"Updated entity: [bold]{label}[/bold]")
 
 
+@entity_group.command("delete")
+@click.option("--entity",    "entity_name", default=None, help="Entity name.")
+@click.option("--entity-id",               default=None, help="Entity node ID (overrides --entity).")
+@click.option("--cascade",   is_flag=True,  default=False, help="Also delete all facts referencing this entity.")
+@click.option("--yes",       is_flag=True,  default=False, help="Skip confirmation prompt.")
+@click.pass_obj
+def entity_delete(
+    obj: dict, entity_name: str | None, entity_id: str | None, cascade: bool, yes: bool,
+) -> None:
+    """Delete an entity, its property values, and optionally its facts."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    eid = _resolve_node(kb, db, ENTITY, entity_name, entity_id, "entity")
+    label = entity_name or entity_id
+    if not yes:
+        suffix = " and all referencing facts" if cascade else ""
+        click.confirm(f"Delete entity '{label}'{suffix}?", abort=True)
+    try:
+        _run(kb.delete_entity(db, eid, cascade=cascade))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(f"Deleted entity: [bold]{label}[/bold]")
+
+
 # ------------------------------------------------------------------ #
 # kb entity property                                                   #
 # ------------------------------------------------------------------ #
@@ -1532,6 +1556,36 @@ def entity_property_update(
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(f"Updated entity property value.")
+
+
+@entity_property_group.command("delete")
+@click.option("--entity",       "entity_name",   default=None, help="Entity name.")
+@click.option("--entity-id",                     default=None, help="Entity node ID (overrides --entity).")
+@click.option("--property",     "property_name", default=None, help="Property name.")
+@click.option("--property-id",                   default=None, help="Property node ID (overrides --property).")
+@click.option("--yes",          is_flag=True,    default=False, help="Skip confirmation prompt.")
+@click.pass_obj
+def entity_property_delete(
+    obj: dict,
+    entity_name: str | None, entity_id: str | None,
+    property_name: str | None, property_id: str | None,
+    yes: bool,
+) -> None:
+    """Delete a property value from an entity."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    eid = _resolve_node(kb, db, ENTITY, entity_name, entity_id, "entity")
+    pid = _resolve_node(kb, db, PROPERTY, property_name, property_id, "property")
+    if not yes:
+        click.confirm(
+            f"Delete property '{property_name or property_id}' value from entity '{entity_name or entity_id}'?",
+            abort=True,
+        )
+    try:
+        _run(kb.delete_entity_property_value(db, eid, pid))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(f"Deleted entity property value.")
 
 
 # ------------------------------------------------------------------ #
@@ -1689,6 +1743,28 @@ def fact_update(
     console.print(f"Updated fact: [bold]{label}[/bold]")
 
 
+@fact_group.command("delete")
+@click.option("--fact",    "fact_name", default=None, help="Fact name.")
+@click.option("--fact-id",             default=None, help="Fact node ID (overrides --fact).")
+@click.option("--yes",     is_flag=True, default=False, help="Skip confirmation prompt.")
+@click.pass_obj
+def fact_delete(
+    obj: dict, fact_name: str | None, fact_id: str | None, yes: bool,
+) -> None:
+    """Delete a fact and its property values."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    fid = _resolve_node(kb, db, FACT, fact_name, fact_id, "fact")
+    label = fact_name or fact_id
+    if not yes:
+        click.confirm(f"Delete fact '{label}'?", abort=True)
+    try:
+        _run(kb.delete_fact(db, fid))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(f"Deleted fact: [bold]{label}[/bold]")
+
+
 # ------------------------------------------------------------------ #
 # kb fact property                                                     #
 # ------------------------------------------------------------------ #
@@ -1831,6 +1907,36 @@ def fact_property_update(
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(f"Updated fact property value.")
+
+
+@fact_property_group.command("delete")
+@click.option("--fact",        "fact_name",     default=None, help="Fact name.")
+@click.option("--fact-id",                      default=None, help="Fact node ID (overrides --fact).")
+@click.option("--property",    "property_name", default=None, help="Property name.")
+@click.option("--property-id",                  default=None, help="Property node ID (overrides --property).")
+@click.option("--yes",         is_flag=True,    default=False, help="Skip confirmation prompt.")
+@click.pass_obj
+def fact_property_delete(
+    obj: dict,
+    fact_name: str | None, fact_id: str | None,
+    property_name: str | None, property_id: str | None,
+    yes: bool,
+) -> None:
+    """Delete a property value from a fact."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    fid = _resolve_node(kb, db, FACT, fact_name, fact_id, "fact")
+    pid = _resolve_node(kb, db, PROPERTY, property_name, property_id, "property")
+    if not yes:
+        click.confirm(
+            f"Delete property '{property_name or property_id}' value from fact '{fact_name or fact_id}'?",
+            abort=True,
+        )
+    try:
+        _run(kb.delete_fact_property_value(db, fid, pid))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(f"Deleted fact property value.")
 
 
 # ------------------------------------------------------------------ #

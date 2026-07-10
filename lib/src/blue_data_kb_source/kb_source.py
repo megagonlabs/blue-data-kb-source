@@ -321,6 +321,22 @@ class KBSource(GraphSource, ABC):
             database, fact_id, property_id, value, name, description
         )
 
+    async def delete_entity(self, database: str, entity_id: str, cascade: bool = False) -> None:
+        await self._knowledge.delete_entity(database, entity_id, cascade)
+
+    async def delete_fact(self, database: str, fact_id: str) -> None:
+        await self._knowledge.delete_fact(database, fact_id)
+
+    async def delete_entity_property_value(
+        self, database: str, entity_id: str, property_id: str
+    ) -> None:
+        await self._knowledge.delete_entity_property_value(database, entity_id, property_id)
+
+    async def delete_fact_property_value(
+        self, database: str, fact_id: str, property_id: str
+    ) -> None:
+        await self._knowledge.delete_fact_property_value(database, fact_id, property_id)
+
     async def fetch_database_data(
         self,
         database: str,

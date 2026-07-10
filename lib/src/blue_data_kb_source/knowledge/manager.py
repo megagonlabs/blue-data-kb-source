@@ -343,6 +343,57 @@ class KnowledgeManager:
         self._source.update_node(database, lit_id, props)
 
     # ------------------------------------------------------------------ #
+    # Delete operations                                                    #
+    # ------------------------------------------------------------------ #
+
+    def _delete_literals(self, database: str, owner_id: str) -> None:
+        """Delete all LITERAL nodes attached to owner via HAS_PROPERTY."""
+        for nb in self._source.get_neighbors(database, owner_id, edge_type=HAS_PROPERTY, direction="out"):
+            self._source.delete_node(database, nb["node"]["id"])
+
+    def _facts_referencing(self, database: str, entity_id: str) -> list[str]:
+        """Return IDs of all FACT nodes that reference entity_id as HEAD or TAIL."""
+        fact_ids: list[str] = []
+        for nb in self._source.get_neighbors(database, entity_id, edge_type=HEAD, direction="in"):
+            fact_ids.append(nb["node"]["id"])
+        for nb in self._source.get_neighbors(database, entity_id, edge_type=TAIL, direction="in"):
+            fact_ids.append(nb["node"]["id"])
+        return list(dict.fromkeys(fact_ids))  # deduplicate, preserve order
+
+    async def delete_entity(self, database: str, entity_id: str, cascade: bool = False) -> None:
+        referencing = self._facts_referencing(database, entity_id)
+        if referencing and not cascade:
+            raise KBError(
+                f"Entity is referenced by {len(referencing)} fact(s). "
+                "Use cascade=True to also delete them."
+            )
+        for fact_id in referencing:
+            self._delete_literals(database, fact_id)
+            self._source.delete_node(database, fact_id)
+        self._delete_literals(database, entity_id)
+        self._source.delete_node(database, entity_id)
+
+    async def delete_fact(self, database: str, fact_id: str) -> None:
+        self._delete_literals(database, fact_id)
+        self._source.delete_node(database, fact_id)
+
+    async def delete_entity_property_value(
+        self, database: str, entity_id: str, property_id: str
+    ) -> None:
+        lit_id = self._find_literal(database, entity_id, property_id)
+        if lit_id is None:
+            raise KBError("No property value found for the given entity and property.")
+        self._source.delete_node(database, lit_id)
+
+    async def delete_fact_property_value(
+        self, database: str, fact_id: str, property_id: str
+    ) -> None:
+        lit_id = self._find_literal(database, fact_id, property_id)
+        if lit_id is None:
+            raise KBError("No property value found for the given fact and property.")
+        self._source.delete_node(database, lit_id)
+
+    # ------------------------------------------------------------------ #
     # Data export                                                          #
     # ------------------------------------------------------------------ #
 

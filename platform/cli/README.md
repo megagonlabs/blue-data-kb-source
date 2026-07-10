@@ -232,15 +232,19 @@ Deleted database: main
 | `kb data entity add [--name NAME] [--class NAME\|--class-id ID] [--description D] [--text T] [--source NAME\|--source-id ID]` | Add an entity instance |
 | `kb data entity list [--show-provenance] [--format table\|json]` | List all entity instances |
 | `kb data entity update --entity NAME\|--entity-id ID [--name N] [--description D]` | Update the name and/or description of an entity |
+| `kb data entity delete --entity NAME\|--entity-id ID [--cascade] [--yes]` | Delete an entity and its property values; with --cascade also deletes referencing facts |
 | `kb data entity property set VALUE [--name N] [--description D] --entity NAME\|--entity-id ID --property NAME [--type T] [--source NAME\|--source-id ID]` | Set a property value on an entity |
 | `kb data entity property list --entity NAME\|--entity-id ID [--show-provenance] [--format table\|json]` | List property values for an entity |
 | `kb data entity property update --entity NAME\|--entity-id ID --property NAME\|--property-id ID [--value V] [--name N] [--description D]` | Update the value, name, and/or description of an entity property value |
+| `kb data entity property delete --entity NAME\|--entity-id ID --property NAME\|--property-id ID [--yes]` | Delete a property value from an entity |
 | `kb data fact add [--name N] [--description D] [--head NAME\|--head-id ID] [--relation NAME\|--relation-id ID] [--tail NAME\|--tail-id ID] [--source NAME\|--source-id ID]` | Add a fact |
 | `kb data fact list [--show-provenance] [--format table\|json]` | List all facts |
 | `kb data fact update --fact NAME\|--fact-id ID [--name N] [--description D]` | Update the name and/or description of a fact |
+| `kb data fact delete --fact NAME\|--fact-id ID [--yes]` | Delete a fact and its property values |
 | `kb data fact property set VALUE [--name N] [--description D] --fact-id ID --property NAME [--type T] [--source NAME\|--source-id ID]` | Set a property value on a fact |
 | `kb data fact property list --fact-id ID [--show-provenance] [--format table\|json]` | List property values for a fact |
 | `kb data fact property update --fact NAME\|--fact-id ID --property NAME\|--property-id ID [--value V] [--name N] [--description D]` | Update the value, name, and/or description of a fact property value |
+| `kb data fact property delete --fact NAME\|--fact-id ID --property NAME\|--property-id ID [--yes]` | Delete a property value from a fact |
 | `kb data answer QUESTION [--format table\|json\|nl] [--model M]` | LLM answer query; `--format nl` returns a prose answer |
 | `kb data validate STATEMENT [--natural-language] [--model M]` | LLM supporting / counter evidence; `--natural-language` returns a prose assessment |
 | `kb data extract TEXT [--query Q]… [--source NAME\|--source-id ID] [--model M]` | LLM extraction |
