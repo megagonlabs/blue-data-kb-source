@@ -1226,6 +1226,30 @@ def entity_list(obj: dict, show_provenance: bool, fmt: str) -> None:
         console.print(t)
 
 
+@entity_group.command("update")
+@click.option("--entity",      "entity_name", default=None, help="Entity name.")
+@click.option("--entity-id",                  default=None, help="Entity node ID (overrides --entity).")
+@click.option("--name",                       default=None, help="New name.")
+@click.option("--description",                default=None, help="New description.")
+@click.pass_obj
+def entity_update(
+    obj: dict, entity_name: str | None, entity_id: str | None,
+    name: str | None, description: str | None,
+) -> None:
+    """Update the name and/or description of an entity."""
+    if not name and not description:
+        raise click.UsageError("Provide at least one of --name or --description.")
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    eid = _resolve_node(kb, db, ENTITY, entity_name, entity_id, "entity")
+    try:
+        _run(kb.update_entity(db, eid, name=name, description=description))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    label = name or entity_name or entity_id
+    console.print(f"Updated entity: [bold]{label}[/bold]")
+
+
 # ------------------------------------------------------------------ #
 # kb entity property                                                   #
 # ------------------------------------------------------------------ #
@@ -1346,6 +1370,36 @@ def entity_property_list(
                 row_cells.append(r.get("provenance", ""))
             t.add_row(*row_cells)
         console.print(t)
+
+
+@entity_property_group.command("update")
+@click.option("--entity",       "entity_name",   default=None, help="Entity name.")
+@click.option("--entity-id",                     default=None, help="Entity node ID (overrides --entity).")
+@click.option("--property",     "property_name", default=None, help="Property name.")
+@click.option("--property-id",                   default=None, help="Property node ID (overrides --property).")
+@click.option("--value",                         default=None, help="New value.")
+@click.option("--name",                          default=None, help="New literal name.")
+@click.option("--description",                   default=None, help="New description.")
+@click.pass_obj
+def entity_property_update(
+    obj: dict,
+    entity_name: str | None, entity_id: str | None,
+    property_name: str | None, property_id: str | None,
+    value: str | None, name: str | None, description: str | None,
+) -> None:
+    """Update the value, name, and/or description of an entity property value."""
+    if not value and not name and not description:
+        raise click.UsageError("Provide at least one of --value, --name, or --description.")
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    eid = _resolve_node(kb, db, ENTITY, entity_name, entity_id, "entity")
+    pid = _resolve_node(kb, db, PROPERTY, property_name, property_id, "property")
+    coerced = _coerce_value(value, None) if value is not None else None
+    try:
+        _run(kb.update_entity_property_value(db, eid, pid, value=coerced, name=name, description=description))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(f"Updated entity property value.")
 
 
 # ------------------------------------------------------------------ #
@@ -1479,6 +1533,30 @@ def fact_list(obj: dict, show_provenance: bool, fmt: str) -> None:
         console.print(t)
 
 
+@fact_group.command("update")
+@click.option("--fact",    "fact_name", default=None, help="Fact name.")
+@click.option("--fact-id",             default=None, help="Fact node ID (overrides --fact).")
+@click.option("--name",                default=None, help="New name.")
+@click.option("--description",         default=None, help="New description.")
+@click.pass_obj
+def fact_update(
+    obj: dict, fact_name: str | None, fact_id: str | None,
+    name: str | None, description: str | None,
+) -> None:
+    """Update the name and/or description of a fact."""
+    if not name and not description:
+        raise click.UsageError("Provide at least one of --name or --description.")
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    fid = _resolve_node(kb, db, FACT, fact_name, fact_id, "fact")
+    try:
+        _run(kb.update_fact(db, fid, name=name, description=description))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    label = name or fact_name or fact_id
+    console.print(f"Updated fact: [bold]{label}[/bold]")
+
+
 # ------------------------------------------------------------------ #
 # kb fact property                                                     #
 # ------------------------------------------------------------------ #
@@ -1591,6 +1669,36 @@ def fact_property_list(obj: dict, fact_id: str, show_provenance: bool, fmt: str)
                 row_cells.append(r.get("provenance", ""))
             t.add_row(*row_cells)
         console.print(t)
+
+
+@fact_property_group.command("update")
+@click.option("--fact",        "fact_name",     default=None, help="Fact name.")
+@click.option("--fact-id",                      default=None, help="Fact node ID (overrides --fact).")
+@click.option("--property",    "property_name", default=None, help="Property name.")
+@click.option("--property-id",                  default=None, help="Property node ID (overrides --property).")
+@click.option("--value",                        default=None, help="New value.")
+@click.option("--name",                         default=None, help="New literal name.")
+@click.option("--description",                  default=None, help="New description.")
+@click.pass_obj
+def fact_property_update(
+    obj: dict,
+    fact_name: str | None, fact_id: str | None,
+    property_name: str | None, property_id: str | None,
+    value: str | None, name: str | None, description: str | None,
+) -> None:
+    """Update the value, name, and/or description of a fact property value."""
+    if not value and not name and not description:
+        raise click.UsageError("Provide at least one of --value, --name, or --description.")
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    fid = _resolve_node(kb, db, FACT, fact_name, fact_id, "fact")
+    pid = _resolve_node(kb, db, PROPERTY, property_name, property_id, "property")
+    coerced = _coerce_value(value, None) if value is not None else None
+    try:
+        _run(kb.update_fact_property_value(db, fid, pid, value=coerced, name=name, description=description))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(f"Updated fact property value.")
 
 
 # ------------------------------------------------------------------ #

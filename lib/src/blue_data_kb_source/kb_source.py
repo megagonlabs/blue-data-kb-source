@@ -250,6 +250,50 @@ class KBSource(GraphSource, ABC):
             database, value, name, description, literal_type, fact_id, property_id, text, source_id,
         )
 
+    async def update_entity(
+        self,
+        database: str,
+        entity_id: str,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        await self._knowledge.update_entity(database, entity_id, name, description)
+
+    async def update_fact(
+        self,
+        database: str,
+        fact_id: str,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        await self._knowledge.update_fact(database, fact_id, name, description)
+
+    async def update_entity_property_value(
+        self,
+        database: str,
+        entity_id: str,
+        property_id: str,
+        value: str | int | float | bool | None = None,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        await self._knowledge.update_entity_property_value(
+            database, entity_id, property_id, value, name, description
+        )
+
+    async def update_fact_property_value(
+        self,
+        database: str,
+        fact_id: str,
+        property_id: str,
+        value: str | int | float | bool | None = None,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        await self._knowledge.update_fact_property_value(
+            database, fact_id, property_id, value, name, description
+        )
+
     async def fetch_database_data(
         self,
         database: str,

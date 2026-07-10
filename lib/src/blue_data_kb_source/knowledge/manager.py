@@ -19,7 +19,7 @@ from blue_data_kb_source._constants import (
     TAIL,
 )
 from blue_data_kb_source.knowledge.engine import QueryEngine
-from blue_data_kb_source.types import EnrichmentResult, ValidationResult
+from blue_data_kb_source.types import EnrichmentResult, KBError, ValidationResult
 
 if TYPE_CHECKING:
     from blue_data_kb_source.notification.notifier import ChangeNotifier
@@ -255,6 +255,92 @@ class KnowledgeManager:
             **self._fact_context(database, fact_id),
         })
         return literal_id
+
+    # ------------------------------------------------------------------ #
+    # Update operations                                                    #
+    # ------------------------------------------------------------------ #
+
+    async def update_entity(
+        self,
+        database: str,
+        entity_id: str,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        props = {k: v for k, v in {"name": name, "description": description}.items() if v is not None}
+        if not props:
+            raise KBError("At least one of --name or --description must be provided.")
+        self._source.update_node(database, entity_id, props)
+
+    async def update_fact(
+        self,
+        database: str,
+        fact_id: str,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        props = {k: v for k, v in {"name": name, "description": description}.items() if v is not None}
+        if not props:
+            raise KBError("At least one of --name or --description must be provided.")
+        self._source.update_node(database, fact_id, props)
+
+    def _find_literal(self, database: str, owner_id: str, property_id: str) -> str | None:
+        for lit_nb in self._source.get_neighbors(database, owner_id, edge_type=HAS_PROPERTY, direction="out"):
+            lit_id = lit_nb["node"]["id"]
+            for prop_nb in self._source.get_neighbors(database, lit_id, edge_type=IS_VALUE_OF, direction="out"):
+                if prop_nb["node"]["id"] == property_id:
+                    return lit_id
+        return None
+
+    async def update_entity_property_value(
+        self,
+        database: str,
+        entity_id: str,
+        property_id: str,
+        value: str | int | float | bool | None = None,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        lit_id = self._find_literal(database, entity_id, property_id)
+        if lit_id is None:
+            raise KBError("No property value found for the given entity and property.")
+        props: dict = {}
+        if value is not None:
+            props["value"] = value
+            if name is None:
+                props["name"] = str(value)
+        if name is not None:
+            props["name"] = name
+        if description is not None:
+            props["description"] = description
+        if not props:
+            raise KBError("At least one of --value, --name, or --description must be provided.")
+        self._source.update_node(database, lit_id, props)
+
+    async def update_fact_property_value(
+        self,
+        database: str,
+        fact_id: str,
+        property_id: str,
+        value: str | int | float | bool | None = None,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        lit_id = self._find_literal(database, fact_id, property_id)
+        if lit_id is None:
+            raise KBError("No property value found for the given fact and property.")
+        props: dict = {}
+        if value is not None:
+            props["value"] = value
+            if name is None:
+                props["name"] = str(value)
+        if name is not None:
+            props["name"] = name
+        if description is not None:
+            props["description"] = description
+        if not props:
+            raise KBError("At least one of --value, --name, or --description must be provided.")
+        self._source.update_node(database, lit_id, props)
 
     # ------------------------------------------------------------------ #
     # Data export                                                          #
