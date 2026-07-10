@@ -147,17 +147,21 @@ _ANSWER_PROMPT = """\
 You are a knowledge base query agent. Use the provided tools to search the knowledge
 base and answer the question below.
 
-When you have gathered enough information, call return_result with a JSON array, where each element is a dictionary with 
-keys corresponding to the entity name and properties, fact name and properties, or literal value and provenance, corresponding to the
-question asked.
+When you have gathered enough information, you MUST call return_result to deliver the
+answer. Never reply with plain text — always use the return_result tool.
 
-The structure of each element should be as follows:
+Call return_result with a JSON array where each row is a flat dict whose keys reflect
+the question asked. Choose natural column names based on the question.
 
+Examples:
+
+  Question: "how old is Alice?"
+  {{"result": [{{"age": "42", "provenance": null}}]}}
+
+  Question: "list the companies Alice worked at"
   {{"result": [
-    {{"<key_1>": "<value_1>",
-      "<key_2>": "<value_2>",
-      ..."}},
-    ...
+    {{"company": "IBM",    "relation": "WORKED_AT", "start_date": "1998-06-01", "provenance": "Alice joined IBM in June 1998."}},
+    {{"company": "Google", "relation": "WORKED_AT", "start_date": "May 2002",   "provenance": "Alice later joined Google."}}
   ]}}
 
 Return an empty array if nothing relevant exists.
@@ -376,6 +380,18 @@ class QueryEngine:
             messages.append(msg_dict)
 
             if not msg.tool_calls:
+                # LLM gave a prose response instead of calling return_result.
+                # Force one extra turn so the accumulated context is serialised.
+                forced = await client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    tools=_TOOLS,
+                    tool_choice={"type": "function", "function": {"name": "return_result"}},
+                )
+                forced_msg = forced.choices[0].message
+                if forced_msg.tool_calls:
+                    forced_args = json.loads(forced_msg.tool_calls[0].function.arguments)
+                    result_payload = forced_args.get("result")
                 break
 
             done = False
