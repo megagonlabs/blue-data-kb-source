@@ -1,10 +1,11 @@
 """Click command groups for the kb CLI.
 
-Each database is persisted as a JSON file inside the data directory:
+Databases are registered in {KBDB_DATA_DIR}/registry.json (defaults to ~/.kbdb).
+Each entry stores the graph backend and optional search configuration.  Run
+`kb database register` to create and configure a new database.
 
-    {KBDB_DATA_DIR}/{database}.json   (KBDB_DATA_DIR defaults to ~/.kbdb)
-
-FileGraphSource handles all I/O automatically — no explicit save step is needed.
+FileGraphSource persists each database as a JSON file — no explicit save step
+is needed.  The graph backend (neo4j, …) is chosen per database in the registry.
 """
 from __future__ import annotations
 
@@ -19,7 +20,6 @@ from rich.console import Console
 from rich.table import Table
 from rich.tree import Tree
 
-from blue_data.source.graph.file_graph_source import FileGraphSource
 from blue_data_kb_source import KBSource
 from blue_data_kb_source._constants import (
     CLASS,
@@ -41,36 +41,23 @@ from blue_data_kb_source._constants import (
 )
 from blue_data_kb_source.types import KBError
 
+from blue_data_kb_cli.config import (
+    _data_dir,
+    _default_database,
+    _load_registry,
+    _make_kb,
+    _registry_path,
+    _selected_database_path,
+    load_db_config,
+    register_database,
+    unregister_database,
+    update_db_config,
+)
+
 console = Console()
 
-
-# ------------------------------------------------------------------ #
-# Backend                                                              #
-# ------------------------------------------------------------------ #
-
-class FileKBSource(KBSource, FileGraphSource):
-    pass
-
-
-def _data_dir() -> str:
-    return str(Path(os.environ.get("KBDB_DATA_DIR", "~/.kbdb")).expanduser())
-
-
-def _selected_database_path() -> Path:
-    return Path(_data_dir()) / ".selected.database"
-
-
-def _default_database() -> str:
-    p = _selected_database_path()
-    if p.exists():
-        name = p.read_text().strip()
-        if name:
-            return name
-    return "default"
-
-
-def _make_kb() -> FileKBSource:
-    return FileKBSource(name="kb", directory=_data_dir())
+# Keep a local alias so existing helpers still compile
+FileKBSource = KBSource  # type alias — runtime type is the MRO class from _make_kb
 
 
 def _run(coro: Any) -> Any:
@@ -153,11 +140,11 @@ def _provenance_text(kb: FileKBSource, db: str, node_id: str) -> str:
 def cli(ctx: click.Context, database: str) -> None:
     """kb — Knowledge Base CLI.
 
-    Each database is stored as {KBDB_DATA_DIR}/{database}.json
-    (KBDB_DATA_DIR defaults to ~/.kbdb).
+    Databases are configured via ~/.kbdb/registry.json (KBDB_DATA_DIR).
+    Run `kb database register` to create and configure a database.
     """
     ctx.ensure_object(dict)
-    kb = _make_kb()
+    kb = _make_kb(database)
     if database not in kb.fetch_databases():
         kb.create_database(database)
     ctx.obj["kb"] = kb
@@ -180,31 +167,131 @@ def database_group() -> None:
     default="table",
     show_default=True,
 )
-@click.pass_obj
-def database_list(obj: dict, fmt: str) -> None:
-    """List all databases."""
-    kb: FileKBSource = obj["kb"]
-    dbs = sorted(d for d in kb.fetch_databases() if d != META_DATABASE)
+def database_list(fmt: str) -> None:
+    """List registered databases."""
+    registry = _load_registry()
     if fmt == "json":
-        console.print_json(json.dumps(dbs))
+        console.print_json(json.dumps(
+            {name: cfg for name, cfg in sorted(registry.items())}
+        ))
+        return
+    if not registry:
+        console.print("[dim](no databases registered — run `kb database register NAME`)[/dim]")
+        return
+    t = Table(show_header=True, header_style="bold")
+    t.add_column("Database")
+    t.add_column("Graph Backend", style="dim")
+    t.add_column("Search",        style="dim")
+    for name, cfg in sorted(registry.items()):
+        t.add_row(name, cfg.get("graph_backend", "file"), cfg.get("search", "none"))
+    console.print(t)
+
+
+@database_group.command("register")
+@click.argument("name")
+@click.option("--graph-backend", "graph_backend", type=click.Choice(["file", "neo4j"]), default="file", show_default=True)
+@click.option("--directory",      help="Graph data directory (file backend). Default: KBDB_DATA_DIR.")
+@click.option("--neo4j-uri",      help="Neo4j bolt URI.")
+@click.option("--neo4j-user",     help="Neo4j username.")
+@click.option("--neo4j-password", help="Neo4j password.")
+@click.option("--search",         type=click.Choice(["none", "bm25", "semantic"]), default="none", show_default=True)
+@click.option("--bm25-index-dir", help="Directory for BM25 corpus files. Default: graph directory.")
+@click.option("--vector-backend", "vector_backend", type=click.Choice(["memory", "file", "chromadb", "redis"]), default="memory", show_default=True)
+@click.option("--vector-directory", help="Directory for file vector backend.")
+@click.option("--vector-path",    help="Path for ChromaDB backend.")
+@click.option("--redis-host",     help="Redis host.")
+@click.option("--redis-port",     type=int, help="Redis port.")
+@click.option("--redis-db",       type=int, help="Redis database number.")
+@click.option("--embedding-provider", "embedding_provider", type=click.Choice(["openai"]), default="openai", show_default=True)
+@click.option("--embedding-model", help="Embedding model name.")
+def database_register(
+    name: str,
+    graph_backend: str,
+    directory: str | None,
+    neo4j_uri: str | None,
+    neo4j_user: str | None,
+    neo4j_password: str | None,
+    search: str,
+    bm25_index_dir: str | None,
+    vector_backend: str,
+    vector_directory: str | None,
+    vector_path: str | None,
+    redis_host: str | None,
+    redis_port: int | None,
+    redis_db: int | None,
+    embedding_provider: str,
+    embedding_model: str | None,
+) -> None:
+    """Register a new database with the specified backend and search config."""
+    cfg: dict[str, Any] = {"graph_backend": graph_backend, "search": search}
+
+    if graph_backend == "neo4j":
+        graph_cfg: dict[str, Any] = {}
+        if neo4j_uri:
+            graph_cfg["uri"] = neo4j_uri
+        if neo4j_user:
+            graph_cfg["username"] = neo4j_user
+        if neo4j_password:
+            graph_cfg["password"] = neo4j_password
+        cfg["graph"] = graph_cfg
     else:
-        t = Table(show_header=True, header_style="bold")
-        t.add_column("Database")
-        for d in dbs:
-            t.add_row(d)
-        console.print(t)
+        cfg["graph"] = {"directory": directory or _data_dir()}
+
+    if search in ("bm25", "semantic"):
+        if bm25_index_dir:
+            cfg["bm25"] = {"index_dir": bm25_index_dir}
+
+    if search == "semantic":
+        vcfg: dict[str, Any] = {"backend": vector_backend}
+        if vector_backend == "file" and vector_directory:
+            vcfg["directory"] = vector_directory
+        if vector_backend == "chromadb" and vector_path:
+            vcfg["path"] = vector_path
+        if vector_backend == "redis":
+            conn: dict[str, Any] = {}
+            if redis_host:
+                conn["host"] = redis_host
+            if redis_port is not None:
+                conn["port"] = redis_port
+            if redis_db is not None:
+                conn["db"] = redis_db
+            if conn:
+                vcfg["connection"] = conn
+        cfg["vector"] = vcfg
+        ecfg: dict[str, Any] = {"provider": embedding_provider}
+        if embedding_model:
+            ecfg["model"] = embedding_model
+        cfg["embedding"] = ecfg
+
+    register_database(name, cfg)
+    # Ensure the graph database exists
+    try:
+        kb = _make_kb(name)
+        if name not in kb.fetch_databases():
+            kb.create_database(name)
+    except Exception as exc:
+        raise click.ClickException(f"Registered config but failed to initialize backend: {exc}")
+    console.print(f"Registered database: [bold]{name}[/bold] (graph={graph_backend}, search={search})")
 
 
 @database_group.command("create")
 @click.argument("name")
 @click.pass_obj
 def database_create(obj: dict, name: str) -> None:
-    """Create a new database."""
-    kb: FileKBSource = obj["kb"]
+    """Create a database using the current session's backend (shortcut for simple file setups)."""
+    kb: KBSource = obj["kb"]
     try:
         kb.create_database(name)
     except KBError as exc:
         raise click.ClickException(str(exc))
+    # Auto-register with defaults if not present
+    registry = _load_registry()
+    if name not in registry:
+        register_database(name, {
+            "graph_backend": "file",
+            "graph": {"directory": _data_dir()},
+            "search": "none",
+        })
     console.print(f"Created database: [bold]{name}[/bold]")
 
 
@@ -212,15 +299,41 @@ def database_create(obj: dict, name: str) -> None:
 @click.argument("name")
 @click.option("--yes", is_flag=True, help="Skip confirmation prompt.")
 def database_delete(name: str, yes: bool) -> None:
-    """Delete a database and all its data."""
+    """Delete a database and remove it from the registry."""
     if name == META_DATABASE:
         raise click.ClickException(f"Cannot delete the reserved '{META_DATABASE}' database.")
-    path = Path(_data_dir()) / f"{name}.json"
-    if not path.exists():
-        raise click.ClickException(f"Database '{name}' not found.")
-    if not yes:
-        click.confirm(f"Delete database '{name}'? This cannot be undone.", abort=True)
-    path.unlink()
+    cfg = load_db_config(name)
+    graph_backend = cfg.get("graph_backend", "file")
+
+    if graph_backend == "file":
+        gcfg = cfg.get("graph", {})
+        directory = Path(gcfg.get("directory", _data_dir())).expanduser()
+        path = directory / f"{name}.json"
+        if not path.exists():
+            # Not in registry or file not found
+            raise click.ClickException(f"Database '{name}' not found.")
+        if not yes:
+            click.confirm(f"Delete database '{name}'? This cannot be undone.", abort=True)
+        path.unlink()
+    else:
+        if not yes:
+            click.confirm(
+                f"Remove database '{name}' from the registry? "
+                f"(Data in {graph_backend} backend is NOT deleted.)",
+                abort=True,
+            )
+
+    # Remove BM25 index files if present
+    bm25_dir = cfg.get("bm25", {}).get("index_dir")
+    if bm25_dir:
+        import glob
+        for f in glob.glob(str(Path(bm25_dir).expanduser() / f"{name}_*_bm25.json")):
+            try:
+                Path(f).unlink()
+            except OSError:
+                pass
+
+    unregister_database(name)
     console.print(f"Deleted database: [bold]{name}[/bold]")
 
 
@@ -232,6 +345,153 @@ def database_select(name: str) -> None:
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(name)
     console.print(f"Default database set to: [bold]{name}[/bold]")
+
+
+# ------------------------------------------------------------------ #
+# kb database config                                                   #
+# ------------------------------------------------------------------ #
+
+@database_group.group("config")
+def database_config_group() -> None:
+    """Show or update database backend configuration."""
+
+
+@database_config_group.command("show")
+@click.pass_obj
+def database_config_show(obj: dict) -> None:
+    """Print the configuration for the current database."""
+    db: str = obj["db"]
+    cfg = load_db_config(db)
+    console.print_json(json.dumps(cfg, indent=2))
+
+
+@database_config_group.command("set")
+@click.option("--graph-backend", "graph_backend", type=click.Choice(["file", "neo4j"]))
+@click.option("--directory",      help="Graph data directory (file backend).")
+@click.option("--neo4j-uri",      help="Neo4j bolt URI.")
+@click.option("--neo4j-user",     help="Neo4j username.")
+@click.option("--neo4j-password", help="Neo4j password.")
+@click.pass_obj
+def database_config_set(
+    obj: dict,
+    graph_backend: str | None,
+    directory: str | None,
+    neo4j_uri: str | None,
+    neo4j_user: str | None,
+    neo4j_password: str | None,
+) -> None:
+    """Update graph backend configuration for the current database."""
+    db: str = obj["db"]
+    updates: dict[str, Any] = {}
+    if graph_backend:
+        updates["graph_backend"] = graph_backend
+    graph_updates: dict[str, Any] = {}
+    if directory:
+        graph_updates["directory"] = directory
+    if neo4j_uri:
+        graph_updates["uri"] = neo4j_uri
+    if neo4j_user:
+        graph_updates["username"] = neo4j_user
+    if neo4j_password:
+        graph_updates["password"] = neo4j_password
+    if graph_updates:
+        updates["graph"] = graph_updates
+    if not updates:
+        raise click.ClickException("No options provided.")
+    update_db_config(db, updates)
+    console.print(f"Updated config for database: [bold]{db}[/bold]")
+
+
+# ------------------------------------------------------------------ #
+# kb database search config                                            #
+# ------------------------------------------------------------------ #
+
+@database_group.group("search")
+def database_search_group() -> None:
+    """Search backend configuration."""
+
+
+@database_search_group.group("config")
+def database_search_config_group() -> None:
+    """Show or update search configuration for the current database."""
+
+
+@database_search_config_group.command("show")
+@click.pass_obj
+def database_search_config_show(obj: dict) -> None:
+    """Print search configuration for the current database."""
+    db: str = obj["db"]
+    cfg = load_db_config(db)
+    search_cfg = {
+        "search": cfg.get("search", "none"),
+        "bm25": cfg.get("bm25", {}),
+        "vector": cfg.get("vector", {}),
+        "embedding": cfg.get("embedding", {}),
+    }
+    console.print_json(json.dumps(search_cfg, indent=2))
+
+
+@database_search_config_group.command("set")
+@click.option("--search",         type=click.Choice(["none", "bm25", "semantic"]), help="Search mode.")
+@click.option("--bm25-index-dir", help="Directory for BM25 corpus files.")
+@click.option("--vector-backend", "vector_backend", type=click.Choice(["memory", "file", "chromadb", "redis"]))
+@click.option("--vector-directory", help="Directory for file vector backend.")
+@click.option("--vector-path",    help="Path for ChromaDB backend.")
+@click.option("--redis-host",     help="Redis host.")
+@click.option("--redis-port",     type=int, help="Redis port.")
+@click.option("--redis-db",       type=int, help="Redis database number.")
+@click.option("--embedding-provider", "embedding_provider", type=click.Choice(["openai"]))
+@click.option("--embedding-model", help="Embedding model name.")
+@click.pass_obj
+def database_search_config_set(
+    obj: dict,
+    search: str | None,
+    bm25_index_dir: str | None,
+    vector_backend: str | None,
+    vector_directory: str | None,
+    vector_path: str | None,
+    redis_host: str | None,
+    redis_port: int | None,
+    redis_db: int | None,
+    embedding_provider: str | None,
+    embedding_model: str | None,
+) -> None:
+    """Update search configuration for the current database."""
+    db: str = obj["db"]
+    updates: dict[str, Any] = {}
+    if search:
+        updates["search"] = search
+    if bm25_index_dir:
+        updates["bm25"] = {"index_dir": bm25_index_dir}
+    vcfg: dict[str, Any] = {}
+    if vector_backend:
+        vcfg["backend"] = vector_backend
+    if vector_directory:
+        vcfg["directory"] = vector_directory
+    if vector_path:
+        vcfg["path"] = vector_path
+    conn: dict[str, Any] = {}
+    if redis_host:
+        conn["host"] = redis_host
+    if redis_port is not None:
+        conn["port"] = redis_port
+    if redis_db is not None:
+        conn["db"] = redis_db
+    if conn:
+        vcfg["connection"] = conn
+    if vcfg:
+        updates["vector"] = vcfg
+    ecfg: dict[str, Any] = {}
+    if embedding_provider:
+        ecfg["provider"] = embedding_provider
+    if embedding_model:
+        ecfg["model"] = embedding_model
+    if ecfg:
+        updates["embedding"] = ecfg
+    if not updates:
+        raise click.ClickException("No options provided.")
+    update_db_config(db, updates)
+    console.print(f"Updated search config for database: [bold]{db}[/bold]")
 
 
 # ------------------------------------------------------------------ #
@@ -1311,6 +1571,29 @@ def schema_search(obj: dict, query: str, types: tuple[str, ...], fmt: str) -> No
 @cli.group("data")
 def data_group() -> None:
     """Instance data management."""
+
+
+@data_group.command("reindex")
+@click.pass_obj
+def data_reindex(obj: dict) -> None:
+    """Rebuild the search index for the current database.
+
+    Iterates every node in the graph and re-populates both the BM25 corpus
+    and vector index (if configured).  Required after enabling search on an
+    existing database or after bulk imports that bypass the event system.
+    """
+    kb: KBSource = obj["kb"]
+    db: str = obj["db"]
+    if not hasattr(kb, "_search_indexer") or kb._search_indexer is None:
+        raise click.ClickException(
+            "Search is not enabled for this database.  "
+            "Register it with --search bm25 or --search semantic first."
+        )
+    try:
+        kb.reindex(db)
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(f"Search index rebuilt for database: [bold]{db}[/bold]")
 
 
 # ------------------------------------------------------------------ #

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 from blue_data.source.graph.graph_source import GraphSource
@@ -46,18 +48,24 @@ class KBSearchIndexer:
         embedding_fn: Callable[[str], list[float]] | None = None,
         vector_dim: int = 1536,
         distance_metric: str = "COSINE",
+        corpus_dir: str | None = None,
     ) -> None:
         self._source = source
         self._vector_source = vector_source
         self._embedding_fn = embedding_fn
         self._vector_dim = vector_dim
         self._distance_metric = distance_metric
+        self._corpus_dir = corpus_dir
         # BM25 corpus: db -> collection -> node_id -> text
         self._corpus: dict[str, dict[str, dict[str, str]]] = {}
         # Metadata: db -> collection -> node_id -> {type, name}
         self._meta: dict[str, dict[str, dict[str, dict[str, Any]]]] = {}
         # Track which (db, collection) vector indices have been created
         self._vector_indices_created: set[str] = set()
+        # Track which (db, collection) corpus files have been loaded
+        self._loaded_corpora: set[tuple[str, str]] = set()
+        # Suppress per-upsert saves during bulk operations
+        self._suppress_auto_save: bool = False
 
     @property
     def has_semantic(self) -> bool:
@@ -177,9 +185,16 @@ class KBSearchIndexer:
 
     def reindex_all(self, database: str) -> None:
         """Bulk rebuild: iterate every node in the graph and re-index it."""
-        for label in (CLASS, RELATION, PROPERTY, ENTITY, FACT):
-            for node in self._source.match_nodes(database, label=label):
-                self.reindex_node(database, node["id"])
+        self._suppress_auto_save = True
+        try:
+            for label in (CLASS, RELATION, PROPERTY, ENTITY, FACT):
+                for node in self._source.match_nodes(database, label=label):
+                    self.reindex_node(database, node["id"])
+        finally:
+            self._suppress_auto_save = False
+        if self._corpus_dir:
+            for collection in (_SCHEMA_COLL, _DATA_COLL):
+                self._save_corpus_to_file(database, collection)
 
     # ------------------------------------------------------------------ #
     # Search                                                               #
@@ -370,19 +385,52 @@ class KBSearchIndexer:
     # ------------------------------------------------------------------ #
 
     def _get_corpus(self, database: str, collection: str) -> dict[str, str]:
+        key = (database, collection)
+        if key not in self._loaded_corpora:
+            self._loaded_corpora.add(key)
+            if self._corpus_dir:
+                self._load_corpus_from_file(database, collection)
         return self._corpus.setdefault(database, {}).setdefault(collection, {})
 
     def _get_meta(self, database: str, collection: str) -> dict[str, dict[str, Any]]:
+        # Ensure corpus is loaded (which also loads meta)
+        self._get_corpus(database, collection)
         return self._meta.setdefault(database, {}).setdefault(collection, {})
+
+    def _corpus_file_path(self, database: str, collection: str) -> Path:
+        return Path(self._corpus_dir) / f"{database}_{collection}_bm25.json"  # type: ignore[arg-type]
+
+    def _load_corpus_from_file(self, database: str, collection: str) -> None:
+        path = self._corpus_file_path(database, collection)
+        if not path.exists():
+            return
+        with open(path) as f:
+            data = json.load(f)
+        self._corpus.setdefault(database, {})[collection] = data.get("corpus", {})
+        self._meta.setdefault(database, {})[collection] = data.get("meta", {})
+
+    def _save_corpus_to_file(self, database: str, collection: str) -> None:
+        if not self._corpus_dir:
+            return
+        Path(self._corpus_dir).mkdir(parents=True, exist_ok=True)
+        path = self._corpus_file_path(database, collection)
+        corpus = self._corpus.get(database, {}).get(collection, {})
+        meta = self._meta.get(database, {}).get(collection, {})
+        with open(path, "w") as f:
+            json.dump({"corpus": corpus, "meta": meta}, f)
 
     def _upsert(self, database: str, collection: str, node_id: str, text: str, node_type: str, name: str) -> None:
         self._get_corpus(database, collection)[node_id] = text
         self._get_meta(database, collection)[node_id] = {"type": node_type, "name": name}
         self._upsert_vector(database, collection, node_id, text, node_type, name)
+        if not self._suppress_auto_save:
+            self._save_corpus_to_file(database, collection)
 
     def _delete_bm25(self, database: str, collection: str, node_id: str) -> None:
         self._get_corpus(database, collection).pop(node_id, None)
         self._get_meta(database, collection).pop(node_id, None)
+        if not self._suppress_auto_save:
+            self._save_corpus_to_file(database, collection)
 
     # ------------------------------------------------------------------ #
     # Vector management                                                     #
@@ -462,7 +510,7 @@ class KBSearchIndexer:
         type_filter: str | list[str] | None,
     ) -> list[tuple[str, float]]:
         try:
-            from rank_bm25 import BM25Okapi
+            from rank_bm25 import BM25Plus
         except ImportError as exc:
             raise KBError(
                 "BM25 search requires rank-bm25: pip install blue-data-kb-source[search]"
@@ -482,7 +530,7 @@ class KBSearchIndexer:
             return []
 
         tokenized = [corpus[nid].lower().split() for nid in doc_ids]
-        bm25 = BM25Okapi(tokenized)
+        bm25 = BM25Plus(tokenized)
         scores = bm25.get_scores(query.lower().split())
         ranked = sorted(zip(doc_ids, scores.tolist()), key=lambda x: x[1], reverse=True)
         return [(nid, float(s)) for nid, s in ranked if s > 0][:k]

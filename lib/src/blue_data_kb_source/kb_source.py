@@ -113,6 +113,7 @@ class KBSource(GraphSource, ABC):
         vector_source: Any = None,
         embedding_fn: Callable[..., Any] | None = None,
         vector_dim: int = 1536,
+        corpus_dir: str | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -127,6 +128,7 @@ class KBSource(GraphSource, ABC):
                 vector_source=vector_source,
                 embedding_fn=embedding_fn,
                 vector_dim=vector_dim,
+                corpus_dir=corpus_dir,
             )
             self._notifier.add_global_hook(self._search_indexer.on_change)
 

@@ -31,16 +31,61 @@ pip install -e "../../lib[openai]"
 
 ## State persistence
 
-Each database is automatically persisted as a JSON file inside the data directory — no explicit save step is needed:
+Each database is registered in a registry file:
+
+```
+~/.kbdb/registry.json
+```
+
+For the default `file` graph backend, data is automatically persisted as a JSON file — no explicit save step is needed:
 
 ```
 ~/.kbdb/{database}.json
 ```
 
-`FileGraphSource` saves after every write operation, so IDs returned by one command can be safely passed to the next. Override the directory:
+`FileGraphSource` saves after every write operation, so IDs returned by one command can be safely passed to the next. Override the data directory:
 
 ```bash
 export KBDB_DATA_DIR=/path/to/my-kbdb
+```
+
+## Registering a database
+
+Use `kb database register` to create and configure a database:
+
+```bash
+# File backend, BM25 keyword search (index persisted to disk)
+kb database register main --graph-backend file --search bm25
+
+# File backend, semantic (vector) search with OpenAI embeddings, ChromaDB vector store
+kb database register main \
+    --graph-backend file \
+    --search semantic \
+    --vector-backend chromadb \
+    --vector-path ~/.kbdb/chromadb \
+    --embedding-provider openai \
+    --embedding-model text-embedding-3-small
+
+# Neo4j backend with Redis vector store
+kb database register main \
+    --graph-backend neo4j \
+    --neo4j-uri bolt://localhost:7687 \
+    --neo4j-user neo4j \
+    --neo4j-password secret \
+    --search semantic \
+    --vector-backend redis \
+    --redis-host localhost \
+    --redis-port 6379
+
+# Update search configuration for an existing database
+kb --database main database search config set --search bm25
+
+# View current configuration
+kb --database main database config show
+kb --database main database search config show
+
+# Rebuild the search index after bulk imports or enabling search on an existing database
+kb --database main data reindex
 ```
 
 ## Global option
@@ -215,10 +260,15 @@ Deleted database: main
 
 | Command | Description |
 |---|---|
-| `kb database list [--format table\|json]` | List all databases |
-| `kb database create NAME` | Create a database |
-| `kb database delete NAME [--yes]` | Delete a database (prompts unless --yes) |
+| `kb database list [--format table\|json]` | List registered databases with backend and search mode |
+| `kb database register NAME [options]` | Register a new database with graph and search backends |
+| `kb database create NAME` | Create a database (auto-registers with file defaults) |
+| `kb database delete NAME [--yes]` | Delete a database and remove it from the registry |
 | `kb database select NAME` | Set the default target database |
+| `kb database config show` | Print graph backend config for the current database |
+| `kb database config set [--graph-backend …] [--directory …] [--neo4j-uri …] …` | Update graph backend config |
+| `kb database search config show` | Print search config for the current database |
+| `kb database search config set [--search none\|bm25\|semantic] [--bm25-index-dir …] [--vector-backend …] …` | Update search config |
 | `kb schema list [--format table\|json]` | List classes, relations, properties, and hierarchy |
 | `kb schema class add NAME DESC` | Declare a CLASS (idempotent) |
 | `kb schema class list [--format table\|json]` | List all declared classes |
@@ -266,7 +316,8 @@ Deleted database: main
 | `kb data fact property list --fact-id ID [--show-provenance] [--format table\|json]` | List property values for a fact |
 | `kb data fact property update --fact NAME\|--fact-id ID --property NAME\|--property-id ID [--value V] [--name N] [--description D]` | Update the value, name, and/or description of a fact property value |
 | `kb data fact property delete --fact NAME\|--fact-id ID --property NAME\|--property-id ID [--yes]` | Delete a property value from a fact |
-| `kb data search QUERY [--type entity\|fact]… [--top-k N] [--format table\|json]` | Keyword search over entities and facts; requires `enable_search=True` at init (silently returns empty otherwise); `--type` is repeatable |
+| `kb data reindex` | Rebuild the BM25/vector search index for the current database |
+| `kb data search QUERY [--type entity\|fact]… [--top-k N] [--format table\|json]` | Keyword or semantic search over entities and facts; search mode depends on database config; `--type` is repeatable |
 | `kb data answer QUESTION [--format table\|json\|nl] [--model M]` | LLM answer query; `--format nl` returns a prose answer |
 | `kb data validate STATEMENT [--natural-language] [--model M]` | LLM supporting / counter evidence; `--natural-language` returns a prose assessment |
 | `kb data extract TEXT [--query Q]… [--source NAME\|--source-id ID] [--model M]` | LLM extraction |
@@ -285,6 +336,7 @@ platform/cli/
 ├── src/
 │   └── blue_data_kb_cli/
 │       ├── __init__.py
+│       ├── config.py     # Registry, _make_kb factory, vector/embedding factories
 │       └── commands.py   # Click command groups
 └── tests/
     └── unit/
