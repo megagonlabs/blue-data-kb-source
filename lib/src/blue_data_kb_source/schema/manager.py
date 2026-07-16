@@ -587,7 +587,7 @@ class SchemaManager:
     # Search and consolidation                                             #
     # ------------------------------------------------------------------ #
 
-    async def search_schema(
+    async def find_schema(
         self,
         database: str,
         query: str,

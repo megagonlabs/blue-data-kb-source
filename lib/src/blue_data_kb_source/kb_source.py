@@ -244,7 +244,7 @@ class KBSource(GraphSource, ABC):
     ) -> list[SchemaSearchResult]:
         if self._search_indexer is not None:
             return self._search_indexer.search_schema(database, query, k=k, mode=mode, type_filter=type_filter)
-        return await self._schema.search_schema(database, query, type_filter=type_filter)
+        return await self._schema.find_schema(database, query, type_filter=type_filter)
 
     async def search_data(
         self,
@@ -254,9 +254,9 @@ class KBSource(GraphSource, ABC):
         mode: str = "keyword",
         type_filter: str | list[str] | None = None,
     ) -> list[DataSearchResult]:
-        if self._search_indexer is None:
-            return []
-        return self._search_indexer.search_data(database, query, k=k, mode=mode, type_filter=type_filter)
+        if self._search_indexer is not None:
+            return self._search_indexer.search_data(database, query, k=k, mode=mode, type_filter=type_filter)
+        return await self._knowledge.find_data(database, query, type_filter=type_filter)
 
     def reindex(self, database: str) -> None:
         if self._search_indexer is None:

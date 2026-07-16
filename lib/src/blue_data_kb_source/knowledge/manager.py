@@ -19,7 +19,7 @@ from blue_data_kb_source._constants import (
     TAIL,
 )
 from blue_data_kb_source.knowledge.engine import QueryEngine
-from blue_data_kb_source.types import EnrichmentResult, KBError, ValidationResult
+from blue_data_kb_source.types import DataSearchResult, EnrichmentResult, KBError, ValidationResult
 
 if TYPE_CHECKING:
     from blue_data_kb_source.notification.notifier import ChangeNotifier
@@ -545,6 +545,59 @@ class KnowledgeManager:
             if include_provenance:
                 entry["extraction"] = self._provenance_text(database, nid)
             results.append(entry)
+
+        return results
+
+    # ------------------------------------------------------------------ #
+    # Find (substring scan)                                                #
+    # ------------------------------------------------------------------ #
+
+    async def find_data(
+        self,
+        database: str,
+        query: str,
+        type_filter: str | list[str] | None = None,
+    ) -> list[DataSearchResult]:
+        """Return entities/facts whose name, description, or related names contain *query*."""
+        all_labels = (ENTITY, FACT)
+        if type_filter is None:
+            labels: tuple[str, ...] = all_labels
+        else:
+            requested = {type_filter.upper()} if isinstance(type_filter, str) else {t.upper() for t in type_filter}
+            labels = tuple(lbl for lbl in all_labels if lbl in requested)
+        q = query.lower()
+        results: list[DataSearchResult] = []
+
+        if ENTITY in labels:
+            for node in self._source.match_nodes(database, label=ENTITY):
+                props = node.get("properties", {})
+                name = props.get("name", "")
+                desc = props.get("description", "") or ""
+                if q in name.lower() or q in desc.lower():
+                    cls_nbs = self._source.get_neighbors(database, node["id"], edge_type=IS_INSTANCE_OF, direction="out")
+                    class_name = cls_nbs[0]["node"].get("properties", {}).get("name") if cls_nbs else None
+                    results.append(DataSearchResult(
+                        id=node["id"], type=ENTITY, name=name, description=desc or None,
+                        class_name=class_name,
+                    ))
+
+        if FACT in labels:
+            for node in self._source.match_nodes(database, label=FACT):
+                props = node.get("properties", {})
+                name = props.get("name", "")
+                desc = props.get("description", "") or ""
+                rel_nbs  = self._source.get_neighbors(database, node["id"], edge_type=REPRESENTS, direction="out")
+                head_nbs = self._source.get_neighbors(database, node["id"], edge_type=HEAD, direction="out")
+                tail_nbs = self._source.get_neighbors(database, node["id"], edge_type=TAIL, direction="out")
+                head_name = head_nbs[0]["node"].get("properties", {}).get("name") if head_nbs else None
+                rel_name  = rel_nbs[0]["node"].get("properties", {}).get("name") if rel_nbs else None
+                tail_name = tail_nbs[0]["node"].get("properties", {}).get("name") if tail_nbs else None
+                searchable = " ".join(s for s in [name, desc, head_name, rel_name, tail_name] if s).lower()
+                if q in searchable:
+                    results.append(DataSearchResult(
+                        id=node["id"], type=FACT, name=name, description=desc or None,
+                        head_name=head_name, relation_name=rel_name, tail_name=tail_name,
+                    ))
 
         return results
 
