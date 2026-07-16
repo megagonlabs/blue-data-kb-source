@@ -152,6 +152,33 @@ def _make_embedding_fn(cfg: dict[str, Any]) -> Callable[[str], list[float]]:
 
 
 # ------------------------------------------------------------------ #
+# Neo4j connection helpers                                             #
+# ------------------------------------------------------------------ #
+
+def _neo4j_connection_dict(gcfg: dict[str, Any]) -> dict[str, Any]:
+    """Convert graph config (uri/username/password) to NEO4JSource connection dict."""
+    connection: dict[str, Any] = {}
+    uri = gcfg.get("uri", "")
+    if uri:
+        from urllib.parse import urlparse
+        parsed = urlparse(uri)
+        connection["protocol"] = parsed.scheme or "bolt"
+        connection["host"] = parsed.hostname or "localhost"
+        if parsed.port:
+            connection["port"] = parsed.port
+    if "host" in gcfg:
+        connection["host"] = gcfg["host"]
+    if "port" in gcfg:
+        connection["port"] = gcfg["port"]
+    if "protocol" in gcfg:
+        connection["protocol"] = gcfg["protocol"]
+    connection["user"] = gcfg.get("username") or gcfg.get("user") or "neo4j"
+    if "password" in gcfg:
+        connection["password"] = gcfg["password"]
+    return connection
+
+
+# ------------------------------------------------------------------ #
 # KBSource factory                                                     #
 # ------------------------------------------------------------------ #
 
@@ -165,13 +192,14 @@ def _make_kb(database: str) -> KBSource:
     default_index_dir: str
 
     if graph_backend == "neo4j":
-        from blue_data.source.graph.neo4j_graph_source import Neo4JGraphSource  # type: ignore[import]
+        from blue_data.source.graph.neo4j.neo4j_graph_source import NEO4JSource  # type: ignore[import]
 
-        class _KB(KBSource, Neo4JGraphSource):  # type: ignore[misc]
+        class _KB(KBSource, NEO4JSource):  # type: ignore[misc]
             pass
 
-        gcfg = dict(cfg.get("graph", {}))
-        graph_kwargs = gcfg
+        gcfg = cfg.get("graph", {})
+        connection = _neo4j_connection_dict(gcfg)
+        graph_kwargs = {"name": "kb", "properties": {"connection": connection}}
         default_index_dir = _data_dir()
     else:
         class _KB(KBSource, FileGraphSource):  # type: ignore[misc]
