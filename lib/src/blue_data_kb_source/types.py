@@ -29,6 +29,20 @@ class SchemaSearchResult:
     type: str
     name: str
     description: str
+    score: float | None = None
+
+
+@dataclass
+class DataSearchResult:
+    id: str
+    type: str                      # "ENTITY" | "FACT"
+    name: str
+    description: str | None = None
+    class_name: str | None = None  # entities only
+    head_name: str | None = None   # facts only
+    relation_name: str | None = None
+    tail_name: str | None = None
+    score: float | None = None     # populated for mode="semantic"
 
 
 @dataclass

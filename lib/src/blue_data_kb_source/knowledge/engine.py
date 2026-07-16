@@ -20,6 +20,7 @@ from blue_data_kb_source.types import EnrichmentResult, KBError, ValidationResul
 
 if TYPE_CHECKING:
     from blue_data_kb_source.schema.manager import SchemaManager
+    from blue_data_kb_source.search.indexer import KBSearchIndexer
 
 
 # ------------------------------------------------------------------ #
@@ -253,9 +254,15 @@ Max depth: {depth}\
 class QueryEngine:
     """LLM-powered query engine that answers, validates, and enriches KB queries."""
 
-    def __init__(self, source: GraphSource, schema_manager: SchemaManager) -> None:
+    def __init__(
+        self,
+        source: GraphSource,
+        schema_manager: SchemaManager,
+        search_indexer: KBSearchIndexer | None = None,
+    ) -> None:
         self._source = source
         self._schema = schema_manager
+        self._search_indexer = search_indexer
 
     # ------------------------------------------------------------------ #
     # Public API                                                           #
@@ -457,6 +464,12 @@ class QueryEngine:
             return {"schema": schema.to_str(simplified=True)}
 
         if fn == "search_entities":
+            if self._search_indexer is not None:
+                hits = self._search_indexer.search_data(database, args["query"], k=20, mode="keyword", type_filter=ENTITY)
+                return {"entities": [
+                    {"id": r.id, "name": r.name, "description": r.description, "class_name": r.class_name}
+                    for r in hits
+                ]}
             kw = args["query"].lower()
             results = []
             for node in self._source.match_nodes(database, label=ENTITY):

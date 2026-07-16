@@ -1265,18 +1265,25 @@ def schema_relation_delete(
 @schema_group.command("search")
 @click.argument("query")
 @click.option(
+    "--type", "types",
+    type=click.Choice(["class", "relation", "property"], case_sensitive=False),
+    multiple=True,
+    help="Restrict to a node type (repeatable). Default: all types.",
+)
+@click.option(
     "--format", "fmt",
     type=click.Choice(["table", "json"]),
     default="table",
     show_default=True,
 )
 @click.pass_obj
-def schema_search(obj: dict, query: str, fmt: str) -> None:
+def schema_search(obj: dict, query: str, types: tuple[str, ...], fmt: str) -> None:
     """Search schema elements by keyword."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
+    type_filter = [t.upper() for t in types] if types else None
     try:
-        results = _run(kb.search_schema(db, query))
+        results = _run(kb.search_schema(db, query, type_filter=type_filter))
     except KBError as exc:
         raise click.ClickException(str(exc))
     if fmt == "json":
@@ -1285,6 +1292,9 @@ def schema_search(obj: dict, query: str, fmt: str) -> None:
             for r in results
         ]))
     else:
+        if not results:
+            console.print("[dim](no results)[/dim]")
+            return
         t = Table(show_header=True, header_style="bold")
         t.add_column("Type",        style="dim", width=10)
         t.add_column("Name",        style="bold")
@@ -2313,3 +2323,67 @@ def validate_cmd(obj: dict, statement: str, natural_language: bool, model: str) 
             console.print(f"  • {fact}")
     else:
         console.print("  (none)")
+
+
+@data_group.command("search")
+@click.argument("query")
+@click.option(
+    "--type", "types",
+    type=click.Choice(["entity", "fact"], case_sensitive=False),
+    multiple=True,
+    help="Restrict to a node type (repeatable). Default: all types.",
+)
+@click.option("--top-k", "top_k", default=10, show_default=True, help="Maximum results to return.")
+@click.option(
+    "--format", "fmt",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    show_default=True,
+)
+@click.pass_obj
+def data_search(obj: dict, query: str, types: tuple[str, ...], top_k: int, fmt: str) -> None:
+    """Search entities and facts by keyword."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    type_filter = [t.upper() for t in types] if types else None
+    try:
+        results = _run(kb.search_data(db, query, k=top_k, type_filter=type_filter))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+
+    if fmt == "json":
+        console.print_json(json.dumps([
+            {
+                "id": r.id, "type": r.type, "name": r.name, "description": r.description,
+                "class_name": r.class_name,
+                "head_name": r.head_name, "relation_name": r.relation_name, "tail_name": r.tail_name,
+            }
+            for r in results
+        ]))
+        return
+
+    if not results:
+        console.print("[dim](no results)[/dim]")
+        return
+
+    entities = [r for r in results if r.type == ENTITY]
+    facts    = [r for r in results if r.type == FACT]
+
+    if entities:
+        t = Table(title="Entities", show_header=True, header_style="bold")
+        t.add_column("Name",        style="bold")
+        t.add_column("Class",       style="dim")
+        t.add_column("Description")
+        for r in entities:
+            t.add_row(r.name, r.class_name or "", r.description or "")
+        console.print(t)
+
+    if facts:
+        t = Table(title="Facts", show_header=True, header_style="bold")
+        t.add_column("Head",     style="bold")
+        t.add_column("Relation", style="dim")
+        t.add_column("Tail",     style="bold")
+        t.add_column("Description")
+        for r in facts:
+            t.add_row(r.head_name or "", r.relation_name or "", r.tail_name or "", r.description or "")
+        console.print(t)

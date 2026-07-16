@@ -38,8 +38,11 @@ from blue_data_kb_source.knowledge.manager import KnowledgeManager
 from blue_data_kb_source.notification.notifier import ChangeNotifier
 from blue_data_kb_source.provenance.tracker import ProvenanceTracker
 from blue_data_kb_source.schema.manager import SchemaManager
+from blue_data_kb_source.search.indexer import KBSearchIndexer
 from blue_data_kb_source.types import (
+    DataSearchResult,
     EnrichmentResult,
+    KBError,
     SchemaSearchResult,
     ValidationResult,
 )
@@ -103,12 +106,33 @@ class KBSource(GraphSource, ABC):
     # Initialisation                                                       #
     # ------------------------------------------------------------------ #
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *args: Any,
+        enable_search: bool = False,
+        vector_source: Any = None,
+        embedding_fn: Callable[..., Any] | None = None,
+        vector_dim: int = 1536,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(*args, **kwargs)
         self._notifier = ChangeNotifier()
         self._provenance = ProvenanceTracker(self)
         self._schema = SchemaManager(self, self._notifier)
-        self._knowledge = KnowledgeManager(self, self._provenance, self._notifier, self._schema)
+
+        self._search_indexer: KBSearchIndexer | None = None
+        if enable_search or vector_source is not None:
+            self._search_indexer = KBSearchIndexer(
+                self,
+                vector_source=vector_source,
+                embedding_fn=embedding_fn,
+                vector_dim=vector_dim,
+            )
+            self._notifier.add_global_hook(self._search_indexer.on_change)
+
+        self._knowledge = KnowledgeManager(
+            self, self._provenance, self._notifier, self._schema, self._search_indexer
+        )
         self._extraction = ExtractionEngine(self, self._schema, self._knowledge)
 
     # ------------------------------------------------------------------ #
@@ -210,8 +234,38 @@ class KBSource(GraphSource, ABC):
     async def import_database_schema(self, database: str, schema_json: dict) -> None:
         await self._schema.import_database_schema(database, schema_json)
 
-    async def search_schema(self, database: str, query: str) -> list[SchemaSearchResult]:
-        return await self._schema.search_schema(database, query)
+    async def search_schema(
+        self,
+        database: str,
+        query: str,
+        k: int = 5,
+        mode: str = "keyword",
+        type_filter: str | list[str] | None = None,
+    ) -> list[SchemaSearchResult]:
+        if self._search_indexer is not None:
+            return self._search_indexer.search_schema(database, query, k=k, mode=mode, type_filter=type_filter)
+        return await self._schema.search_schema(database, query, type_filter=type_filter)
+
+    async def search_data(
+        self,
+        database: str,
+        query: str,
+        k: int = 5,
+        mode: str = "keyword",
+        type_filter: str | list[str] | None = None,
+    ) -> list[DataSearchResult]:
+        if self._search_indexer is None:
+            return []
+        return self._search_indexer.search_data(database, query, k=k, mode=mode, type_filter=type_filter)
+
+    def reindex(self, database: str) -> None:
+        if self._search_indexer is None:
+            raise KBError("reindex requires enable_search=True or vector_source at init")
+        self._search_indexer.reindex_all(database)
+
+    @property
+    def has_semantic_search(self) -> bool:
+        return self._search_indexer is not None and self._search_indexer.has_semantic
 
     async def consolidate_schema(
         self,
@@ -607,7 +661,22 @@ class KBSource(GraphSource, ABC):
             return _r(self.fetch_database_schema(database))
 
         if op == "KB.SEARCH_SCHEMA":
-            return _r(self.search_schema(database, query["query"]))
+            return _r(self.search_schema(
+                database,
+                query["query"],
+                k=query.get("k", 5),
+                mode=query.get("mode", "keyword"),
+                type_filter=query.get("type_filter"),
+            ))
+
+        if op == "KB.SEARCH_DATA":
+            return _r(self.search_data(
+                database,
+                query["query"],
+                k=query.get("k", 5),
+                mode=query.get("mode", "keyword"),
+                type_filter=query.get("type_filter"),
+            ))
 
         # -- Knowledge -----------------------------------------------------
 

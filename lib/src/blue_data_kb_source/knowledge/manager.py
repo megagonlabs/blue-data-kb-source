@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from blue_data_kb_source.notification.notifier import ChangeNotifier
     from blue_data_kb_source.provenance.tracker import ProvenanceTracker
     from blue_data_kb_source.schema.manager import SchemaManager
+    from blue_data_kb_source.search.indexer import KBSearchIndexer
 
 
 class KnowledgeManager:
@@ -36,11 +37,12 @@ class KnowledgeManager:
         provenance_tracker: ProvenanceTracker,
         change_notifier: ChangeNotifier,
         schema_manager: SchemaManager,
+        search_indexer: KBSearchIndexer | None = None,
     ) -> None:
         self._source = source
         self._provenance = provenance_tracker
         self._notifier = change_notifier
-        self._query = QueryEngine(source, schema_manager)
+        self._query = QueryEngine(source, schema_manager, search_indexer)
 
     # ------------------------------------------------------------------ #
     # Helpers                                                              #
@@ -271,6 +273,7 @@ class KnowledgeManager:
         if not props:
             raise KBError("At least one of --name or --description must be provided.")
         self._source.update_node(database, entity_id, props)
+        self._notifier.fire({"type": "entity_updated", "database": database, "id": entity_id})
 
     async def update_fact(
         self,
@@ -283,6 +286,7 @@ class KnowledgeManager:
         if not props:
             raise KBError("At least one of --name or --description must be provided.")
         self._source.update_node(database, fact_id, props)
+        self._notifier.fire({"type": "fact_updated", "database": database, "id": fact_id})
 
     def _find_literal(self, database: str, owner_id: str, property_id: str) -> str | None:
         for lit_nb in self._source.get_neighbors(database, owner_id, edge_type=HAS_PROPERTY, direction="out"):
@@ -316,6 +320,8 @@ class KnowledgeManager:
         if not props:
             raise KBError("At least one of --value, --name, or --description must be provided.")
         self._source.update_node(database, lit_id, props)
+        self._notifier.fire({"type": "entity_property_updated", "database": database,
+                             "id": lit_id, "entity_id": entity_id})
 
     async def update_fact_property_value(
         self,
@@ -341,6 +347,8 @@ class KnowledgeManager:
         if not props:
             raise KBError("At least one of --value, --name, or --description must be provided.")
         self._source.update_node(database, lit_id, props)
+        self._notifier.fire({"type": "fact_property_updated", "database": database,
+                             "id": lit_id, "fact_id": fact_id})
 
     # ------------------------------------------------------------------ #
     # Delete operations                                                    #
@@ -370,12 +378,15 @@ class KnowledgeManager:
         for fact_id in referencing:
             self._delete_literals(database, fact_id)
             self._source.delete_node(database, fact_id)
+            self._notifier.fire({"type": "fact_deleted", "database": database, "id": fact_id})
         self._delete_literals(database, entity_id)
         self._source.delete_node(database, entity_id)
+        self._notifier.fire({"type": "entity_deleted", "database": database, "id": entity_id})
 
     async def delete_fact(self, database: str, fact_id: str) -> None:
         self._delete_literals(database, fact_id)
         self._source.delete_node(database, fact_id)
+        self._notifier.fire({"type": "fact_deleted", "database": database, "id": fact_id})
 
     async def delete_entity_property_value(
         self, database: str, entity_id: str, property_id: str
@@ -384,6 +395,8 @@ class KnowledgeManager:
         if lit_id is None:
             raise KBError("No property value found for the given entity and property.")
         self._source.delete_node(database, lit_id)
+        self._notifier.fire({"type": "entity_property_deleted", "database": database,
+                             "id": lit_id, "entity_id": entity_id})
 
     async def delete_fact_property_value(
         self, database: str, fact_id: str, property_id: str
@@ -392,6 +405,8 @@ class KnowledgeManager:
         if lit_id is None:
             raise KBError("No property value found for the given fact and property.")
         self._source.delete_node(database, lit_id)
+        self._notifier.fire({"type": "fact_property_deleted", "database": database,
+                             "id": lit_id, "fact_id": fact_id})
 
     # ------------------------------------------------------------------ #
     # Data export                                                          #
