@@ -151,7 +151,14 @@ When you have gathered enough information, you MUST call return_result to delive
 answer. Never reply with plain text — always use the return_result tool.
 
 Call return_result with a JSON array where each row is a flat dict whose keys reflect
-the question asked. Choose natural column names based on the question.
+the question asked. 
+
+Choose natural column names based on the question and the schema. For example, use class names 
+for entities, relation names for relationships, and property names for entity or fact properties.
+Use domain and range class names for head and tail entities in relationships/facts.
+
+Use null for any missing values. 
+Include provenance text if available.
 
 Examples:
 
