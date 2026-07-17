@@ -32,7 +32,6 @@ from blue_data_kb_source._constants import (
     IS_INSTANCE_OF,
     IS_SUBCLASS_OF,
     IS_VALUE_OF,
-    META_DATABASE,
     PROPERTY,
     RELATION,
     REPRESENTS,
@@ -300,8 +299,6 @@ def database_create(obj: dict, name: str) -> None:
 @click.option("--yes", is_flag=True, help="Skip confirmation prompt.")
 def database_delete(name: str, yes: bool) -> None:
     """Delete a database and remove it from the registry."""
-    if name == META_DATABASE:
-        raise click.ClickException(f"Cannot delete the reserved '{META_DATABASE}' database.")
     cfg = load_db_config(name)
     graph_backend = cfg.get("graph_backend", "file")
 

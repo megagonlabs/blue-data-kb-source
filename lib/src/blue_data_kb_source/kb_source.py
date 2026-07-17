@@ -23,7 +23,6 @@ from blue_data_kb_source._constants import (
     IS_SUBCLASS_OF,
     IS_VALUE_OF,
     LITERAL,
-    META_DATABASE,
     NUMBER,
     PROPERTY,
     RANGE,
@@ -524,10 +523,7 @@ class KBSource(GraphSource, ABC):
     # Meta-schema (describes the KB graph structure itself)               #
     # ------------------------------------------------------------------ #
 
-    META_DATABASE = META_DATABASE
-
     async def fetch_meta_schema(self) -> DataSchema:
-        """Return a DataSchema built from the persisted __meta__ database."""
         return await self._schema.fetch_meta_schema()
 
     # ------------------------------------------------------------------ #
