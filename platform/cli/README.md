@@ -99,47 +99,51 @@ kb [--database DB] COMMAND
 ## Walkthrough
 
 ```bash
-# 1. List and create databases
-$ kb database list
-$ kb database create main
-Created database: main
+# 1. Register and select a database
+$ kb database register main --search bm25
+Registered database: main (graph=file, search=bm25)
+
+$ kb database select main
+Default database set to: main
+
+# All subsequent commands use 'main' automatically.
 
 # 2. Declare schema
-$ kb --database main schema class add PERSON "A human individual"
+$ kb schema class add PERSON "A human individual"
 Added class: PERSON (id: 3b2a906c-…)
 
-$ kb --database main schema class property add AGE "Age of a person" --class PERSON
+$ kb schema class property add AGE "Age of a person" --class PERSON
 Added class property: AGE (id: 0d9eaaac-bf07-41e6-bd6d-34f60f4c90d7)
 
-$ kb --database main schema class add COMPANY "A business organization"
+$ kb schema class add COMPANY "A business organization"
 Added class: COMPANY (id: 49710e2e-…)
 
-$ kb --database main schema relation add WORKED_AT "Employment relationship" \
+$ kb schema relation add WORKED_AT "Employment relationship" \
     --domain PERSON --range COMPANY
 Added relation: WORKED_AT (id: 67a75f53-…)
 
-$ kb --database main schema relation property add START_DATE "Start of employment" \
+$ kb schema relation property add START_DATE "Start of employment" \
     --relation WORKED_AT
 Added relation property: START_DATE (id: 8c3d0a1e-…)
 
 # 3. Register a provenance source
-$ kb --database main data source add resume_alice --name "Alice's résumé"
+$ kb data source add resume_alice --name "Alice's résumé"
 Added source: resume_alice (id: a1b2c3d4-…)
 
 # 4. Add entity instances (class and source resolved by name)
-$ kb --database main data entity add --name Alice --class PERSON \
+$ kb data entity add --name Alice --class PERSON \
     --text "Alice is a software engineer." --source "Alice's résumé"
 Added entity: Alice (id: d52378c9-…)
 
-$ kb --database main data entity add --name IBM --class COMPANY
+$ kb data entity add --name IBM --class COMPANY
 Added entity: IBM (id: 5b1a47fb-…)
 
 # 5. Set and list entity property values
-$ kb --database main data entity property set 42 \
+$ kb data entity property set 42 \
     --entity Alice --property AGE --type NUMBER
 Set entity property (literal id: 1a2b3c4d-…)
 
-$ kb --database main data entity property list --entity Alice
+$ kb data entity property list --entity Alice
 ┏━━━━━━━━━━┳━━━━━━━┳━━━━━━━━┓
 ┃ Property ┃ Value ┃ Type   ┃
 ┡━━━━━━━━━━╇━━━━━━━╇━━━━━━━━┩
@@ -147,17 +151,17 @@ $ kb --database main data entity property list --entity Alice
 └──────────┴───────┴────────┘
 
 # 6. Add a fact (head/tail/relation/source resolved by name or by ID)
-$ kb --database main data fact add \
+$ kb data fact add \
     --head Alice --relation WORKED_AT --tail IBM \
     --text "Alice joined IBM in June 1998." --source "Alice's résumé"
 Added fact (id: 092733dd-…)
 
 # 7. Set and list fact property values
-$ kb --database main data fact property set "1998-06-01" \
+$ kb data fact property set "1998-06-01" \
     --fact-id 092733dd-… --property START_DATE --type DATE
 Set fact property (literal id: 5e6f7a8b-…)
 
-$ kb --database main data fact property list --fact-id 092733dd-…
+$ kb data fact property list --fact-id 092733dd-…
 ┏━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━┓
 ┃ Property   ┃ Value      ┃ Type   ┃
 ┡━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━┩
@@ -165,7 +169,7 @@ $ kb --database main data fact property list --fact-id 092733dd-…
 └────────────┴────────────┴────────┘
 
 # 8. List the full schema
-$ kb --database main schema list
+$ kb schema list
                       Classes
 ┏━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
 ┃ Name      ┃ Description             ┃ Properties ┃
@@ -181,9 +185,9 @@ $ kb --database main schema list
 └────────┴───────────┴─────────┴────────────────────────┴────────────┘
 
 # 9. List all instances
-$ kb --database main data list
+$ kb data list
 # optionally with provenance:
-# $ kb --database main data list --show-provenance
+# $ kb data list --show-provenance
       Entities
 ┏━━━━━━━┳━━━━━━━━━┓
 ┃ Name  ┃ Class   ┃
@@ -204,8 +208,8 @@ $ kb --database main data list
 │ Alice │ WORKED_AT │ IBM  │
 └───────┴───────────┴──────┘
 
-# 10. Search the schema
-$ kb --database main schema search employment
+# 10. Search the schema (BM25 keyword search, runs live as data is added)
+$ kb schema search employment
 ┏━━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃ Type       ┃ Name      ┃ Description             ┃
 ┡━━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━┩
@@ -213,10 +217,10 @@ $ kb --database main schema search employment
 └────────────┴───────────┴─────────────────────────┘
 
 # Search schema restricted to relations only
-$ kb --database main schema search employment --type relation
+$ kb schema search employment --type relation
 
-# 10b. Search data (requires enable_search=True at KBSource init; returns empty otherwise)
-$ kb --database main data search Alice
+# 10b. Search data
+$ kb data search Alice
        Entities
 ┏━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━┓
 ┃ Name  ┃ Class    ┃ Description ┃
@@ -224,11 +228,11 @@ $ kb --database main data search Alice
 │ Alice │ PERSON   │             │
 └───────┴──────────┴─────────────┘
 
-# Search facts only
-$ kb --database main data search "IBM" --type fact
+# Search facts only; semantic mode (requires --search semantic at register time)
+$ kb data search "employment" --type fact --mode semantic
 
 # 11. Answer a question
-$ kb --database main data answer "Where did Alice work?"
+$ kb data answer "Where did Alice work?"
 ┏━━━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃ Entity      ┃ Relation  ┃ Value   ┃ Provenance                     ┃
 ┡━━━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
@@ -237,7 +241,7 @@ $ kb --database main data answer "Where did Alice work?"
 └─────────────┴───────────┴─────────┴────────────────────────────────┘
 
 # 12. Validate a statement
-$ kb --database main data validate "Alice worked at IBM"
+$ kb data validate "Alice worked at IBM"
 
 Supporting:
   • Alice —WORKED_AT→ IBM
@@ -246,7 +250,7 @@ Counter:
   (none)
 
 # 13. LLM extraction (requires openai extra and OPENAI_API_KEY)
-$ kb --database main data extract \
+$ kb data extract \
     "Alice later joined Google as a senior engineer in May 2002." \
     --query "Where did Alice work?" --query "When did she start?"
 Extraction complete.

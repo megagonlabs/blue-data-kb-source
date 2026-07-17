@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 from blue_data.source.graph.graph_source import GraphSource
 
 from blue_data_kb_source._constants import (
+    CLASS,
     ENTITY,
     EXTRACTED_FROM,
     FACT,
@@ -13,6 +14,8 @@ from blue_data_kb_source._constants import (
     HEAD,
     IS_INSTANCE_OF,
     IS_VALUE_OF,
+    PROPERTY,
+    RELATION,
     REPRESENTS,
     TAIL,
 )
@@ -39,15 +42,53 @@ _TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "search_schema",
+            "description": (
+                "Search schema elements (classes, relations, properties) by keyword or semantic similarity. "
+                "Returns {schema_elements: [{id, type, name, description}]}."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query"},
+                    "mode":  {"type": "string", "enum": ["keyword", "semantic"], "description": "Search mode (default: keyword)"},
+                    "type":  {"type": "string", "enum": ["class", "relation", "property"], "description": "Restrict to a schema element type (optional)"},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "search_entities",
             "description": (
-                "Search ENTITY nodes by keyword. Matches against name and description. "
+                "Search ENTITY nodes by keyword or semantic similarity. Matches against name, description, and property values. "
                 "Returns {entities: [{id, name, description, class_name}]}."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "Keyword to match"},
+                    "query": {"type": "string", "description": "Search query"},
+                    "mode":  {"type": "string", "enum": ["keyword", "semantic"], "description": "Search mode (default: keyword)"},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_facts",
+            "description": (
+                "Search FACT nodes by keyword or semantic similarity. Matches against head, relation, tail names, description, and property values. "
+                "Returns {facts: [{id, name, description, head_name, relation_name, tail_name}]}."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query"},
+                    "mode":  {"type": "string", "enum": ["keyword", "semantic"], "description": "Search mode (default: keyword)"},
                 },
                 "required": ["query"],
             },
@@ -463,15 +504,33 @@ class QueryEngine:
             schema = await self._schema.fetch_database_schema(database)
             return {"schema": schema.to_str(simplified=True)}
 
-        if fn == "search_entities":
+        if fn == "search_schema":
+            mode = args.get("mode", "keyword")
+            type_filter = args.get("type")
+            if type_filter:
+                type_filter = type_filter.upper()
             if self._search_indexer is not None:
-                hits = self._search_indexer.search_data(database, args["query"], k=20, mode="keyword", type_filter=ENTITY)
+                hits = self._search_indexer.search_schema(database, args["query"], k=20, mode=mode, type_filter=type_filter)
+                return {"schema_elements": [
+                    {"id": r.id, "type": r.type, "name": r.name, "description": r.description}
+                    for r in hits
+                ]}
+            results = await self._schema.find_schema(database, args["query"], type_filter=type_filter)
+            return {"schema_elements": [
+                {"id": r.id, "type": r.type, "name": r.name, "description": r.description}
+                for r in results
+            ]}
+
+        if fn == "search_entities":
+            mode = args.get("mode", "keyword")
+            if self._search_indexer is not None:
+                hits = self._search_indexer.search_data(database, args["query"], k=20, mode=mode, type_filter=ENTITY)
                 return {"entities": [
                     {"id": r.id, "name": r.name, "description": r.description, "class_name": r.class_name}
                     for r in hits
                 ]}
             kw = args["query"].lower()
-            results = []
+            results_e = []
             for node in self._source.match_nodes(database, label=ENTITY):
                 props = node.get("properties", {})
                 name  = props.get("name", "")
@@ -479,8 +538,39 @@ class QueryEngine:
                 if kw in name.lower() or kw in desc.lower():
                     cls_nbs    = self._source.get_neighbors(database, node["id"], edge_type=IS_INSTANCE_OF, direction="out")
                     class_name = cls_nbs[0]["node"].get("properties", {}).get("name") if cls_nbs else None
-                    results.append({"id": node["id"], "name": name, "description": desc, "class_name": class_name})
-            return {"entities": results}
+                    results_e.append({"id": node["id"], "name": name, "description": desc, "class_name": class_name})
+            return {"entities": results_e}
+
+        if fn == "search_facts":
+            mode = args.get("mode", "keyword")
+            if self._search_indexer is not None:
+                hits = self._search_indexer.search_data(database, args["query"], k=20, mode=mode, type_filter=FACT)
+                return {"facts": [
+                    {
+                        "id": r.id, "name": r.name, "description": r.description,
+                        "head_name": r.head_name, "relation_name": r.relation_name, "tail_name": r.tail_name,
+                    }
+                    for r in hits
+                ]}
+            kw = args["query"].lower()
+            results_f = []
+            for node in self._source.match_nodes(database, label=FACT):
+                props = node.get("properties", {})
+                name  = props.get("name", "")
+                desc  = props.get("description", "") or ""
+                rel_nbs  = self._source.get_neighbors(database, node["id"], edge_type=REPRESENTS, direction="out")
+                head_nbs = self._source.get_neighbors(database, node["id"], edge_type=HEAD,       direction="out")
+                tail_nbs = self._source.get_neighbors(database, node["id"], edge_type=TAIL,       direction="out")
+                head_name = _node_name(head_nbs) or ""
+                rel_name  = _node_name(rel_nbs)  or ""
+                tail_name = _node_name(tail_nbs) or ""
+                searchable = " ".join(s for s in [name, desc, head_name, rel_name, tail_name] if s).lower()
+                if kw in searchable:
+                    results_f.append({
+                        "id": node["id"], "name": name, "description": desc,
+                        "head_name": head_name, "relation_name": rel_name, "tail_name": tail_name,
+                    })
+            return {"facts": results_f}
 
         if fn == "get_entity_facts":
             entity_id   = args["entity_id"]
