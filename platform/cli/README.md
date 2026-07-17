@@ -100,13 +100,11 @@ kb [--database DB] COMMAND
 
 ```bash
 # 1. Register and select a database
+$ kb database list
 $ kb database register main --search bm25
-Registered database: main (graph=file, search=bm25)
+Registered database: main
 
 $ kb database select main
-Default database set to: main
-
-# All subsequent commands use 'main' automatically.
 
 # 2. Declare schema
 $ kb schema class add PERSON "A human individual"
@@ -208,7 +206,7 @@ $ kb data list
 │ Alice │ WORKED_AT │ IBM  │
 └───────┴───────────┴──────┘
 
-# 10. Search the schema (BM25 keyword search, runs live as data is added)
+# 10. Search the schema
 $ kb schema search employment
 ┏━━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃ Type       ┃ Name      ┃ Description             ┃
@@ -228,8 +226,8 @@ $ kb data search Alice
 │ Alice │ PERSON   │             │
 └───────┴──────────┴─────────────┘
 
-# Search facts only; semantic mode (requires --search semantic at register time)
-$ kb data search "employment" --type fact --mode semantic
+# Search facts only
+$ kb data search "IBM" --type fact
 
 # 11. Answer a question
 $ kb data answer "Where did Alice work?"
@@ -321,7 +319,7 @@ Deleted database: main
 | `kb data fact property update --fact NAME\|--fact-id ID --property NAME\|--property-id ID [--value V] [--name N] [--description D]` | Update the value, name, and/or description of a fact property value |
 | `kb data fact property delete --fact NAME\|--fact-id ID --property NAME\|--property-id ID [--yes]` | Delete a property value from a fact |
 | `kb data reindex` | Rebuild the BM25/vector search index for the current database |
-| `kb data search QUERY [--type entity\|fact]… [--mode keyword\|semantic] [--top-k N] [--format table\|json]` | Search entities and facts; `--mode semantic` requires database configured with `--search semantic`; `--type` is repeatable |
+| `kb data search QUERY [--type entity\|fact]… [--top-k N] [--format table\|json]` | Keyword or semantic search over entities and facts; search mode depends on database config; `--type` is repeatable |
 | `kb data answer QUESTION [--format table\|json\|nl] [--model M]` | LLM answer query; `--format nl` returns a prose answer |
 | `kb data validate STATEMENT [--natural-language] [--model M]` | LLM supporting / counter evidence; `--natural-language` returns a prose assessment |
 | `kb data extract TEXT [--query Q]… [--source NAME\|--source-id ID] [--model M]` | LLM extraction |
