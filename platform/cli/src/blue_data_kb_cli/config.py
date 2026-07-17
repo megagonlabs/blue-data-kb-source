@@ -140,12 +140,14 @@ def _make_embedding_fn(cfg: dict[str, Any]) -> Callable[[str], list[float]]:
     ecfg = cfg.get("embedding", {})
     provider = ecfg.get("provider", "openai")
     if provider == "openai":
-        import openai  # type: ignore[import]
         model = ecfg.get("model", "text-embedding-3-small")
-        client = openai.OpenAI()
+        _client: list[Any] = []  # lazy singleton — created on first call
 
         def _embed_openai(text: str) -> list[float]:
-            return client.embeddings.create(input=text, model=model).data[0].embedding
+            if not _client:
+                import openai  # type: ignore[import]
+                _client.append(openai.OpenAI())
+            return _client[0].embeddings.create(input=text, model=model).data[0].embedding
 
         return _embed_openai
     raise ValueError(f"Unsupported embedding provider: {provider!r}")

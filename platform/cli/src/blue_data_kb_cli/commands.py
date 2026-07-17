@@ -1531,19 +1531,29 @@ def schema_relation_delete(
     help="Restrict to a node type (repeatable). Default: all types.",
 )
 @click.option(
+    "--mode",
+    type=click.Choice(["keyword", "semantic"]),
+    default="keyword",
+    show_default=True,
+    help="Search mode. 'semantic' requires the database to be registered with --search semantic.",
+)
+@click.option(
+    "--top-k", "top_k", default=10, show_default=True, help="Maximum results to return.",
+)
+@click.option(
     "--format", "fmt",
     type=click.Choice(["table", "json"]),
     default="table",
     show_default=True,
 )
 @click.pass_obj
-def schema_search(obj: dict, query: str, types: tuple[str, ...], fmt: str) -> None:
-    """Search schema elements by keyword."""
+def schema_search(obj: dict, query: str, types: tuple[str, ...], mode: str, top_k: int, fmt: str) -> None:
+    """Search schema elements by keyword or semantic similarity."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     type_filter = [t.upper() for t in types] if types else None
     try:
-        results = _run(kb.search_schema(db, query, type_filter=type_filter))
+        results = _run(kb.search_schema(db, query, k=top_k, mode=mode, type_filter=type_filter))
     except KBError as exc:
         raise click.ClickException(str(exc))
     if fmt == "json":
@@ -2616,6 +2626,13 @@ def validate_cmd(obj: dict, statement: str, natural_language: bool, model: str) 
     multiple=True,
     help="Restrict to a node type (repeatable). Default: all types.",
 )
+@click.option(
+    "--mode",
+    type=click.Choice(["keyword", "semantic"]),
+    default="keyword",
+    show_default=True,
+    help="Search mode. 'semantic' requires the database to be registered with --search semantic.",
+)
 @click.option("--top-k", "top_k", default=10, show_default=True, help="Maximum results to return.")
 @click.option(
     "--format", "fmt",
@@ -2624,13 +2641,13 @@ def validate_cmd(obj: dict, statement: str, natural_language: bool, model: str) 
     show_default=True,
 )
 @click.pass_obj
-def data_search(obj: dict, query: str, types: tuple[str, ...], top_k: int, fmt: str) -> None:
-    """Search entities and facts by keyword."""
+def data_search(obj: dict, query: str, types: tuple[str, ...], mode: str, top_k: int, fmt: str) -> None:
+    """Search entities and facts by keyword or semantic similarity."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     type_filter = [t.upper() for t in types] if types else None
     try:
-        results = _run(kb.search_data(db, query, k=top_k, type_filter=type_filter))
+        results = _run(kb.search_data(db, query, k=top_k, mode=mode, type_filter=type_filter))
     except KBError as exc:
         raise click.ClickException(str(exc))
 

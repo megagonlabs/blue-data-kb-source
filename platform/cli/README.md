@@ -294,7 +294,7 @@ Deleted database: main
 | `kb schema relation property update --property NAME\|--property-id ID [--relation NAME\|--relation-id ID] [--name N] [--description D]` | Update the name and/or description of a relation property; --relation disambiguates when the name is shared |
 | `kb schema relation property delete --property NAME\|--property-id ID [--relation NAME\|--relation-id ID] [--yes]` | Delete a relation property (errors if values exist); --relation disambiguates |
 | `kb schema relation delete --relation NAME\|--relation-id ID [--yes]` | Delete a relation (errors if facts or sub-relations exist) |
-| `kb schema search QUERY [--type class\|relation\|property]… [--format table\|json]` | Keyword search over schema nodes; `--type` is repeatable to restrict to one or more node types |
+| `kb schema search QUERY [--type class\|relation\|property]… [--mode keyword\|semantic] [--top-k N] [--format table\|json]` | Search schema nodes; `--mode semantic` requires database configured with `--search semantic`; `--type` is repeatable |
 | `kb data list [--show-provenance] [--format table\|json]` | List all entity, property-value, and fact instances |
 | `kb data source add SOURCE [--name N] [--description D]` | Register a provenance source |
 | `kb data source list [--format table\|json]` | List all registered provenance sources |
@@ -317,7 +317,7 @@ Deleted database: main
 | `kb data fact property update --fact NAME\|--fact-id ID --property NAME\|--property-id ID [--value V] [--name N] [--description D]` | Update the value, name, and/or description of a fact property value |
 | `kb data fact property delete --fact NAME\|--fact-id ID --property NAME\|--property-id ID [--yes]` | Delete a property value from a fact |
 | `kb data reindex` | Rebuild the BM25/vector search index for the current database |
-| `kb data search QUERY [--type entity\|fact]… [--top-k N] [--format table\|json]` | Keyword or semantic search over entities and facts; search mode depends on database config; `--type` is repeatable |
+| `kb data search QUERY [--type entity\|fact]… [--mode keyword\|semantic] [--top-k N] [--format table\|json]` | Search entities and facts; `--mode semantic` requires database configured with `--search semantic`; `--type` is repeatable |
 | `kb data answer QUESTION [--format table\|json\|nl] [--model M]` | LLM answer query; `--format nl` returns a prose answer |
 | `kb data validate STATEMENT [--natural-language] [--model M]` | LLM supporting / counter evidence; `--natural-language` returns a prose assessment |
 | `kb data extract TEXT [--query Q]… [--source NAME\|--source-id ID] [--model M]` | LLM extraction |
