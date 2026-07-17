@@ -509,8 +509,8 @@ class KBSearchIndexer:
         k: int,
         type_filter: str | list[str] | None,
     ) -> list[tuple[str, float]]:
-        print(f"Performing BM25 search for query: {query}")
-        print(f"Database: {database}, Collection: {collection}, k: {k}, Type filter: {type_filter}")
+        # print(f"Performing BM25 search for query: {query}")
+        # print(f"Database: {database}, Collection: {collection}, k: {k}, Type filter: {type_filter}")
         try:
             from rank_bm25 import BM25Plus
         except ImportError as exc:
@@ -535,8 +535,8 @@ class KBSearchIndexer:
         bm25 = BM25Plus(tokenized)
         scores = bm25.get_scores(query.lower().split())
         ranked = sorted(zip(doc_ids, scores.tolist()), key=lambda x: x[1], reverse=True)
-        print(f"BM25 ranked results: {ranked}")
-        print(ranked)
+        # print(f"BM25 ranked results: {ranked}")
+        # print(ranked)
         return [(nid, float(s)) for nid, s in ranked if s > 0][:k]
 
     def _knn_search(
@@ -547,8 +547,8 @@ class KBSearchIndexer:
         k: int,
         type_filter: str | list[str] | None,
     ) -> list[tuple[str, float]]:
-        print(f"Performing semantic search for query: {query}")
-        print(f"Database: {database}, Collection: {collection}, k: {k}, Type filter: {type_filter}")
+        # print(f"Performing semantic search for query: {query}")
+        # print(f"Database: {database}, Collection: {collection}, k: {k}, Type filter: {type_filter}")
         if self._vector_source is None or self._embedding_fn is None:
             raise KBError("Semantic search requires vector_source and embedding_fn at init")
         self._ensure_vector_index(database, collection)
@@ -564,8 +564,8 @@ class KBSearchIndexer:
         if type_set:
             rows = [r for r in rows if r.get("type") in type_set]
         # MemoryVectorSource returns cosine distance (lower = better); convert to similarity.
-        print(f"Semantic search results (raw): {rows}")
-        print(rows)
+        # print(f"Semantic search results (raw): {rows}")
+        # print(rows)
         return [(r["node_id"], max(0.0, 1.0 - float(r.get("score", 1.0)))) for r in rows[:k]]
 
 
