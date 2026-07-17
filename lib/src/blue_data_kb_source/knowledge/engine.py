@@ -455,14 +455,14 @@ class QueryEngine:
                 args = json.loads(tc.function.arguments)
 
                 if fn == "return_result":
-                    print(f"Received final result payload: {args.get('result')}")
+                    # print(f"Received final result payload: {args.get('result')}")
                     result_payload = args.get("result")
                     messages.append({"role": "tool", "tool_call_id": tc.id, "content": "done"})
                     done = True
                 else:
-                    print(f"Dispatching tool {fn} with args: {args}")
+                    # print(f"Dispatching tool {fn} with args: {args}")
                     tool_result = await self._dispatch_tool(database, fn, args)
-                    print(f"Tool {fn} returned: {tool_result}")
+                    # print(f"Tool {fn} returned: {tool_result}")
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc.id,
@@ -472,7 +472,7 @@ class QueryEngine:
             if done:
                 break
 
-        print(f"Final result payload: {result_payload}")
+        # print(f"Final result payload: {result_payload}")
         return result_payload
 
     # ------------------------------------------------------------------ #
