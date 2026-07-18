@@ -2432,8 +2432,8 @@ def list_cmd(obj: dict, show_provenance: bool, fmt: str) -> None:
         t.add_column("Class", style="dim")
         if show_provenance:
             t.add_column("Provenance", style="dim")
-        for r in sorted(entities, key=lambda x: (x.get("class_name", ""), x.get("entity_name", ""))):
-            row = [r.get("entity_name", ""), r.get("class_name", "")]
+        for r in sorted(entities, key=lambda x: (x.get("class_name") or "", x.get("entity_name") or "")):
+            row = [r.get("entity_name") or "", r.get("class_name") or ""]
             if show_provenance:
                 row.append(r.get("extraction", "") or "")
             t.add_row(*row)
@@ -2446,8 +2446,8 @@ def list_cmd(obj: dict, show_provenance: bool, fmt: str) -> None:
         t.add_column("Value")
         if show_provenance:
             t.add_column("Provenance", style="dim")
-        for r in sorted(ent_props, key=lambda x: (x.get("entity_name", ""), x.get("property_name", ""))):
-            row = [r.get("entity_name", ""), r.get("property_name", ""), str(r.get("property_value", ""))]
+        for r in sorted(ent_props, key=lambda x: (x.get("entity_name") or "", x.get("property_name") or "")):
+            row = [r.get("entity_name") or "", r.get("property_name") or "", str(r.get("property_value", ""))]
             if show_provenance:
                 row.append(r.get("extraction", "") or "")
             t.add_row(*row)
@@ -2460,8 +2460,8 @@ def list_cmd(obj: dict, show_provenance: bool, fmt: str) -> None:
         t.add_column("Tail",     style="bold")
         if show_provenance:
             t.add_column("Provenance", style="dim")
-        for r in sorted(facts, key=lambda x: (x.get("relation_name", ""), x.get("source_name", ""))):
-            row = [r.get("source_name", ""), r.get("relation_name", ""), r.get("target_name", "")]
+        for r in sorted(facts, key=lambda x: (x.get("relation_name") or "", x.get("source_name") or "")):
+            row = [r.get("source_name") or "", r.get("relation_name") or "", r.get("target_name") or ""]
             if show_provenance:
                 row.append(r.get("extraction", "") or "")
             t.add_row(*row)
@@ -2476,12 +2476,12 @@ def list_cmd(obj: dict, show_provenance: bool, fmt: str) -> None:
         t.add_column("Value")
         if show_provenance:
             t.add_column("Provenance", style="dim")
-        for r in sorted(fact_props, key=lambda x: (x.get("relation_name", ""), x.get("head_name", ""), x.get("property_name", ""))):
+        for r in sorted(fact_props, key=lambda x: (x.get("relation_name") or "", x.get("head_name") or "", x.get("property_name") or "")):
             row = [
-                r.get("head_name", ""),
-                r.get("relation_name", ""),
-                r.get("tail_name", ""),
-                r.get("property_name", ""),
+                r.get("head_name") or "",
+                r.get("relation_name") or "",
+                r.get("tail_name") or "",
+                r.get("property_name") or "",
                 str(r.get("property_value", "")),
             ]
             if show_provenance:

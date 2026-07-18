@@ -298,9 +298,12 @@ class ExtractionEngine:
                 break
 
             for tc in msg.tool_calls:
-                result = await self._dispatch_tool(
-                    database, tc.function.name, json.loads(tc.function.arguments), source_id
-                )
+                try:
+                    result = await self._dispatch_tool(
+                        database, tc.function.name, json.loads(tc.function.arguments), source_id
+                    )
+                except Exception as exc:
+                    result = {"error": str(exc)}
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
