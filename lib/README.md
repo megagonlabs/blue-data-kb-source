@@ -103,7 +103,7 @@ asyncio.run(main())
 
 ### Querying the knowledge base
 
-`answer`, `validate`, and `enrich` run an LLM agent (via `QueryEngine`) that is given the current schema and a set of read-only graph tools. The agent reasons over the graph, calls tools to gather evidence, and returns a structured result. Requires `openai` and `OPENAI_API_KEY`.
+`answer`, `validate`, and `enrich` run an LLM agent (via `QueryEngine`) that is given the current schema and a set of read-only graph tools. The agent reasons over the graph, calls tools to gather evidence, and returns a structured result. Requires `openai` and `OPENAI_API_KEY`. Pass `on_tool_call(name, args)` to observe each tool call as it happens (e.g. to drive a progress indicator).
 
 ```python
 import os
@@ -141,7 +141,7 @@ async def query(kb):
 
 ### Extracting knowledge from text (LLM)
 
-`import_text` runs an OpenAI agent that reads a text passage, expands the schema as needed, and populates entities, facts, and property values. Each created node is automatically wired to its own `:EXTRACTION` node containing the verbatim text span the LLM identified.
+`import_text` runs an OpenAI agent that reads a text passage, expands the schema as needed, and populates entities, facts, and property values. Each created node is automatically wired to its own `:EXTRACTION` node containing the verbatim text span the LLM identified. Pass `on_tool_call(name, args)` to observe each tool call as it happens (e.g. to drive a progress indicator).
 
 ```python
 import os
@@ -312,9 +312,9 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | `await add_fact(database, name?, description?, fact_id?, head_entity_id?, tail_entity_id?, relation_id?, text?, source_id?)` | `str` | Add a `:FACT` node; auto-names from head/relation/tail if `name` is omitted; optionally wires `HEAD`, `TAIL`, `REPRESENTS`; provenance via `text`/`source_id` |
 | `await add_entity_property_value(database, value, name?, description?, literal_type?, entity_id?, property_id?, text?, source_id?)` | `str` | Create a `:LITERAL`, wire `IS_VALUE_OF` and `HAS_PROPERTY` from an entity; provenance via `text`/`source_id` |
 | `await add_fact_property_value(database, value, name?, description?, literal_type?, fact_id?, property_id?, text?, source_id?)` | `str` | Create a `:LITERAL`, wire `IS_VALUE_OF` and `HAS_PROPERTY` from a fact; provenance via `text`/`source_id` |
-| `await answer(database, question, model?)` | `list[AnswerResult]` | LLM agent answers a natural language question by traversing the instance graph |
-| `await validate(database, statement, model?)` | `ValidationResult` | LLM agent returns supporting and counter evidence for a statement |
-| `await enrich(database, query, depth?, model?)` | `list[EnrichmentResult]` | LLM agent traverses the graph up to *depth* hops from seed entities and returns related knowledge |
+| `await answer(database, question, model?, natural_language?, on_tool_call?)` | `list[AnswerResult] \| str` | LLM agent answers a natural language question by traversing the instance graph |
+| `await validate(database, statement, model?, natural_language?, on_tool_call?)` | `ValidationResult \| str` | LLM agent returns supporting and counter evidence for a statement |
+| `await enrich(database, query, depth?, model?, on_tool_call?)` | `list[EnrichmentResult]` | LLM agent traverses the graph up to *depth* hops from seed entities and returns related knowledge |
 
 ---
 
@@ -341,7 +341,7 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 
 | Method | Returns | Description |
 |---|---|---|
-| `await import_text(database, text, queries?, model?, source_id?)` | `None` | Use an OpenAI LLM to extract entities, facts, and properties from *text* into *database*; expands the schema as needed; each created node gets its own `:EXTRACTION` wired to `source_id`. Requires `openai`. |
+| `await import_text(database, text, queries?, model?, source_id?, on_tool_call?)` | `None` | Use an OpenAI LLM to extract entities, facts, and properties from *text* into *database*; expands the schema as needed; each created node gets its own `:EXTRACTION` wired to `source_id`. `on_tool_call(name, args)`, if given, is invoked synchronously before each tool dispatch. Requires `openai`. |
 
 ---
 

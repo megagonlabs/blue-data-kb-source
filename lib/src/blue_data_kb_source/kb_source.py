@@ -419,8 +419,9 @@ class KBSource(GraphSource, ABC):
         question: str,
         model: str = "gpt-4o",
         natural_language: bool = False,
+        on_tool_call: Callable[[str, dict], None] | None = None,
     ) -> list[dict] | str:
-        return await self._knowledge.answer(database, question, model, natural_language)
+        return await self._knowledge.answer(database, question, model, natural_language, on_tool_call)
 
     async def validate(
         self,
@@ -428,11 +429,19 @@ class KBSource(GraphSource, ABC):
         statement: str,
         model: str = "gpt-4o",
         natural_language: bool = False,
+        on_tool_call: Callable[[str, dict], None] | None = None,
     ) -> ValidationResult | str:
-        return await self._knowledge.validate(database, statement, model, natural_language)
+        return await self._knowledge.validate(database, statement, model, natural_language, on_tool_call)
 
-    async def enrich(self, database: str, query: str, depth: int = 2, model: str = "gpt-4o") -> list[EnrichmentResult]:
-        return await self._knowledge.enrich(database, query, depth, model)
+    async def enrich(
+        self,
+        database: str,
+        query: str,
+        depth: int = 2,
+        model: str = "gpt-4o",
+        on_tool_call: Callable[[str, dict], None] | None = None,
+    ) -> list[EnrichmentResult]:
+        return await self._knowledge.enrich(database, query, depth, model, on_tool_call)
 
     # ------------------------------------------------------------------ #
     # Provenance operations → ProvenanceTracker                           #
@@ -516,8 +525,9 @@ class KBSource(GraphSource, ABC):
         queries: list[str] | None = None,
         model: str = "gpt-4o",
         source_id: str | None = None,
+        on_tool_call: Callable[[str, dict], None] | None = None,
     ) -> None:
-        await self._extraction.import_text(database, text, queries, model, source_id)
+        await self._extraction.import_text(database, text, queries, model, source_id, on_tool_call)
 
     # ------------------------------------------------------------------ #
     # Meta-schema (describes the KB graph structure itself)               #

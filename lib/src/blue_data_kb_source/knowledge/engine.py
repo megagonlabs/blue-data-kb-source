@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from blue_data.source.graph.graph_source import GraphSource
 
@@ -314,10 +314,11 @@ class QueryEngine:
         database: str,
         question: str,
         model: str = "gpt-4o",
+        on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> list[dict]:
         schema_str = (await self._schema.fetch_database_schema(database)).to_str(simplified=True)
         system = _ANSWER_PROMPT.format(schema=schema_str, question=question)
-        raw = await self._run_agent(database, system, question, model)
+        raw = await self._run_agent(database, system, question, model, on_tool_call)
         return raw if isinstance(raw, list) else []
 
     async def validate(
@@ -325,10 +326,11 @@ class QueryEngine:
         database: str,
         statement: str,
         model: str = "gpt-4o",
+        on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> ValidationResult:
         schema_str = (await self._schema.fetch_database_schema(database)).to_str(simplified=True)
         system = _VALIDATE_PROMPT.format(schema=schema_str, statement=statement)
-        raw = await self._run_agent(database, system, statement, model)
+        raw = await self._run_agent(database, system, statement, model, on_tool_call)
         if isinstance(raw, dict):
             return ValidationResult(
                 supporting=raw.get("supporting", []),
@@ -342,10 +344,11 @@ class QueryEngine:
         query: str,
         depth: int = 2,
         model: str = "gpt-4o",
+        on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> list[EnrichmentResult]:
         schema_str = (await self._schema.fetch_database_schema(database)).to_str(simplified=True)
         system = _ENRICH_PROMPT.format(schema=schema_str, query=query, depth=depth)
-        raw = await self._run_agent(database, system, query, model)
+        raw = await self._run_agent(database, system, query, model, on_tool_call)
         return [
             EnrichmentResult(
                 entity=item.get("entity"),
@@ -399,6 +402,7 @@ class QueryEngine:
         system_prompt: str,
         user_message: str,
         model: str,
+        on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> Any:
         try:
             import openai
@@ -453,6 +457,8 @@ class QueryEngine:
             for tc in msg.tool_calls:
                 fn   = tc.function.name
                 args = json.loads(tc.function.arguments)
+                if on_tool_call:
+                    on_tool_call(fn, args)
 
                 if fn == "return_result":
                     # print(f"Received final result payload: {args.get('result')}")

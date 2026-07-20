@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from blue_data.source.graph.graph_source import GraphSource
 
@@ -252,6 +252,7 @@ class ExtractionEngine:
         queries: list[str] | None = None,
         model: str = "gpt-4o",
         source_id: str | None = None,
+        on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> None:
         try:
             import openai
@@ -298,9 +299,12 @@ class ExtractionEngine:
                 break
 
             for tc in msg.tool_calls:
+                args = json.loads(tc.function.arguments)
+                if on_tool_call:
+                    on_tool_call(tc.function.name, args)
                 try:
                     result = await self._dispatch_tool(
-                        database, tc.function.name, json.loads(tc.function.arguments), source_id
+                        database, tc.function.name, args, source_id
                     )
                 except Exception as exc:
                     result = {"error": str(exc)}
