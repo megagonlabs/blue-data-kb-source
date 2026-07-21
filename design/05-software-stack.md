@@ -139,11 +139,10 @@ Click handles command routing and argument parsing. Rich provides formatted term
 |---------|--------|
 | Test runner | pytest |
 | Async support | pytest-asyncio |
-| HTTP/LLM call recording | pytest-recording |
 | Coverage | pytest-cov |
 | Test scope | Unit tests against `MemoryGraphSource`; integration tests against Neo4j |
 
-Unit tests exercise the full KB API using the in-memory backend with no external dependencies. OpenAI calls made by the Extraction Engine and Query Engine during unit tests are recorded once and replayed via `pytest-recording`, so the suite runs deterministically without a live API key. Integration tests run against a live Neo4j instance to validate backend-specific behavior.
+Unit tests exercise the full KB API using the in-memory backend with no external dependencies. OpenAI calls made by the Extraction Engine and Query Engine during unit tests are stubbed out with `unittest.mock.patch("openai.AsyncOpenAI", ...)`, so the suite runs deterministically without a live API key. `pytest-recording` is listed as a dev dependency but is not currently used by any test. Integration tests run against a live Neo4j instance to validate backend-specific behavior.
 
 ---
 
@@ -185,5 +184,5 @@ Provides the `GraphSource` abstract base class and all concrete graph backends c
 | `rich` | latest stable | PyPI | CLI output formatting (provisional) |
 | `pytest` | latest stable | PyPI | Test runner |
 | `pytest-asyncio` | latest stable | PyPI | Async test support |
-| `pytest-recording` | latest stable | PyPI | Records/replays OpenAI HTTP calls in tests |
+| `pytest-recording` | latest stable | PyPI | Listed dev dependency; not currently used by any test |
 | `pytest-cov` | latest stable | PyPI | Test coverage |

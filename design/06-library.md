@@ -105,7 +105,7 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `add_entity_property_value(database, value, name?, description?, literal_type?, entity_id?, property_id?, text?, source_id?)` | `str` | Create a LITERAL and wire it to an entity |
 | `add_fact_property_value(database, value, name?, description?, literal_type?, fact_id?, property_id?, text?, source_id?)` | `str` | Create a LITERAL and wire it to a fact |
 | `fetch_database_data(database, include_provenance?, compact?)` | `dict \| list` | Export all instance data in the database |
-| `answer(database, question, model?, natural_language?, on_tool_call?)` | `list[AnswerResult] \| str` | Answer a natural language question using an LLM agent over the instance graph; returns prose when `natural_language=True` |
+| `answer(database, question, model?, natural_language?, on_tool_call?)` | `list[dict] \| str` | Answer a natural language question using an LLM agent over the instance graph; each dict is a flat `{entity, relation, value, provenance}`-shaped row (keys vary by question); returns prose when `natural_language=True` |
 | `validate(database, statement, model?, natural_language?, on_tool_call?)` | `ValidationResult \| str` | Return supporting and counter evidence for a statement using an LLM agent; returns prose when `natural_language=True` |
 | `enrich(database, query, depth?, model?, on_tool_call?)` | `list[EnrichmentResult]` | Return related knowledge bearing on a query using an LLM agent |
 
@@ -259,7 +259,7 @@ Filters ENTITY and FACT nodes by a case-insensitive substring match of `query` a
 
 #### `answer(database, question, model="gpt-4o", natural_language=False, on_tool_call=None)`
 
-Delegates to `QueryEngine.answer`. Returns a list of `AnswerResult` objects, or a prose string when `natural_language=True`. `on_tool_call`, if given, is invoked with `(tool_name, arguments)` for each tool call the agent makes.
+Delegates to `QueryEngine.answer`. Returns a list of plain dicts (not `AnswerResult` — see note below), or a prose string when `natural_language=True`. `on_tool_call`, if given, is invoked with `(tool_name, arguments)` for each tool call the agent makes.
 
 #### `validate(database, statement, model="gpt-4o", natural_language=False, on_tool_call=None)`
 
@@ -291,7 +291,9 @@ QueryEngine(source, schema_manager, search_indexer=None)
 
 #### `answer(database, question, model="gpt-4o", natural_language=False, on_tool_call=None)`
 
-Fetches the schema, constructs a system prompt, and runs the agent loop. The agent calls graph tools to find relevant entities, facts, and property values, then calls `return_result` with a list of `{entity, relation, value, provenance}` items. Returns a list of `AnswerResult` objects, or a prose answer generated from those results when `natural_language=True`.
+Fetches the schema, constructs a system prompt, and runs the agent loop. The agent calls graph tools to find relevant entities, facts, and property values, then calls `return_result` with a list of `{entity, relation, value, provenance}` items. That payload is returned as-is — a plain `list[dict]`, not wrapped in `AnswerResult` — or as a prose answer generated from those results when `natural_language=True`.
+
+> **Note:** `AnswerResult` is defined in `types.py` and re-exported from the package, but `answer()` does not currently construct or return it — unlike `validate()` (`ValidationResult`) and `enrich()` (`EnrichmentResult`), which do wrap their results in their respective dataclasses. Treat `AnswerResult` as unused until this is reconciled in code.
 
 **Example**
 
@@ -300,8 +302,8 @@ Input: `"Where did Alice work?"`
 Output:
 ```python
 [
-    AnswerResult(entity="Alice",        relation=None,       value=None, provenance="Alice is a software engineer."),
-    AnswerResult(entity="Alice → IBM",  relation="WORKED_AT", value=None, provenance="Alice joined IBM in June 1998."),
+    {"entity": "Alice",       "relation": None,        "value": None, "provenance": "Alice is a software engineer."},
+    {"entity": "Alice → IBM", "relation": "WORKED_AT",  "value": None, "provenance": "Alice joined IBM in June 1998."},
 ]
 ```
 

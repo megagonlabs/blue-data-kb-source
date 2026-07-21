@@ -120,9 +120,9 @@ The knowledge base contains Alice's résumé (IBM, Google) and a TechCrunch arti
 ```python
 # Question answering
 answers = await kb.answer("main", "Where has Alice worked?")
-# → [AnswerResult(entity="Alice → IBM",    relation="WORKED_AT", provenance="Alice joined IBM in June 1998."),
-#    AnswerResult(entity="Alice → Google", relation="WORKED_AT", provenance="She later moved to Google in 2005."),
-#    AnswerResult(entity="Alice → Acme AI", relation="FOUNDED",  provenance="Alice founded Acme AI in 2018.")]
+# → [{"entity": "Alice → IBM",    "relation": "WORKED_AT", "provenance": "Alice joined IBM in June 1998."},
+#    {"entity": "Alice → Google", "relation": "WORKED_AT", "provenance": "She later moved to Google in 2005."},
+#    {"entity": "Alice → Acme AI", "relation": "FOUNDED",  "provenance": "Alice founded Acme AI in 2018."}]
 
 # Statement validation
 result = await kb.validate("main", "Alice founded a company in 2018.")

@@ -63,7 +63,7 @@ Command-line interface built with Click and Rich. Thin wrapper over the Python l
 3. Query Engine fetches the current schema and constructs a system prompt with schema context and the question
 4. LLM agent loop: the agent calls read-only graph tools (`search_entities`, `get_entity_facts`, `get_entity_properties`, `get_fact_properties`, `get_neighbors`) until it has enough information
 5. Agent calls `return_result` with a structured list of `{entity, relation, value, provenance}` items
-6. Query Engine unpacks the payload into `AnswerResult` objects and returns them to the caller
+6. Query Engine returns that payload as-is, as a plain `list[dict]` — unlike Validate and Enrich below, it is not wrapped in a dataclass
 
 ### Validate Path
 
@@ -173,7 +173,7 @@ All three operations are delegated directly to the Query Engine. `KnowledgeManag
 - Implement answer, validate, and enrich using a shared LLM agent loop
 - Provide the agent with the current database schema as context and a read-only tool set over the instance graph
 - Intercept the agent's `return_result` tool call to capture the structured payload and exit the loop
-- Parse the payload into typed result objects (`AnswerResult`, `ValidationResult`, `EnrichmentResult`)
+- Parse the payload into typed result objects for validate and enrich (`ValidationResult`, `EnrichmentResult`); answer returns the raw `list[dict]` payload unwrapped
 
 **Tool Set**
 
