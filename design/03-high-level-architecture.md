@@ -39,13 +39,18 @@
 │                                │  │   Change Notifier      │   │  │
 │                                │  └────────────────────────┘   │  │
 │                                └────────────────────────────────┘  │
+│                                                                     │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │                       Search Indexer                        │   │
+│  │       (used by Schema Manager and Knowledge Manager)        │   │
+│  └─────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────┬───────────────────────┘
                                               │
-                              ┌───────────────▼──────────────┐
-                              │  ┌──────────┐  ┌──────────┐  │
-                              │  │  Memory  │  │  Neo4j   │  │
-                              │  └──────────┘  └──────────┘  │
-                              └──────────────────────────────┘
+                         ┌────────────────────▼───────────────────┐
+                         │ ┌──────────┐ ┌──────────┐ ┌──────────┐ │
+                         │ │  Memory  │ │   File   │ │  Neo4j   │ │
+                         │ └──────────┘ └──────────┘ └──────────┘ │
+                         └────────────────────────────────────────┘
 ```
 
 ## Components
@@ -72,9 +77,9 @@ Manages the typed vocabulary of the knowledge base — classes, relation types, 
 - Exports the schema to a portable representation and imports it from that representation into any database
 - Exposes the meta-schema — a fixed description of KBDB's own graph structure — for introspection by agents and tools
 - Supports schema consolidation: merging or splitting classes, relations, and properties, propagating the resulting changes to all affected instances
-- Supports schema search: filtering schema elements by natural language query or keywords, enabling agents and tools to discover what the schema already captures before declaring new elements
+- Supports schema search: filtering schema elements by natural language query or keywords, enabling agents and tools to discover what the schema already captures before declaring new elements — delegated to the Search Indexer when search is enabled for the database, otherwise served directly by the Schema Manager
 
-**Schema Manager** — Handles all schema declaration, hierarchy wiring, domain/range constraints, import/export, consolidation, and search operations.
+**Schema Manager** — Handles all schema declaration, hierarchy wiring, domain/range constraints, import/export, and consolidation.
 
 ### Knowledge Layer
 
@@ -86,6 +91,7 @@ Populates the knowledge base with concrete data and answers queries over it — 
 - Supports natural language queries answered directly from instances, using the schema to interpret and scope the question
 - Supports validation: given a statement, returns supporting and counter evidence drawn from existing facts and property values
 - Supports enrichment: given a query, returns related knowledge that bears on the query without necessarily answering it directly — surfacing context, adjacent facts, and related entities
+- Supports data search: filtering entities and facts by natural language query or keywords — delegated to the Search Indexer when search is enabled for the database, otherwise served directly by the Knowledge Manager
 
 **Knowledge Manager** — Creates and stores entity, fact, and literal nodes; wires the typed edges that connect them to their schema elements and to each other; and delegates answer, validate, and enrich queries to the Query Engine.
 
@@ -94,6 +100,15 @@ Populates the knowledge base with concrete data and answers queries over it — 
 **Provenance Tracker** — Records the origin of each piece of knowledge by creating extraction nodes that capture the verbatim source text and linking them to both the item and the originating source document.
 
 **Change Notifier** — Fires registered hooks synchronously after each instance write, delivering a structured event that describes the change — including the names of the affected entities, relations, and properties — to any registered listener.
+
+### Search Indexer
+
+Maintains a keyword (BM25) or embedding-based (semantic) search index over schema elements and instance data, kept up to date automatically as writes occur. Search is optional and configured per database; when it isn't enabled, schema and data search fall back to unindexed lookups in the Schema Manager and Knowledge Manager respectively.
+
+- Indexes classes, relations, and properties for schema search, and entities and facts for data search
+- Updates incrementally from change events rather than requiring a full rebuild after every write
+- Supports a full reindex on demand, for example after a bulk import or a change in embedding model
+- Backed by a pluggable vector store (in-memory, file, ChromaDB, or Redis) when semantic search is enabled
 
 ### Extraction Engine
 
@@ -110,5 +125,7 @@ Reads free text and populates the knowledge base by calling into the Schema Laye
 Stores all schema and instance data as a typed graph of nodes and edges. The store is abstract — multiple backends are supported and can be swapped without changing any application code.
 
 **Memory** — In-process graph store. Used for development, testing, and short-lived pipelines where persistence is not required.
+
+**File** — JSON-file-backed graph store, one file per database. The default backend for the CLI, persisting databases under `~/.kbdb/` (or `KBDB_DATA_DIR`) without requiring an external database server.
 
 **Neo4j** — Persistent graph database backend. Used for production deployments where the knowledge base must survive process restarts and support concurrent access.

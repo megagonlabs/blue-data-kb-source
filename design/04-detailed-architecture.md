@@ -123,7 +123,7 @@ For a split (one class → two): instances are partitioned by a caller-supplied 
 
 **Schema Search**
 
-The Schema Manager filters nodes by matching the query against element names and descriptions. Results are ranked by relevance and returned as a list of (name, type, ID, description) tuples.
+When search is enabled for the database, `search_schema` is delegated to the Search Indexer, which matches the query against classes, relations, and properties using either BM25 keyword ranking or embedding-based semantic similarity, optionally restricted to a single element type. When search is not enabled, the Schema Manager falls back to a direct name/description substring match with no ranking. Either way, results are returned as a list of (name, type, ID, description) tuples.
 
 **Example**
 
@@ -151,6 +151,7 @@ The Knowledge Layer populates the knowledge base with instance data and answers 
 - Delegate answer, validate, and enrich queries to the Query Engine
 - Delegate provenance creation to the Provenance Tracker
 - Trigger the Change Notifier after each write
+- Search entities and facts by keyword or semantic similarity — delegated to the Search Indexer when search is enabled, otherwise served directly with an unranked name/description match
 
 **Instance Creation**
 
@@ -181,7 +182,9 @@ The LLM agent has access to the following read-only tools during each query:
 | Tool | Description |
 |------|-------------|
 | `get_schema` | Return the current database schema (classes, relations, properties) |
-| `search_entities` | Search ENTITY nodes by keyword against name and description |
+| `search_schema` | Search classes, relations, and properties by keyword or semantic similarity, via the Search Indexer |
+| `search_entities` | Search ENTITY nodes by keyword or semantic similarity against name, description, and property values, via the Search Indexer |
+| `search_facts` | Search FACT nodes by keyword or semantic similarity against head/relation/tail names, description, and property values, via the Search Indexer |
 | `get_entity_facts` | Return all facts involving an entity as head or tail |
 | `get_entity_properties` | Return all property values attached to an entity |
 | `get_fact_properties` | Return all property values attached to a fact |
@@ -259,9 +262,11 @@ The LLM Agent has access to the following tools during the extraction loop:
 
 | Tool Group | Tools |
 |------------|-------|
-| Schema inspection | `get_schema`, `search_schema` |
+| Schema inspection | `get_schema`, `find_class`, `find_relation_type`, `find_entity` |
 | Schema declaration | `declare_class`, `declare_relation_type`, `declare_class_property`, `declare_relation_property` |
 | Instance creation | `add_entity`, `add_fact`, `add_entity_property_value`, `add_fact_property_value` |
+
+`find_class`, `find_relation_type`, and `find_entity` look an element up by exact name so the LLM Agent can check idempotently before declaring or creating — they are distinct from the Search Indexer's keyword/semantic `search_schema` tool used by the Query Engine.
 
 **Extraction Loop**
 
@@ -286,7 +291,28 @@ LLM sequence:
 
 ---
 
-## 4. Graph Store
+## 4. Search Indexer
+
+The Search Indexer maintains a search index over schema elements and instance data so that `search_schema` and `search_data` can be answered by ranked lookup instead of an LLM call. It is optional per database: enabling it registers the indexer as a global change hook, so it stays in sync automatically as writes occur elsewhere in the system.
+
+**Responsibilities**
+
+- Maintain a BM25 keyword corpus, always available when search is enabled
+- Maintain a vector index for semantic (embedding-based) search, when a vector store and embedding function are configured
+- Incrementally update the index in response to change events (add / update / delete for classes, relations, properties, entities, and facts) rather than requiring a full rebuild after every write
+- Support a full reindex on demand (`reindex_all`), rebuilding the corpus from every node currently in the Graph Store — used after bulk imports or when the embedding model changes
+
+**Index Structure**
+
+The indexer keeps two collections per database: `schema` (classes, relations, properties) and `data` (entities, facts). Each indexed node stores a composite text built from its own name/description plus relevant neighbors — for example, an entity's text includes its class name, and a fact's text includes its head, relation, and tail names — so a query can match on context the node doesn't literally contain in its own name.
+
+**Search**
+
+`search_schema` and `search_data` both accept a `mode` (`keyword` or `semantic`), an optional `type_filter`, and a result limit `k`. In `keyword` mode, results are ranked by BM25 score against the corpus; in `semantic` mode, results are ranked by embedding similarity via the configured vector store. Each result carries the node's ID, type, name, and description (plus head/relation/tail names for facts), and a similarity `score` when in semantic mode.
+
+---
+
+## 5. Graph Store
 
 The Graph Store persists all schema and instance data as a typed graph of nodes and edges. It is fully abstract: the same KBDB operations run without modification against any supported backend.
 
@@ -302,4 +328,5 @@ The Graph Store persists all schema and instance data as a typed graph of nodes 
 | Backend | Characteristics | Typical Use |
 |---------|----------------|------------|
 | Memory | In-process, non-persistent | Development, testing, short-lived pipelines |
+| File | JSON file per database, persistent, single-process | CLI default (`~/.kbdb/` or `KBDB_DATA_DIR`), no server required |
 | Neo4j | Persistent, concurrent, queryable with Cypher | Production deployments |

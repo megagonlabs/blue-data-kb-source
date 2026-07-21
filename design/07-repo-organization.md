@@ -39,6 +39,10 @@ blue-data-kb-source/
 │   │       │   ├── __init__.py
 │   │       │   └── notifier.py          # ChangeNotifier
 │   │       │
+│   │       ├── search/
+│   │       │   ├── __init__.py
+│   │       │   └── indexer.py           # KBSearchIndexer — BM25 + semantic search
+│   │       │
 │   │       └── extraction/
 │   │           ├── __init__.py
 │   │           └── engine.py            # ExtractionEngine and LLM agent loop
@@ -94,12 +98,13 @@ All core business logic lives under `lib/src/`. This is the only artifact publis
 | `knowledge/engine.py` | `QueryEngine` — LLM agent for answer, validate, enrich; not exposed at `KBSource` level |
 | `provenance/tracker.py` | `ProvenanceTracker` — Knowledge Layer |
 | `notification/notifier.py` | `ChangeNotifier` — Knowledge Layer |
+| `search/indexer.py` | `KBSearchIndexer` — Search Indexer; BM25 and semantic search over schema and data, optional per database |
 | `extraction/engine.py` | `ExtractionEngine` — Extraction Engine; LLM agent for ingestion |
-| `types.py` | Shared result types: `AnswerResult`, `ValidationResult`, `EnrichmentResult`, `SchemaSearchResult` |
+| `types.py` | Shared result types: `AnswerResult`, `ValidationResult`, `EnrichmentResult`, `SchemaSearchResult`, `DataSearchResult` |
 
 ### `types.py`
 
-Shared result types used across all layers are defined in `lib/src/blue_data_kb_source/types.py`. This prevents circular imports and provides a single source of truth for data contracts between components (e.g. `AnswerResult`, `ValidationResult`, `EnrichmentResult`, `SchemaSearchResult`).
+Shared result types used across all layers are defined in `lib/src/blue_data_kb_source/types.py`. This prevents circular imports and provides a single source of truth for data contracts between components (e.g. `AnswerResult`, `ValidationResult`, `EnrichmentResult`, `SchemaSearchResult`, `DataSearchResult`).
 
 ### `platform/` — external interface services
 
@@ -122,7 +127,7 @@ Currently implemented:
 | `scripts/build.sh` | Builds the distributable package |
 | `scripts/deploy.sh` | Publishes to PyPI |
 | `src/blue_data_kb_cli/commands.py` | Click command groups; `FileKBSource` class; all CLI logic |
-| `tests/unit/` | Unit tests for the CLI adapter layer |
+| `tests/unit/` | Intended home for unit tests of the CLI adapter layer — currently empty; the CLI has no automated test coverage yet |
 
 ### `tests/`
 

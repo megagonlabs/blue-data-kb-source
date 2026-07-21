@@ -203,3 +203,35 @@ Team B imports it into a new knowledge base for a recruiting agent. They then ex
 - Relation `APPLIED_TO` — from `PERSON` to `JOB_POSTING`
 
 Team A's schema remains unchanged. Both teams share the common vocabulary while evolving their own additions independently.
+
+---
+
+## Scenario 10: Searching Schema and Data
+
+A developer wants to look up schema elements or instance data directly by keyword or meaning, without invoking an LLM. When a database is registered, it can be configured with a search mode — `bm25` for keyword search or `semantic` for embedding-based similarity search. As entities, facts, classes, relations, and properties are written, the search indexer keeps a corpus up to date automatically. The developer can then search schema elements and data independently, optionally restricting results to a specific node type, and can force a full reindex if needed.
+
+**Example:**
+
+A team registers a database with semantic search enabled:
+```bash
+kb database register main --search semantic --embedding-model text-embedding-3-small
+```
+
+After ingesting the employment schema and Alice's résumé, they search the schema for a concept without knowing the exact class name:
+```bash
+kb --database main schema search "place of employment" --mode semantic --type relation
+# → WORKED_AT   RELATION   "Employment relationship"
+```
+
+And search the data for matching entities or facts:
+```bash
+kb --database main data search "Alice IBM" --mode keyword --type fact --top-k 5
+# → Alice —WORKED_AT→ IBM   FACT   "Alice joined IBM in June 1998."
+```
+
+If the corpus falls out of sync — for example after a bulk import — the developer forces a rebuild:
+```python
+kb.reindex("main")
+```
+
+Search results are returned directly from the index, with no LLM call involved.
