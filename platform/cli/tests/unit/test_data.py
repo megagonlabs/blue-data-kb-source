@@ -50,14 +50,12 @@ def test_entity_add_list_update_delete(runner):
     assert [r["name"] for r in rows] == ["Alice"]
 
 
-def test_extraction_add_attaches_additional_evidence(runner):
+def test_entity_extraction_add_attaches_additional_text(runner):
     _seed_schema_and_entities(runner)
-    rows = invoke_json(runner, DB + ["data", "entity", "list", "--format", "json"])
-    alice_id = next(r["id"] for r in rows if r["name"] == "Alice")
 
     invoke(runner, DB + [
-        "data", "extraction", "add",
-        "--element-id", alice_id,
+        "data", "entity", "extraction", "add",
+        "--entity", "Alice",
         "--text", "Alice was later promoted to team lead.",
     ])
 
@@ -65,6 +63,74 @@ def test_extraction_add_attaches_additional_evidence(runner):
     alice_row = next(r for r in rows if r["name"] == "Alice")
     assert "Alice is a software engineer." in alice_row["provenance"]
     assert "Alice was later promoted to team lead." in alice_row["provenance"]
+
+
+def test_entity_property_extraction_add_attaches_additional_text(runner):
+    _seed_schema_and_entities(runner)
+    invoke(runner, DB + [
+        "schema", "class", "property", "add", "AGE", "Age in years", "--class", "EMPLOYEE",
+    ])
+    invoke(runner, DB + [
+        "data", "entity", "property", "set", "28",
+        "--entity", "Alice", "--property", "AGE", "--type", "NUMBER",
+    ])
+
+    invoke(runner, DB + [
+        "data", "entity", "property", "extraction", "add",
+        "--entity", "Alice", "--property", "AGE",
+        "--text", "Alice turned 28 last month.",
+    ])
+
+    rows = invoke_json(runner, DB + [
+        "data", "entity", "property", "list", "--entity", "Alice", "--show-provenance", "--format", "json",
+    ])
+    age_row = next(r for r in rows if r["property"] == "AGE")
+    assert "Alice turned 28 last month." in age_row["provenance"]
+
+
+def test_fact_extraction_add_attaches_additional_text(runner):
+    _seed_schema_and_entities(runner)
+    invoke(runner, DB + [
+        "data", "fact", "add", "--head", "Alice", "--relation", "WORKED_AT", "--tail", "IBM",
+        "--text", "Alice joined IBM in June 1998.",
+    ])
+
+    rows = invoke_json(runner, DB + ["data", "fact", "list", "--format", "json"])
+    fact_id = rows[0]["id"]
+
+    invoke(runner, DB + [
+        "data", "fact", "extraction", "add",
+        "--fact-id", fact_id,
+        "--text", "Alice was promoted while at IBM.",
+    ])
+
+    rows = invoke_json(runner, DB + ["data", "fact", "list", "--show-provenance", "--format", "json"])
+    assert "Alice was promoted while at IBM." in rows[0]["provenance"]
+
+
+def test_fact_property_extraction_add_attaches_additional_text(runner):
+    _seed_schema_and_entities(runner)
+    invoke(runner, DB + [
+        "data", "fact", "add", "--head", "Alice", "--relation", "WORKED_AT", "--tail", "IBM",
+    ])
+    fact_rows = invoke_json(runner, DB + ["data", "fact", "list", "--format", "json"])
+    fact_id = fact_rows[0]["id"]
+    invoke(runner, DB + [
+        "data", "fact", "property", "set", "1998-06-01",
+        "--fact-id", fact_id, "--property", "START_DATE", "--type", "DATE",
+    ])
+
+    invoke(runner, DB + [
+        "data", "fact", "property", "extraction", "add",
+        "--fact-id", fact_id, "--property", "START_DATE",
+        "--text", "The start date was confirmed as June 1998.",
+    ])
+
+    rows = invoke_json(runner, DB + [
+        "data", "fact", "property", "list", "--fact-id", fact_id, "--show-provenance", "--format", "json",
+    ])
+    start_date_row = next(r for r in rows if r["property"] == "START_DATE")
+    assert "The start date was confirmed as June 1998." in start_date_row["provenance"]
 
 
 def test_entity_not_found_error(runner):

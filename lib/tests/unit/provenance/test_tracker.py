@@ -139,63 +139,47 @@ async def test_provenance_chain_for_literal(kb):
 
 
 # ------------------------------------------------------------------ #
-# add_extracted_from                                                    #
+# add_extraction(element_id=...) — create + link in one call           #
 # ------------------------------------------------------------------ #
 
-async def test_add_extracted_from_wires_edge(kb):
-    entity_id     = await kb.add_entity("test", "Alice")
-    extraction_id = await kb.add_extraction("test", text="Some text.")
-    await kb.add_extracted_from("test", entity_id, extraction_id)
+async def test_add_extraction_with_element_id_wires_edge(kb):
+    entity_id = await kb.add_entity("test", "Alice")
+    extraction_id = await kb.add_extraction("test", text="Some text.", element_id=entity_id)
     nbs = kb.get_neighbors("test", entity_id, edge_type="EXTRACTED_FROM", direction="out")
     assert any(nb["node"]["id"] == extraction_id for nb in nbs)
 
 
-async def test_add_extracted_from_returns_none(kb):
-    entity_id     = await kb.add_entity("test", "Alice")
-    extraction_id = await kb.add_extraction("test", text="Some text.")
-    result = await kb.add_extracted_from("test", entity_id, extraction_id)
-    assert result is None
-
-
-# ------------------------------------------------------------------ #
-# add_evidence (multiple EXTRACTED_FROM edges)                         #
-# ------------------------------------------------------------------ #
-
-async def test_add_evidence_wires_new_extracted_from_edge(kb):
+async def test_add_extraction_without_element_id_does_not_link(kb):
     entity_id = await kb.add_entity("test", "Alice")
-    extraction_id = await kb.add_evidence("test", entity_id, text="Alice is a software engineer.")
+    await kb.add_extraction("test", text="Some text.")
     nbs = kb.get_neighbors("test", entity_id, edge_type="EXTRACTED_FROM", direction="out")
-    assert any(nb["node"]["id"] == extraction_id for nb in nbs)
+    assert nbs == []
 
 
-async def test_add_evidence_returns_extraction_id(kb):
-    entity_id = await kb.add_entity("test", "Alice")
-    extraction_id = await kb.add_evidence("test", entity_id, text="Some text.")
-    node = kb.get_node("test", extraction_id)
-    assert node["label"] == "EXTRACTION"
-    assert node["properties"]["text"] == "Some text."
-
-
-async def test_add_evidence_accumulates_alongside_existing_edge(kb):
+async def test_add_extraction_with_element_id_accumulates_alongside_existing_edge(kb):
     entity_id = await kb.add_entity("test", "Alice", text="Alice joined IBM.")
-    await kb.add_evidence("test", entity_id, text="Alice was promoted at IBM.")
+    await kb.add_extraction("test", text="Alice was promoted at IBM.", element_id=entity_id)
     nbs = kb.get_neighbors("test", entity_id, edge_type="EXTRACTED_FROM", direction="out")
     texts = {nb["node"]["properties"]["text"] for nb in nbs}
     assert len(nbs) == 2
     assert texts == {"Alice joined IBM.", "Alice was promoted at IBM."}
 
 
-async def test_add_evidence_does_not_duplicate_the_entity_node(kb):
+async def test_add_extraction_with_element_id_does_not_duplicate_the_entity_node(kb):
     entity_id = await kb.add_entity("test", "Alice", description="Original description")
-    await kb.add_evidence("test", entity_id, text="More evidence.")
+    await kb.add_extraction("test", text="More evidence.", element_id=entity_id)
     node = kb.get_node("test", entity_id)
     assert node["properties"]["description"] == "Original description"
     assert len(kb.match_nodes("test", label="ENTITY")) == 1
 
 
-async def test_add_evidence_links_new_extraction_to_source(kb):
+async def test_add_extraction_with_element_id_and_source_id_links_both(kb):
     entity_id = await kb.add_entity("test", "Alice")
     src_id = await kb.add_source("test", source="doc2")
-    extraction_id = await kb.add_evidence("test", entity_id, text="New evidence.", source_id=src_id)
+    extraction_id = await kb.add_extraction(
+        "test", text="New evidence.", element_id=entity_id, source_id=src_id
+    )
+    nbs = kb.get_neighbors("test", entity_id, edge_type="EXTRACTED_FROM", direction="out")
+    assert any(nb["node"]["id"] == extraction_id for nb in nbs)
     src_nbs = kb.get_neighbors("test", extraction_id, edge_type="EXTRACTED_FROM", direction="out")
     assert any(nb["node"]["id"] == src_id for nb in src_nbs)

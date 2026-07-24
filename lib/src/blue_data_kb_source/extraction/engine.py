@@ -10,6 +10,7 @@ from blue_data_kb_source.types import ExtractionError
 
 if TYPE_CHECKING:
     from blue_data_kb_source.knowledge.manager import KnowledgeManager
+    from blue_data_kb_source.provenance.tracker import ProvenanceTracker
     from blue_data_kb_source.schema.manager import SchemaManager
 
 _TOOLS: list[dict[str, Any]] = [
@@ -219,19 +220,20 @@ _TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
-            "name": "add_evidence",
+            "name": "link_extraction",
             "description": (
-                "Attach a new piece of evidence to an ENTITY, FACT, or LITERAL that "
-                "already exists (found via find_entity/find_fact). Use this instead of "
+                "Link a new text span to an ENTITY, FACT, or LITERAL that already "
+                "exists (found via find_entity/find_fact). Use this instead of "
                 "add_entity/add_fact/add_*_property_value when the item was already "
-                "found to exist, so new text spans accumulate as additional evidence "
-                "rather than creating a duplicate. Returns {id} of the new evidence record."
+                "found to exist, so new text spans accumulate as additional "
+                "EXTRACTED_FROM links rather than creating a duplicate. Returns {id} "
+                "of the new extraction."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "element_id": {"type": "string", "description": "id of the existing entity, fact, or literal"},
-                    "text": {"type": "string", "description": "Verbatim text span this new evidence was found in"},
+                    "text": {"type": "string", "description": "Verbatim text span this was found in"},
                 },
                 "required": ["element_id", "text"],
             },
@@ -252,10 +254,10 @@ The KB stores:
 
 Workflow:
 1. For each entity in the text: call find_entity first. If it already exists, call
-   add_evidence with its id and the new text span instead of add_entity. Otherwise
+   link_extraction with its id and the new text span instead of add_entity. Otherwise
    find or declare its CLASS, then call add_entity.
 2. For each relationship: resolve both entities, find or declare the RELATION type,
-   then call find_fact. If the fact already exists, call add_evidence with its id
+   then call find_fact. If the fact already exists, call link_extraction with its id
    and the new text span instead of add_fact. Otherwise call add_fact.
 3. For each attribute value: find or declare the PROPERTY on its class/relation,
    then call add_entity_property_value or add_fact_property_value.
@@ -263,10 +265,10 @@ Workflow:
 5. Use names exactly as they appear in the text for entities.
    Use UPPER_SNAKE_CASE for CLASS, RELATION, and PROPERTY names.
 6. When calling add_entity, add_fact, add_entity_property_value,
-   add_fact_property_value, or add_evidence, always pass the verbatim sentence
+   add_fact_property_value, or link_extraction, always pass the verbatim sentence
    or phrase from the source text that the item was extracted from as the
-   `text` argument. Reusing an existing entity/fact via add_evidence records
-   the new text as additional evidence without creating a duplicate.
+   `text` argument. Reusing an existing entity/fact via link_extraction records
+   the new text as an additional link without creating a duplicate.
 
 Current schema:
 {schema}
@@ -286,10 +288,12 @@ class ExtractionEngine:
         source: GraphSource,
         schema_manager: SchemaManager,
         knowledge_manager: KnowledgeManager,
+        provenance_tracker: ProvenanceTracker,
     ) -> None:
         self._source = source
         self._schema = schema_manager
         self._knowledge = knowledge_manager
+        self._provenance = provenance_tracker
 
     async def import_text(
         self,
@@ -484,8 +488,8 @@ class ExtractionEngine:
             )
             return {"id": lit_id}
 
-        if fn == "add_evidence":
-            extraction_id = await self._knowledge.add_evidence(
+        if fn == "link_extraction":
+            extraction_id = await self._provenance.link_extraction(
                 database,
                 element_id=args["element_id"],
                 text=args["text"],

@@ -49,21 +49,21 @@ class ProvenanceTracker:
             self._source.add_edge(database, n, EXTRACTED_FROM, source_id)
         return n
 
-    async def track(
+    async def link_extraction(
         self,
         database: str,
-        instance_id: str,
+        element_id: str,
         text: str,
         source_id: str | None = None,
     ) -> str:
-        """Create an EXTRACTION node and wire instance_id -[EXTRACTED_FROM]-> extraction.
+        """Create an EXTRACTION node and wire element_id -[EXTRACTED_FROM]-> extraction.
 
-        Instances may accumulate multiple EXTRACTED_FROM edges over time as
-        additional evidence is found; calling this again for the same
-        instance_id adds a new edge rather than replacing the existing one.
+        Elements may accumulate multiple EXTRACTED_FROM edges over time as
+        additional text spans are found; calling this again for the same
+        element_id adds a new edge rather than replacing the existing one.
         """
         extraction_id = await self.add_extraction(database, text=text, source_id=source_id)
-        self._source.add_edge(database, instance_id, EXTRACTED_FROM, extraction_id)
+        self._source.add_edge(database, element_id, EXTRACTED_FROM, extraction_id)
         return extraction_id
 
     async def add_extracted_from(

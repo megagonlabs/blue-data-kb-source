@@ -1,6 +1,10 @@
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
+from blue_data_kb_source.types import KBError
+
 
 def _agent_response(result_payload):
     """Build a mock chat response that immediately calls return_result."""
@@ -243,6 +247,79 @@ async def test_add_fact_property_value_wires_has_property(kb):
 
 
 # ------------------------------------------------------------------ #
+# add_entity_extraction / add_fact_extraction                          #
+# add_entity_property_value_extraction / add_fact_property_value_extraction #
+# ------------------------------------------------------------------ #
+
+async def test_add_entity_extraction_wires_edge(kb):
+    entity_id = await kb.add_entity("test", "Alice")
+    extraction_id = await kb.add_entity_extraction("test", entity_id, text="Alice is a software engineer.")
+    nbs = kb.get_neighbors("test", entity_id, edge_type="EXTRACTED_FROM", direction="out")
+    assert any(nb["node"]["id"] == extraction_id for nb in nbs)
+
+
+async def test_add_entity_extraction_raises_for_missing_entity(kb):
+    with pytest.raises(KBError, match="No entity found"):
+        await kb.add_entity_extraction("test", "not-a-real-id", text="Some text.")
+
+
+async def test_add_entity_extraction_raises_for_non_entity_id(kb):
+    fact_id = await kb.add_fact("test")
+    with pytest.raises(KBError, match="No entity found"):
+        await kb.add_entity_extraction("test", fact_id, text="Some text.")
+
+
+async def test_add_fact_extraction_wires_edge(kb):
+    fact_id = await kb.add_fact("test")
+    extraction_id = await kb.add_fact_extraction("test", fact_id, text="Alice joined IBM.")
+    nbs = kb.get_neighbors("test", fact_id, edge_type="EXTRACTED_FROM", direction="out")
+    assert any(nb["node"]["id"] == extraction_id for nb in nbs)
+
+
+async def test_add_fact_extraction_raises_for_missing_fact(kb):
+    with pytest.raises(KBError, match="No fact found"):
+        await kb.add_fact_extraction("test", "not-a-real-id", text="Some text.")
+
+
+async def test_add_entity_property_value_extraction_wires_edge(kb):
+    entity_id = await kb.add_entity("test", "Alice")
+    prop_id = await kb.declare_class_property("test", "AGE", "")
+    lit_id = await kb.add_entity_property_value("test", 28, entity_id=entity_id, property_id=prop_id)
+    extraction_id = await kb.add_entity_property_value_extraction(
+        "test", entity_id, prop_id, text="Alice is 28."
+    )
+    nbs = kb.get_neighbors("test", lit_id, edge_type="EXTRACTED_FROM", direction="out")
+    assert any(nb["node"]["id"] == extraction_id for nb in nbs)
+
+
+async def test_add_entity_property_value_extraction_raises_when_no_value_set(kb):
+    entity_id = await kb.add_entity("test", "Alice")
+    prop_id = await kb.declare_class_property("test", "AGE", "")
+    with pytest.raises(KBError, match="No property value found"):
+        await kb.add_entity_property_value_extraction("test", entity_id, prop_id, text="Alice is 28.")
+
+
+async def test_add_fact_property_value_extraction_wires_edge(kb):
+    rel_id  = await kb.declare_relation_type("test", "WORKED_AT", "")
+    prop_id = await kb.declare_relation_property("test", "START_DATE", "", relation_id=rel_id)
+    fact_id = await kb.add_fact("test", relation_id=rel_id)
+    lit_id  = await kb.add_fact_property_value("test", "1998-06-01", fact_id=fact_id, property_id=prop_id)
+    extraction_id = await kb.add_fact_property_value_extraction(
+        "test", fact_id, prop_id, text="Alice joined IBM in June 1998."
+    )
+    nbs = kb.get_neighbors("test", lit_id, edge_type="EXTRACTED_FROM", direction="out")
+    assert any(nb["node"]["id"] == extraction_id for nb in nbs)
+
+
+async def test_add_fact_property_value_extraction_raises_when_no_value_set(kb):
+    rel_id  = await kb.declare_relation_type("test", "WORKED_AT", "")
+    prop_id = await kb.declare_relation_property("test", "START_DATE", "", relation_id=rel_id)
+    fact_id = await kb.add_fact("test", relation_id=rel_id)
+    with pytest.raises(KBError, match="No property value found"):
+        await kb.add_fact_property_value_extraction("test", fact_id, prop_id, text="Some text.")
+
+
+# ------------------------------------------------------------------ #
 # fetch_database_data                                                  #
 # ------------------------------------------------------------------ #
 
@@ -286,7 +363,7 @@ async def test_fetch_database_data_compact_shows_all_evidence(populated_kb):
     kb = populated_kb
     entity_nodes = kb.match_nodes("test", label="ENTITY", properties={"name": "Alice"})
     alice_id = entity_nodes[0]["id"]
-    await kb.add_evidence("test", alice_id, text="Alice was later promoted to team lead.")
+    await kb.add_entity_extraction("test", alice_id, text="Alice was later promoted to team lead.")
 
     data = await kb.fetch_database_data("test", include_provenance=True, compact=True)
     entries = [

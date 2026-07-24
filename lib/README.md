@@ -94,9 +94,9 @@ async def main():
                                      fact_id=fact, property_id=start_date_prop,
                                      text="Alice joined IBM in June 1998.", source_id=src)
 
-    # --- provenance wiring without inline text: use add_extraction + add_extracted_from ---
-    extraction = await kb.add_extraction("main", text="Alice joined IBM in June 1998.", source_id=src)
-    await kb.add_extracted_from("main", ibm, extraction)
+    # --- provenance wiring without inline text: add_extraction can link in one call ---
+    extraction = await kb.add_extraction("main", text="Alice joined IBM in June 1998.",
+                                         source_id=src, element_id=ibm)
 
 asyncio.run(main())
 ```
@@ -165,7 +165,7 @@ The agent will:
 2. Declare any missing `CLASS`, `RELATION`, or `PROPERTY` nodes.
 3. Call `add_entity`, `add_fact`, `add_entity_property_value`, etc. to populate the KB.
 4. For each item, pass the verbatim source span as `text` so that individual `:EXTRACTION` nodes are created and linked via `EXTRACTED_FROM`.
-5. When an entity or fact already exists, call `add_evidence` instead of re-creating it, adding a new `EXTRACTED_FROM` edge alongside any existing ones.
+5. When an entity or fact already exists, call `link_extraction` instead of re-creating it, adding a new `EXTRACTED_FROM` edge alongside any existing ones.
 
 Install the optional OpenAI extra first:
 
@@ -313,6 +313,10 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | `await add_fact(database, name?, description?, fact_id?, head_entity_id?, tail_entity_id?, relation_id?, text?, source_id?)` | `str` | Add a `:FACT` node; auto-names from head/relation/tail if `name` is omitted; optionally wires `HEAD`, `TAIL`, `REPRESENTS`; provenance via `text`/`source_id` |
 | `await add_entity_property_value(database, value, name?, description?, literal_type?, entity_id?, property_id?, text?, source_id?)` | `str` | Create a `:LITERAL`, wire `IS_VALUE_OF` and `HAS_PROPERTY` from an entity; provenance via `text`/`source_id` |
 | `await add_fact_property_value(database, value, name?, description?, literal_type?, fact_id?, property_id?, text?, source_id?)` | `str` | Create a `:LITERAL`, wire `IS_VALUE_OF` and `HAS_PROPERTY` from a fact; provenance via `text`/`source_id` |
+| `await add_entity_extraction(database, entity_id, text, source_id?)` | `str` | Link a new text span to an *existing* entity — adds a new `EXTRACTED_FROM` edge without touching the entity's node, so multiple text spans can accumulate over time |
+| `await add_fact_extraction(database, fact_id, text, source_id?)` | `str` | Link a new text span to an *existing* fact, same as above |
+| `await add_entity_property_value_extraction(database, entity_id, property_id, text, source_id?)` | `str` | Link a new text span to an entity's existing property value (resolved via `entity_id`+`property_id`); raises if no such value exists |
+| `await add_fact_property_value_extraction(database, fact_id, property_id, text, source_id?)` | `str` | Link a new text span to a fact's existing property value (resolved via `fact_id`+`property_id`); raises if no such value exists |
 | `await answer(database, question, model?, natural_language?, on_tool_call?)` | `list[AnswerResult] \| str` | LLM agent answers a natural language question by traversing the instance graph |
 | `await validate(database, statement, model?, natural_language?, on_tool_call?)` | `ValidationResult \| str` | LLM agent returns supporting and counter evidence for a statement |
 | `await enrich(database, query, depth?, model?, on_tool_call?)` | `list[EnrichmentResult]` | LLM agent traverses the graph up to *depth* hops from seed entities and returns related knowledge |
@@ -324,9 +328,7 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | Method | Returns | Description |
 |---|---|---|
 | `await add_source(database, source, name?, description?, node_id?)` | `str` | Add a `:SOURCE` node; `name` defaults to `source` if omitted |
-| `await add_extraction(database, text, name?, description?, node_id?, source_id?)` | `str` | Add an `:EXTRACTION` node; optionally wires `EXTRACTED_FROM` to a source |
-| `await add_extracted_from(database, element_id, extraction_id)` | `None` | Wire `EXTRACTED_FROM` from an entity, fact, or literal to an extraction |
-| `await add_evidence(database, element_id, text, source_id?)` | `str` | Create an `:EXTRACTION` from *text* and wire it to an *existing* entity, fact, or literal — adds a new `EXTRACTED_FROM` edge without touching the element's node, so multiple pieces of evidence can accumulate over time |
+| `await add_extraction(database, text, name?, description?, node_id?, source_id?, element_id?)` | `str` | Add an `:EXTRACTION` node; optionally wires `EXTRACTED_FROM` to a source (`source_id`) and/or links it to an existing entity/fact/literal (`element_id`) in the same call |
 
 ---
 

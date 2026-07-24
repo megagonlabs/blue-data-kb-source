@@ -134,7 +134,7 @@ class KBSource(GraphSource, ABC):
         self._knowledge = KnowledgeManager(
             self, self._provenance, self._notifier, self._schema, self._search_indexer
         )
-        self._extraction = ExtractionEngine(self, self._schema, self._knowledge)
+        self._extraction = ExtractionEngine(self, self._schema, self._knowledge, self._provenance)
 
     # ------------------------------------------------------------------ #
     # Schema operations → SchemaManager                                   #
@@ -468,27 +468,54 @@ class KBSource(GraphSource, ABC):
         description: str | None = None,
         node_id: str | None = None,
         source_id: str | None = None,
+        element_id: str | None = None,
     ) -> str:
-        return await self._provenance.add_extraction(database, text, name, description, node_id, source_id)
+        """Add an EXTRACTION node for *text*.
 
-    async def add_extracted_from(self, database: str, element_id: str, extraction_id: str) -> None:
-        await self._provenance.add_extracted_from(database, element_id, extraction_id)
+        Optionally wires EXTRACTED_FROM to a SOURCE (source_id) and/or to an
+        existing entity/fact/literal (element_id), so a single call can both
+        create the extraction and link it in place.
+        """
+        extraction_id = await self._provenance.add_extraction(
+            database, text, name, description, node_id, source_id
+        )
+        if element_id is not None:
+            await self._provenance.add_extracted_from(database, element_id, extraction_id)
+        return extraction_id
 
-    async def add_evidence(
+    async def add_entity_extraction(
+        self, database: str, entity_id: str, text: str, source_id: str | None = None
+    ) -> str:
+        return await self._knowledge.add_entity_extraction(database, entity_id, text, source_id)
+
+    async def add_fact_extraction(
+        self, database: str, fact_id: str, text: str, source_id: str | None = None
+    ) -> str:
+        return await self._knowledge.add_fact_extraction(database, fact_id, text, source_id)
+
+    async def add_entity_property_value_extraction(
         self,
         database: str,
-        element_id: str,
+        entity_id: str,
+        property_id: str,
         text: str,
         source_id: str | None = None,
     ) -> str:
-        """Attach a new EXTRACTION built from *text* to an existing entity/fact/literal.
+        return await self._knowledge.add_entity_property_value_extraction(
+            database, entity_id, property_id, text, source_id
+        )
 
-        Unlike add_entity/add_fact with text=, this does not create or touch the
-        element's node — use it to record additional evidence for something that
-        already exists, producing an additional EXTRACTED_FROM edge alongside
-        any existing ones.
-        """
-        return await self._provenance.track(database, element_id, text, source_id)
+    async def add_fact_property_value_extraction(
+        self,
+        database: str,
+        fact_id: str,
+        property_id: str,
+        text: str,
+        source_id: str | None = None,
+    ) -> str:
+        return await self._knowledge.add_fact_property_value_extraction(
+            database, fact_id, property_id, text, source_id
+        )
 
     async def update_source(
         self,
@@ -596,11 +623,14 @@ class KBSource(GraphSource, ABC):
                 "KB.DELETE_ENTITY_PROPERTY"    entity_id, property_id
                 "KB.DELETE_FACT_PROPERTY"      fact_id, property_id
                 "KB.GET_DATA"                  include_provenance (opt), compact (opt)
+                "KB.ADD_ENTITY_EXTRACTION"          entity_id, text, source_id (opt)
+                "KB.ADD_FACT_EXTRACTION"            fact_id, text, source_id (opt)
+                "KB.ADD_ENTITY_PROPERTY_EXTRACTION" entity_id, property_id, text, source_id (opt)
+                "KB.ADD_FACT_PROPERTY_EXTRACTION"   fact_id, property_id, text, source_id (opt)
 
             Provenance:
                 "KB.ADD_SOURCE"                source, name (opt), description (opt), node_id (opt)
-                "KB.ADD_EXTRACTION"            text, name (opt), description (opt), source_id (opt), node_id (opt)
-                "KB.LINK_EXTRACTION"           element_id, extraction_id
+                "KB.ADD_EXTRACTION"            text, name (opt), description (opt), source_id (opt), node_id (opt), element_id (opt)
                 "KB.UPDATE_SOURCE"             source_id, name (opt), description (opt)
                 "KB.DELETE_SOURCE"             source_id
 
@@ -811,6 +841,40 @@ class KBSource(GraphSource, ABC):
                 compact=query.get("compact", False),
             ))
 
+        if op == "KB.ADD_ENTITY_EXTRACTION":
+            return _r(self.add_entity_extraction(
+                database,
+                entity_id=query["entity_id"],
+                text=query["text"],
+                source_id=query.get("source_id"),
+            ))
+
+        if op == "KB.ADD_FACT_EXTRACTION":
+            return _r(self.add_fact_extraction(
+                database,
+                fact_id=query["fact_id"],
+                text=query["text"],
+                source_id=query.get("source_id"),
+            ))
+
+        if op == "KB.ADD_ENTITY_PROPERTY_EXTRACTION":
+            return _r(self.add_entity_property_value_extraction(
+                database,
+                entity_id=query["entity_id"],
+                property_id=query["property_id"],
+                text=query["text"],
+                source_id=query.get("source_id"),
+            ))
+
+        if op == "KB.ADD_FACT_PROPERTY_EXTRACTION":
+            return _r(self.add_fact_property_value_extraction(
+                database,
+                fact_id=query["fact_id"],
+                property_id=query["property_id"],
+                text=query["text"],
+                source_id=query.get("source_id"),
+            ))
+
         # -- Provenance ----------------------------------------------------
 
         if op == "KB.ADD_SOURCE":
@@ -830,18 +894,7 @@ class KBSource(GraphSource, ABC):
                 description=query.get("description"),
                 node_id=query.get("node_id"),
                 source_id=query.get("source_id"),
-            ))
-
-        if op == "KB.LINK_EXTRACTION":
-            _r(self.add_extracted_from(database, query["element_id"], query["extraction_id"]))
-            return None
-
-        if op == "KB.ADD_EVIDENCE":
-            return _r(self.add_evidence(
-                database,
-                element_id=query["element_id"],
-                text=query["text"],
-                source_id=query.get("source_id"),
+                element_id=query.get("element_id"),
             ))
 
         if op == "KB.UPDATE_SOURCE":
@@ -865,8 +918,9 @@ class KBSource(GraphSource, ABC):
             "KB.GET_SCHEMA, KB.SEARCH_SCHEMA, KB.ADD_ENTITY, KB.ADD_FACT, KB.ADD_ENTITY_PROPERTY, "
             "KB.ADD_FACT_PROPERTY, KB.UPDATE_ENTITY, KB.UPDATE_FACT, KB.UPDATE_ENTITY_PROPERTY, "
             "KB.UPDATE_FACT_PROPERTY, KB.DELETE_ENTITY, KB.DELETE_FACT, KB.DELETE_ENTITY_PROPERTY, "
-            "KB.DELETE_FACT_PROPERTY, KB.GET_DATA, KB.ADD_SOURCE, KB.ADD_EXTRACTION, KB.LINK_EXTRACTION, "
-            "KB.ADD_EVIDENCE, KB.UPDATE_SOURCE, KB.DELETE_SOURCE. Also accepts GRAPH.* ops."
+            "KB.DELETE_FACT_PROPERTY, KB.GET_DATA, KB.ADD_ENTITY_EXTRACTION, KB.ADD_FACT_EXTRACTION, "
+            "KB.ADD_ENTITY_PROPERTY_EXTRACTION, KB.ADD_FACT_PROPERTY_EXTRACTION, KB.ADD_SOURCE, "
+            "KB.ADD_EXTRACTION, KB.UPDATE_SOURCE, KB.DELETE_SOURCE. Also accepts GRAPH.* ops."
         )
 
     def execute_query_nl(

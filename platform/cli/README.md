@@ -302,23 +302,26 @@ Deleted database: main
 | `kb data source list [--format table\|json]` | List all registered provenance sources |
 | `kb data source update --source NAME\|--source-id ID [--name N] [--description D]` | Update the name and/or description of a source |
 | `kb data source delete --source NAME\|--source-id ID [--yes]` | Delete a source and its extraction records; instances are preserved |
-| `kb data extraction add --element-id ID --text T [--source NAME\|--source-id ID]` | Attach additional evidence (a new `EXTRACTED_FROM` edge) to an existing entity, fact, or literal |
 | `kb data entity add [--name NAME] [--class NAME\|--class-id ID] [--description D] [--text T] [--source NAME\|--source-id ID]` | Add an entity instance |
 | `kb data entity list [--show-provenance] [--format table\|json]` | List all entity instances |
 | `kb data entity update --entity NAME\|--entity-id ID [--name N] [--description D]` | Update the name and/or description of an entity |
 | `kb data entity delete --entity NAME\|--entity-id ID [--cascade] [--yes]` | Delete an entity and its property values; with --cascade also deletes referencing facts |
+| `kb data entity extraction add --entity NAME\|--entity-id ID --text T [--source NAME\|--source-id ID]` | Link additional source text (a new `EXTRACTED_FROM` edge) to an existing entity |
 | `kb data entity property set VALUE [--name N] [--description D] --entity NAME\|--entity-id ID --property NAME [--type T] [--source NAME\|--source-id ID]` | Set a property value on an entity |
 | `kb data entity property list --entity NAME\|--entity-id ID [--show-provenance] [--format table\|json]` | List property values for an entity |
 | `kb data entity property update --entity NAME\|--entity-id ID --property NAME\|--property-id ID [--value V] [--name N] [--description D]` | Update the value, name, and/or description of an entity property value |
 | `kb data entity property delete --entity NAME\|--entity-id ID --property NAME\|--property-id ID [--yes]` | Delete a property value from an entity |
+| `kb data entity property extraction add --entity NAME\|--entity-id ID --property NAME\|--property-id ID --text T [--source NAME\|--source-id ID]` | Link additional source text to an entity's existing property value |
 | `kb data fact add [--name N] [--description D] [--head NAME\|--head-id ID] [--relation NAME\|--relation-id ID] [--tail NAME\|--tail-id ID] [--source NAME\|--source-id ID]` | Add a fact |
 | `kb data fact list [--show-provenance] [--format table\|json]` | List all facts |
 | `kb data fact update --fact NAME\|--fact-id ID [--name N] [--description D]` | Update the name and/or description of a fact |
 | `kb data fact delete --fact NAME\|--fact-id ID [--yes]` | Delete a fact and its property values |
+| `kb data fact extraction add --fact NAME\|--fact-id ID --text T [--source NAME\|--source-id ID]` | Link additional source text (a new `EXTRACTED_FROM` edge) to an existing fact |
 | `kb data fact property set VALUE [--name N] [--description D] --fact-id ID --property NAME [--type T] [--source NAME\|--source-id ID]` | Set a property value on a fact |
 | `kb data fact property list --fact-id ID [--show-provenance] [--format table\|json]` | List property values for a fact |
 | `kb data fact property update --fact NAME\|--fact-id ID --property NAME\|--property-id ID [--value V] [--name N] [--description D]` | Update the value, name, and/or description of a fact property value |
 | `kb data fact property delete --fact NAME\|--fact-id ID --property NAME\|--property-id ID [--yes]` | Delete a property value from a fact |
+| `kb data fact property extraction add --fact NAME\|--fact-id ID --property NAME\|--property-id ID --text T [--source NAME\|--source-id ID]` | Link additional source text to a fact's existing property value |
 | `kb data reindex` | Rebuild the BM25/vector search index for the current database |
 | `kb data search QUERY [--type entity\|fact]… [--top-k N] [--format table\|json]` | Keyword or semantic search over entities and facts; search mode depends on database config; `--type` is repeatable |
 | `kb data answer QUESTION [--format table\|json\|nl] [--model M] [--verbose\|-v] [--log\|-l]` | LLM answer query; `--format nl` returns a prose answer; `--verbose` shows tool call arguments in the status line; `--log` also prints each tool call on its own persistent line |

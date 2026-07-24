@@ -112,7 +112,7 @@ class KnowledgeManager:
         if class_id is not None:
             self._source.add_edge(database, node_id, IS_INSTANCE_OF, class_id)
         if text is not None:
-            await self._provenance.track(database, node_id, text, source_id)
+            await self._provenance.link_extraction(database, node_id, text, source_id)
         self._notifier.fire({
             "type": "entity_added",
             "database": database,
@@ -150,7 +150,7 @@ class KnowledgeManager:
         if relation_id is not None:
             self._source.add_edge(database, node_id, REPRESENTS, relation_id)
         if text is not None:
-            await self._provenance.track(database, node_id, text, source_id)
+            await self._provenance.link_extraction(database, node_id, text, source_id)
         self._notifier.fire({
             "type": "fact_added",
             "database": database,
@@ -214,7 +214,7 @@ class KnowledgeManager:
         if entity_id is not None:
             self._source.add_edge(database, entity_id, HAS_PROPERTY, literal_id)
         if text is not None:
-            await self._provenance.track(database, literal_id, text, source_id)
+            await self._provenance.link_extraction(database, literal_id, text, source_id)
         self._notifier.fire({
             "type": "entity_property_added",
             "database": database,
@@ -246,7 +246,7 @@ class KnowledgeManager:
         if fact_id is not None:
             self._source.add_edge(database, fact_id, HAS_PROPERTY, literal_id)
         if text is not None:
-            await self._provenance.track(database, literal_id, text, source_id)
+            await self._provenance.link_extraction(database, literal_id, text, source_id)
         self._notifier.fire({
             "type": "fact_property_added",
             "database": database,
@@ -259,21 +259,71 @@ class KnowledgeManager:
         })
         return literal_id
 
-    async def add_evidence(
+    async def add_entity_extraction(
         self,
         database: str,
-        element_id: str,
+        entity_id: str,
         text: str,
         source_id: str | None = None,
     ) -> str:
-        """Attach a new EXTRACTION built from *text* to an existing entity/fact/literal.
+        """Link a new EXTRACTION built from *text* to an existing entity.
 
-        Unlike add_entity/add_fact with text=, this does not create or touch the
-        element's node — use it to record additional evidence for something
-        that already exists (e.g. found via a lookup during extraction),
-        producing an additional EXTRACTED_FROM edge alongside any existing ones.
+        Unlike add_entity with text=, this does not create or touch the
+        entity's node — use it to record an additional text span for an
+        entity that already exists, producing another EXTRACTED_FROM edge
+        alongside any existing ones.
         """
-        return await self._provenance.track(database, element_id, text, source_id)
+        node = self._source.get_node(database, entity_id)
+        if node is None or node.get("label") != ENTITY:
+            raise KBError(f"No entity found with id {entity_id!r}.")
+        return await self._provenance.link_extraction(database, entity_id, text, source_id)
+
+    async def add_fact_extraction(
+        self,
+        database: str,
+        fact_id: str,
+        text: str,
+        source_id: str | None = None,
+    ) -> str:
+        """Link a new EXTRACTION built from *text* to an existing fact.
+
+        Unlike add_fact with text=, this does not create or touch the fact's
+        node — use it to record an additional text span for a fact that
+        already exists, producing another EXTRACTED_FROM edge alongside any
+        existing ones.
+        """
+        node = self._source.get_node(database, fact_id)
+        if node is None or node.get("label") != FACT:
+            raise KBError(f"No fact found with id {fact_id!r}.")
+        return await self._provenance.link_extraction(database, fact_id, text, source_id)
+
+    async def add_entity_property_value_extraction(
+        self,
+        database: str,
+        entity_id: str,
+        property_id: str,
+        text: str,
+        source_id: str | None = None,
+    ) -> str:
+        """Link a new EXTRACTION built from *text* to an entity's existing property value."""
+        lit_id = self._find_literal(database, entity_id, property_id)
+        if lit_id is None:
+            raise KBError("No property value found for the given entity and property.")
+        return await self._provenance.link_extraction(database, lit_id, text, source_id)
+
+    async def add_fact_property_value_extraction(
+        self,
+        database: str,
+        fact_id: str,
+        property_id: str,
+        text: str,
+        source_id: str | None = None,
+    ) -> str:
+        """Link a new EXTRACTION built from *text* to a fact's existing property value."""
+        lit_id = self._find_literal(database, fact_id, property_id)
+        if lit_id is None:
+            raise KBError("No property value found for the given fact and property.")
+        return await self._provenance.link_extraction(database, lit_id, text, source_id)
 
     # ------------------------------------------------------------------ #
     # Update operations                                                    #

@@ -1746,38 +1746,6 @@ def source_delete(
 # kb data extraction                                                   #
 # ------------------------------------------------------------------ #
 
-@data_group.group("extraction")
-def extraction_group() -> None:
-    """Provenance evidence management."""
-
-
-@extraction_group.command("add")
-@click.option("--element-id", required=True, help="Entity, fact, or literal node ID to attach evidence to.")
-@click.option("--text",       required=True, help="New source text span.")
-@click.option("--source",      "source_name", default=None, help="Source name.")
-@click.option("--source-id",                  default=None, help="Source node ID (overrides --source).")
-@click.pass_obj
-def extraction_add(
-    obj: dict, element_id: str, text: str, source_name: str | None, source_id: str | None,
-) -> None:
-    """Attach additional evidence to an existing entity, fact, or literal.
-
-    Unlike `--text` on `entity add`/`fact add`, this does not create a new
-    node — it adds another EXTRACTED_FROM edge to an item that already
-    exists, so multiple pieces of evidence can accumulate over time.
-    """
-    kb: FileKBSource = obj["kb"]
-    db: str = obj["db"]
-    resolved_source_id: str | None = None
-    if source_name or source_id:
-        resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
-    try:
-        extraction_id = _run(kb.add_evidence(db, element_id, text, source_id=resolved_source_id))
-    except KBError as exc:
-        raise click.ClickException(str(exc))
-    console.print(f"Added evidence (id: {extraction_id})")
-
-
 # ------------------------------------------------------------------ #
 # kb data entity                                                       #
 # ------------------------------------------------------------------ #
@@ -1922,6 +1890,46 @@ def entity_delete(
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(f"Deleted entity: [bold]{label}[/bold]")
+
+
+# ------------------------------------------------------------------ #
+# kb data entity extraction                                            #
+# ------------------------------------------------------------------ #
+
+@entity_group.group("extraction")
+def entity_extraction_group() -> None:
+    """Provenance extraction management for entities."""
+
+
+@entity_extraction_group.command("add")
+@click.option("--entity",      "entity_name", default=None, help="Entity name.")
+@click.option("--entity-id",                  default=None, help="Entity node ID (overrides --entity).")
+@click.option("--text",        required=True, help="New source text span.")
+@click.option("--source",      "source_name", default=None, help="Source name.")
+@click.option("--source-id",                  default=None, help="Source node ID (overrides --source).")
+@click.pass_obj
+def entity_extraction_add(
+    obj: dict,
+    entity_name: str | None, entity_id: str | None,
+    text: str, source_name: str | None, source_id: str | None,
+) -> None:
+    """Link additional source text to an existing entity.
+
+    Unlike `--text` on `entity add`, this does not create a new node — it
+    adds another EXTRACTED_FROM edge to an entity that already exists, so
+    multiple text spans can accumulate over time.
+    """
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    eid = _resolve_node(kb, db, ENTITY, entity_name, entity_id, "entity")
+    resolved_source_id: str | None = None
+    if source_name or source_id:
+        resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
+    try:
+        extraction_id = _run(kb.add_entity_extraction(db, eid, text, source_id=resolved_source_id))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(f"Added extraction (id: {extraction_id})")
 
 
 # ------------------------------------------------------------------ #
@@ -2107,6 +2115,47 @@ def entity_property_delete(
 
 
 # ------------------------------------------------------------------ #
+# kb data entity property extraction                                   #
+# ------------------------------------------------------------------ #
+
+@entity_property_group.group("extraction")
+def entity_property_extraction_group() -> None:
+    """Provenance extraction management for entity property values."""
+
+
+@entity_property_extraction_group.command("add")
+@click.option("--entity",       "entity_name",   default=None, help="Entity name.")
+@click.option("--entity-id",                     default=None, help="Entity node ID (overrides --entity).")
+@click.option("--property",     "property_name", default=None, help="Property name.")
+@click.option("--property-id",                   default=None, help="Property node ID (overrides --property).")
+@click.option("--text",                          required=True, help="New source text span.")
+@click.option("--source",       "source_name",   default=None, help="Source name.")
+@click.option("--source-id",                     default=None, help="Source node ID (overrides --source).")
+@click.pass_obj
+def entity_property_extraction_add(
+    obj: dict,
+    entity_name: str | None, entity_id: str | None,
+    property_name: str | None, property_id: str | None,
+    text: str, source_name: str | None, source_id: str | None,
+) -> None:
+    """Link additional source text to an entity's existing property value."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    eid = _resolve_node(kb, db, ENTITY, entity_name, entity_id, "entity")
+    pid = _resolve_node(kb, db, PROPERTY, property_name, property_id, "property")
+    resolved_source_id: str | None = None
+    if source_name or source_id:
+        resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
+    try:
+        extraction_id = _run(
+            kb.add_entity_property_value_extraction(db, eid, pid, text, source_id=resolved_source_id)
+        )
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(f"Added extraction (id: {extraction_id})")
+
+
+# ------------------------------------------------------------------ #
 # kb data fact                                                         #
 # ------------------------------------------------------------------ #
 
@@ -2284,6 +2333,46 @@ def fact_delete(
 
 
 # ------------------------------------------------------------------ #
+# kb data fact extraction                                              #
+# ------------------------------------------------------------------ #
+
+@fact_group.group("extraction")
+def fact_extraction_group() -> None:
+    """Provenance extraction management for facts."""
+
+
+@fact_extraction_group.command("add")
+@click.option("--fact",        "fact_name", default=None, help="Fact name.")
+@click.option("--fact-id",                  default=None, help="Fact node ID (overrides --fact).")
+@click.option("--text",        required=True, help="New source text span.")
+@click.option("--source",      "source_name", default=None, help="Source name.")
+@click.option("--source-id",                  default=None, help="Source node ID (overrides --source).")
+@click.pass_obj
+def fact_extraction_add(
+    obj: dict,
+    fact_name: str | None, fact_id: str | None,
+    text: str, source_name: str | None, source_id: str | None,
+) -> None:
+    """Link additional source text to an existing fact.
+
+    Unlike `--text` on `fact add`, this does not create a new node — it
+    adds another EXTRACTED_FROM edge to a fact that already exists, so
+    multiple text spans can accumulate over time.
+    """
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    fid = _resolve_node(kb, db, FACT, fact_name, fact_id, "fact")
+    resolved_source_id: str | None = None
+    if source_name or source_id:
+        resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
+    try:
+        extraction_id = _run(kb.add_fact_extraction(db, fid, text, source_id=resolved_source_id))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(f"Added extraction (id: {extraction_id})")
+
+
+# ------------------------------------------------------------------ #
 # kb fact property                                                     #
 # ------------------------------------------------------------------ #
 
@@ -2455,6 +2544,47 @@ def fact_property_delete(
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(f"Deleted fact property value.")
+
+
+# ------------------------------------------------------------------ #
+# kb data fact property extraction                                     #
+# ------------------------------------------------------------------ #
+
+@fact_property_group.group("extraction")
+def fact_property_extraction_group() -> None:
+    """Provenance extraction management for fact property values."""
+
+
+@fact_property_extraction_group.command("add")
+@click.option("--fact",         "fact_name",     default=None, help="Fact name.")
+@click.option("--fact-id",                       default=None, help="Fact node ID (overrides --fact).")
+@click.option("--property",     "property_name", default=None, help="Property name.")
+@click.option("--property-id",                   default=None, help="Property node ID (overrides --property).")
+@click.option("--text",                          required=True, help="New source text span.")
+@click.option("--source",       "source_name",   default=None, help="Source name.")
+@click.option("--source-id",                     default=None, help="Source node ID (overrides --source).")
+@click.pass_obj
+def fact_property_extraction_add(
+    obj: dict,
+    fact_name: str | None, fact_id: str | None,
+    property_name: str | None, property_id: str | None,
+    text: str, source_name: str | None, source_id: str | None,
+) -> None:
+    """Link additional source text to a fact's existing property value."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    fid = _resolve_node(kb, db, FACT, fact_name, fact_id, "fact")
+    pid = _resolve_node(kb, db, PROPERTY, property_name, property_id, "property")
+    resolved_source_id: str | None = None
+    if source_name or source_id:
+        resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
+    try:
+        extraction_id = _run(
+            kb.add_fact_property_value_extraction(db, fid, pid, text, source_id=resolved_source_id)
+        )
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(f"Added extraction (id: {extraction_id})")
 
 
 # ------------------------------------------------------------------ #
