@@ -134,7 +134,9 @@ class KBSource(GraphSource, ABC):
         self._knowledge = KnowledgeManager(
             self, self._provenance, self._notifier, self._schema, self._search_indexer
         )
-        self._extraction = ExtractionEngine(self, self._schema, self._knowledge, self._provenance)
+        self._extraction = ExtractionEngine(
+            self, self._schema, self._knowledge, self._provenance, self._search_indexer
+        )
 
     # ------------------------------------------------------------------ #
     # Schema operations → SchemaManager                                   #
@@ -571,10 +573,13 @@ class KBSource(GraphSource, ABC):
         queries: list[str] | None = None,
         model: str = "gpt-4o",
         source_id: str | None = None,
+        schema_discovery_mode: Literal["search", "llm", "none"] = "search",
         on_tool_call: Callable[[str, dict], None] | None = None,
         on_tool_result: Callable[[str, dict, Any], None] | None = None,
     ) -> None:
-        await self._extraction.import_text(database, text, queries, model, source_id, on_tool_call, on_tool_result)
+        await self._extraction.import_text(
+            database, text, queries, model, source_id, schema_discovery_mode, on_tool_call, on_tool_result
+        )
 
     # ------------------------------------------------------------------ #
     # Meta-schema (describes the KB graph structure itself)               #

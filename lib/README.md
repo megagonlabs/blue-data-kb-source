@@ -162,10 +162,16 @@ async def extract(kb):
 
 The agent will:
 1. Inspect the current schema (classes and relations already declared).
-2. Declare any missing `CLASS`, `RELATION`, or `PROPERTY` nodes.
-3. Call `add_entity`, `add_fact`, `add_entity_property_value`, etc. to populate the KB.
-4. For each item, pass the verbatim source span as `text` so that individual `:EXTRACTION` nodes are created and linked via `EXTRACTED_FROM`.
-5. When an entity or fact already exists, call `link_extraction` instead of re-creating it, adding a new `EXTRACTED_FROM` edge alongside any existing ones.
+2. Before declaring a new `CLASS`, `RELATION`, or `PROPERTY`, call `search_schema` to check whether an existing element already covers the same meaning under a different name (e.g. a `JOIN_DATE` property when `START_DATE` already exists) — see `schema_discovery_mode` below.
+3. Declare any missing `CLASS`, `RELATION`, or `PROPERTY` nodes.
+4. Call `add_entity`, `add_fact`, `add_entity_property_value`, etc. to populate the KB.
+5. For each item, pass the verbatim source span as `text` so that individual `:EXTRACTION` nodes are created and linked via `EXTRACTED_FROM`.
+6. When an entity or fact already exists, call `link_extraction` instead of re-creating it, adding a new `EXTRACTED_FROM` edge alongside any existing ones.
+
+`schema_discovery_mode` controls how the agent's `search_schema` tool call (step 2) is answered:
+- `"search"` (default) — uses the database's configured search backend (keyword substring match, or semantic/embedding search if the database was registered with `--search semantic`).
+- `"llm"` — asks the same model to judge whether any existing schema element means the same thing as the proposed one, even under different wording. More reliable for synonyms than keyword/semantic search over short names, at the cost of one extra model call per check.
+- `"none"` — the `search_schema` tool isn't offered to the agent at all (pre-existing behavior).
 
 Install the optional OpenAI extra first:
 
@@ -345,7 +351,7 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 
 | Method | Returns | Description |
 |---|---|---|
-| `await import_text(database, text, queries?, model?, source_id?, on_tool_call?)` | `None` | Use an OpenAI LLM to extract entities, facts, and properties from *text* into *database*; expands the schema as needed; each created node gets its own `:EXTRACTION` wired to `source_id`. `on_tool_call(name, args)`, if given, is invoked synchronously before each tool dispatch. Requires `openai`. |
+| `await import_text(database, text, queries?, model?, source_id?, schema_discovery_mode?, on_tool_call?)` | `None` | Use an OpenAI LLM to extract entities, facts, and properties from *text* into *database*; expands the schema as needed; each created node gets its own `:EXTRACTION` wired to `source_id`. `schema_discovery_mode` (`"search"` default, `"llm"`, or `"none"`) controls how the agent checks for existing schema elements before declaring near-duplicates. `on_tool_call(name, args)`, if given, is invoked synchronously before each tool dispatch. Requires `openai`. |
 
 ---
 

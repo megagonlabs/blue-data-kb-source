@@ -2696,6 +2696,18 @@ def list_cmd(obj: dict, show_provenance: bool, fmt: str) -> None:
 @click.option("--source",    "source_name", default=None,  help="Source name for provenance.")
 @click.option("--source-id",               default=None,  help="Source node ID (overrides --source).")
 @click.option("--model",                   default="gpt-4o", show_default=True, help="OpenAI model.")
+@click.option(
+    "--schema-discovery-mode",
+    type=click.Choice(["search", "llm", "none"]),
+    default="search",
+    show_default=True,
+    help=(
+        "How the agent checks for existing schema elements before declaring new ones: "
+        "'search' uses the database's configured search backend (keyword/semantic); "
+        "'llm' asks the model to judge synonyms (e.g. JOIN_DATE vs START_DATE), at the cost "
+        "of an extra call per check; 'none' disables the check."
+    ),
+)
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Show tool call arguments in the status line.")
 @click.option("--log", "-l", is_flag=True, default=False, help="Also log each tool call and its result on its own line (in addition to the status line).")
 @click.pass_obj
@@ -2706,6 +2718,7 @@ def extract_cmd(
     source_name: str | None,
     source_id: str | None,
     model: str,
+    schema_discovery_mode: str,
     verbose: bool,
     log: bool,
 ) -> None:
@@ -2726,6 +2739,7 @@ def extract_cmd(
                                 queries=list(queries) or None,
                                 model=model,
                                 source_id=resolved_source_id,
+                                schema_discovery_mode=schema_discovery_mode,
                                 on_tool_call=on_call,
                                 on_tool_result=on_result))
     except KBError as exc:

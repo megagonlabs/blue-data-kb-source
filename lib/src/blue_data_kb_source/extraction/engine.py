@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Literal
 
 from blue_data.source.graph.graph_source import GraphSource
 
-from blue_data_kb_source._constants import CLASS, ENTITY, HEAD, RELATION, REPRESENTS, TAIL
-from blue_data_kb_source.types import ExtractionError
+from blue_data_kb_source._constants import CLASS, ENTITY, HEAD, PROPERTY, RELATION, REPRESENTS, TAIL
+from blue_data_kb_source.types import ExtractionError, SchemaSearchResult
 
 if TYPE_CHECKING:
     from blue_data_kb_source.knowledge.manager import KnowledgeManager
     from blue_data_kb_source.provenance.tracker import ProvenanceTracker
     from blue_data_kb_source.schema.manager import SchemaManager
+    from blue_data_kb_source.search.indexer import KBSearchIndexer
 
 _TOOLS: list[dict[str, Any]] = [
     {
@@ -74,6 +75,29 @@ _TOOLS: list[dict[str, Any]] = [
                     "tail_entity_id": {"type": "string"},
                 },
                 "required": ["head_entity_id", "relation_id", "tail_entity_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_schema",
+            "description": (
+                "Search existing schema elements (classes, relations, properties) for one that "
+                "already covers a given concept — even under a different name. Call this before "
+                "declare_class, declare_relation_type, declare_class_property, or "
+                "declare_relation_property to avoid declaring a near-duplicate (e.g. a JOIN_DATE "
+                "property when a START_DATE property already means the same thing). Returns "
+                "{schema_elements: [{id, type, name, description}]}."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Short description of the concept to look for"},
+                    "mode":  {"type": "string", "enum": ["keyword", "semantic"], "description": "Search mode (default: keyword)"},
+                    "type":  {"type": "string", "enum": ["class", "relation", "property"], "description": "Restrict to a schema element type (optional)"},
+                },
+                "required": ["query"],
             },
         },
     },
@@ -261,7 +285,11 @@ Workflow:
    and the new text span instead of add_fact. Otherwise call add_fact.
 3. For each attribute value: find or declare the PROPERTY on its class/relation,
    then call add_entity_property_value or add_fact_property_value.
-4. Prefer existing schema elements; only declare new ones when nothing fits.
+4. Prefer existing schema elements; only declare new ones when nothing fits. Before
+   calling declare_class, declare_relation_type, declare_class_property, or
+   declare_relation_property, call search_schema with a short description of the
+   concept. If an existing element already covers the same meaning — even under a
+   different name — reuse its id instead of declaring a near-duplicate.
 5. Use names exactly as they appear in the text for entities.
    Use UPPER_SNAKE_CASE for CLASS, RELATION, and PROPERTY names.
 6. When calling add_entity, add_fact, add_entity_property_value,
@@ -289,11 +317,13 @@ class ExtractionEngine:
         schema_manager: SchemaManager,
         knowledge_manager: KnowledgeManager,
         provenance_tracker: ProvenanceTracker,
+        search_indexer: KBSearchIndexer | None = None,
     ) -> None:
         self._source = source
         self._schema = schema_manager
         self._knowledge = knowledge_manager
         self._provenance = provenance_tracker
+        self._search_indexer = search_indexer
 
     async def import_text(
         self,
@@ -302,6 +332,7 @@ class ExtractionEngine:
         queries: list[str] | None = None,
         model: str = "gpt-4o",
         source_id: str | None = None,
+        schema_discovery_mode: Literal["search", "llm", "none"] = "search",
         on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
         on_tool_result: Callable[[str, dict[str, Any], Any], None] | None = None,
     ) -> None:
@@ -320,6 +351,11 @@ class ExtractionEngine:
         )
         system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(schema=schema_str, queries=queries_str)
 
+        tools = (
+            _TOOLS if schema_discovery_mode != "none"
+            else [t for t in _TOOLS if t["function"]["name"] != "search_schema"]
+        )
+
         client = openai.AsyncOpenAI()
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": system_prompt},
@@ -330,7 +366,7 @@ class ExtractionEngine:
             response = await client.chat.completions.create(
                 model=model,
                 messages=messages,  # type: ignore[arg-type]
-                tools=_TOOLS,  # type: ignore[arg-type]
+                tools=tools,  # type: ignore[arg-type]
                 tool_choice="auto",
             )
             msg = response.choices[0].message
@@ -355,7 +391,7 @@ class ExtractionEngine:
                     on_tool_call(tc.function.name, args)
                 try:
                     result = await self._dispatch_tool(
-                        database, tc.function.name, args, source_id
+                        database, tc.function.name, args, source_id, schema_discovery_mode, model
                     )
                 except Exception as exc:
                     result = {"error": str(exc)}
@@ -373,10 +409,31 @@ class ExtractionEngine:
         fn: str,
         args: dict[str, Any],
         source_id: str | None,
+        schema_discovery_mode: Literal["search", "llm", "none"],
+        model: str,
     ) -> dict[str, Any]:
         if fn == "get_schema":
             schema = await self._schema.fetch_database_schema(database)
             return {"schema": schema.to_str(simplified=True)}
+
+        if fn == "search_schema":
+            type_filter = args.get("type")
+            if type_filter:
+                type_filter = type_filter.upper()
+            if schema_discovery_mode == "llm":
+                results = await self._judge_similar_schema(database, args["query"], type_filter, model)
+            else:
+                mode = args.get("mode", "keyword")
+                if self._search_indexer is not None:
+                    results = self._search_indexer.search_schema(
+                        database, args["query"], k=20, mode=mode, type_filter=type_filter
+                    )
+                else:
+                    results = await self._schema.find_schema(database, args["query"], type_filter=type_filter)
+            return {"schema_elements": [
+                {"id": r.id, "type": r.type, "name": r.name, "description": r.description}
+                for r in results
+            ]}
 
         if fn == "find_class":
             nodes = self._source.match_nodes(database, label=CLASS, properties={"name": args["name"]})
@@ -498,3 +555,74 @@ class ExtractionEngine:
             return {"id": extraction_id}
 
         return {"error": f"unknown tool: {fn}"}
+
+    async def _judge_similar_schema(
+        self,
+        database: str,
+        query: str,
+        type_filter: str | None,
+        model: str,
+    ) -> list[SchemaSearchResult]:
+        """Ask the LLM whether *query* means the same thing as an existing schema element.
+
+        Used in place of keyword/semantic search_schema when accuracy on
+        differently-worded synonyms (e.g. JOIN_DATE vs START_DATE) matters more
+        than the cost of an extra model call.
+        """
+        import openai
+
+        labels = [type_filter] if type_filter else [CLASS, RELATION, PROPERTY]
+        candidates: list[SchemaSearchResult] = []
+        for label in labels:
+            for node in self._source.match_nodes(database, label=label):
+                props = node.get("properties", {})
+                candidates.append(SchemaSearchResult(
+                    id=node["id"], type=label,
+                    name=props.get("name", ""), description=props.get("description") or "",
+                ))
+        if not candidates:
+            return []
+
+        candidates_str = "\n".join(f"- {c.id}: [{c.type}] {c.name} — {c.description}" for c in candidates)
+        judge_tool = {
+            "type": "function",
+            "function": {
+                "name": "return_matches",
+                "description": "Return the ids of existing schema elements that mean the same thing as the proposed one.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "matching_ids": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "ids of existing elements representing the same concept as the query; empty if none match",
+                        },
+                    },
+                    "required": ["matching_ids"],
+                },
+            },
+        }
+        client = openai.AsyncOpenAI()
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You judge whether a proposed KB schema element duplicates an existing one "
+                        "by meaning, not by exact wording (e.g. JOIN_DATE and START_DATE can mean the "
+                        "same thing: the date employment began). Be conservative: only flag a match "
+                        "when they clearly represent the same concept."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"Proposed element: \"{query}\"\n\nExisting elements:\n{candidates_str}",
+                },
+            ],
+            tools=[judge_tool],  # type: ignore[arg-type]
+            tool_choice={"type": "function", "function": {"name": "return_matches"}},  # type: ignore[arg-type]
+        )
+        tc = response.choices[0].message.tool_calls[0]
+        matching_ids = set(json.loads(tc.function.arguments).get("matching_ids", []))
+        return [c for c in candidates if c.id in matching_ids]

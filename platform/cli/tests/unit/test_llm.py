@@ -79,6 +79,20 @@ def test_extract_reports_completion(runner):
     assert "Extraction complete." in result.output
 
 
+def test_extract_schema_discovery_mode_none_omits_search_schema_tool(runner):
+    invoke(runner, DB + ["schema", "class", "add", "EMPLOYEE", "A person employed by an organization"])
+    factory = _mock_openai_no_tool_calls()
+    with patch("openai.AsyncOpenAI", factory):
+        result = runner.invoke(cli, DB + [
+            "data", "extract", "Alice joined IBM in June 1998.",
+            "--schema-discovery-mode", "none",
+        ])
+    assert result.exit_code == 0, result.output
+    call_kwargs = factory.return_value.chat.completions.create.call_args.kwargs
+    tool_names = {t["function"]["name"] for t in call_kwargs["tools"]}
+    assert "search_schema" not in tool_names
+
+
 def test_answer_table_format(runner):
     _seed(runner)
     payload = [{"entity": "Alice", "relation": "WORKED_AT", "value": None, "provenance": "Alice joined IBM in June 1998."}]

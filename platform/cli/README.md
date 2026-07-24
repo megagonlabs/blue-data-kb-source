@@ -250,7 +250,7 @@ Counter:
 # 13. LLM extraction (requires openai extra and OPENAI_API_KEY)
 $ kb data extract \
     "Alice later joined Google as a senior engineer in May 2002." \
-    --query "Where did Alice work?" --query "When did she start?"
+    --query "What is her role?" --query "When did she start?"
 Extraction complete.
 
 # 14. Delete a database
@@ -326,7 +326,7 @@ Deleted database: main
 | `kb data search QUERY [--type entity\|fact]… [--top-k N] [--format table\|json]` | Keyword or semantic search over entities and facts; search mode depends on database config; `--type` is repeatable |
 | `kb data answer QUESTION [--format table\|json\|nl] [--model M] [--verbose\|-v] [--log\|-l]` | LLM answer query; `--format nl` returns a prose answer; `--verbose` shows tool call arguments in the status line; `--log` also prints each tool call on its own persistent line |
 | `kb data validate STATEMENT [--natural-language] [--model M] [--verbose\|-v] [--log\|-l]` | LLM supporting / counter evidence; `--natural-language` returns a prose assessment; `--verbose` shows tool call arguments in the status line; `--log` also prints each tool call on its own persistent line |
-| `kb data extract TEXT [--query Q]… [--source NAME\|--source-id ID] [--model M] [--verbose\|-v] [--log\|-l]` | LLM extraction; `--verbose` shows tool call arguments in the status line; `--log` also prints each tool call on its own persistent line |
+| `kb data extract TEXT [--query Q]… [--source NAME\|--source-id ID] [--model M] [--schema-discovery-mode search\|llm\|none] [--verbose\|-v] [--log\|-l]` | LLM extraction; `--schema-discovery-mode` (default `search`) controls how the agent checks for existing schema elements before declaring near-duplicates (`llm` asks the model to judge synonyms like JOIN_DATE/START_DATE; `none` disables the check); `--verbose` shows tool call arguments in the status line; `--log` also prints each tool call on its own persistent line |
 
 Exit codes: `0` success · `1` KBError · `2` bad arguments.
 
