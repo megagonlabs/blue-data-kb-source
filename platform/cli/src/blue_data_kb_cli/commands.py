@@ -63,21 +63,30 @@ def _run(coro: Any) -> Any:
     return asyncio.run(coro)
 
 
-def _status_tool_callback(status: Any, label: str, verbose: bool = False, log: bool = False) -> Any:
+def _truncate(text: str, limit: int = 80) -> str:
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def _status_tool_callbacks(status: Any, label: str, verbose: bool = False, log: bool = False) -> tuple[Any, Any]:
     def on_tool_call(name: str, args: dict) -> None:
         if not (verbose or log):
             return
         if verbose and args:
-            args_str = ", ".join(f"{k}={v!r}" for k, v in args.items())
-            if len(args_str) > 80:
-                args_str = args_str[:77] + "..."
+            args_str = _truncate(", ".join(f"{k}={v!r}" for k, v in args.items()))
             detail = f"({name}: {args_str})"
         else:
             detail = f"({name})"
         status.update(f"{label}… [dim]{detail}[/dim]")
         if log:
             console.print(f"[dim]{label}… {detail}[/dim]")
-    return on_tool_call
+
+    def on_tool_result(name: str, args: dict, result: Any) -> None:
+        if not log:
+            return
+        result_str = _truncate(repr(result))
+        console.print(f"[dim]{label}… ({name}) -> {result_str}[/dim]")
+
+    return on_tool_call, on_tool_result
 
 
 def _resolve_node(
@@ -2521,7 +2530,7 @@ def list_cmd(obj: dict, show_provenance: bool, fmt: str) -> None:
 @click.option("--source-id",               default=None,  help="Source node ID (overrides --source).")
 @click.option("--model",                   default="gpt-4o", show_default=True, help="OpenAI model.")
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Show tool call arguments in the status line.")
-@click.option("--log", "-l", is_flag=True, default=False, help="Also log each tool call on its own line (in addition to the status line).")
+@click.option("--log", "-l", is_flag=True, default=False, help="Also log each tool call and its result on its own line (in addition to the status line).")
 @click.pass_obj
 def extract_cmd(
     obj: dict,
@@ -2545,11 +2554,13 @@ def extract_cmd(
         resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
     try:
         with console.status("Extracting…") as status:
+            on_call, on_result = _status_tool_callbacks(status, "Extracting", verbose, log)
             _run(kb.import_text(db, text,
                                 queries=list(queries) or None,
                                 model=model,
                                 source_id=resolved_source_id,
-                                on_tool_call=_status_tool_callback(status, "Extracting", verbose, log)))
+                                on_tool_call=on_call,
+                                on_tool_result=on_result))
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print("Extraction complete.")
@@ -2570,7 +2581,7 @@ def extract_cmd(
 )
 @click.option("--model", default="gpt-4o", show_default=True, help="OpenAI model.")
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Show tool call arguments in the status line.")
-@click.option("--log", "-l", is_flag=True, default=False, help="Also log each tool call on its own line (in addition to the status line).")
+@click.option("--log", "-l", is_flag=True, default=False, help="Also log each tool call and its result on its own line (in addition to the status line).")
 @click.pass_obj
 def answer_cmd(obj: dict, question: str, fmt: str, model: str, verbose: bool, log: bool) -> None:
     """Answer a natural language question using the knowledge base."""
@@ -2578,8 +2589,9 @@ def answer_cmd(obj: dict, question: str, fmt: str, model: str, verbose: bool, lo
     db: str = obj["db"]
     try:
         with console.status("Answering…") as status:
+            on_call, on_result = _status_tool_callbacks(status, "Answering", verbose, log)
             result = _run(kb.answer(db, question, model=model, natural_language=(fmt == "nl"),
-                                     on_tool_call=_status_tool_callback(status, "Answering", verbose, log)))
+                                     on_tool_call=on_call, on_tool_result=on_result))
     except KBError as exc:
         raise click.ClickException(str(exc))
     if fmt == "nl":
@@ -2609,7 +2621,7 @@ def answer_cmd(obj: dict, question: str, fmt: str, model: str, verbose: bool, lo
               help="Return a prose assessment instead of supporting/counter lists.")
 @click.option("--model", default="gpt-4o", show_default=True, help="OpenAI model.")
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Show tool call arguments in the status line.")
-@click.option("--log", "-l", is_flag=True, default=False, help="Also log each tool call on its own line (in addition to the status line).")
+@click.option("--log", "-l", is_flag=True, default=False, help="Also log each tool call and its result on its own line (in addition to the status line).")
 @click.pass_obj
 def validate_cmd(obj: dict, statement: str, natural_language: bool, model: str, verbose: bool, log: bool) -> None:
     """Return supporting and counter evidence for a statement."""
@@ -2617,8 +2629,9 @@ def validate_cmd(obj: dict, statement: str, natural_language: bool, model: str, 
     db: str = obj["db"]
     try:
         with console.status("Validating…") as status:
+            on_call, on_result = _status_tool_callbacks(status, "Validating", verbose, log)
             result = _run(kb.validate(db, statement, model=model, natural_language=natural_language,
-                                       on_tool_call=_status_tool_callback(status, "Validating", verbose, log)))
+                                       on_tool_call=on_call, on_tool_result=on_result))
     except KBError as exc:
         raise click.ClickException(str(exc))
 

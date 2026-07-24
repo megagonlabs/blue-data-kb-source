@@ -253,6 +253,7 @@ class ExtractionEngine:
         model: str = "gpt-4o",
         source_id: str | None = None,
         on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
+        on_tool_result: Callable[[str, dict[str, Any], Any], None] | None = None,
     ) -> None:
         try:
             import openai
@@ -308,6 +309,8 @@ class ExtractionEngine:
                     )
                 except Exception as exc:
                     result = {"error": str(exc)}
+                if on_tool_result:
+                    on_tool_result(tc.function.name, args, result)
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,

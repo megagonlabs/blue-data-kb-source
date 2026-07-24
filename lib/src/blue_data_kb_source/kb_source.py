@@ -420,8 +420,9 @@ class KBSource(GraphSource, ABC):
         model: str = "gpt-4o",
         natural_language: bool = False,
         on_tool_call: Callable[[str, dict], None] | None = None,
+        on_tool_result: Callable[[str, dict, Any], None] | None = None,
     ) -> list[dict] | str:
-        return await self._knowledge.answer(database, question, model, natural_language, on_tool_call)
+        return await self._knowledge.answer(database, question, model, natural_language, on_tool_call, on_tool_result)
 
     async def validate(
         self,
@@ -430,8 +431,9 @@ class KBSource(GraphSource, ABC):
         model: str = "gpt-4o",
         natural_language: bool = False,
         on_tool_call: Callable[[str, dict], None] | None = None,
+        on_tool_result: Callable[[str, dict, Any], None] | None = None,
     ) -> ValidationResult | str:
-        return await self._knowledge.validate(database, statement, model, natural_language, on_tool_call)
+        return await self._knowledge.validate(database, statement, model, natural_language, on_tool_call, on_tool_result)
 
     async def enrich(
         self,
@@ -440,8 +442,9 @@ class KBSource(GraphSource, ABC):
         depth: int = 2,
         model: str = "gpt-4o",
         on_tool_call: Callable[[str, dict], None] | None = None,
+        on_tool_result: Callable[[str, dict, Any], None] | None = None,
     ) -> list[EnrichmentResult]:
-        return await self._knowledge.enrich(database, query, depth, model, on_tool_call)
+        return await self._knowledge.enrich(database, query, depth, model, on_tool_call, on_tool_result)
 
     # ------------------------------------------------------------------ #
     # Provenance operations → ProvenanceTracker                           #
@@ -526,8 +529,9 @@ class KBSource(GraphSource, ABC):
         model: str = "gpt-4o",
         source_id: str | None = None,
         on_tool_call: Callable[[str, dict], None] | None = None,
+        on_tool_result: Callable[[str, dict, Any], None] | None = None,
     ) -> None:
-        await self._extraction.import_text(database, text, queries, model, source_id, on_tool_call)
+        await self._extraction.import_text(database, text, queries, model, source_id, on_tool_call, on_tool_result)
 
     # ------------------------------------------------------------------ #
     # Meta-schema (describes the KB graph structure itself)               #

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable, Literal
+from typing import TYPE_CHECKING, Any, Callable, Literal
 
 from blue_data.source.graph.graph_source import GraphSource
 
@@ -612,8 +612,9 @@ class KnowledgeManager:
         model: str = "gpt-4o",
         natural_language: bool = False,
         on_tool_call: Callable[[str, dict], None] | None = None,
+        on_tool_result: Callable[[str, dict, Any], None] | None = None,
     ) -> list[dict] | str:
-        results = await self._query.answer(database, question, model, on_tool_call)
+        results = await self._query.answer(database, question, model, on_tool_call, on_tool_result)
         if natural_language:
             return await self._query.answer_as_text(question, results, model)
         return results
@@ -625,8 +626,9 @@ class KnowledgeManager:
         model: str = "gpt-4o",
         natural_language: bool = False,
         on_tool_call: Callable[[str, dict], None] | None = None,
+        on_tool_result: Callable[[str, dict, Any], None] | None = None,
     ) -> ValidationResult | str:
-        result = await self._query.validate(database, statement, model, on_tool_call)
+        result = await self._query.validate(database, statement, model, on_tool_call, on_tool_result)
         if natural_language:
             return await self._query.validate_as_text(statement, result, model)
         return result
@@ -638,5 +640,6 @@ class KnowledgeManager:
         depth: int = 2,
         model: str = "gpt-4o",
         on_tool_call: Callable[[str, dict], None] | None = None,
+        on_tool_result: Callable[[str, dict, Any], None] | None = None,
     ) -> list[EnrichmentResult]:
-        return await self._query.enrich(database, query, depth, model, on_tool_call)
+        return await self._query.enrich(database, query, depth, model, on_tool_call, on_tool_result)

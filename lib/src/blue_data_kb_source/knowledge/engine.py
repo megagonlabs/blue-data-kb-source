@@ -315,10 +315,11 @@ class QueryEngine:
         question: str,
         model: str = "gpt-4o",
         on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
+        on_tool_result: Callable[[str, dict[str, Any], Any], None] | None = None,
     ) -> list[dict]:
         schema_str = (await self._schema.fetch_database_schema(database)).to_str(simplified=True)
         system = _ANSWER_PROMPT.format(schema=schema_str, question=question)
-        raw = await self._run_agent(database, system, question, model, on_tool_call)
+        raw = await self._run_agent(database, system, question, model, on_tool_call, on_tool_result)
         return raw if isinstance(raw, list) else []
 
     async def validate(
@@ -327,10 +328,11 @@ class QueryEngine:
         statement: str,
         model: str = "gpt-4o",
         on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
+        on_tool_result: Callable[[str, dict[str, Any], Any], None] | None = None,
     ) -> ValidationResult:
         schema_str = (await self._schema.fetch_database_schema(database)).to_str(simplified=True)
         system = _VALIDATE_PROMPT.format(schema=schema_str, statement=statement)
-        raw = await self._run_agent(database, system, statement, model, on_tool_call)
+        raw = await self._run_agent(database, system, statement, model, on_tool_call, on_tool_result)
         if isinstance(raw, dict):
             return ValidationResult(
                 supporting=raw.get("supporting", []),
@@ -345,10 +347,11 @@ class QueryEngine:
         depth: int = 2,
         model: str = "gpt-4o",
         on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
+        on_tool_result: Callable[[str, dict[str, Any], Any], None] | None = None,
     ) -> list[EnrichmentResult]:
         schema_str = (await self._schema.fetch_database_schema(database)).to_str(simplified=True)
         system = _ENRICH_PROMPT.format(schema=schema_str, query=query, depth=depth)
-        raw = await self._run_agent(database, system, query, model, on_tool_call)
+        raw = await self._run_agent(database, system, query, model, on_tool_call, on_tool_result)
         return [
             EnrichmentResult(
                 entity=item.get("entity"),
@@ -403,6 +406,7 @@ class QueryEngine:
         user_message: str,
         model: str,
         on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
+        on_tool_result: Callable[[str, dict[str, Any], Any], None] | None = None,
     ) -> Any:
         try:
             import openai
@@ -469,6 +473,8 @@ class QueryEngine:
                     # print(f"Dispatching tool {fn} with args: {args}")
                     tool_result = await self._dispatch_tool(database, fn, args)
                     # print(f"Tool {fn} returned: {tool_result}")
+                    if on_tool_result:
+                        on_tool_result(fn, args, tool_result)
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc.id,
