@@ -86,7 +86,8 @@ class KnowledgeManager:
 
     def _provenance_text(self, database: str, node_id: str) -> str | None:
         nbs = self._source.get_neighbors(database, node_id, edge_type=EXTRACTED_FROM, direction="out")
-        return nbs[0]["node"].get("properties", {}).get("text") if nbs else None
+        texts = [nb["node"].get("properties", {}).get("text") for nb in nbs]
+        return " | ".join(t for t in texts if t) or None
 
     # ------------------------------------------------------------------ #
     # Instance node builders                                               #
@@ -257,6 +258,22 @@ class KnowledgeManager:
             **self._fact_context(database, fact_id),
         })
         return literal_id
+
+    async def add_evidence(
+        self,
+        database: str,
+        element_id: str,
+        text: str,
+        source_id: str | None = None,
+    ) -> str:
+        """Attach a new EXTRACTION built from *text* to an existing entity/fact/literal.
+
+        Unlike add_entity/add_fact with text=, this does not create or touch the
+        element's node — use it to record additional evidence for something
+        that already exists (e.g. found via a lookup during extraction),
+        producing an additional EXTRACTED_FROM edge alongside any existing ones.
+        """
+        return await self._provenance.track(database, element_id, text, source_id)
 
     # ------------------------------------------------------------------ #
     # Update operations                                                    #

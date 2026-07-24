@@ -146,7 +146,8 @@ def _coerce_value(raw: str, literal_type: str | None) -> str | int | float | boo
 
 def _provenance_text(kb: FileKBSource, db: str, node_id: str) -> str:
     nbs = kb.get_neighbors(db, node_id, edge_type=EXTRACTED_FROM, direction="out")
-    return nbs[0]["node"].get("properties", {}).get("text", "") if nbs else ""
+    texts = [nb["node"].get("properties", {}).get("text", "") for nb in nbs]
+    return " | ".join(t for t in texts if t)
 
 
 # ------------------------------------------------------------------ #
@@ -1739,6 +1740,42 @@ def source_delete(
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(f"Deleted source: [bold]{label}[/bold]")
+
+
+# ------------------------------------------------------------------ #
+# kb data extraction                                                   #
+# ------------------------------------------------------------------ #
+
+@data_group.group("extraction")
+def extraction_group() -> None:
+    """Provenance evidence management."""
+
+
+@extraction_group.command("add")
+@click.option("--element-id", required=True, help="Entity, fact, or literal node ID to attach evidence to.")
+@click.option("--text",       required=True, help="New source text span.")
+@click.option("--source",      "source_name", default=None, help="Source name.")
+@click.option("--source-id",                  default=None, help="Source node ID (overrides --source).")
+@click.pass_obj
+def extraction_add(
+    obj: dict, element_id: str, text: str, source_name: str | None, source_id: str | None,
+) -> None:
+    """Attach additional evidence to an existing entity, fact, or literal.
+
+    Unlike `--text` on `entity add`/`fact add`, this does not create a new
+    node — it adds another EXTRACTED_FROM edge to an item that already
+    exists, so multiple pieces of evidence can accumulate over time.
+    """
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    resolved_source_id: str | None = None
+    if source_name or source_id:
+        resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
+    try:
+        extraction_id = _run(kb.add_evidence(db, element_id, text, source_id=resolved_source_id))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(f"Added evidence (id: {extraction_id})")
 
 
 # ------------------------------------------------------------------ #

@@ -50,6 +50,23 @@ def test_entity_add_list_update_delete(runner):
     assert [r["name"] for r in rows] == ["Alice"]
 
 
+def test_extraction_add_attaches_additional_evidence(runner):
+    _seed_schema_and_entities(runner)
+    rows = invoke_json(runner, DB + ["data", "entity", "list", "--format", "json"])
+    alice_id = next(r["id"] for r in rows if r["name"] == "Alice")
+
+    invoke(runner, DB + [
+        "data", "extraction", "add",
+        "--element-id", alice_id,
+        "--text", "Alice was later promoted to team lead.",
+    ])
+
+    rows = invoke_json(runner, DB + ["data", "entity", "list", "--show-provenance", "--format", "json"])
+    alice_row = next(r for r in rows if r["name"] == "Alice")
+    assert "Alice is a software engineer." in alice_row["provenance"]
+    assert "Alice was later promoted to team lead." in alice_row["provenance"]
+
+
 def test_entity_not_found_error(runner):
     result = runner.invoke(cli, DB + ["data", "entity", "update", "--entity", "Ghost", "--name", "X"])
     assert result.exit_code != 0

@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from blue_data.source.graph.graph_source import GraphSource
 
-from blue_data_kb_source._constants import CLASS, ENTITY, RELATION
+from blue_data_kb_source._constants import CLASS, ENTITY, HEAD, RELATION, REPRESENTS, TAIL
 from blue_data_kb_source.types import ExtractionError
 
 if TYPE_CHECKING:
@@ -54,6 +54,25 @@ _TOOLS: list[dict[str, Any]] = [
                 "type": "object",
                 "properties": {"name": {"type": "string"}},
                 "required": ["name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "find_fact",
+            "description": (
+                "Look up an existing FACT by its head entity, relation, and tail entity. "
+                "Returns {id, name} or {id: null}."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "head_entity_id": {"type": "string"},
+                    "relation_id": {"type": "string"},
+                    "tail_entity_id": {"type": "string"},
+                },
+                "required": ["head_entity_id", "relation_id", "tail_entity_id"],
             },
         },
     },
@@ -197,6 +216,27 @@ _TOOLS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_evidence",
+            "description": (
+                "Attach a new piece of evidence to an ENTITY, FACT, or LITERAL that "
+                "already exists (found via find_entity/find_fact). Use this instead of "
+                "add_entity/add_fact/add_*_property_value when the item was already "
+                "found to exist, so new text spans accumulate as additional evidence "
+                "rather than creating a duplicate. Returns {id} of the new evidence record."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "element_id": {"type": "string", "description": "id of the existing entity, fact, or literal"},
+                    "text": {"type": "string", "description": "Verbatim text span this new evidence was found in"},
+                },
+                "required": ["element_id", "text"],
+            },
+        },
+    },
 ]
 
 _SYSTEM_PROMPT_TEMPLATE = """\
@@ -211,16 +251,22 @@ The KB stores:
   LITERAL   — a concrete property value (e.g. "28", "1998-06-01")
 
 Workflow:
-1. For each entity in the text: find or declare its CLASS, then call add_entity.
-2. For each relationship: find or declare the RELATION type, then call add_fact.
+1. For each entity in the text: call find_entity first. If it already exists, call
+   add_evidence with its id and the new text span instead of add_entity. Otherwise
+   find or declare its CLASS, then call add_entity.
+2. For each relationship: resolve both entities, find or declare the RELATION type,
+   then call find_fact. If the fact already exists, call add_evidence with its id
+   and the new text span instead of add_fact. Otherwise call add_fact.
 3. For each attribute value: find or declare the PROPERTY on its class/relation,
    then call add_entity_property_value or add_fact_property_value.
 4. Prefer existing schema elements; only declare new ones when nothing fits.
 5. Use names exactly as they appear in the text for entities.
    Use UPPER_SNAKE_CASE for CLASS, RELATION, and PROPERTY names.
-6. When calling add_entity, add_fact, add_entity_property_value, or
-   add_fact_property_value, always pass the verbatim sentence or phrase from
-   the source text that the item was extracted from as the `text` argument.
+6. When calling add_entity, add_fact, add_entity_property_value,
+   add_fact_property_value, or add_evidence, always pass the verbatim sentence
+   or phrase from the source text that the item was extracted from as the
+   `text` argument. Reusing an existing entity/fact via add_evidence records
+   the new text as additional evidence without creating a duplicate.
 
 Current schema:
 {schema}
@@ -349,6 +395,20 @@ class ExtractionEngine:
                 return {"id": nodes[0]["id"], "name": p.get("name"), "description": p.get("description")}
             return {"id": None}
 
+        if fn == "find_fact":
+            head_id = args["head_entity_id"]
+            tail_id = args["tail_entity_id"]
+            relation_id = args["relation_id"]
+            for nb in self._source.get_neighbors(database, head_id, edge_type=HEAD, direction="in"):
+                fact_node = nb["node"]
+                fact_id = fact_node["id"]
+                tail_nbs = self._source.get_neighbors(database, fact_id, edge_type=TAIL, direction="out")
+                rel_nbs = self._source.get_neighbors(database, fact_id, edge_type=REPRESENTS, direction="out")
+                if (any(t["node"]["id"] == tail_id for t in tail_nbs)
+                        and any(r["node"]["id"] == relation_id for r in rel_nbs)):
+                    return {"id": fact_id, "name": fact_node.get("properties", {}).get("name")}
+            return {"id": None}
+
         if fn == "declare_class":
             cid = await self._schema.declare_class(database, name=args["name"], description=args["description"])
             return {"id": cid}
@@ -423,5 +483,14 @@ class ExtractionEngine:
                 source_id=source_id,
             )
             return {"id": lit_id}
+
+        if fn == "add_evidence":
+            extraction_id = await self._knowledge.add_evidence(
+                database,
+                element_id=args["element_id"],
+                text=args["text"],
+                source_id=source_id,
+            )
+            return {"id": extraction_id}
 
         return {"error": f"unknown tool: {fn}"}

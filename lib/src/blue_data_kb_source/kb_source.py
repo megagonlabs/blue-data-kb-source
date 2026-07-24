@@ -474,6 +474,22 @@ class KBSource(GraphSource, ABC):
     async def add_extracted_from(self, database: str, element_id: str, extraction_id: str) -> None:
         await self._provenance.add_extracted_from(database, element_id, extraction_id)
 
+    async def add_evidence(
+        self,
+        database: str,
+        element_id: str,
+        text: str,
+        source_id: str | None = None,
+    ) -> str:
+        """Attach a new EXTRACTION built from *text* to an existing entity/fact/literal.
+
+        Unlike add_entity/add_fact with text=, this does not create or touch the
+        element's node — use it to record additional evidence for something that
+        already exists, producing an additional EXTRACTED_FROM edge alongside
+        any existing ones.
+        """
+        return await self._provenance.track(database, element_id, text, source_id)
+
     async def update_source(
         self,
         database: str,
@@ -820,6 +836,14 @@ class KBSource(GraphSource, ABC):
             _r(self.add_extracted_from(database, query["element_id"], query["extraction_id"]))
             return None
 
+        if op == "KB.ADD_EVIDENCE":
+            return _r(self.add_evidence(
+                database,
+                element_id=query["element_id"],
+                text=query["text"],
+                source_id=query.get("source_id"),
+            ))
+
         if op == "KB.UPDATE_SOURCE":
             _r(self.update_source(database, query["source_id"], query.get("name"), query.get("description")))
             return None
@@ -842,7 +866,7 @@ class KBSource(GraphSource, ABC):
             "KB.ADD_FACT_PROPERTY, KB.UPDATE_ENTITY, KB.UPDATE_FACT, KB.UPDATE_ENTITY_PROPERTY, "
             "KB.UPDATE_FACT_PROPERTY, KB.DELETE_ENTITY, KB.DELETE_FACT, KB.DELETE_ENTITY_PROPERTY, "
             "KB.DELETE_FACT_PROPERTY, KB.GET_DATA, KB.ADD_SOURCE, KB.ADD_EXTRACTION, KB.LINK_EXTRACTION, "
-            "KB.UPDATE_SOURCE, KB.DELETE_SOURCE. Also accepts GRAPH.* ops."
+            "KB.ADD_EVIDENCE, KB.UPDATE_SOURCE, KB.DELETE_SOURCE. Also accepts GRAPH.* ops."
         )
 
     def execute_query_nl(

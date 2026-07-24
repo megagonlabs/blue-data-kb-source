@@ -90,7 +90,9 @@ class SchemaManager:
         )
         _extracted_desc = (
             "Links any schema element (entity, fact, or literal) to its originating extraction "
-            "record or source evidence. Example: Alice WORKED_AT IBM EXTRACTED_FROM Resume_Text_1"
+            "record or source evidence. Example: Alice WORKED_AT IBM EXTRACTED_FROM Resume_Text_1. "
+            "An element may have multiple EXTRACTED_FROM edges: as further evidence is found in "
+            "new extractions or sources, additional edges accumulate rather than replacing prior ones."
         )
         _relations: list[tuple[str, str, str, str]] = [
             (CLASS,     IS_SUBCLASS_OF,  CLASS,      _subclass_desc),

@@ -688,7 +688,8 @@ class QueryEngine:
 
     def _provenance_text(self, database: str, node_id: str) -> str | None:
         nbs = self._source.get_neighbors(database, node_id, edge_type=EXTRACTED_FROM, direction="out")
-        return nbs[0]["node"].get("properties", {}).get("text") if nbs else None
+        texts = [nb["node"].get("properties", {}).get("text") for nb in nbs]
+        return " | ".join(t for t in texts if t) or None
 
 
 def _node_name(neighbors: list[dict]) -> str | None:

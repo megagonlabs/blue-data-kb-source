@@ -282,6 +282,22 @@ async def test_fetch_database_data_compact_has_relation_entries(populated_kb):
     assert "IS_INSTANCE_OF" in types or "REPRESENTS" in types
 
 
+async def test_fetch_database_data_compact_shows_all_evidence(populated_kb):
+    kb = populated_kb
+    entity_nodes = kb.match_nodes("test", label="ENTITY", properties={"name": "Alice"})
+    alice_id = entity_nodes[0]["id"]
+    await kb.add_evidence("test", alice_id, text="Alice was later promoted to team lead.")
+
+    data = await kb.fetch_database_data("test", include_provenance=True, compact=True)
+    entries = [
+        e for e in data
+        if e["relation_type"] == "IS_INSTANCE_OF" and e["entity_name"] == "Alice"
+    ]
+    assert len(entries) == 1
+    assert "Alice is a software engineer." in entries[0]["extraction"]
+    assert "Alice was later promoted to team lead." in entries[0]["extraction"]
+
+
 # ------------------------------------------------------------------ #
 # answer  (QueryEngine — openai patched)                              #
 # ------------------------------------------------------------------ #

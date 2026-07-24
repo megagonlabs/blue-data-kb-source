@@ -141,7 +141,7 @@ async def query(kb):
 
 ### Extracting knowledge from text (LLM)
 
-`import_text` runs an OpenAI agent that reads a text passage, expands the schema as needed, and populates entities, facts, and property values. Each created node is automatically wired to its own `:EXTRACTION` node containing the verbatim text span the LLM identified. Pass `on_tool_call(name, args)` to observe each tool call as it happens (e.g. to drive a progress indicator).
+`import_text` runs an OpenAI agent that reads a text passage, expands the schema as needed, and populates entities, facts, and property values. Each created node is automatically wired to its own `:EXTRACTION` node containing the verbatim text span the LLM identified. If an entity or fact is found to already exist (via `find_entity`/`find_fact`), the agent attaches the new text as additional evidence instead of creating a duplicate, so an item can end up with multiple `EXTRACTED_FROM` edges as more evidence is discovered across extraction runs. Pass `on_tool_call(name, args)` to observe each tool call as it happens (e.g. to drive a progress indicator).
 
 ```python
 import os
@@ -165,6 +165,7 @@ The agent will:
 2. Declare any missing `CLASS`, `RELATION`, or `PROPERTY` nodes.
 3. Call `add_entity`, `add_fact`, `add_entity_property_value`, etc. to populate the KB.
 4. For each item, pass the verbatim source span as `text` so that individual `:EXTRACTION` nodes are created and linked via `EXTRACTED_FROM`.
+5. When an entity or fact already exists, call `add_evidence` instead of re-creating it, adding a new `EXTRACTED_FROM` edge alongside any existing ones.
 
 Install the optional OpenAI extra first:
 
@@ -325,6 +326,7 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | `await add_source(database, source, name?, description?, node_id?)` | `str` | Add a `:SOURCE` node; `name` defaults to `source` if omitted |
 | `await add_extraction(database, text, name?, description?, node_id?, source_id?)` | `str` | Add an `:EXTRACTION` node; optionally wires `EXTRACTED_FROM` to a source |
 | `await add_extracted_from(database, element_id, extraction_id)` | `None` | Wire `EXTRACTED_FROM` from an entity, fact, or literal to an extraction |
+| `await add_evidence(database, element_id, text, source_id?)` | `str` | Create an `:EXTRACTION` from *text* and wire it to an *existing* entity, fact, or literal — adds a new `EXTRACTED_FROM` edge without touching the element's node, so multiple pieces of evidence can accumulate over time |
 
 ---
 
