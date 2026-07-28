@@ -1,0 +1,32 @@
+id: enrich_multi_hop
+description: >
+  Business domain. Seeds a 2-hop chain (Alice -WORKED_AT-> IBM -HEADQUARTERED_IN->
+  New York) and checks enrich traverses past 1 hop with correct distance
+  values (depth=2).
+operation: enrich
+seed_schema:
+  classes:
+    - {name: PERSON, description: "An individual"}
+    - {name: COMPANY, description: "A business organization"}
+    - {name: CITY, description: "A city"}
+  relations:
+    - {name: WORKED_AT, description: "Employment relationship", domain: PERSON, range: COMPANY}
+    - name: HEADQUARTERED_IN
+      description: "The company's headquarters location"
+      domain: COMPANY
+      range: CITY
+seed_data:
+  entities:
+    - {name: Alice, class: PERSON}
+    - {name: IBM, class: COMPANY}
+    - {name: New York, class: CITY}
+  facts:
+    - {ref: alice_ibm, head: Alice, relation: WORKED_AT, tail: IBM}
+    - {ref: ibm_ny, head: IBM, relation: HEADQUARTERED_IN, tail: New York}
+query: "Alice"
+depth: 2
+search_modes: [keyword]
+expected:
+  rows:
+    - {entity: IBM, relation: WORKED_AT, distance: 1}
+    - {entity: New York, relation: HEADQUARTERED_IN, distance: 2}

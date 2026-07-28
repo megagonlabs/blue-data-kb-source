@@ -410,6 +410,21 @@ The live paths require `OPENAI_API_KEY`. Without it and without a cassette alrea
 
 Each run writes two files under `.reports/` (gitignored): a JSON score report (`latest.json` for the pytest suite; `live-<timestamp>.json` for `run.py`, timestamped so successive live runs don't overwrite each other) and a companion **detailed log** (`latest.detail.jsonl` / `live-<timestamp>.detail.jsonl`) with one JSON object per (case, model, mode) run — the task spec (case description, steps, seed schema, expected results), every LLM call's full prompt messages and response (including tool calls), the raw tool-call trace (inputs and outputs), and pre-/post-run KB snapshots (schema and data, captured separately) — everything the summary table/score JSON leaves out, for debugging a specific run.
 
+### Querying benchmark suite
+
+`tests/benchmarks/querying/` scores `answer()`/`validate()`/`enrich()` — the read-only query agents, as opposed to extraction's write agent — against gold-standard cases in `tests/benchmarks/querying/cases/*.yaml` that seed a fixed graph (`seed_schema` + `seed_data`) and then ask one question/statement/traversal query of it. Same report-only philosophy as the extraction suite (never fails the build, only errors on a harness bug). Requires the `openai` **and** `search` extras alongside `dev` (`pip install -e '.[dev,openai,search]'`) — `search` (`rank-bm25`) is needed because cases run with `enable_search=True` (real in-memory BM25), not the raw substring fallback used when no search index is configured at all.
+
+Each case runs under one or more `search_modes` (`keyword` | `semantic`, defaulting to `keyword` — a case-level knob analogous to extraction's `schema_discovery_modes`, since `search_schema`/`search_entities`/`search_facts` all take a `mode` the LLM chooses per call). `semantic` mode wires up an in-memory vector backend (`blue_data.source.vector.memory_vector_source.MemoryVectorSource`) with a real OpenAI embeddings call for `embedding_fn` — a second, separate kind of API call from the chat-completions agent loop, not wrapped by the token/cost instrumentation the way chat completions are, though VCR cassette replay covers it transparently since interception happens at the HTTP layer regardless of which client made the call.
+
+Scoring reuses the same LLM-judge alignment (`judge_alignment`/`PRF1`) the extraction suite uses — it's already generic — plus two new checks specific to free-form query output: **schema match** (for `answer`, whose result rows have LLM-chosen column names — "choose natural column names based on the question" — a deterministic key-set-overlap check over the alignment's matched pairs catches "right values, oddly named columns" independently of value correctness; doesn't apply to `validate`/`enrich`, whose dict shapes are prompt-specified, not free-form) and **NL fidelity** (cases can set `test_natural_language: true` to also exercise `answer`/`validate`'s `natural_language=True` prose-output path — costing roughly 2x the LLM calls for that case, since the structured result is always re-fetched first regardless of the flag — scored by an LLM judge checking the prose doesn't drop or contradict the gold-standard facts).
+
+```bash
+cd lib
+pytest tests/benchmarks -s
+python -m tests.benchmarks.querying.run --model gpt-4o --model gpt-4o-mini
+python -m tests.benchmarks.querying.run --record
+```
+
 ## Project structure
 
 ```
@@ -434,6 +449,7 @@ lib/
     ├── conftest.py           # kb / populated_kb fixtures shared by unit/ and benchmarks/
     ├── unit/
     └── benchmarks/
-        ├── common/            # shared harness: capture, scoring, runner, reporting
-        └── extraction/        # gold-standard cases + pytest suite + live run.py CLI
+        ├── common/            # shared harness: capture, (query_)scoring, (query_)runner, (query_)reporting
+        ├── extraction/        # gold-standard cases + pytest suite + live run.py CLI (import_text)
+        └── querying/          # gold-standard cases + pytest suite + live run.py CLI (answer/validate/enrich)
 ```

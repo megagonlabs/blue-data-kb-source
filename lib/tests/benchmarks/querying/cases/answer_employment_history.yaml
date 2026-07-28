@@ -1,0 +1,31 @@
+id: answer_employment_history
+description: >
+  Business domain. Find where an entity worked via search_entities +
+  get_entity_facts. Runs under both search_modes since this is the case that
+  exercises real semantic search (a vector backend is only wired up for this
+  case's semantic run).
+operation: answer
+seed_schema:
+  classes:
+    - {name: PERSON, description: "An individual"}
+    - {name: COMPANY, description: "A business organization"}
+  relations:
+    - name: WORKED_AT
+      description: "Employment relationship"
+      domain: PERSON
+      range: COMPANY
+      properties:
+        - {name: START_DATE, description: "Date employment began"}
+seed_data:
+  entities:
+    - {name: Alice, class: PERSON}
+    - {name: IBM, class: COMPANY}
+  facts:
+    - {ref: alice_ibm, head: Alice, relation: WORKED_AT, tail: IBM}
+  fact_properties:
+    - {owner: alice_ibm, name: START_DATE, value: "1998-06-01"}
+question: "Where did Alice work?"
+search_modes: [keyword, semantic]
+expected:
+  rows:
+    - {entity: "Alice → IBM", relation: WORKED_AT, start_date: "1998-06-01"}

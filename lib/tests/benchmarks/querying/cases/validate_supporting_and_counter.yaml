@@ -1,0 +1,32 @@
+id: validate_supporting_and_counter
+description: >
+  Business domain. Seeds both a supporting fact and a genuine counter-fact for
+  the same statement, so the case can't pass by returning empty `counter` —
+  a system that only ever returns supporting evidence looks fine on recall
+  alone otherwise. Also exercises the natural_language=True prose-output path;
+  NL fidelity checks the prose doesn't drop the counter-evidence.
+operation: validate
+seed_schema:
+  classes:
+    - {name: PERSON, description: "An individual"}
+    - {name: COMPANY, description: "A business organization"}
+  relations:
+    - {name: WORKED_AT, description: "Employment relationship", domain: PERSON, range: COMPANY}
+    - name: TERMINATED_FROM
+      description: "The person's employment at the company ended"
+      domain: PERSON
+      range: COMPANY
+seed_data:
+  entities:
+    - {name: Alice, class: PERSON}
+    - {name: IBM, class: COMPANY}
+  facts:
+    - {ref: alice_worked_ibm, head: Alice, relation: WORKED_AT, tail: IBM}
+    - {ref: alice_terminated_ibm, head: Alice, relation: TERMINATED_FROM, tail: IBM}
+statement: "Alice currently works at IBM."
+test_natural_language: true
+expected:
+  supporting:
+    - {fact: Alice_WORKED_AT_IBM, head: Alice, tail: IBM, relation: WORKED_AT}
+  counter:
+    - {fact: Alice_TERMINATED_FROM_IBM, head: Alice, tail: IBM, relation: TERMINATED_FROM}

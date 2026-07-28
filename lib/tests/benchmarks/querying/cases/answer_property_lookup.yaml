@@ -1,0 +1,23 @@
+id: answer_property_lookup
+description: >
+  Business domain. The question resolves to an entity property value rather
+  than a relation — exercises get_entity_properties, not just
+  get_entity_facts. Also exercises the natural_language=True prose-output
+  path (test_natural_language).
+operation: answer
+seed_schema:
+  classes:
+    - name: PERSON
+      description: "An individual"
+      properties:
+        - {name: AGE, description: "The person's age in years"}
+seed_data:
+  entities:
+    - {name: Bob, class: PERSON}
+  entity_properties:
+    - {owner: Bob, name: AGE, value: 42, literal_type: NUMBER}
+question: "How old is Bob?"
+test_natural_language: true
+expected:
+  rows:
+    - {age: "42"}
