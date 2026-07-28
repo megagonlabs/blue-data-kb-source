@@ -1,6 +1,7 @@
 """Orchestrates one (case, model, schema_discovery_mode) benchmark run:
-seed the KB with the case's starting schema, run `import_text`, and hand back
-everything `scoring.score_case` needs.
+seed the KB with the case's starting schema, run `import_text` once per
+`case.steps` entry (almost always just one), and hand back everything
+`scoring.score_case` needs.
 """
 
 from __future__ import annotations
@@ -103,15 +104,16 @@ async def run_case(kb: KBSource, case: Case, model: str, schema_discovery_mode: 
 
     instrumented = functools.partial(InstrumentedOpenAI, real_client_cls=openai.AsyncOpenAI, sink=llm_calls)
     with patch("openai.AsyncOpenAI", instrumented):
-        await kb.import_text(
-            DB,
-            case.input_text,
-            queries=case.queries or None,
-            model=model,
-            schema_discovery_mode=schema_discovery_mode,
-            on_tool_call=on_tool_call,
-            on_tool_result=on_tool_result,
-        )
+        for step in case.steps:
+            await kb.import_text(
+                DB,
+                step.input_text,
+                queries=step.queries or None,
+                model=model,
+                schema_discovery_mode=schema_discovery_mode,
+                on_tool_call=on_tool_call,
+                on_tool_result=on_tool_result,
+            )
 
     kb.remove_change_hook(DB, collector)
     post_schema, post_data = await _snapshot(kb, DB)

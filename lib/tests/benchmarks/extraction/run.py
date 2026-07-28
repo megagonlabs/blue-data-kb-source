@@ -76,6 +76,7 @@ async def _run_one(
     score = await scoring.score_case(
         case, model, mode,
         result.collector, result.trace,
+        kb, runner.DB,
         judge_client, judge_model,
         result.prompt_tokens, result.completion_tokens, result.latency_seconds,
     )

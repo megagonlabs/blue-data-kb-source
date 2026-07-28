@@ -32,12 +32,22 @@ class ExpectedResults:
 
 
 @dataclass
+class Step:
+    """One `import_text` call within a case. Almost every case has exactly one
+    step; multi-step cases (e.g. cross-document fusion) run several in sequence
+    against the same database, so later steps can find/reuse what earlier ones
+    created."""
+
+    input_text: str
+    queries: list[str] = field(default_factory=list)
+
+
+@dataclass
 class Case:
     id: str
     description: str
-    input_text: str
+    steps: list[Step]
     seed_schema: dict[str, Any] = field(default_factory=dict)
-    queries: list[str] = field(default_factory=list)
     schema_discovery_modes: tuple[str, ...] = _ALL_MODES
     expected: ExpectedResults = field(default_factory=ExpectedResults)
     source_path: Path | None = None
@@ -47,12 +57,21 @@ def _load_case(path: Path) -> Case:
     raw = yaml.safe_load(path.read_text())
     expected_raw = raw.get("expected", {})
     reuse_raw = expected_raw.get("schema_reuse", {})
+
+    if "steps" in raw:
+        steps = [
+            Step(input_text=s["input_text"], queries=s.get("queries", []) or [])
+            for s in raw["steps"]
+        ]
+    else:
+        # Single-step shorthand: top-level input_text/queries instead of a steps list.
+        steps = [Step(input_text=raw["input_text"], queries=raw.get("queries", []) or [])]
+
     return Case(
         id=raw["id"],
         description=raw.get("description", ""),
-        input_text=raw["input_text"],
+        steps=steps,
         seed_schema=raw.get("seed_schema", {}),
-        queries=raw.get("queries", []) or [],
         schema_discovery_modes=tuple(raw.get("schema_discovery_modes", _ALL_MODES)),
         expected=ExpectedResults(
             entities=expected_raw.get("entities", []),

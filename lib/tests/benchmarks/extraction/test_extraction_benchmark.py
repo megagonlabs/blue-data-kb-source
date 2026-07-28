@@ -56,6 +56,7 @@ async def test_case(kb, case_id, mode):
     score = await scoring.score_case(
         case, DEFAULT_MODEL, mode,
         result.collector, result.trace,
+        kb, runner.DB,
         judge_client, DEFAULT_MODEL,
         result.prompt_tokens, result.completion_tokens, result.latency_seconds,
     )
