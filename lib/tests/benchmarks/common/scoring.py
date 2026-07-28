@@ -89,6 +89,11 @@ async def judge_alignment(
     matches: list[Match] = []
     for m in raw_matches:
         ei, ai = m.get("expected_index"), m.get("actual_index")
+        # The model isn't always well-behaved: `required` in the tool schema doesn't
+        # stop it from emitting null or omitting a field, so treat anything other
+        # than a plain in-range int as a malformed (skip) match rather than crashing.
+        if not isinstance(ei, int) or not isinstance(ai, int):
+            continue
         if ei in seen_expected or ai in seen_actual:
             continue
         if not (0 <= ei < len(expected)) or not (0 <= ai < len(actual)):
