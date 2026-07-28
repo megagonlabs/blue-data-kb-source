@@ -32,7 +32,7 @@ class KBSource(GraphSource, ABC):
 class KBSource(GraphSource, ABC):
     # Schema — declare / update / delete
     async def declare_class(self, database: str, name: str, description: str, class_id: str | None = None) -> str: ...
-    async def declare_relation_type(self, database: str, name: str, description: str, is_symmetric: bool = False, relation_id: str | None = None, domain: str | list[str] | None = None, range_: str | list[str] | None = None) -> str: ...
+    async def declare_relation_type(self, database: str, name: str, description: str, is_symmetric: bool = False, relation_id: str | None = None, *, domain: str | list[str], range: str | list[str]) -> str: ...
     async def declare_class_property(self, database: str, name: str, description: str, property_id: str | None = None, class_id: str | None = None) -> str: ...
     async def declare_relation_property(self, database: str, name: str, description: str, property_id: str | None = None, relation_id: str | None = None) -> str: ...
     async def update_class(self, database: str, class_id: str, name: str | None = None, description: str | None = None) -> None: ...
@@ -92,7 +92,7 @@ class KBSource(GraphSource, ABC):
     def remove_change_hook(self, database: str, fn: Callable[[dict], None]) -> None: ...
 ```
 
-Note: `add_domain`/`add_range` do **not** exist as separate methods — `domain`/`range_` are wired inline as part of `declare_relation_type`.
+Note: `add_domain`/`add_range` do **not** exist as separate methods — `domain`/`range` are wired inline as part of `declare_relation_type`, and are required (not optional) there.
 
 ### Sync convenience methods
 
@@ -214,7 +214,7 @@ Declare a relation type.
   "description": "Employment relationship between a person and a company",
   "is_symmetric": false,
   "domain": "EMPLOYEE",
-  "range_": "COMPANY"
+  "range": "COMPANY"
 }
 ```
 
@@ -574,16 +574,16 @@ Exposes KBDB operations as MCP tools. Tool handlers are thin wrappers over the P
 ```json
 {
   "name": "declare_relation",
-  "description": "Declare a relation type in the schema. Idempotent. Optionally wire domain and range class constraints.",
+  "description": "Declare a relation type in the schema. Idempotent. Requires domain and range class constraints.",
   "inputSchema": {
     "type": "object",
-    "required": ["name", "description"],
+    "required": ["name", "description", "domain", "range"],
     "properties": {
       "database":    { "type": "string" },
       "name":        { "type": "string" },
       "description": { "type": "string" },
-      "domain":      { "type": "string", "description": "Name of the head entity class (optional)" },
-      "range_":      { "type": "string", "description": "Name of the tail entity class (optional)" }
+      "domain":      { "type": "string", "description": "Name of the head entity class" },
+      "range":       { "type": "string", "description": "Name of the tail entity class" }
     }
   }
 }

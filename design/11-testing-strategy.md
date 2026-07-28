@@ -173,7 +173,7 @@ async def populated_kb(kb) -> MemoryKBSource:
     employee = await kb.declare_class("test", "EMPLOYEE", "A person employed by an organization")
     await kb.add_is_subclass_of("test", employee, person)
     worked_at = await kb.declare_relation_type(
-        "test", "WORKED_AT", "Employment relationship", domain="EMPLOYEE", range_="COMPANY"
+        "test", "WORKED_AT", "Employment relationship", domain="EMPLOYEE", range="COMPANY"
     )
     start_date = await kb.declare_relation_property("test", "START_DATE", "Start of employment", relation_id=worked_at)
 

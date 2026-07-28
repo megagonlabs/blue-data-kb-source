@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, Callable, Literal
 from blue_data.source.graph.graph_source import GraphSource
 
 from blue_data_kb_source._constants import (
+    CLASS,
     ENTITY,
     EXTRACTED_FROM,
     FACT,
@@ -13,13 +14,21 @@ from blue_data_kb_source._constants import (
     IS_INSTANCE_OF,
     IS_VALUE_OF,
     LITERAL,
+    PROPERTY,
+    RELATION,
     REPRESENTS,
     SOURCE,
     EXTRACTION,
     TAIL,
 )
+from blue_data_kb_source.checks import require_node_type
 from blue_data_kb_source.knowledge.engine import QueryEngine
-from blue_data_kb_source.types import DataSearchResult, EnrichmentResult, KBError, ValidationResult
+from blue_data_kb_source.types import (
+    DataSearchResult,
+    EnrichmentResult,
+    KnowledgeError,
+    ValidationResult,
+)
 
 if TYPE_CHECKING:
     from blue_data_kb_source.notification.notifier import ChangeNotifier
@@ -103,6 +112,10 @@ class KnowledgeManager:
         text: str | None = None,
         source_id: str | None = None,
     ) -> str:
+        if class_id is not None:
+            require_node_type(self._source, database, class_id, CLASS, "class_id", KnowledgeError)
+        if source_id is not None:
+            require_node_type(self._source, database, source_id, SOURCE, "source_id", KnowledgeError)
         node_id = self._source.add_node(
             database,
             ENTITY,
@@ -135,6 +148,14 @@ class KnowledgeManager:
         text: str | None = None,
         source_id: str | None = None,
     ) -> str:
+        if head_entity_id is not None:
+            require_node_type(self._source, database, head_entity_id, ENTITY, "head_entity_id", KnowledgeError)
+        if tail_entity_id is not None:
+            require_node_type(self._source, database, tail_entity_id, ENTITY, "tail_entity_id", KnowledgeError)
+        if relation_id is not None:
+            require_node_type(self._source, database, relation_id, RELATION, "relation_id", KnowledgeError)
+        if source_id is not None:
+            require_node_type(self._source, database, source_id, SOURCE, "source_id", KnowledgeError)
         if name is None:
             head_name = self._node_name(database, head_entity_id) or "?"
             tail_name = self._node_name(database, tail_entity_id) or "?"
@@ -175,6 +196,8 @@ class KnowledgeManager:
         property_id: str | None = None,
         node_id: str | None = None,
     ) -> str:
+        if property_id is not None:
+            require_node_type(self._source, database, property_id, PROPERTY, "property_id", KnowledgeError)
         if name is None:
             name = str(value)
         if literal_type is None:
@@ -207,6 +230,10 @@ class KnowledgeManager:
         text: str | None = None,
         source_id: str | None = None,
     ) -> str:
+        if entity_id is not None:
+            require_node_type(self._source, database, entity_id, ENTITY, "entity_id", KnowledgeError)
+        if source_id is not None:
+            require_node_type(self._source, database, source_id, SOURCE, "source_id", KnowledgeError)
         literal_id = await self.add_literal(
             database, value, name=name, description=description,
             literal_type=literal_type, property_id=property_id
@@ -239,6 +266,10 @@ class KnowledgeManager:
         text: str | None = None,
         source_id: str | None = None,
     ) -> str:
+        if fact_id is not None:
+            require_node_type(self._source, database, fact_id, FACT, "fact_id", KnowledgeError)
+        if source_id is not None:
+            require_node_type(self._source, database, source_id, SOURCE, "source_id", KnowledgeError)
         literal_id = await self.add_literal(
             database, value, name=name, description=description,
             literal_type=literal_type, property_id=property_id
@@ -273,9 +304,9 @@ class KnowledgeManager:
         entity that already exists, producing another EXTRACTED_FROM edge
         alongside any existing ones.
         """
-        node = self._source.get_node(database, entity_id)
-        if node is None or node.get("label") != ENTITY:
-            raise KBError(f"No entity found with id {entity_id!r}.")
+        require_node_type(self._source, database, entity_id, ENTITY, "entity_id", KnowledgeError)
+        if source_id is not None:
+            require_node_type(self._source, database, source_id, SOURCE, "source_id", KnowledgeError)
         return await self._provenance.link_extraction(database, entity_id, text, source_id)
 
     async def add_fact_extraction(
@@ -292,9 +323,9 @@ class KnowledgeManager:
         already exists, producing another EXTRACTED_FROM edge alongside any
         existing ones.
         """
-        node = self._source.get_node(database, fact_id)
-        if node is None or node.get("label") != FACT:
-            raise KBError(f"No fact found with id {fact_id!r}.")
+        require_node_type(self._source, database, fact_id, FACT, "fact_id", KnowledgeError)
+        if source_id is not None:
+            require_node_type(self._source, database, source_id, SOURCE, "source_id", KnowledgeError)
         return await self._provenance.link_extraction(database, fact_id, text, source_id)
 
     async def add_entity_property_value_extraction(
@@ -306,9 +337,13 @@ class KnowledgeManager:
         source_id: str | None = None,
     ) -> str:
         """Link a new EXTRACTION built from *text* to an entity's existing property value."""
+        require_node_type(self._source, database, entity_id, ENTITY, "entity_id", KnowledgeError)
+        require_node_type(self._source, database, property_id, PROPERTY, "property_id", KnowledgeError)
+        if source_id is not None:
+            require_node_type(self._source, database, source_id, SOURCE, "source_id", KnowledgeError)
         lit_id = self._find_literal(database, entity_id, property_id)
         if lit_id is None:
-            raise KBError("No property value found for the given entity and property.")
+            raise KnowledgeError("No property value found for the given entity and property.")
         return await self._provenance.link_extraction(database, lit_id, text, source_id)
 
     async def add_fact_property_value_extraction(
@@ -320,9 +355,13 @@ class KnowledgeManager:
         source_id: str | None = None,
     ) -> str:
         """Link a new EXTRACTION built from *text* to a fact's existing property value."""
+        require_node_type(self._source, database, fact_id, FACT, "fact_id", KnowledgeError)
+        require_node_type(self._source, database, property_id, PROPERTY, "property_id", KnowledgeError)
+        if source_id is not None:
+            require_node_type(self._source, database, source_id, SOURCE, "source_id", KnowledgeError)
         lit_id = self._find_literal(database, fact_id, property_id)
         if lit_id is None:
-            raise KBError("No property value found for the given fact and property.")
+            raise KnowledgeError("No property value found for the given fact and property.")
         return await self._provenance.link_extraction(database, lit_id, text, source_id)
 
     # ------------------------------------------------------------------ #
@@ -336,9 +375,10 @@ class KnowledgeManager:
         name: str | None = None,
         description: str | None = None,
     ) -> None:
+        require_node_type(self._source, database, entity_id, ENTITY, "entity_id", KnowledgeError)
         props = {k: v for k, v in {"name": name, "description": description}.items() if v is not None}
         if not props:
-            raise KBError("At least one of --name or --description must be provided.")
+            raise KnowledgeError("At least one of --name or --description must be provided.")
         self._source.update_node(database, entity_id, props)
         self._notifier.fire({"type": "entity_updated", "database": database, "id": entity_id})
 
@@ -349,9 +389,10 @@ class KnowledgeManager:
         name: str | None = None,
         description: str | None = None,
     ) -> None:
+        require_node_type(self._source, database, fact_id, FACT, "fact_id", KnowledgeError)
         props = {k: v for k, v in {"name": name, "description": description}.items() if v is not None}
         if not props:
-            raise KBError("At least one of --name or --description must be provided.")
+            raise KnowledgeError("At least one of --name or --description must be provided.")
         self._source.update_node(database, fact_id, props)
         self._notifier.fire({"type": "fact_updated", "database": database, "id": fact_id})
 
@@ -372,9 +413,11 @@ class KnowledgeManager:
         name: str | None = None,
         description: str | None = None,
     ) -> None:
+        require_node_type(self._source, database, entity_id, ENTITY, "entity_id", KnowledgeError)
+        require_node_type(self._source, database, property_id, PROPERTY, "property_id", KnowledgeError)
         lit_id = self._find_literal(database, entity_id, property_id)
         if lit_id is None:
-            raise KBError("No property value found for the given entity and property.")
+            raise KnowledgeError("No property value found for the given entity and property.")
         props: dict = {}
         if value is not None:
             props["value"] = value
@@ -385,7 +428,7 @@ class KnowledgeManager:
         if description is not None:
             props["description"] = description
         if not props:
-            raise KBError("At least one of --value, --name, or --description must be provided.")
+            raise KnowledgeError("At least one of --value, --name, or --description must be provided.")
         self._source.update_node(database, lit_id, props)
         self._notifier.fire({"type": "entity_property_updated", "database": database,
                              "id": lit_id, "entity_id": entity_id})
@@ -399,9 +442,11 @@ class KnowledgeManager:
         name: str | None = None,
         description: str | None = None,
     ) -> None:
+        require_node_type(self._source, database, fact_id, FACT, "fact_id", KnowledgeError)
+        require_node_type(self._source, database, property_id, PROPERTY, "property_id", KnowledgeError)
         lit_id = self._find_literal(database, fact_id, property_id)
         if lit_id is None:
-            raise KBError("No property value found for the given fact and property.")
+            raise KnowledgeError("No property value found for the given fact and property.")
         props: dict = {}
         if value is not None:
             props["value"] = value
@@ -412,7 +457,7 @@ class KnowledgeManager:
         if description is not None:
             props["description"] = description
         if not props:
-            raise KBError("At least one of --value, --name, or --description must be provided.")
+            raise KnowledgeError("At least one of --value, --name, or --description must be provided.")
         self._source.update_node(database, lit_id, props)
         self._notifier.fire({"type": "fact_property_updated", "database": database,
                              "id": lit_id, "fact_id": fact_id})
@@ -436,9 +481,10 @@ class KnowledgeManager:
         return list(dict.fromkeys(fact_ids))  # deduplicate, preserve order
 
     async def delete_entity(self, database: str, entity_id: str, cascade: bool = False) -> None:
+        require_node_type(self._source, database, entity_id, ENTITY, "entity_id", KnowledgeError)
         referencing = self._facts_referencing(database, entity_id)
         if referencing and not cascade:
-            raise KBError(
+            raise KnowledgeError(
                 f"Entity is referenced by {len(referencing)} fact(s). "
                 "Use cascade=True to also delete them."
             )
@@ -451,6 +497,7 @@ class KnowledgeManager:
         self._notifier.fire({"type": "entity_deleted", "database": database, "id": entity_id})
 
     async def delete_fact(self, database: str, fact_id: str) -> None:
+        require_node_type(self._source, database, fact_id, FACT, "fact_id", KnowledgeError)
         self._delete_literals(database, fact_id)
         self._source.delete_node(database, fact_id)
         self._notifier.fire({"type": "fact_deleted", "database": database, "id": fact_id})
@@ -458,9 +505,11 @@ class KnowledgeManager:
     async def delete_entity_property_value(
         self, database: str, entity_id: str, property_id: str
     ) -> None:
+        require_node_type(self._source, database, entity_id, ENTITY, "entity_id", KnowledgeError)
+        require_node_type(self._source, database, property_id, PROPERTY, "property_id", KnowledgeError)
         lit_id = self._find_literal(database, entity_id, property_id)
         if lit_id is None:
-            raise KBError("No property value found for the given entity and property.")
+            raise KnowledgeError("No property value found for the given entity and property.")
         self._source.delete_node(database, lit_id)
         self._notifier.fire({"type": "entity_property_deleted", "database": database,
                              "id": lit_id, "entity_id": entity_id})
@@ -468,9 +517,11 @@ class KnowledgeManager:
     async def delete_fact_property_value(
         self, database: str, fact_id: str, property_id: str
     ) -> None:
+        require_node_type(self._source, database, fact_id, FACT, "fact_id", KnowledgeError)
+        require_node_type(self._source, database, property_id, PROPERTY, "property_id", KnowledgeError)
         lit_id = self._find_literal(database, fact_id, property_id)
         if lit_id is None:
-            raise KBError("No property value found for the given fact and property.")
+            raise KnowledgeError("No property value found for the given fact and property.")
         self._source.delete_node(database, lit_id)
         self._notifier.fire({"type": "fact_property_deleted", "database": database,
                              "id": lit_id, "fact_id": fact_id})

@@ -43,11 +43,13 @@ async def test_hook_entity_event_class_name_none_without_class(kb):
 # ------------------------------------------------------------------ #
 
 async def test_hook_fires_on_fact_add(kb):
+    await kb.declare_class("test", "PERSON", "")
+    await kb.declare_class("test", "COMPANY", "")
     events: list[dict] = []
     kb.add_change_hook("test", events.append)
     alice = await kb.add_entity("test", "Alice")
     ibm   = await kb.add_entity("test", "IBM")
-    rel   = await kb.declare_relation_type("test", "WORKED_AT", "")
+    rel   = await kb.declare_relation_type("test", "WORKED_AT", "", domain="PERSON", range="COMPANY")
     await kb.add_fact("test", head_entity_id=alice, tail_entity_id=ibm, relation_id=rel)
     fact_events = [e for e in events if e["type"] == "fact_added"]
     assert len(fact_events) == 1
@@ -96,11 +98,13 @@ async def test_hook_fires_on_entity_property_add(kb):
 # ------------------------------------------------------------------ #
 
 async def test_hook_fires_on_fact_property_add(kb):
+    await kb.declare_class("test", "PERSON", "")
+    await kb.declare_class("test", "COMPANY", "")
     events: list[dict] = []
     kb.add_change_hook("test", events.append)
     alice   = await kb.add_entity("test", "Alice")
     ibm     = await kb.add_entity("test", "IBM")
-    rel_id  = await kb.declare_relation_type("test", "WORKED_AT", "")
+    rel_id  = await kb.declare_relation_type("test", "WORKED_AT", "", domain="PERSON", range="COMPANY")
     prop_id = await kb.declare_relation_property("test", "START_DATE", "", relation_id=rel_id)
     fact_id = await kb.add_fact("test", head_entity_id=alice, tail_entity_id=ibm, relation_id=rel_id)
     await kb.add_fact_property_value("test", "1998-06-01", fact_id=fact_id, property_id=prop_id)

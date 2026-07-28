@@ -158,11 +158,12 @@ class KBSource(GraphSource, ABC):
         description: str,
         is_symmetric: bool = False,
         relation_id: str | None = None,
-        domain: str | list[str] | None = None,
-        range_: str | list[str] | None = None,
+        *,
+        domain: str | list[str],
+        range: str | list[str],
     ) -> str:
         return await self._schema.declare_relation_type(
-            database, name, description, is_symmetric, relation_id, domain, range_
+            database, name, description, is_symmetric, relation_id, domain=domain, range=range
         )
 
     async def declare_class_property(
@@ -667,7 +668,7 @@ class KBSource(GraphSource, ABC):
                 is_symmetric=query.get("is_symmetric", False),
                 relation_id=query.get("relation_id"),
                 domain=query.get("domain"),
-                range_=query.get("range"),
+                range=query.get("range"),
             ))
 
         if op == "KB.DECLARE_CLASS_PROPERTY":

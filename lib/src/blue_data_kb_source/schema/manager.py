@@ -24,6 +24,7 @@ from blue_data_kb_source._constants import (
     SOURCE,
     TAIL,
 )
+from blue_data_kb_source.checks import require_node_type, require_node_type_one_of
 from blue_data_kb_source.types import SchemaError, SchemaSearchResult
 
 from typing import TYPE_CHECKING
@@ -148,9 +149,22 @@ class SchemaManager:
         description: str,
         is_symmetric: bool = False,
         relation_id: str | None = None,
-        domain: str | list[str] | None = None,
-        range_: str | list[str] | None = None,
+        *,
+        domain: str | list[str],
+        range: str | list[str],
     ) -> str:
+        domain_names: list[str] = [domain] if isinstance(domain, str) else list(domain or [])
+        range_names: list[str] = [range] if isinstance(range, str) else list(range or [])
+        if not domain_names:
+            raise SchemaError(
+                "domain is required when declaring a relation type: pass the name of at least one "
+                "existing CLASS (or a list of names). A relation cannot be declared without a domain."
+            )
+        if not range_names:
+            raise SchemaError(
+                "range is required when declaring a relation type: pass the name of at least one "
+                "existing CLASS (or a list of names). A relation cannot be declared without a range."
+            )
         existing = self._source.match_nodes(database, label=RELATION, properties={"name": name})
         if existing:
             return existing[0]["id"]
@@ -160,8 +174,6 @@ class SchemaManager:
             {"name": name, "description": description, "is_symmetric": is_symmetric},
             node_id=relation_id,
         )
-        domain_names: list[str] = [domain] if isinstance(domain, str) else list(domain or [])
-        range_names: list[str] = [range_] if isinstance(range_, str) else list(range_ or [])
         for class_name in domain_names:
             classes = self._source.match_nodes(database, label=CLASS, properties={"name": class_name})
             if not classes:
@@ -186,6 +198,7 @@ class SchemaManager:
         class_id: str | None = None,
     ) -> str:
         if class_id is not None:
+            require_node_type(self._source, database, class_id, CLASS, "class_id", SchemaError)
             for nb in self._source.get_neighbors(database, class_id, edge_type=DEFINE_PROPERTY, direction="out"):
                 if nb["node"].get("properties", {}).get("name") == name:
                     return nb["node"]["id"]
@@ -219,6 +232,7 @@ class SchemaManager:
         relation_id: str | None = None,
     ) -> str:
         if relation_id is not None:
+            require_node_type(self._source, database, relation_id, RELATION, "relation_id", SchemaError)
             for nb in self._source.get_neighbors(database, relation_id, edge_type=DEFINE_PROPERTY, direction="out"):
                 if nb["node"].get("properties", {}).get("name") == name:
                     return nb["node"]["id"]
@@ -250,6 +264,7 @@ class SchemaManager:
         name: str | None = None,
         description: str | None = None,
     ) -> None:
+        require_node_type(self._source, database, class_id, CLASS, "class_id", SchemaError)
         props = {k: v for k, v in {"name": name, "description": description}.items() if v is not None}
         if not props:
             raise SchemaError("At least one of name or description must be provided.")
@@ -263,6 +278,7 @@ class SchemaManager:
         name: str | None = None,
         description: str | None = None,
     ) -> None:
+        require_node_type(self._source, database, relation_id, RELATION, "relation_id", SchemaError)
         props = {k: v for k, v in {"name": name, "description": description}.items() if v is not None}
         if not props:
             raise SchemaError("At least one of name or description must be provided.")
@@ -276,6 +292,7 @@ class SchemaManager:
         name: str | None = None,
         description: str | None = None,
     ) -> None:
+        require_node_type(self._source, database, property_id, PROPERTY, "property_id", SchemaError)
         props = {k: v for k, v in {"name": name, "description": description}.items() if v is not None}
         if not props:
             raise SchemaError("At least one of name or description must be provided.")
@@ -283,6 +300,7 @@ class SchemaManager:
         self._fire({"type": "property_updated", "database": database, "id": property_id})
 
     async def delete_class(self, database: str, class_id: str) -> None:
+        require_node_type(self._source, database, class_id, CLASS, "class_id", SchemaError)
         if self._source.get_neighbors(database, class_id, edge_type=IS_INSTANCE_OF, direction="in"):
             raise SchemaError("Class has entity instances. Delete them before removing the class.")
         if self._source.get_neighbors(database, class_id, edge_type=IS_SUBCLASS_OF, direction="in"):
@@ -294,6 +312,7 @@ class SchemaManager:
         self._fire({"type": "class_deleted", "database": database, "id": class_id})
 
     async def delete_relation(self, database: str, relation_id: str) -> None:
+        require_node_type(self._source, database, relation_id, RELATION, "relation_id", SchemaError)
         if self._source.get_neighbors(database, relation_id, edge_type=REPRESENTS, direction="in"):
             raise SchemaError("Relation has fact instances. Delete them before removing the relation.")
         if self._source.get_neighbors(database, relation_id, edge_type=IS_SUBCLASS_OF, direction="in"):
@@ -305,19 +324,34 @@ class SchemaManager:
         self._fire({"type": "relation_deleted", "database": database, "id": relation_id})
 
     async def delete_property(self, database: str, property_id: str) -> None:
+        require_node_type(self._source, database, property_id, PROPERTY, "property_id", SchemaError)
         if self._source.get_neighbors(database, property_id, edge_type=IS_VALUE_OF, direction="in"):
             raise SchemaError("Property has existing values. Delete them before removing the property.")
         self._source.delete_node(database, property_id)
         self._fire({"type": "property_deleted", "database": database, "id": property_id})
 
+    def _require_class_or_relation(self, database: str, node_id: str, param_name: str) -> dict:
+        return require_node_type_one_of(
+            self._source, database, node_id, (CLASS, RELATION), param_name, SchemaError
+        )
+
     async def remove_is_subclass_of(self, database: str, child_id: str, parent_id: str) -> None:
+        self._require_class_or_relation(database, child_id, "child_id")
+        self._require_class_or_relation(database, parent_id, "parent_id")
         self._source.delete_edge(database, child_id, IS_SUBCLASS_OF, parent_id)
 
     async def add_is_subclass_of(self, database: str, child_id: str, parent_id: str) -> None:
-        self._source.add_edge(database, child_id, IS_SUBCLASS_OF, parent_id)
-        child_node  = self._source.get_node(database, child_id)  or {}
-        parent_node = self._source.get_node(database, parent_id) or {}
+        child_node = self._require_class_or_relation(database, child_id, "child_id")
+        parent_node = self._require_class_or_relation(database, parent_id, "parent_id")
         child_label = child_node.get("label", "")
+        parent_label = parent_node.get("label", "")
+        if child_label != parent_label:
+            raise SchemaError(
+                f"child_id {child_id!r} is a {child_label} node but parent_id {parent_id!r} is a "
+                f"{parent_label} node — a subclass relationship requires both to be the same kind "
+                "(both CLASS or both RELATION)."
+            )
+        self._source.add_edge(database, child_id, IS_SUBCLASS_OF, parent_id)
         event_type = "class_subclass" if child_label == CLASS else "relation_subclass"
         self._fire({
             "type": event_type,
@@ -432,14 +466,9 @@ class SchemaManager:
 
         for rel_name, rd in rel_data.items():
             relation_id = await self.declare_relation_type(
-                database, name=rel_name, description=rd["description"]
+                database, name=rel_name, description=rd["description"],
+                domain=rd["domains"], range=rd["ranges"],
             )
-            for domain_name in rd["domains"]:
-                if domain_name in class_ids:
-                    self._source.add_edge(database, relation_id, DOMAIN, class_ids[domain_name])
-            for range_name in rd["ranges"]:
-                if range_name in class_ids:
-                    self._source.add_edge(database, relation_id, RANGE, class_ids[range_name])
             for attr_name, attr_obj in rd["attributes"].items():
                 await self.declare_relation_property(
                     database,

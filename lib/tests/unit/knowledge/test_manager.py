@@ -100,7 +100,9 @@ async def test_add_fact_creates_node(kb):
 async def test_add_fact_auto_names_from_head_tail_relation(kb):
     alice_id = await kb.add_entity("test", "Alice")
     ibm_id   = await kb.add_entity("test", "IBM")
-    rel_id   = await kb.declare_relation_type("test", "WORKED_AT", "")
+    await kb.declare_class("test", "PERSON", "")
+    await kb.declare_class("test", "COMPANY", "")
+    rel_id   = await kb.declare_relation_type("test", "WORKED_AT", "", domain="PERSON", range="COMPANY")
     fact_id  = await kb.add_fact("test",
                                   head_entity_id=alice_id,
                                   tail_entity_id=ibm_id,
@@ -121,7 +123,9 @@ async def test_add_fact_uses_explicit_name(kb):
 async def test_add_fact_wires_head_tail_represents(kb):
     alice_id = await kb.add_entity("test", "Alice")
     ibm_id   = await kb.add_entity("test", "IBM")
-    rel_id   = await kb.declare_relation_type("test", "WORKED_AT", "")
+    await kb.declare_class("test", "PERSON", "")
+    await kb.declare_class("test", "COMPANY", "")
+    rel_id   = await kb.declare_relation_type("test", "WORKED_AT", "", domain="PERSON", range="COMPANY")
     fact_id  = await kb.add_fact("test",
                                   head_entity_id=alice_id,
                                   tail_entity_id=ibm_id,
@@ -223,8 +227,14 @@ async def test_add_entity_property_bool_typed_correctly(kb):
 # add_fact_property_value                                              #
 # ------------------------------------------------------------------ #
 
+async def _declare_worked_at(kb):
+    await kb.declare_class("test", "PERSON", "")
+    await kb.declare_class("test", "COMPANY", "")
+    return await kb.declare_relation_type("test", "WORKED_AT", "", domain="PERSON", range="COMPANY")
+
+
 async def test_add_fact_property_value_creates_literal(kb):
-    rel_id  = await kb.declare_relation_type("test", "WORKED_AT", "")
+    rel_id  = await _declare_worked_at(kb)
     prop_id = await kb.declare_relation_property("test", "START_DATE", "", relation_id=rel_id)
     fact_id = await kb.add_fact("test", relation_id=rel_id)
     lit_id  = await kb.add_fact_property_value("test", "1998-06-01",
@@ -236,7 +246,7 @@ async def test_add_fact_property_value_creates_literal(kb):
 
 
 async def test_add_fact_property_value_wires_has_property(kb):
-    rel_id  = await kb.declare_relation_type("test", "WORKED_AT", "")
+    rel_id  = await _declare_worked_at(kb)
     prop_id = await kb.declare_relation_property("test", "START_DATE", "", relation_id=rel_id)
     fact_id = await kb.add_fact("test", relation_id=rel_id)
     lit_id  = await kb.add_fact_property_value("test", "1998-06-01",
@@ -259,13 +269,13 @@ async def test_add_entity_extraction_wires_edge(kb):
 
 
 async def test_add_entity_extraction_raises_for_missing_entity(kb):
-    with pytest.raises(KBError, match="No entity found"):
+    with pytest.raises(KBError, match="does not exist"):
         await kb.add_entity_extraction("test", "not-a-real-id", text="Some text.")
 
 
 async def test_add_entity_extraction_raises_for_non_entity_id(kb):
     fact_id = await kb.add_fact("test")
-    with pytest.raises(KBError, match="No entity found"):
+    with pytest.raises(KBError, match="expected"):
         await kb.add_entity_extraction("test", fact_id, text="Some text.")
 
 
@@ -277,7 +287,7 @@ async def test_add_fact_extraction_wires_edge(kb):
 
 
 async def test_add_fact_extraction_raises_for_missing_fact(kb):
-    with pytest.raises(KBError, match="No fact found"):
+    with pytest.raises(KBError, match="does not exist"):
         await kb.add_fact_extraction("test", "not-a-real-id", text="Some text.")
 
 
@@ -300,7 +310,7 @@ async def test_add_entity_property_value_extraction_raises_when_no_value_set(kb)
 
 
 async def test_add_fact_property_value_extraction_wires_edge(kb):
-    rel_id  = await kb.declare_relation_type("test", "WORKED_AT", "")
+    rel_id  = await _declare_worked_at(kb)
     prop_id = await kb.declare_relation_property("test", "START_DATE", "", relation_id=rel_id)
     fact_id = await kb.add_fact("test", relation_id=rel_id)
     lit_id  = await kb.add_fact_property_value("test", "1998-06-01", fact_id=fact_id, property_id=prop_id)
@@ -312,7 +322,7 @@ async def test_add_fact_property_value_extraction_wires_edge(kb):
 
 
 async def test_add_fact_property_value_extraction_raises_when_no_value_set(kb):
-    rel_id  = await kb.declare_relation_type("test", "WORKED_AT", "")
+    rel_id  = await _declare_worked_at(kb)
     prop_id = await kb.declare_relation_property("test", "START_DATE", "", relation_id=rel_id)
     fact_id = await kb.add_fact("test", relation_id=rel_id)
     with pytest.raises(KBError, match="No property value found"):

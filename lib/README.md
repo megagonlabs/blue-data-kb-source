@@ -63,8 +63,8 @@ async def main():
         "main", name="WORKED_AT",
         description="Employment relationship between a person and a company",
         is_symmetric=False,
-        domain="EMPLOYEE",   # wires DOMAIN edge inline
-        range_="COMPANY",    # wires RANGE edge inline
+        domain="EMPLOYEE",   # required; wires DOMAIN edge inline
+        range="COMPANY",     # required; wires RANGE edge inline
     )
 
     start_date_prop = await kb.declare_relation_property(
@@ -218,7 +218,7 @@ kb.add_change_hook("main", on_kb_change)
 person   = await kb.declare_class("main", "PERSON", "A human individual")
 # → class      'PERSON'
 
-worked_at = await kb.declare_relation_type("main", "WORKED_AT", "Employment", domain="PERSON", range_="COMPANY")
+worked_at = await kb.declare_relation_type("main", "WORKED_AT", "Employment", domain="PERSON", range="COMPANY")
 # → relation   'WORKED_AT'  (['PERSON'] → ['COMPANY'])
 
 await kb.declare_class_property("main", "AGE", "Age", class_id=person)
@@ -299,7 +299,7 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | Method | Returns | Description |
 |---|---|---|
 | `await declare_class(database, name, description, class_id?)` | `str` | Add a `:CLASS` node |
-| `await declare_relation_type(database, name, description, is_symmetric?, relation_id?, domain?, range_?)` | `str` | Add a `:RELATION` node; `domain`/`range_` accept a class name or list of class names and wire `DOMAIN`/`RANGE` edges |
+| `await declare_relation_type(database, name, description, is_symmetric?, relation_id?, *, domain, range)` | `str` | Add a `:RELATION` node; `domain`/`range` are required (keyword-only), accept a class name or list of class names, and wire `DOMAIN`/`RANGE` edges |
 | `await declare_class_property(database, name, description, property_id?, class_id?)` | `str` | Add a `:PROPERTY` node; optionally wires `DEFINE_PROPERTY` from a class |
 | `await declare_relation_property(database, name, description, property_id?, relation_id?)` | `str` | Add a `:PROPERTY` node; optionally wires `DEFINE_PROPERTY` from a relation |
 | `await add_is_subclass_of(database, child_id, parent_id)` | `None` | Wire `IS_SUBCLASS_OF` between two CLASS or RELATION nodes |
@@ -369,10 +369,16 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | Exception | When raised |
 |---|---|
 | `KBError` | Base class for all KBDB errors |
-| `SchemaError` | Schema validation or consistency failures (e.g. missing domain class) |
-| `KnowledgeError` | Knowledge-layer write or query failures |
+| `SchemaError` | Schema validation or consistency failures (e.g. missing domain class, a `class_id` that isn't a CLASS node) |
+| `KnowledgeError` | Knowledge-layer write or query failures (e.g. an `entity_id` that doesn't exist, or refers to a FACT instead) |
 | `ExtractionError` | LLM extraction failures (e.g. missing `openai` package) |
 | `ProvenanceError` | Provenance-tracking failures |
+
+`SchemaManager`/`KnowledgeManager` write methods that take an id parameter referencing an existing node
+(`class_id`, `relation_id`, `property_id`, `entity_id`, `fact_id`, `source_id`, ...) validate that the
+node exists and is the expected type before doing anything, raising `SchemaError`/`KnowledgeError` with
+the offending id and expected type otherwise. Ids that name a *new* node being created (e.g. `class_id`
+passed to `declare_class` to force a specific id) are not checked this way.
 
 ### Literal types
 

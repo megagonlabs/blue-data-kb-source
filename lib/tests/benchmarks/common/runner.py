@@ -36,7 +36,7 @@ async def seed_schema(kb: KBSource, database: str, spec: dict[str, Any]) -> None
             rel.get("description", ""),
             is_symmetric=rel.get("is_symmetric", False),
             domain=rel.get("domain"),
-            range_=rel.get("range"),
+            range=rel.get("range"),
         )
         for prop in rel.get("properties", []):
             await kb.declare_relation_property(

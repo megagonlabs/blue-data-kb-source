@@ -1097,17 +1097,17 @@ def schema_relation_group() -> None:
 @schema_relation_group.command("add")
 @click.argument("name")
 @click.argument("description")
-@click.option("--domain", default=None, help="Domain class name.")
-@click.option("--range", "range_", default=None, help="Range class name.")
+@click.option("--domain", required=True, help="Domain class name.")
+@click.option("--range", "range", required=True, help="Range class name.")
 @click.pass_obj
 def schema_relation_add(
-    obj: dict, name: str, description: str, domain: str | None, range_: str | None
+    obj: dict, name: str, description: str, domain: str, range: str
 ) -> None:
     """Declare a RELATION node (idempotent)."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
-        rel_id = _run(kb.declare_relation_type(db, name, description, domain=domain, range_=range_))
+        rel_id = _run(kb.declare_relation_type(db, name, description, domain=domain, range=range))
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(f"Added relation: [bold]{name}[/bold] (id: {rel_id})")

@@ -48,7 +48,7 @@ async def main():
 
     worked_at = await kb.declare_relation_type(
         "main", "WORKED_AT", "Employment relationship",
-        domain="EMPLOYEE", range_="COMPANY"
+        domain="EMPLOYEE", range="COMPANY"
     )
     start_date = await kb.declare_relation_property("main", "START_DATE", "Start of employment", relation_id=worked_at)
 
@@ -85,7 +85,7 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `declare_class(database, name, description, class_id?)` | `str` | Declare a CLASS node (idempotent) |
-| `declare_relation_type(database, name, description, is_symmetric?, relation_id?, domain?, range_?)` | `str` | Declare a RELATION node; wires DOMAIN/RANGE edges inline |
+| `declare_relation_type(database, name, description, is_symmetric?, relation_id?, *, domain, range)` | `str` | Declare a RELATION node; `domain`/`range` are required (keyword-only); wires DOMAIN/RANGE edges inline |
 | `declare_class_property(database, name, description, property_id?, class_id?)` | `str` | Declare a PROPERTY node; wires DEFINE_PROPERTY from a class |
 | `declare_relation_property(database, name, description, property_id?, relation_id?)` | `str` | Declare a PROPERTY node; wires DEFINE_PROPERTY from a relation |
 | `add_is_subclass_of(database, child_id, parent_id)` | `None` | Wire IS_SUBCLASS_OF edge |
@@ -167,15 +167,18 @@ Declares a CLASS node.
 2. If found: return existing ID
 3. If not found: create CLASS node with `name`, `description`, optional `class_id`; return new ID
 
-#### `declare_relation_type(database, name, description, is_symmetric=False, relation_id=None, domain=None, range_=None)`
+#### `declare_relation_type(database, name, description, is_symmetric=False, relation_id=None, *, domain, range)`
 
-Declares a RELATION node. `domain` and `range_` accept a class name or list of class names.
+Declares a RELATION node. `domain` and `range` are required, keyword-only, and accept a class name or
+list of class names — every relation must have at least one domain class and one range class; there is
+no wildcard/universal relation.
 
 **Algorithm**
 
-1. Look up existing RELATION node by `name`
-2. If found: return existing ID (DOMAIN/RANGE edges are not re-wired)
-3. If not found: create RELATION node; resolve each name in `domain` and `range_` to a CLASS ID via name lookup; wire DOMAIN and RANGE edges; return new ID
+1. Raise `SchemaError` if `domain` or `range` is `None` or empty
+2. Look up existing RELATION node by `name`
+3. If found: return existing ID (DOMAIN/RANGE edges are not re-wired)
+4. If not found: create RELATION node; resolve each name in `domain` and `range` to a CLASS ID via name lookup (raising `SchemaError` if a name doesn't match an existing CLASS); wire DOMAIN and RANGE edges; return new ID
 
 #### `fetch_database_schema(database)`
 

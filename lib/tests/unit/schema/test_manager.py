@@ -45,7 +45,7 @@ async def test_declare_relation_type_creates_node(kb):
     await kb.declare_class("test", "PERSON", "")
     await kb.declare_class("test", "COMPANY", "")
     rel_id = await kb.declare_relation_type(
-        "test", "WORKS_AT", "Employment relation", domain="PERSON", range_="COMPANY"
+        "test", "WORKS_AT", "Employment relation", domain="PERSON", range="COMPANY"
     )
     node = kb.get_node("test", rel_id)
     assert node is not None
@@ -57,7 +57,7 @@ async def test_declare_relation_type_wires_domain_and_range(kb):
     person_id  = await kb.declare_class("test", "PERSON",  "")
     company_id = await kb.declare_class("test", "COMPANY", "")
     rel_id = await kb.declare_relation_type(
-        "test", "WORKS_AT", "", domain="PERSON", range_="COMPANY"
+        "test", "WORKS_AT", "", domain="PERSON", range="COMPANY"
     )
     domain_nbs = kb.get_neighbors("test", rel_id, edge_type="DOMAIN", direction="out")
     range_nbs  = kb.get_neighbors("test", rel_id, edge_type="RANGE",  direction="out")
@@ -70,7 +70,7 @@ async def test_declare_relation_type_multiple_domains(kb):
     p2 = await kb.declare_class("test", "EMPLOYEE", "")
     await kb.declare_class("test", "COMPANY", "")
     rel_id = await kb.declare_relation_type(
-        "test", "WORKS_AT", "", domain=["PERSON", "EMPLOYEE"], range_="COMPANY"
+        "test", "WORKS_AT", "", domain=["PERSON", "EMPLOYEE"], range="COMPANY"
     )
     domain_nbs = kb.get_neighbors("test", rel_id, edge_type="DOMAIN", direction="out")
     domain_ids = {nb["node"]["id"] for nb in domain_nbs}
@@ -79,24 +79,42 @@ async def test_declare_relation_type_multiple_domains(kb):
 
 
 async def test_declare_relation_type_raises_on_missing_domain(kb):
+    await kb.declare_class("test", "COMPANY", "")
     with pytest.raises(SchemaError, match="domain class"):
-        await kb.declare_relation_type("test", "WORKS_AT", "", domain="NONEXISTENT")
+        await kb.declare_relation_type("test", "WORKS_AT", "", domain="NONEXISTENT", range="COMPANY")
 
 
 async def test_declare_relation_type_raises_on_missing_range(kb):
     await kb.declare_class("test", "PERSON", "")
     with pytest.raises(SchemaError, match="range class"):
-        await kb.declare_relation_type("test", "WORKS_AT", "", domain="PERSON", range_="NONEXISTENT")
+        await kb.declare_relation_type("test", "WORKS_AT", "", domain="PERSON", range="NONEXISTENT")
+
+
+async def test_declare_relation_type_raises_on_missing_domain_arg(kb):
+    await kb.declare_class("test", "COMPANY", "")
+    with pytest.raises(SchemaError, match="domain is required"):
+        await kb.declare_relation_type("test", "WORKS_AT", "", domain=None, range="COMPANY")
+
+
+async def test_declare_relation_type_raises_on_missing_range_arg(kb):
+    await kb.declare_class("test", "PERSON", "")
+    with pytest.raises(SchemaError, match="range is required"):
+        await kb.declare_relation_type("test", "WORKS_AT", "", domain="PERSON", range=None)
 
 
 async def test_declare_relation_type_is_idempotent(kb):
-    id1 = await kb.declare_relation_type("test", "WORKS_AT", "Employment")
-    id2 = await kb.declare_relation_type("test", "WORKS_AT", "Changed description")
+    await kb.declare_class("test", "PERSON", "")
+    await kb.declare_class("test", "COMPANY", "")
+    id1 = await kb.declare_relation_type("test", "WORKS_AT", "Employment", domain="PERSON", range="COMPANY")
+    id2 = await kb.declare_relation_type("test", "WORKS_AT", "Changed description", domain="PERSON", range="COMPANY")
     assert id1 == id2
 
 
 async def test_declare_relation_type_symmetric_flag(kb):
-    rel_id = await kb.declare_relation_type("test", "KNOWS", "Knows relation", is_symmetric=True)
+    await kb.declare_class("test", "PERSON", "")
+    rel_id = await kb.declare_relation_type(
+        "test", "KNOWS", "Knows relation", is_symmetric=True, domain="PERSON", range="PERSON"
+    )
     node = kb.get_node("test", rel_id)
     assert node["properties"]["is_symmetric"] is True
 
@@ -138,8 +156,14 @@ async def test_declare_class_property_without_class_id(kb):
 # declare_relation_property                                            #
 # ------------------------------------------------------------------ #
 
+async def _declare_works_at(kb):
+    await kb.declare_class("test", "PERSON", "")
+    await kb.declare_class("test", "COMPANY", "")
+    return await kb.declare_relation_type("test", "WORKS_AT", "", domain="PERSON", range="COMPANY")
+
+
 async def test_declare_relation_property_creates_node(kb):
-    rel_id = await kb.declare_relation_type("test", "WORKS_AT", "")
+    rel_id = await _declare_works_at(kb)
     prop_id = await kb.declare_relation_property("test", "START_DATE", "Start date", relation_id=rel_id)
     node = kb.get_node("test", prop_id)
     assert node is not None
@@ -148,14 +172,14 @@ async def test_declare_relation_property_creates_node(kb):
 
 
 async def test_declare_relation_property_wires_define_property(kb):
-    rel_id = await kb.declare_relation_type("test", "WORKS_AT", "")
+    rel_id = await _declare_works_at(kb)
     prop_id = await kb.declare_relation_property("test", "START_DATE", "Start date", relation_id=rel_id)
     nbs = kb.get_neighbors("test", rel_id, edge_type="DEFINE_PROPERTY", direction="out")
     assert any(nb["node"]["id"] == prop_id for nb in nbs)
 
 
 async def test_declare_relation_property_is_idempotent(kb):
-    rel_id = await kb.declare_relation_type("test", "WORKS_AT", "")
+    rel_id = await _declare_works_at(kb)
     id1 = await kb.declare_relation_property("test", "START_DATE", "date", relation_id=rel_id)
     id2 = await kb.declare_relation_property("test", "START_DATE", "date", relation_id=rel_id)
     assert id1 == id2
@@ -205,7 +229,7 @@ async def test_import_database_schema_roundtrip(kb):
     await kb.declare_class("test", "PERSON",  "A human individual")
     await kb.declare_class("test", "COMPANY", "A business organization")
     await kb.declare_relation_type("test", "WORKS_AT", "Employment",
-                                   domain="PERSON", range_="COMPANY")
+                                   domain="PERSON", range="COMPANY")
 
     schema_json = (await kb.fetch_database_schema("test")).to_json()
     kb.create_database("copy")
@@ -325,7 +349,7 @@ async def test_declare_relation_fires_hook(kb):
     events = _collect_events(kb, "test")
     await kb.declare_class("test", "PERSON", "")
     await kb.declare_class("test", "COMPANY", "")
-    await kb.declare_relation_type("test", "WORKED_AT", "Employment", domain="PERSON", range_="COMPANY")
+    await kb.declare_relation_type("test", "WORKED_AT", "Employment", domain="PERSON", range="COMPANY")
     ev = next(e for e in events if e["type"] == "relation_declared")
     assert ev["name"] == "WORKED_AT"
     assert ev["domain"] == ["PERSON"]
@@ -334,10 +358,12 @@ async def test_declare_relation_fires_hook(kb):
 
 
 async def test_declare_relation_idempotent_does_not_fire_hook(kb):
+    await kb.declare_class("test", "PERSON", "")
+    await kb.declare_class("test", "COMPANY", "")
     events = _collect_events(kb, "test")
-    await kb.declare_relation_type("test", "WORKED_AT", "Employment")
+    await kb.declare_relation_type("test", "WORKED_AT", "Employment", domain="PERSON", range="COMPANY")
     count_before = len(events)
-    await kb.declare_relation_type("test", "WORKED_AT", "Employment again")
+    await kb.declare_relation_type("test", "WORKED_AT", "Employment again", domain="PERSON", range="COMPANY")
     assert len(events) == count_before
 
 
@@ -353,8 +379,10 @@ async def test_declare_class_property_fires_hook(kb):
 
 
 async def test_declare_relation_property_fires_hook(kb):
+    await kb.declare_class("test", "PERSON", "")
+    await kb.declare_class("test", "COMPANY", "")
     events = _collect_events(kb, "test")
-    rel_id = await kb.declare_relation_type("test", "WORKED_AT", "")
+    rel_id = await kb.declare_relation_type("test", "WORKED_AT", "", domain="PERSON", range="COMPANY")
     await kb.declare_relation_property("test", "START_DATE", "Start date", relation_id=rel_id)
     ev = next(e for e in events if e["type"] == "relation_property_declared")
     assert ev["name"] == "START_DATE"
@@ -377,9 +405,11 @@ async def test_add_is_subclass_of_class_fires_hook(kb):
 
 
 async def test_add_is_subclass_of_relation_fires_hook(kb):
+    await kb.declare_class("test", "PERSON", "")
+    await kb.declare_class("test", "COMPANY", "")
     events = _collect_events(kb, "test")
-    parent_id = await kb.declare_relation_type("test", "WORKS_FOR", "")
-    child_id  = await kb.declare_relation_type("test", "CONTRACTED_BY", "")
+    parent_id = await kb.declare_relation_type("test", "WORKS_FOR", "", domain="PERSON", range="COMPANY")
+    child_id  = await kb.declare_relation_type("test", "CONTRACTED_BY", "", domain="PERSON", range="COMPANY")
     await kb.add_is_subclass_of("test", child_id, parent_id)
     ev = next(e for e in events if e["type"] == "relation_subclass")
     assert ev["child_id"]   == child_id

@@ -136,15 +136,20 @@ _TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "declare_relation_type",
-            "description": "Declare a RELATION type in the schema (idempotent). Returns {id}.",
+            "description": (
+                "Declare a RELATION type in the schema (idempotent). Every relation must have a "
+                "domain and range CLASS — find or declare both classes first. Returns {id}."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "name": {"type": "string", "description": "Relation name e.g. WORKED_AT"},
                     "description": {"type": "string"},
                     "is_symmetric": {"type": "boolean"},
+                    "domain": {"type": "string", "description": "Name of the domain (head) CLASS, e.g. PERSON"},
+                    "range": {"type": "string", "description": "Name of the range (tail) CLASS, e.g. COMPANY"},
                 },
-                "required": ["name", "description"],
+                "required": ["name", "description", "domain", "range"],
             },
         },
     },
@@ -280,9 +285,12 @@ Workflow:
 1. For each entity in the text: call find_entity first. If it already exists, call
    link_extraction with its id and the new text span instead of add_entity. Otherwise
    find or declare its CLASS, then call add_entity.
-2. For each relationship: resolve both entities, find or declare the RELATION type,
-   then call find_fact. If the fact already exists, call link_extraction with its id
-   and the new text span instead of add_fact. Otherwise call add_fact.
+2. For each relationship: resolve both entities (including their CLASSes) first, then
+   find or declare the RELATION type — declare_relation_type requires the domain (head
+   entity's CLASS name) and range (tail entity's CLASS name), so both classes must
+   already be found or declared before this call. Then call find_fact. If the fact
+   already exists, call link_extraction with its id and the new text span instead of
+   add_fact. Otherwise call add_fact.
 3. For each attribute value: find or declare the PROPERTY on its class/relation,
    then call add_entity_property_value or add_fact_property_value.
 4. Prefer existing schema elements; only declare new ones when nothing fits. Before
@@ -486,6 +494,8 @@ class ExtractionEngine:
                 name=args["name"],
                 description=args["description"],
                 is_symmetric=args.get("is_symmetric", False),
+                domain=args["domain"],
+                range=args["range"],
             )
             return {"id": rid}
 

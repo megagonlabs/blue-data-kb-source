@@ -44,7 +44,11 @@ def _mock_openai_sequence(*responses):
 
 
 async def _seed_worked_at_with_start_date(kb):
-    rel_id = await kb.declare_relation_type("test", "WORKED_AT", "Employment relationship")
+    await kb.declare_class("test", "PERSON", "A human individual")
+    await kb.declare_class("test", "COMPANY", "A business organization")
+    rel_id = await kb.declare_relation_type(
+        "test", "WORKED_AT", "Employment relationship", domain="PERSON", range="COMPANY"
+    )
     prop_id = await kb.declare_relation_property(
         "test", "START_DATE", "Start of employment", relation_id=rel_id
     )

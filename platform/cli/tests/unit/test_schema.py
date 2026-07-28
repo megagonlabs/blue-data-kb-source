@@ -55,7 +55,12 @@ def test_relation_add_and_list_with_domain_range(runner):
 
 
 def test_relation_property_add_and_list(runner):
-    invoke(runner, DB + ["schema", "relation", "add", "WORKED_AT", "Employment relationship"])
+    invoke(runner, DB + ["schema", "class", "add", "EMPLOYEE", "A person employed by an organization"])
+    invoke(runner, DB + ["schema", "class", "add", "COMPANY", "A business organization"])
+    invoke(runner, DB + [
+        "schema", "relation", "add", "WORKED_AT", "Employment relationship",
+        "--domain", "EMPLOYEE", "--range", "COMPANY",
+    ])
     invoke(runner, DB + [
         "schema", "relation", "property", "add", "START_DATE", "Start of employment",
         "--relation", "WORKED_AT",
@@ -78,8 +83,12 @@ def test_schema_search_keyword_mode(runner):
 
 
 def test_schema_search_type_filter(runner):
+    invoke(runner, DB + ["schema", "class", "add", "PERSON", "A human individual"])
     invoke(runner, DB + ["schema", "class", "add", "COMPANY", "A business organization"])
-    invoke(runner, DB + ["schema", "relation", "add", "FOUNDED", "A business organization founding relationship"])
+    invoke(runner, DB + [
+        "schema", "relation", "add", "FOUNDED", "A business organization founding relationship",
+        "--domain", "PERSON", "--range", "COMPANY",
+    ])
 
     rows = invoke_json(runner, DB + [
         "schema", "search", "business organization", "--type", "class", "--format", "json",
