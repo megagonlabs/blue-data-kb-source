@@ -387,6 +387,21 @@ cd lib
 pytest
 ```
 
+### Extraction benchmark suite
+
+`tests/benchmarks/extraction/` scores `import_text()`'s actual extraction quality (entity/fact/property recall & precision via an LLM-judge alignment, schema-reuse vs. spurious-duplicate vs. correct-expansion behavior, tool-call count, token usage, latency) against a set of gold-standard cases in `tests/benchmarks/extraction/cases/*.yaml`. It is **not** part of the default `pytest` run (`testpaths = ["tests/unit"]`) and is **report-only** — it never fails the build on a metric regression, only on a harness error. Requires the `openai` extra installed alongside `dev` (`pip install -e '.[dev,openai]'`).
+
+```bash
+cd lib
+pytest tests/benchmarks -s          # replays committed VCR cassettes; prints a score table
+python -m tests.benchmarks.extraction.run --model gpt-4o --model gpt-4o-mini   # live, real API calls
+python -m tests.benchmarks.extraction.run --record   # refresh the cassettes the pytest suite replays
+```
+
+The live paths require `OPENAI_API_KEY`. Without it and without a cassette already recorded for a given (case, `schema_discovery_mode`) pair, `pytest tests/benchmarks` skips that case rather than failing.
+
+Each run writes two files under `.reports/` (gitignored): a JSON score report (`latest.json` for the pytest suite; `live-<timestamp>.json` for `run.py`, timestamped so successive live runs don't overwrite each other) and a companion **detailed log** (`latest.detail.jsonl` / `live-<timestamp>.detail.jsonl`) with one JSON object per (case, model, mode) run — the task spec (case description, input text, seed schema, queries, expected results), every LLM call's full prompt messages and response (including tool calls), the raw tool-call trace (inputs and outputs), and pre-/post-run KB snapshots (schema and data, captured separately) — everything the summary table/score JSON leaves out, for debugging a specific run.
+
 ## Project structure
 
 ```
@@ -408,5 +423,9 @@ lib/
 │       ├── notification/       # ChangeNotifier
 │       └── extraction/         # ExtractionEngine (LLM agent)
 └── tests/
-    └── unit/
+    ├── conftest.py           # kb / populated_kb fixtures shared by unit/ and benchmarks/
+    ├── unit/
+    └── benchmarks/
+        ├── common/            # shared harness: capture, scoring, runner, reporting
+        └── extraction/        # gold-standard cases + pytest suite + live run.py CLI
 ```

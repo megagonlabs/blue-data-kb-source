@@ -1,0 +1,15 @@
+id: basic_extraction
+description: >
+  No starting schema. Straightforward single-sentence extraction — checks that
+  the agent finds all entities/facts/properties without any schema-discovery
+  complexity getting in the way.
+input_text: "Alice joined IBM as a software engineer in June 1998."
+schema_discovery_modes: [search]
+expected:
+  entities:
+    - {name: Alice, class: PERSON}
+    - {name: IBM, class: COMPANY}
+  facts:
+    - {head: Alice, relation: WORKED_AT, tail: IBM}
+  properties:
+    - {owner: WORKED_AT fact between Alice and IBM, name: START_DATE, value: "1998-06"}

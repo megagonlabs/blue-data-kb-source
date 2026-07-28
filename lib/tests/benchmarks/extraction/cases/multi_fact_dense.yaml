@@ -1,0 +1,27 @@
+id: multi_fact_dense
+description: >
+  No starting schema. A denser paragraph with several entities, two companies,
+  and multiple facts/dates in one pass — stresses recall (does the agent miss
+  anything) and precision (does it hallucinate facts not in the text) more
+  than the single-sentence cases do.
+input_text: >
+  Diana Chen worked at Northwind Traders from January 2015 until she left in
+  August 2019 to join Contoso Ltd, where she still works today. Her colleague
+  Marcus Reyes has worked at Contoso Ltd since May 2012.
+queries:
+  - "Who worked where, and when did each employment start?"
+schema_discovery_modes: [search]
+expected:
+  entities:
+    - {name: Diana Chen, class: PERSON}
+    - {name: Northwind Traders, class: COMPANY}
+    - {name: Contoso Ltd, class: COMPANY}
+    - {name: Marcus Reyes, class: PERSON}
+  facts:
+    - {head: Diana Chen, relation: WORKED_AT, tail: Northwind Traders}
+    - {head: Diana Chen, relation: WORKED_AT, tail: Contoso Ltd}
+    - {head: Marcus Reyes, relation: WORKED_AT, tail: Contoso Ltd}
+  properties:
+    - {owner: WORKED_AT fact between Diana Chen and Northwind Traders, name: START_DATE, value: "2015-01"}
+    - {owner: WORKED_AT fact between Diana Chen and Contoso Ltd, name: START_DATE, value: "2019-08"}
+    - {owner: WORKED_AT fact between Marcus Reyes and Contoso Ltd, name: START_DATE, value: "2012-05"}

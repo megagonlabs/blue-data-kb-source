@@ -1,0 +1,32 @@
+id: schema_expansion_new_property
+description: >
+  Seeds a base employment schema that has no notion of job title. The text
+  introduces a genuinely new concept (job title) that nothing in the existing
+  schema covers, so the agent should correctly *expand* the schema by
+  declaring a new property rather than force-fitting the value into
+  START_DATE or skipping it.
+seed_schema:
+  classes:
+    - {name: PERSON, description: "A human individual"}
+    - {name: COMPANY, description: "A business organization"}
+  relations:
+    - name: WORKED_AT
+      description: "Employment relationship between a person and a company"
+      domain: PERSON
+      range: COMPANY
+      properties:
+        - {name: START_DATE, description: "The date employment began"}
+input_text: "Carla started at Initech in July 2010 as Senior Data Analyst."
+schema_discovery_modes: [search]
+expected:
+  entities:
+    - {name: Carla, class: PERSON}
+    - {name: Initech, class: COMPANY}
+  facts:
+    - {head: Carla, relation: WORKED_AT, tail: Initech}
+  properties:
+    - {owner: WORKED_AT fact between Carla and Initech, name: START_DATE, value: "2010-07"}
+    - {owner: WORKED_AT fact between Carla and Initech, name: JOB_TITLE, value: "Senior Data Analyst"}
+  schema_reuse:
+    must_reuse: [START_DATE]
+    must_expand: [JOB_TITLE]

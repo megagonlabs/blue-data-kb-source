@@ -15,7 +15,7 @@ dependencies = [
 neo4j  = ["neo4j"]
 openai = ["openai>=1.0"]
 search = ["rank-bm25"]
-dev    = ["pytest", "pytest-asyncio", "pytest-recording", "pytest-cov"]
+dev    = ["pytest", "pytest-asyncio", "pytest-recording", "pytest-cov", "pyyaml", "rich"]
 all    = ["neo4j", "openai>=1.0", "rank-bm25"]
 
 [tool.setuptools.packages.find]

@@ -1,0 +1,30 @@
+id: schema_reuse_synonym
+description: >
+  Seeds WORKED_AT/START_DATE; the text describes the same concept as "joined",
+  a synonym trap. The agent should reuse START_DATE rather than declaring a
+  near-duplicate JOIN_DATE. Run under all three schema_discovery_modes to
+  contrast keyword search vs. LLM-judged discovery vs. no discovery tool at all.
+seed_schema:
+  classes:
+    - {name: PERSON, description: "A human individual"}
+    - {name: COMPANY, description: "A business organization"}
+  relations:
+    - name: WORKED_AT
+      description: "Employment relationship between a person and a company"
+      domain: PERSON
+      range: COMPANY
+      properties:
+        - {name: START_DATE, description: "The date employment began"}
+input_text: "Bob joined Acme Corp in March 2005."
+schema_discovery_modes: [search, llm, none]
+expected:
+  entities:
+    - {name: Bob, class: PERSON}
+    - {name: Acme Corp, class: COMPANY}
+  facts:
+    - {head: Bob, relation: WORKED_AT, tail: Acme Corp}
+  properties:
+    - {owner: WORKED_AT fact between Bob and Acme Corp, name: START_DATE, value: "2005-03"}
+  schema_reuse:
+    must_reuse: [START_DATE]
+    must_not_declare: [JOIN_DATE]

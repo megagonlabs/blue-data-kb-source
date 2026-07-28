@@ -23,6 +23,9 @@ coverage.xml
 htmlcov/
 *,cover
 
+# Benchmark reports (ephemeral; cassettes under tests/benchmarks/**/cassettes/ are committed)
+tests/benchmarks/**/.reports/
+
 # Type checking
 .pyright/
 .mypy_cache/
