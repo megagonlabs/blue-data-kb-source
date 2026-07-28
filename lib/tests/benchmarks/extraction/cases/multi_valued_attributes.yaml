@@ -1,0 +1,21 @@
+id: multi_valued_attributes
+description: >
+  Legal/contracts domain. One entity with two values for the *same* property
+  (two phone numbers) — tests that the agent creates two LITERAL nodes instead
+  of overwriting the first with the second.
+seed_schema:
+  classes:
+    - name: PERSON
+      description: "An individual"
+      properties:
+        - {name: PHONE_NUMBER, description: "A contact phone number for the person"}
+input_text: "The client, Maria Lopez, can be reached at (555) 123-4567 or alternatively at (555) 987-6543."
+schema_discovery_modes: [search]
+expected:
+  entities:
+    - {name: Maria Lopez, class: PERSON}
+  properties:
+    - {owner: Maria Lopez, name: PHONE_NUMBER, value: "(555) 123-4567"}
+    - {owner: Maria Lopez, name: PHONE_NUMBER, value: "(555) 987-6543"}
+  schema_reuse:
+    must_reuse: [PHONE_NUMBER]

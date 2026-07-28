@@ -1,0 +1,21 @@
+id: coreference_pronoun_and_epithet
+description: >
+  Business domain. No starting schema. Both entities are referred to a second
+  time via an epithet ("the company") and a pronoun ("her") rather than by
+  name. Only 2 entities are expected despite 4 total mentions — tests that the
+  agent calls find_entity + link_extraction on the repeat mentions instead of
+  creating duplicates (a duplicate shows up as an unmatched extra entity and
+  hurts precision under the existing LLM-judge alignment, no scoring change
+  needed).
+input_text: >
+  IBM hired Alice as a software engineer in 1998. The company later promoted
+  her to Vice President in 2010.
+schema_discovery_modes: [search]
+expected:
+  entities:
+    - {name: Alice, class: PERSON}
+    - {name: IBM, class: COMPANY}
+  facts:
+    - {head: Alice, relation: WORKED_AT, tail: IBM}
+  properties:
+    - {owner: WORKED_AT fact between Alice and IBM, name: START_DATE, value: "1998"}

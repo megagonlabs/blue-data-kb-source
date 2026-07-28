@@ -1,0 +1,21 @@
+id: cross_document_entity_fusion
+description: >
+  Business domain. Two passages about the same person/company, run as
+  sequential import_text steps against the same database. Expected results
+  describe the cumulative graph after both steps — only one Alice entity, one
+  IBM entity, and one WORKED_AT fact should exist, even though both are
+  mentioned in both steps. If the agent fails to find_entity/link_extraction
+  on step 2, a duplicate Alice/IBM shows up in the collector and hurts
+  precision under the existing scoring — no scoring change needed, this is
+  purely a case-format/runner capability (multi-step `steps:` instead of a
+  single `input_text`).
+steps:
+  - input_text: "Alice joined IBM as a software engineer in June 1998."
+  - input_text: "In 2005, Alice was promoted to Senior Engineer at IBM."
+schema_discovery_modes: [search]
+expected:
+  entities:
+    - {name: Alice, class: PERSON}
+    - {name: IBM, class: COMPANY}
+  facts:
+    - {head: Alice, relation: WORKED_AT, tail: IBM}

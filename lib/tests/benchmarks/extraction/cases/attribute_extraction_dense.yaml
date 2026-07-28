@@ -1,0 +1,37 @@
+id: attribute_extraction_dense
+description: >
+  Legal/contracts domain. Several key:value attributes plus two party
+  relations in one pass. EFFECTIVE_DATE carries an expected `literal_type` of
+  DATE, exercising the deterministic normalization check (does the agent
+  actually store an ISO date, not just something an LLM judge would call
+  "close enough" to one).
+seed_schema:
+  classes:
+    - {name: COMPANY, description: "A business organization"}
+    - name: AGREEMENT
+      description: "A legal contract or agreement"
+      properties:
+        - {name: EFFECTIVE_DATE, description: "The date the agreement takes effect"}
+        - {name: TERM_LENGTH, description: "The duration of the agreement"}
+  relations:
+    - name: PARTY_TO
+      description: "A company is a party to an agreement"
+      domain: COMPANY
+      range: AGREEMENT
+input_text: >
+  This Service Agreement is entered into between Acme Corp and Globex Corp,
+  effective January 15, 2024, for an initial term of 24 months.
+schema_discovery_modes: [search]
+expected:
+  entities:
+    - {name: Acme Corp, class: COMPANY}
+    - {name: Globex Corp, class: COMPANY}
+    - {name: Service Agreement, class: AGREEMENT}
+  facts:
+    - {head: Acme Corp, relation: PARTY_TO, tail: Service Agreement}
+    - {head: Globex Corp, relation: PARTY_TO, tail: Service Agreement}
+  properties:
+    - {owner: Service Agreement, name: EFFECTIVE_DATE, value: "2024-01-15", literal_type: DATE}
+    - {owner: Service Agreement, name: TERM_LENGTH, value: "24 months"}
+  schema_reuse:
+    must_reuse: [EFFECTIVE_DATE, TERM_LENGTH]

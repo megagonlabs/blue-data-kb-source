@@ -1,0 +1,30 @@
+id: relation_extraction_multi_type
+description: >
+  Finance domain. Two distinct relation types between different entity-class
+  pairs in one pass (ISSUED_LOAN_TO: BANK->PERSON, EMPLOYED_BY: PERSON->COMPANY)
+  — tests that the agent doesn't conflate the two relations or drop one, and
+  exercises domain/range compliance across two different relation shapes.
+seed_schema:
+  classes:
+    - {name: PERSON, description: "An individual"}
+    - {name: BANK, description: "A financial institution that lends money"}
+    - {name: COMPANY, description: "A business organization"}
+  relations:
+    - name: ISSUED_LOAN_TO
+      description: "A bank issued a loan to a person"
+      domain: BANK
+      range: PERSON
+    - name: EMPLOYED_BY
+      description: "A person is employed by a company"
+      domain: PERSON
+      range: COMPANY
+input_text: "First National Bank issued a loan to Jane Doe. Jane Doe is employed by Globex Corp."
+schema_discovery_modes: [search]
+expected:
+  entities:
+    - {name: First National Bank, class: BANK}
+    - {name: Jane Doe, class: PERSON}
+    - {name: Globex Corp, class: COMPANY}
+  facts:
+    - {head: First National Bank, relation: ISSUED_LOAN_TO, tail: Jane Doe}
+    - {head: Jane Doe, relation: EMPLOYED_BY, tail: Globex Corp}

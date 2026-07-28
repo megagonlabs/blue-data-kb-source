@@ -1,0 +1,26 @@
+id: negation_false_positive_trap
+description: >
+  Healthcare domain. The text mentions a condition only to explicitly rule it
+  out. A naive extractor pattern-matches "X ... diabetes" and creates a false
+  HAS_CONDITION fact; expected.facts is empty, so any created fact is an
+  unmatched false positive and tanks fact precision — the existing PRF1 math
+  already penalizes this, no scoring change needed. Both entities are still
+  expected to be found (mentioning a ruled-out condition doesn't mean the
+  condition itself shouldn't be extracted as an entity, only that no fact
+  should assert the patient has it).
+seed_schema:
+  classes:
+    - {name: PATIENT, description: "A person receiving medical care"}
+    - {name: CONDITION, description: "A medical condition or diagnosis"}
+  relations:
+    - name: HAS_CONDITION
+      description: "A patient has been diagnosed with a condition"
+      domain: PATIENT
+      range: CONDITION
+input_text: "Raj Patel was tested for diabetes, but the results came back negative — he does not have diabetes."
+schema_discovery_modes: [search]
+expected:
+  entities:
+    - {name: Raj Patel, class: PATIENT}
+    - {name: diabetes, class: CONDITION}
+  facts: []

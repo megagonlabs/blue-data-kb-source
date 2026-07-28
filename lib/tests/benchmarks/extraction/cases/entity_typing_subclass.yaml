@@ -1,0 +1,34 @@
+id: entity_typing_subclass
+description: >
+  Healthcare domain. Seeds three sibling classes (generic PERSON plus the more
+  specific PHYSICIAN/PATIENT) so the agent must choose the *specific* class for
+  each entity rather than falling back to the generic one. Also a schema-reuse
+  trap: "Dr." in the text could tempt the agent to declare a redundant DOCTOR
+  class instead of reusing the already-seeded PHYSICIAN.
+seed_schema:
+  classes:
+    - {name: PERSON, description: "A human individual, used only when no more specific role applies"}
+    - {name: PHYSICIAN, description: "A licensed medical doctor"}
+    - {name: PATIENT, description: "A person receiving medical care"}
+    - {name: CONDITION, description: "A medical condition or diagnosis"}
+  relations:
+    - name: DIAGNOSED_WITH
+      description: "A patient has been diagnosed with a condition"
+      domain: PATIENT
+      range: CONDITION
+    - name: TREATED_BY
+      description: "A patient is treated by a physician"
+      domain: PATIENT
+      range: PHYSICIAN
+input_text: "Dr. Emily Carter examined patient Raj Patel and diagnosed him with hypertension."
+schema_discovery_modes: [search]
+expected:
+  entities:
+    - {name: Dr. Emily Carter, class: PHYSICIAN}
+    - {name: Raj Patel, class: PATIENT}
+    - {name: hypertension, class: CONDITION}
+  facts:
+    - {head: Raj Patel, relation: DIAGNOSED_WITH, tail: hypertension}
+    - {head: Raj Patel, relation: TREATED_BY, tail: Dr. Emily Carter}
+  schema_reuse:
+    must_not_declare: [DOCTOR]
