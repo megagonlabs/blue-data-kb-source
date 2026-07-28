@@ -16,6 +16,7 @@ import asyncio
 import contextlib
 import os
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -81,24 +82,47 @@ async def _run_one(
     return result, score
 
 
-async def _run(args: argparse.Namespace) -> tuple[list[runner.RunResult], list[scoring.CaseScore]]:
-    import openai
-
-    all_cases = {c.id: c for c in load_cases(CASES_DIR)}
+def _plan_work(args: argparse.Namespace, all_cases: dict[str, Case]) -> list[tuple[Case, str, str]]:
+    """Flatten --case/--model/--mode selections into an ordered work list, so
+    progress can be reported as a plain x/total count."""
     case_ids = args.case_ids or list(all_cases)
     models = args.models or ["gpt-4o"]
-    judge_client = openai.AsyncOpenAI()
-
-    results: list[runner.RunResult] = []
-    scores: list[scoring.CaseScore] = []
+    work: list[tuple[Case, str, str]] = []
     for case_id in case_ids:
         case = all_cases[case_id]
         modes = args.modes or list(case.schema_discovery_modes)
         for model in models:
             for mode in modes:
-                result, score = await _run_one(case, model, mode, judge_client, args.judge_model, args.record)
-                results.append(result)
-                scores.append(score)
+                work.append((case, model, mode))
+    return work
+
+
+async def _run(args: argparse.Namespace) -> tuple[list[runner.RunResult], list[scoring.CaseScore]]:
+    import openai
+    from rich.console import Console
+
+    all_cases = {c.id: c for c in load_cases(CASES_DIR)}
+    work = _plan_work(args, all_cases)
+    judge_client = openai.AsyncOpenAI()
+    console = Console()
+
+    total = len(work)
+    console.print(f"Running {total} (case, model, mode) combination(s)...")
+    results: list[runner.RunResult] = []
+    scores: list[scoring.CaseScore] = []
+    for i, (case, model, mode) in enumerate(work, start=1):
+        console.print(f"[dim]\\[{i}/{total}][/dim] {case.id} · {model} · {mode} ...", end=" ")
+        start = time.monotonic()
+        try:
+            result, score = await _run_one(case, model, mode, judge_client, args.judge_model, args.record)
+        except Exception:
+            elapsed = time.monotonic() - start
+            console.print(f"[red]failed[/red] ({elapsed:.1f}s)")
+            raise
+        elapsed = time.monotonic() - start
+        console.print(f"[green]done[/green] ({elapsed:.1f}s)")
+        results.append(result)
+        scores.append(score)
     return results, scores
 
 
