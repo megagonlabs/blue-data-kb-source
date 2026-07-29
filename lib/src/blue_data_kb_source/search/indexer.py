@@ -498,7 +498,13 @@ class KBSearchIndexer:
         mode: str,
         type_filter: str | list[str] | None,
     ) -> list[tuple[str, float]]:
-        if mode == "semantic":
+        # `mode` is a hint from the caller (often an LLM tool call choosing
+        # freely between "keyword"/"semantic" per call), not a guarantee that
+        # a vector backend is configured — fall back to BM25 rather than
+        # raising, consistent with how a fully unconfigured indexer (no
+        # KBSearchIndexer at all) already degrades silently to keyword search
+        # in ExtractionEngine/QueryEngine's tool dispatch.
+        if mode == "semantic" and self.has_semantic:
             return self._knn_search(database, collection, query, k, type_filter)
         return self._bm25_search(database, collection, query, k, type_filter)
 
