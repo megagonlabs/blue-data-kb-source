@@ -1,0 +1,23 @@
+id: answer_multihop_parent_company_affiliates
+description: >
+  Legal domain. Multi-hop reasoning via `answer` — resolve Acme Corp's parent
+  (reverse PARENT_OF traversal), then that parent's other subsidiaries
+  (forward PARENT_OF traversal), excluding Acme Corp itself.
+operation: answer
+seed_schema:
+  classes:
+    - {name: COMPANY, description: "A business organization"}
+  relations:
+    - {name: PARENT_OF, description: "The head company owns the tail company as a subsidiary", domain: COMPANY, range: COMPANY}
+seed_data:
+  entities:
+    - {name: Global Holdings, class: COMPANY}
+    - {name: Acme Corp, class: COMPANY}
+    - {name: Zenith Corp, class: COMPANY}
+  facts:
+    - {ref: gh_acme, head: Global Holdings, relation: PARENT_OF, tail: Acme Corp}
+    - {ref: gh_zenith, head: Global Holdings, relation: PARENT_OF, tail: Zenith Corp}
+question: "Which other companies are affiliated with Acme Corp through its parent company?"
+expected:
+  rows:
+    - {entity: Zenith Corp, parent: Global Holdings}

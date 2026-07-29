@@ -1,0 +1,33 @@
+id: answer_constraint_temporal_hire_date
+description: >
+  Business domain. Temporal filter ("after 2020") — no filter tool exists, so
+  the agent must fetch each employee's START_DATE via get_fact_properties and
+  compare dates itself. Diana joined after 2020, Marcus before — only Diana
+  should appear.
+operation: answer
+seed_schema:
+  classes:
+    - {name: PERSON, description: "An individual"}
+    - {name: COMPANY, description: "A business organization"}
+  relations:
+    - name: WORKED_AT
+      description: "Employment relationship"
+      domain: PERSON
+      range: COMPANY
+      properties:
+        - {name: START_DATE, description: "Date employment began"}
+seed_data:
+  entities:
+    - {name: Diana, class: PERSON}
+    - {name: Marcus, class: PERSON}
+    - {name: Acme Corp, class: COMPANY}
+  facts:
+    - {ref: diana_acme, head: Diana, relation: WORKED_AT, tail: Acme Corp}
+    - {ref: marcus_acme, head: Marcus, relation: WORKED_AT, tail: Acme Corp}
+  fact_properties:
+    - {owner: diana_acme, name: START_DATE, value: "2021-03-01"}
+    - {owner: marcus_acme, name: START_DATE, value: "2018-05-01"}
+question: "Which employees joined Acme Corp after 2020?"
+expected:
+  rows:
+    - {entity: Diana, start_date: "2021-03-01"}

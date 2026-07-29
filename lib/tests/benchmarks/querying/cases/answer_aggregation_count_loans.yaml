@@ -1,0 +1,27 @@
+id: answer_aggregation_count_loans
+description: >
+  Finance domain. No aggregation tool exists (get_entity_facts/get_neighbors
+  return raw rows) — the agent must retrieve all ISSUED_LOAN_TO facts itself
+  and count them. Tests whether it does that arithmetic correctly rather than
+  e.g. returning the facts unsummarized or miscounting.
+operation: answer
+seed_schema:
+  classes:
+    - {name: PERSON, description: "An individual"}
+    - {name: BANK, description: "A financial institution that lends money"}
+  relations:
+    - {name: ISSUED_LOAN_TO, description: "A bank issued a loan to a person", domain: BANK, range: PERSON}
+seed_data:
+  entities:
+    - {name: First National Bank, class: BANK}
+    - {name: Jane Doe, class: PERSON}
+    - {name: John Roe, class: PERSON}
+    - {name: Mary Major, class: PERSON}
+  facts:
+    - {ref: loan1, head: First National Bank, relation: ISSUED_LOAN_TO, tail: Jane Doe}
+    - {ref: loan2, head: First National Bank, relation: ISSUED_LOAN_TO, tail: John Roe}
+    - {ref: loan3, head: First National Bank, relation: ISSUED_LOAN_TO, tail: Mary Major}
+question: "How many loans has First National Bank issued?"
+expected:
+  rows:
+    - {count: "3"}

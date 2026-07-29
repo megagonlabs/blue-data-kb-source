@@ -1,0 +1,24 @@
+id: answer_multihop_manager_reports
+description: >
+  Business domain. Multi-hop reasoning via `answer` itself (not `enrich`) —
+  the agent must first resolve Alice's manager (reverse MANAGES traversal),
+  then that manager's other reports (forward MANAGES traversal), excluding
+  Alice herself.
+operation: answer
+seed_schema:
+  classes:
+    - {name: PERSON, description: "An individual"}
+  relations:
+    - {name: MANAGES, description: "The head person manages the tail person", domain: PERSON, range: PERSON}
+seed_data:
+  entities:
+    - {name: Sofia, class: PERSON}
+    - {name: Alice, class: PERSON}
+    - {name: Carol, class: PERSON}
+  facts:
+    - {ref: sofia_alice, head: Sofia, relation: MANAGES, tail: Alice}
+    - {ref: sofia_carol, head: Sofia, relation: MANAGES, tail: Carol}
+question: "Who are Alice's manager's other reports?"
+expected:
+  rows:
+    - {entity: Carol, manager: Sofia}

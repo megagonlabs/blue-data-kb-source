@@ -1,0 +1,24 @@
+id: answer_vocabulary_premium_customer
+description: >
+  Finance domain. Business-vocabulary grounding trap — "premium" must map to
+  the TIER=Gold property value, not to Silver or any other tier. Extends
+  property grounding to enterprise vocabulary that doesn't literally appear
+  in the schema.
+operation: answer
+seed_schema:
+  classes:
+    - name: PERSON
+      description: "An individual"
+      properties:
+        - {name: TIER, description: "Customer loyalty tier: Gold, Silver, or Bronze"}
+seed_data:
+  entities:
+    - {name: Jane Doe, class: PERSON}
+    - {name: John Roe, class: PERSON}
+  entity_properties:
+    - {owner: Jane Doe, name: TIER, value: Gold}
+    - {owner: John Roe, name: TIER, value: Silver}
+question: "Who are our premium customers?"
+expected:
+  rows:
+    - {entity: Jane Doe, tier: Gold}

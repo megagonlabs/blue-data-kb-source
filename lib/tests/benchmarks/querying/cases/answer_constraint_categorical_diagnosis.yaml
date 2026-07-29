@@ -1,0 +1,25 @@
+id: answer_constraint_categorical_diagnosis
+description: >
+  Healthcare domain. Categorical filter — of several patients each diagnosed
+  with a different condition, only the one matching "hypertension" should
+  appear.
+operation: answer
+seed_schema:
+  classes:
+    - {name: PATIENT, description: "A person receiving medical care"}
+    - {name: CONDITION, description: "A medical condition or diagnosis"}
+  relations:
+    - {name: DIAGNOSED_WITH, description: "A patient has been diagnosed with a condition", domain: PATIENT, range: CONDITION}
+seed_data:
+  entities:
+    - {name: Raj Patel, class: PATIENT}
+    - {name: Maria Lopez, class: PATIENT}
+    - {name: hypertension, class: CONDITION}
+    - {name: common cold, class: CONDITION}
+  facts:
+    - {ref: raj_hyp, head: Raj Patel, relation: DIAGNOSED_WITH, tail: hypertension}
+    - {ref: maria_cold, head: Maria Lopez, relation: DIAGNOSED_WITH, tail: common cold}
+question: "Which patients are diagnosed with hypertension?"
+expected:
+  rows:
+    - {entity: Raj Patel, condition: hypertension}

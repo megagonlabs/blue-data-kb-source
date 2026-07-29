@@ -1,0 +1,28 @@
+id: answer_ambiguous_entity_reference
+description: >
+  Business domain. Two different people are both named "John" — the question
+  is genuinely ambiguous. There's no clarification tool in the product (only
+  return_result), so the scoring convention here is to reward the agent for
+  surfacing *both* candidates rather than silently picking one: expected.rows
+  lists both, and judge_alignment/precision naturally penalizes an answer
+  that only returns one.
+operation: answer
+seed_schema:
+  classes:
+    - {name: PERSON, description: "An individual"}
+  relations:
+    - {name: MANAGES, description: "The head person manages the tail person", domain: PERSON, range: PERSON}
+seed_data:
+  entities:
+    - {name: Sofia, class: PERSON}
+    - {name: Priya, class: PERSON}
+    - {name: John Smith, class: PERSON}
+    - {name: John Doe, class: PERSON}
+  facts:
+    - {ref: sofia_johnsmith, head: Sofia, relation: MANAGES, tail: John Smith}
+    - {ref: priya_johndoe, head: Priya, relation: MANAGES, tail: John Doe}
+question: "Who is John's manager?"
+expected:
+  rows:
+    - {entity: John Smith, manager: Sofia}
+    - {entity: John Doe, manager: Priya}

@@ -1,0 +1,20 @@
+id: answer_boolean_is_party_to_agreement
+description: >
+  Legal domain. Boolean yes/no question via `answer`.
+operation: answer
+seed_schema:
+  classes:
+    - {name: COMPANY, description: "A business organization"}
+    - {name: AGREEMENT, description: "A legal contract or agreement"}
+  relations:
+    - {name: PARTY_TO, description: "A company is a party to an agreement", domain: COMPANY, range: AGREEMENT}
+seed_data:
+  entities:
+    - {name: Acme Corp, class: COMPANY}
+    - {name: Service Agreement, class: AGREEMENT}
+  facts:
+    - {ref: acme_agreement, head: Acme Corp, relation: PARTY_TO, tail: Service Agreement}
+question: "Is Acme Corp a party to the Service Agreement?"
+expected:
+  rows:
+    - {answer: "Yes"}

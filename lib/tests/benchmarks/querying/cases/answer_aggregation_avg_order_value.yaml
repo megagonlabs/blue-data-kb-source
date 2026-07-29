@@ -1,0 +1,26 @@
+id: answer_aggregation_avg_order_value
+description: >
+  Supply-chain domain. Same "no aggregation tool" gap as the loan-count case,
+  but with an AVG over a numeric property instead of a COUNT over facts —
+  the agent must fetch each order's AMOUNT via get_entity_properties and
+  average them itself.
+operation: answer
+seed_schema:
+  classes:
+    - name: ORDER
+      description: "A customer purchase order"
+      properties:
+        - {name: AMOUNT, description: "The order's total value in USD"}
+seed_data:
+  entities:
+    - {name: Order-1001, class: ORDER}
+    - {name: Order-1002, class: ORDER}
+    - {name: Order-1003, class: ORDER}
+  entity_properties:
+    - {owner: Order-1001, name: AMOUNT, value: 100, literal_type: NUMBER}
+    - {owner: Order-1002, name: AMOUNT, value: 200, literal_type: NUMBER}
+    - {owner: Order-1003, name: AMOUNT, value: 300, literal_type: NUMBER}
+question: "What is the average order value?"
+expected:
+  rows:
+    - {average_amount: "200"}

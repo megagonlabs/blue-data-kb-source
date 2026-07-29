@@ -1,0 +1,26 @@
+id: answer_ranking_top_suppliers
+description: >
+  Supply-chain domain. Top-k ranking — no ORDER BY/LIMIT tool exists, so the
+  agent must fetch every supplier's ORDER_VOLUME and rank them itself.
+  Northwind Supplies (5000) should be excluded from the top 2.
+operation: answer
+seed_schema:
+  classes:
+    - name: SUPPLIER
+      description: "A supplier of goods"
+      properties:
+        - {name: ORDER_VOLUME, description: "Total order volume in units"}
+seed_data:
+  entities:
+    - {name: Northwind Supplies, class: SUPPLIER}
+    - {name: Contoso Parts, class: SUPPLIER}
+    - {name: Fabrikam Materials, class: SUPPLIER}
+  entity_properties:
+    - {owner: Northwind Supplies, name: ORDER_VOLUME, value: 5000, literal_type: NUMBER}
+    - {owner: Contoso Parts, name: ORDER_VOLUME, value: 12000, literal_type: NUMBER}
+    - {owner: Fabrikam Materials, name: ORDER_VOLUME, value: 8000, literal_type: NUMBER}
+question: "Who are the top 2 suppliers by order volume?"
+expected:
+  rows:
+    - {entity: Contoso Parts, order_volume: "12000"}
+    - {entity: Fabrikam Materials, order_volume: "8000"}

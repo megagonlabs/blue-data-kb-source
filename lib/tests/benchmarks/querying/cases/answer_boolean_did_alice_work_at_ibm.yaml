@@ -1,0 +1,22 @@
+id: answer_boolean_did_alice_work_at_ibm
+description: >
+  Business domain. Boolean yes/no question via `answer` (as opposed to
+  `validate`'s supporting/counter framing) — tests recognizing a boolean
+  intent and answering it directly rather than dumping raw facts.
+operation: answer
+seed_schema:
+  classes:
+    - {name: PERSON, description: "An individual"}
+    - {name: COMPANY, description: "A business organization"}
+  relations:
+    - {name: WORKED_AT, description: "Employment relationship", domain: PERSON, range: COMPANY}
+seed_data:
+  entities:
+    - {name: Alice, class: PERSON}
+    - {name: IBM, class: COMPANY}
+  facts:
+    - {ref: alice_ibm, head: Alice, relation: WORKED_AT, tail: IBM}
+question: "Did Alice ever work at IBM?"
+expected:
+  rows:
+    - {answer: "Yes"}

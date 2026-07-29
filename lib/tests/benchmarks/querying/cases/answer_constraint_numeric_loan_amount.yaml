@@ -1,0 +1,31 @@
+id: answer_constraint_numeric_loan_amount
+description: >
+  Finance domain. Numeric filter ("above $200,000") over a fact property —
+  the agent must fetch each loan's AMOUNT and compare numerically itself.
+operation: answer
+seed_schema:
+  classes:
+    - {name: PERSON, description: "An individual"}
+    - {name: BANK, description: "A financial institution that lends money"}
+  relations:
+    - name: ISSUED_LOAN_TO
+      description: "A bank issued a loan to a person"
+      domain: BANK
+      range: PERSON
+      properties:
+        - {name: AMOUNT, description: "The loan amount in USD"}
+seed_data:
+  entities:
+    - {name: First National Bank, class: BANK}
+    - {name: Jane Doe, class: PERSON}
+    - {name: John Roe, class: PERSON}
+  facts:
+    - {ref: bank_jane, head: First National Bank, relation: ISSUED_LOAN_TO, tail: Jane Doe}
+    - {ref: bank_john, head: First National Bank, relation: ISSUED_LOAN_TO, tail: John Roe}
+  fact_properties:
+    - {owner: bank_jane, name: AMOUNT, value: 250000, literal_type: NUMBER}
+    - {owner: bank_john, name: AMOUNT, value: 50000, literal_type: NUMBER}
+question: "Which customers have a loan above $200,000?"
+expected:
+  rows:
+    - {entity: Jane Doe, amount: "250000"}

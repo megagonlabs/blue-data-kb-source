@@ -1,0 +1,23 @@
+id: answer_ranking_highest_paid
+description: >
+  Business domain. Max/top-1 ranking over a numeric entity property.
+operation: answer
+seed_schema:
+  classes:
+    - name: PERSON
+      description: "An individual"
+      properties:
+        - {name: SALARY, description: "Annual salary in USD"}
+seed_data:
+  entities:
+    - {name: Diana, class: PERSON}
+    - {name: Marcus, class: PERSON}
+    - {name: Priya, class: PERSON}
+  entity_properties:
+    - {owner: Diana, name: SALARY, value: 95000, literal_type: NUMBER}
+    - {owner: Marcus, name: SALARY, value: 120000, literal_type: NUMBER}
+    - {owner: Priya, name: SALARY, value: 110000, literal_type: NUMBER}
+question: "Who is the highest-paid employee?"
+expected:
+  rows:
+    - {entity: Marcus, salary: "120000"}

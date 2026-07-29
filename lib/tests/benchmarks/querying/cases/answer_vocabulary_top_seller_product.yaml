@@ -1,0 +1,23 @@
+id: answer_vocabulary_top_seller_product
+description: >
+  Supply-chain/retail domain. Another vocabulary-grounding trap — "top
+  seller" must map to the lowest SALES_RANK value (rank 1 = best), not the
+  highest number.
+operation: answer
+seed_schema:
+  classes:
+    - name: PRODUCT
+      description: "A product sold by the company"
+      properties:
+        - {name: SALES_RANK, description: "Sales rank; 1 = best seller"}
+seed_data:
+  entities:
+    - {name: Widget A, class: PRODUCT}
+    - {name: Widget B, class: PRODUCT}
+  entity_properties:
+    - {owner: Widget A, name: SALES_RANK, value: 1, literal_type: NUMBER}
+    - {owner: Widget B, name: SALES_RANK, value: 5, literal_type: NUMBER}
+question: "Which product is our top seller?"
+expected:
+  rows:
+    - {entity: Widget A, sales_rank: "1"}

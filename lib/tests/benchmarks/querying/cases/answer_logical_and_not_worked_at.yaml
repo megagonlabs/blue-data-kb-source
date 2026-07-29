@@ -1,0 +1,27 @@
+id: answer_logical_and_not_worked_at
+description: >
+  Business domain. "A but not B" composition — no boolean-filter tool exists,
+  so the agent must fetch each person's WORKED_AT facts and exclude anyone
+  who also worked at Google. Diana worked at both IBM and Google (excluded);
+  only Marcus (IBM only) should appear.
+operation: answer
+seed_schema:
+  classes:
+    - {name: PERSON, description: "An individual"}
+    - {name: COMPANY, description: "A business organization"}
+  relations:
+    - {name: WORKED_AT, description: "Employment relationship", domain: PERSON, range: COMPANY}
+seed_data:
+  entities:
+    - {name: Diana, class: PERSON}
+    - {name: Marcus, class: PERSON}
+    - {name: IBM, class: COMPANY}
+    - {name: Google, class: COMPANY}
+  facts:
+    - {ref: diana_ibm, head: Diana, relation: WORKED_AT, tail: IBM}
+    - {ref: diana_google, head: Diana, relation: WORKED_AT, tail: Google}
+    - {ref: marcus_ibm, head: Marcus, relation: WORKED_AT, tail: IBM}
+question: "Which employees worked at IBM but not at Google?"
+expected:
+  rows:
+    - {entity: Marcus}
