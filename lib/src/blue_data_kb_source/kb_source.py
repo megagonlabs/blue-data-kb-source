@@ -419,6 +419,12 @@ class KBSource(GraphSource, ABC):
     ) -> dict | list:
         return await self._knowledge.fetch_database_data(database, include_provenance, compact)
 
+    async def export_database_data(self, database: str, include_provenance: bool = False) -> dict:
+        return await self._knowledge.export_database_data(database, include_provenance)
+
+    async def import_database_data(self, database: str, data: dict) -> None:
+        await self._knowledge.import_database_data(database, data)
+
     async def answer(
         self,
         database: str,

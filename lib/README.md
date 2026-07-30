@@ -269,7 +269,7 @@ Each event dict always contains `type`, `database`, and `id`. Extra fields by ty
 
 Name and id fields are `None` when the corresponding node was not provided.
 
-### Reading and importing a schema
+### Reading and importing a schema and its data
 
 Export the schema of an existing database to JSON and reload it into a fresh KB. `export_database_schema` is a thin `fetch_database_schema(...).to_json()` wrapper — the symmetric counterpart to `import_database_schema`, which takes that same JSON shape back in:
 
@@ -282,7 +282,16 @@ kb.create_database("copy")
 await kb.import_database_schema("copy", main_schema_json)
 ```
 
-The CLI exposes the same round trip: `kb schema export -o schema.json` / `kb schema import schema.json` (see [CLI usage](../platform/cli/README.md)).
+`export_database_data`/`import_database_data` do the same for instance data (entities, facts, property values) — schema first, then data, since data import resolves classes/relations/properties **by name** against whatever schema is already in the target database (schema import mints new node ids rather than preserving the originals, so the data export can't rely on the old ones):
+
+```python
+main_data_json = await kb.export_database_data("main", include_provenance=True)
+await kb.import_database_data("copy", main_data_json)
+```
+
+Entities/facts in the export carry their original id as a `ref` purely as an in-payload join key (entity names aren't guaranteed unique — `add_entity` never dedups — so facts/property values reference their owner by `ref`, not by name, to avoid mis-linking when two entities share a name).
+
+The CLI exposes the same round trip: `kb schema export -o schema.json` / `kb schema import schema.json`, then `kb data export -o data.json` / `kb data import data.json` (see [CLI usage](../platform/cli/README.md)).
 
 ## API
 
@@ -326,6 +335,9 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | `await add_fact_extraction(database, fact_id, text, source_id?)` | `str` | Link a new text span to an *existing* fact, same as above |
 | `await add_entity_property_value_extraction(database, entity_id, property_id, text, source_id?)` | `str` | Link a new text span to an entity's existing property value (resolved via `entity_id`+`property_id`); raises if no such value exists |
 | `await add_fact_property_value_extraction(database, fact_id, property_id, text, source_id?)` | `str` | Link a new text span to a fact's existing property value (resolved via `fact_id`+`property_id`); raises if no such value exists |
+| `await fetch_database_data(database, include_provenance?, compact?)` | `dict \| list` | `compact=False` (default): raw `{nodes, edges}` graph form. `compact=True`: flat denormalized rows (entity/class, property/value, fact head/relation/tail), the shape `kb data list`/`kb data list --format json` uses |
+| `await export_database_data(database, include_provenance?)` | `dict` | Portable, name-based export of entities/facts/property values (schema not included — export/import that separately first); symmetric with `import_database_data` |
+| `await import_database_data(database, data)` | `None` | Populate *database* from an `export_database_data` dict; resolves classes/relations/properties **by name** against the target database's current schema, raising `KnowledgeError` if a reference can't be resolved |
 | `await answer(database, question, model?, natural_language?, on_tool_call?)` | `list[AnswerResult] \| str` | LLM agent answers a natural language question by traversing the instance graph |
 | `await validate(database, statement, model?, natural_language?, on_tool_call?)` | `ValidationResult \| str` | LLM agent returns supporting and counter evidence for a statement |
 | `await enrich(database, query, depth?, model?, on_tool_call?)` | `list[EnrichmentResult]` | LLM agent traverses the graph up to *depth* hops from seed entities and returns related knowledge |

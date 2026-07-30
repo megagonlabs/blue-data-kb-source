@@ -2723,6 +2723,49 @@ def list_cmd(obj: dict, show_provenance: bool, fmt: str) -> None:
 
 
 # ------------------------------------------------------------------ #
+# kb data export / import                                              #
+# ------------------------------------------------------------------ #
+
+@data_group.command("export")
+@click.option("--show-provenance", "show_provenance", is_flag=True, help="Include provenance text.")
+@click.option("--output", "-o", type=click.File("w"), default="-", show_default=True,
+              help="Write JSON to this file (default: stdout).")
+@click.pass_obj
+def data_export(obj: dict, show_provenance: bool, output) -> None:
+    """Export the database's instance data (entities, facts, property values) as JSON,
+    in the shape `kb data import` reads. Does not include schema — use `kb schema export`
+    for that, and import it first so `kb data import` has classes/relations/properties
+    to resolve names against."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    try:
+        data_json = _run(kb.export_database_data(db, include_provenance=show_provenance))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    json.dump(data_json, output, indent=2)
+    output.write("\n")
+
+
+@data_group.command("import")
+@click.argument("input_file", type=click.File("r"))
+@click.pass_obj
+def data_import(obj: dict, input_file) -> None:
+    """Import instance data previously produced by `kb data export`. Referenced
+    classes/relations/properties must already exist (e.g. via `kb schema import`)."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    try:
+        data_json = json.load(input_file)
+    except json.JSONDecodeError as exc:
+        raise click.ClickException(f"Invalid JSON in {input_file.name}: {exc}")
+    try:
+        _run(kb.import_database_data(db, data_json))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(f"Imported data into database: [bold]{db}[/bold]")
+
+
+# ------------------------------------------------------------------ #
 # kb data extract                                                      #
 # ------------------------------------------------------------------ #
 

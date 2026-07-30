@@ -667,6 +667,154 @@ class KnowledgeManager:
         return results
 
     # ------------------------------------------------------------------ #
+    # Data export / import                                                 #
+    # ------------------------------------------------------------------ #
+
+    async def export_database_data(self, database: str, include_provenance: bool = False) -> dict:
+        """Portable, name-based export of instance data (entities, facts,
+        property values) — self-sufficient for `import_database_data`
+        regardless of what ids the target database's schema ends up with,
+        since `import_database_schema` declares by name and mints new ids
+        rather than preserving the originals. Schema (CLASS/RELATION/
+        PROPERTY) isn't included here — export/import it separately via
+        `export_database_schema`/`import_database_schema` first.
+
+        `ref`/`owner_ref`/`head_ref`/`tail_ref` are the *original* node ids,
+        used only as in-payload join keys during import — entities aren't
+        guaranteed unique by name (`add_entity` never dedups), so names
+        alone can't safely re-link facts/properties to the right one.
+        """
+        def _node_name(node: dict) -> str | None:
+            return node.get("properties", {}).get("name")
+
+        def _first(nbs: list[dict]) -> dict | None:
+            return nbs[0]["node"] if nbs else None
+
+        entities: list[dict] = []
+        for node in self._source.match_nodes(database, label=ENTITY):
+            nid = node["id"]
+            props = node.get("properties", {})
+            cls = _first(self._source.get_neighbors(database, nid, edge_type=IS_INSTANCE_OF, direction="out"))
+            entry = {
+                "ref": nid,
+                "name": props.get("name"),
+                "description": props.get("description"),
+                "class": _node_name(cls) if cls else None,
+            }
+            if include_provenance:
+                entry["extraction"] = self._provenance_text(database, nid)
+            entities.append(entry)
+
+        facts: list[dict] = []
+        for node in self._source.match_nodes(database, label=FACT):
+            nid = node["id"]
+            props = node.get("properties", {})
+            rel  = _first(self._source.get_neighbors(database, nid, edge_type=REPRESENTS, direction="out"))
+            head = _first(self._source.get_neighbors(database, nid, edge_type=HEAD, direction="out"))
+            tail = _first(self._source.get_neighbors(database, nid, edge_type=TAIL, direction="out"))
+            entry = {
+                "ref": nid,
+                "name": props.get("name"),
+                "description": props.get("description"),
+                "relation": _node_name(rel) if rel else None,
+                "head_ref": head["id"] if head else None,
+                "head_name": _node_name(head) if head else None,
+                "tail_ref": tail["id"] if tail else None,
+                "tail_name": _node_name(tail) if tail else None,
+            }
+            if include_provenance:
+                entry["extraction"] = self._provenance_text(database, nid)
+            facts.append(entry)
+
+        entity_properties: list[dict] = []
+        fact_properties: list[dict] = []
+        for node in self._source.match_nodes(database, label=LITERAL):
+            nid = node["id"]
+            props = node.get("properties", {})
+            prop = _first(self._source.get_neighbors(database, nid, edge_type=IS_VALUE_OF, direction="out"))
+            owner = _first(self._source.get_neighbors(database, nid, edge_type=HAS_PROPERTY, direction="in"))
+            if owner is None:
+                continue  # orphaned literal (no owner) -- nothing to re-link on import
+            entry = {
+                "owner_ref": owner["id"],
+                "name": _node_name(prop) if prop else None,
+                "value": props.get("value"),
+                "literal_type": props.get("type"),
+            }
+            if include_provenance:
+                entry["extraction"] = self._provenance_text(database, nid)
+            (entity_properties if owner.get("label") == ENTITY else fact_properties).append(entry)
+
+        return {
+            "entities": entities,
+            "facts": facts,
+            "entity_properties": entity_properties,
+            "fact_properties": fact_properties,
+        }
+
+    def _resolve_schema_ref(self, database: str, label: str, name: str | None, what: str) -> str | None:
+        if not name:
+            return None
+        nodes = self._source.match_nodes(database, label=label, properties={"name": name})
+        if not nodes:
+            raise KnowledgeError(f"import_database_data: {what} {name!r} not found in database {database!r}")
+        return nodes[0]["id"]
+
+    def _resolve_data_ref(self, ref_to_id: dict[str, str], ref: str | None, what: str) -> str | None:
+        if ref is None:
+            return None
+        if ref not in ref_to_id:
+            raise KnowledgeError(f"import_database_data: {what} references {ref!r}, which wasn't among the imported entities/facts")
+        return ref_to_id[ref]
+
+    async def import_database_data(self, database: str, data: dict) -> None:
+        """Import entities/facts/property values previously produced by
+        `export_database_data`. CLASS/RELATION/PROPERTY references are
+        resolved by name against *database*'s current schema (e.g. already
+        populated via `import_database_schema`) — raises `KnowledgeError` if
+        a referenced schema element or `ref`/`owner_ref` join key can't be
+        resolved, rather than silently dropping the link.
+        """
+        ref_to_id: dict[str, str] = {}
+
+        for ent in data.get("entities", []):
+            class_id = self._resolve_schema_ref(database, CLASS, ent.get("class"), "class")
+            new_id = await self.add_entity(
+                database, ent.get("name"), description=ent.get("description"),
+                class_id=class_id, text=ent.get("extraction"),
+            )
+            if ent.get("ref") is not None:
+                ref_to_id[ent["ref"]] = new_id
+
+        for fact in data.get("facts", []):
+            relation_id = self._resolve_schema_ref(database, RELATION, fact.get("relation"), "relation")
+            head_id = self._resolve_data_ref(ref_to_id, fact.get("head_ref"), "fact head_ref")
+            tail_id = self._resolve_data_ref(ref_to_id, fact.get("tail_ref"), "fact tail_ref")
+            new_id = await self.add_fact(
+                database, name=fact.get("name"), description=fact.get("description"),
+                head_entity_id=head_id, tail_entity_id=tail_id, relation_id=relation_id,
+                text=fact.get("extraction"),
+            )
+            if fact.get("ref") is not None:
+                ref_to_id[fact["ref"]] = new_id
+
+        for prop in data.get("entity_properties", []):
+            owner_id = self._resolve_data_ref(ref_to_id, prop.get("owner_ref"), "entity property owner_ref")
+            property_id = self._resolve_schema_ref(database, PROPERTY, prop.get("name"), "property")
+            await self.add_entity_property_value(
+                database, prop.get("value"), literal_type=prop.get("literal_type"),
+                entity_id=owner_id, property_id=property_id, text=prop.get("extraction"),
+            )
+
+        for prop in data.get("fact_properties", []):
+            owner_id = self._resolve_data_ref(ref_to_id, prop.get("owner_ref"), "fact property owner_ref")
+            property_id = self._resolve_schema_ref(database, PROPERTY, prop.get("name"), "property")
+            await self.add_fact_property_value(
+                database, prop.get("value"), literal_type=prop.get("literal_type"),
+                fact_id=owner_id, property_id=property_id, text=prop.get("extraction"),
+            )
+
+    # ------------------------------------------------------------------ #
     # Find (substring scan)                                                #
     # ------------------------------------------------------------------ #
 

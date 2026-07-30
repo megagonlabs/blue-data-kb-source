@@ -300,6 +300,8 @@ Deleted database: main
 | `kb schema relation delete --relation NAME\|--relation-id ID [--yes]` | Delete a relation (errors if facts or sub-relations exist) |
 | `kb schema search QUERY [--type class\|relation\|property]… [--mode keyword\|semantic] [--top-k N] [--format table\|json]` | Search schema nodes; `--mode semantic` requires database configured with `--search semantic`; `--type` is repeatable |
 | `kb data list [--show-provenance] [--format table\|json]` | List all entity, property-value, and fact instances |
+| `kb data export [--show-provenance] [-o\|--output FILE]` | Export instance data (entities, facts, property values) as JSON (default: stdout); same shape `kb data import` reads. Does not include schema — export/import that first via `kb schema export`/`kb schema import` |
+| `kb data import FILE` | Import data previously produced by `kb data export`; referenced classes/relations/properties must already exist (`-` reads stdin) |
 | `kb data source add SOURCE [--name N] [--description D]` | Register a provenance source |
 | `kb data source list [--format table\|json]` | List all registered provenance sources |
 | `kb data source update --source NAME\|--source-id ID [--name N] [--description D]` | Update the name and/or description of a source |
