@@ -271,16 +271,18 @@ Name and id fields are `None` when the corresponding node was not provided.
 
 ### Reading and importing a schema
 
-Export the schema of an existing database to JSON and reload it into a fresh KB:
+Export the schema of an existing database to JSON and reload it into a fresh KB. `export_database_schema` is a thin `fetch_database_schema(...).to_json()` wrapper — the symmetric counterpart to `import_database_schema`, which takes that same JSON shape back in:
 
 ```python
 # --- export ---
-main_schema_json = (await kb.fetch_database_schema("main")).to_json()
+main_schema_json = await kb.export_database_schema("main")
 
 # --- import into a new database ---
 kb.create_database("copy")
 await kb.import_database_schema("copy", main_schema_json)
 ```
+
+The CLI exposes the same round trip: `kb schema export -o schema.json` / `kb schema import schema.json` (see [CLI usage](../platform/cli/README.md)).
 
 ## API
 
@@ -305,7 +307,8 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | `await add_is_subclass_of(database, child_id, parent_id)` | `None` | Wire `IS_SUBCLASS_OF` between two CLASS or RELATION nodes |
 | `await fetch_database_schema(database)` | `DataSchema` | Build a `DataSchema` from the `:CLASS` and `:RELATION` nodes declared in *database* |
 | `await fetch_meta_schema()` | `DataSchema` | Return the fixed `DataSchema` describing the KB graph schema itself (node and edge type taxonomy) |
-| `await import_database_schema(database, schema_json)` | `None` | Populate *database* from a `DataSchema.to_json()` dict; declares classes, properties, relations, and domain/range edges |
+| `await export_database_schema(database)` | `dict` | `fetch_database_schema(database).to_json()` — portable JSON, symmetric with `import_database_schema` |
+| `await import_database_schema(database, schema_json)` | `None` | Populate *database* from a `DataSchema.to_json()`/`export_database_schema` dict; declares classes, properties, relations, and domain/range edges |
 | `await search_schema(database, query)` | `list[SchemaSearchResult]` | Return CLASS/RELATION/PROPERTY nodes whose name or description contains *query* (case-insensitive) |
 | `await consolidate_schema(database, operation, source_names, target_name, predicate?)` | `None` | Merge or split schema elements and rewire instances; `operation="merge"` supported |
 

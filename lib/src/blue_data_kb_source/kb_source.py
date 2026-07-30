@@ -235,6 +235,9 @@ class KBSource(GraphSource, ABC):
     async def fetch_database_schema(self, database: str) -> DataSchema:
         return await self._schema.fetch_database_schema(database)
 
+    async def export_database_schema(self, database: str) -> dict:
+        return await self._schema.export_database_schema(database)
+
     async def import_database_schema(self, database: str, schema_json: dict) -> None:
         await self._schema.import_database_schema(database, schema_json)
 

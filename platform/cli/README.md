@@ -272,6 +272,8 @@ Deleted database: main
 | `kb database search config show` | Print search config for the current database |
 | `kb database search config set [--search none\|bm25\|semantic] [--bm25-index-dir …] [--vector-backend …] …` | Update search config |
 | `kb schema list [--format table\|json]` | List classes, relations, properties, and hierarchy |
+| `kb schema export [-o\|--output FILE]` | Export the schema as JSON (default: stdout); same shape `kb schema import` reads |
+| `kb schema import FILE` | Import a schema previously produced by `kb schema export` (declares idempotently; `-` reads stdin) |
 | `kb schema class add NAME DESC` | Declare a CLASS (idempotent) |
 | `kb schema class list [--format table\|json]` | List all declared classes |
 | `kb schema class update --class NAME\|--class-id ID [--name N] [--description D]` | Update the name and/or description of a class |

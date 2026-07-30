@@ -635,6 +635,40 @@ def schema_list(obj: dict, fmt: str) -> None:
         console.print(t)
 
 
+@schema_group.command("export")
+@click.option("--output", "-o", type=click.File("w"), default="-", show_default=True,
+              help="Write JSON to this file (default: stdout).")
+@click.pass_obj
+def schema_export(obj: dict, output) -> None:
+    """Export the database's schema as JSON, in the shape `kb schema import` reads back."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    try:
+        schema_json = _run(kb.export_database_schema(db))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    json.dump(schema_json, output, indent=2)
+    output.write("\n")
+
+
+@schema_group.command("import")
+@click.argument("input_file", type=click.File("r"))
+@click.pass_obj
+def schema_import(obj: dict, input_file) -> None:
+    """Import a schema previously produced by `kb schema export` (declares idempotently)."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    try:
+        schema_json = json.load(input_file)
+    except json.JSONDecodeError as exc:
+        raise click.ClickException(f"Invalid JSON in {input_file.name}: {exc}")
+    try:
+        _run(kb.import_database_schema(db, schema_json))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(f"Imported schema into database: [bold]{db}[/bold]")
+
+
 # ------------------------------------------------------------------ #
 # kb schema class                                                      #
 # ------------------------------------------------------------------ #

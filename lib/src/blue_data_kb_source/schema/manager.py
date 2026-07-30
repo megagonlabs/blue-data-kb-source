@@ -429,6 +429,10 @@ class SchemaManager:
 
         return schema
 
+    async def export_database_schema(self, database: str) -> dict:
+        """Portable JSON form of `fetch_database_schema`, symmetric with `import_database_schema`."""
+        return (await self.fetch_database_schema(database)).to_json()
+
     async def import_database_schema(self, database: str, schema_json: dict) -> None:
         schema = DataSchema.from_json(schema_json)
 
