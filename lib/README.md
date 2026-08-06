@@ -366,7 +366,7 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 
 | Method | Returns | Description |
 |---|---|---|
-| `await import_text(database, text, queries?, model?, source_id?, schema_discovery_mode?, on_tool_call?)` | `None` | Use an OpenAI LLM to extract entities, facts, and properties from *text* into *database*; expands the schema as needed; each created node gets its own `:EXTRACTION` wired to `source_id`. `schema_discovery_mode` (`"search"` default, `"llm"`, or `"none"`) controls how the agent checks for existing schema elements before declaring near-duplicates. `on_tool_call(name, args)`, if given, is invoked synchronously before each tool dispatch. Requires `openai`. |
+| `await import_text(database, text, queries?, model?, source_id?, schema_discovery_mode?, on_tool_call?)` | `None` | Use an OpenAI LLM to extract entities, facts, and properties from *text* into *database*; expands the schema as needed; each created node gets its own `:EXTRACTION` wired to `source_id`. When `source_id` resolves to an existing `:SOURCE` node, its `name`/`description` are included in the agent's system prompt as context (e.g. "Alice's résumé — submitted for her job application"), not just used for provenance wiring. `schema_discovery_mode` (`"search"` default, `"llm"`, or `"none"`) controls how the agent checks for existing schema elements before declaring near-duplicates. `on_tool_call(name, args)`, if given, is invoked synchronously before each tool dispatch. Requires `openai`. |
 
 ---
 

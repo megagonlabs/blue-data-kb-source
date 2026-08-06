@@ -306,6 +306,8 @@ Workflow:
    `text` argument. Reusing an existing entity/fact via link_extraction records
    the new text as an additional link without creating a duplicate.
 
+Source of this text: {source}
+
 Current schema:
 {schema}
 
@@ -314,6 +316,18 @@ Extraction queries:
 
 Work through the text systematically and stop calling tools when you are done.\
 """
+
+
+def _describe_source(node: dict[str, Any] | None) -> str:
+    """Human-readable name/description of a SOURCE node, for the system prompt."""
+    if node is None:
+        return "(not specified)"
+    props = node.get("properties", {})
+    name = props.get("name")
+    description = props.get("description")
+    if name and description:
+        return f"{name} — {description}"
+    return name or description or "(not specified)"
 
 
 class ExtractionEngine:
@@ -357,7 +371,9 @@ class ExtractionEngine:
             if queries
             else "Extract all notable entities, relations, and property values."
         )
-        system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(schema=schema_str, queries=queries_str)
+        source_node = self._source.get_node(database, source_id) if source_id is not None else None
+        source_str = _describe_source(source_node)
+        system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(schema=schema_str, queries=queries_str, source=source_str)
 
         tools = (
             _TOOLS if schema_discovery_mode != "none"
