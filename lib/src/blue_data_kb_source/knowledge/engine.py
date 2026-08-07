@@ -19,6 +19,7 @@ from blue_data_kb_source._constants import (
     REPRESENTS,
     TAIL,
 )
+from blue_data_kb_source.knowledge.helpers import fetch_node_metadata
 from blue_data_kb_source.types import EnrichmentResult, KBError, ValidationResult
 
 if TYPE_CHECKING:
@@ -166,6 +167,25 @@ _TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "get_metadata",
+            "description": (
+                "Return metadata for a specific entity, fact, or property-value id: created/modified "
+                "timestamps, extraction text, linked source name, and the source's original date (if any). "
+                "Call this for each entity, fact, or property value you cite in your final answer when "
+                "metadata has been requested."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Entity, fact, or literal (property value) id"},
+                },
+                "required": ["id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "return_result",
             "description": "Return the final structured result. Call exactly once when done.",
             "parameters": {
@@ -265,6 +285,25 @@ Counter evidence:
 {counter}
 """
 
+_METADATA_NL_PROMPT = """\
+You are given metadata about the specific entities, facts, or property values referenced in an
+answer from a knowledge base: when each was created or last modified, what text it was extracted
+from, and which source it came from (including the source's own original date, if known).
+
+Write a clear, concise natural language summary of this provenance information, as a short
+follow-up section after the main answer. If the metadata is empty, say that no provenance
+information was available.
+
+Metadata:
+{metadata}
+"""
+
+_METADATA_INSTRUCTION = """
+
+Additionally, for each distinct entity, fact, or property value referenced in your final answer, \
+call get_metadata with its id before calling return_result.\
+"""
+
 _ENRICH_PROMPT = """\
 You are a knowledge base enrichment agent. Starting from entities that match the
 query, traverse the graph up to {depth} hops to find all related knowledge.
@@ -314,11 +353,18 @@ class QueryEngine:
         database: str,
         question: str,
         model: str = "gpt-4o",
+        include_metadata: bool = False,
         on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
         on_tool_result: Callable[[str, dict[str, Any], Any], None] | None = None,
-    ) -> list[dict]:
+    ) -> list[dict] | tuple[list[dict], dict]:
         schema_str = (await self._schema.fetch_database_schema(database)).to_str(simplified=True)
         system = _ANSWER_PROMPT.format(schema=schema_str, question=question)
+        if include_metadata:
+            system += _METADATA_INSTRUCTION
+            raw, metadata = await self._run_agent(
+                database, system, question, model, on_tool_call, on_tool_result, include_metadata=True
+            )
+            return (raw if isinstance(raw, list) else []), metadata
         raw = await self._run_agent(database, system, question, model, on_tool_call, on_tool_result)
         return raw if isinstance(raw, list) else []
 
@@ -327,11 +373,22 @@ class QueryEngine:
         database: str,
         statement: str,
         model: str = "gpt-4o",
+        include_metadata: bool = False,
         on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
         on_tool_result: Callable[[str, dict[str, Any], Any], None] | None = None,
-    ) -> ValidationResult:
+    ) -> ValidationResult | tuple[ValidationResult, dict]:
         schema_str = (await self._schema.fetch_database_schema(database)).to_str(simplified=True)
         system = _VALIDATE_PROMPT.format(schema=schema_str, statement=statement)
+        if include_metadata:
+            system += _METADATA_INSTRUCTION
+            raw, metadata = await self._run_agent(
+                database, system, statement, model, on_tool_call, on_tool_result, include_metadata=True
+            )
+            result = (
+                ValidationResult(supporting=raw.get("supporting", []), counter=raw.get("counter", []))
+                if isinstance(raw, dict) else ValidationResult(supporting=[], counter=[])
+            )
+            return result, metadata
         raw = await self._run_agent(database, system, statement, model, on_tool_call, on_tool_result)
         if isinstance(raw, dict):
             return ValidationResult(
@@ -395,6 +452,18 @@ class QueryEngine:
         )
         return await self._complete(prompt, model)
 
+    async def metadata_as_text(
+        self,
+        metadata: dict,
+        model: str = "gpt-4o",
+    ) -> str:
+        metadata_str = "\n".join(
+            "- " + ", ".join(f"{k}={v!r}" for k, v in item.items())
+            for item in metadata.values()
+        ) or "(none)"
+        prompt = _METADATA_NL_PROMPT.format(metadata=metadata_str)
+        return await self._complete(prompt, model)
+
     # ------------------------------------------------------------------ #
     # Agent loop                                                           #
     # ------------------------------------------------------------------ #
@@ -407,6 +476,7 @@ class QueryEngine:
         model: str,
         on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
         on_tool_result: Callable[[str, dict[str, Any], Any], None] | None = None,
+        include_metadata: bool = False,
     ) -> Any:
         try:
             import openai
@@ -421,6 +491,7 @@ class QueryEngine:
             {"role": "user",   "content": user_message},
         ]
         result_payload: Any = None
+        metadata_acc: dict[str, dict] = {}
 
         while True:
             response = await client.chat.completions.create(
@@ -475,6 +546,8 @@ class QueryEngine:
                     # print(f"Tool {fn} returned: {tool_result}")
                     if on_tool_result:
                         on_tool_result(fn, args, tool_result)
+                    if include_metadata and fn == "get_metadata" and "metadata" in tool_result:
+                        metadata_acc[args["id"]] = tool_result["metadata"]
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc.id,
@@ -485,7 +558,7 @@ class QueryEngine:
                 break
 
         # print(f"Final result payload: {result_payload}")
-        return result_payload
+        return (result_payload, metadata_acc) if include_metadata else result_payload
 
     # ------------------------------------------------------------------ #
     # Single-turn completion                                               #
@@ -679,6 +752,12 @@ class QueryEngine:
                                     queue.append((other_id, dist + 1))
 
             return {"neighbors": neighbors}
+
+        if fn == "get_metadata":
+            try:
+                return {"metadata": fetch_node_metadata(self._source, database, args["id"])}
+            except KeyError as exc:
+                return {"error": str(exc)}
 
         return {"error": f"unknown tool: {fn}"}
 

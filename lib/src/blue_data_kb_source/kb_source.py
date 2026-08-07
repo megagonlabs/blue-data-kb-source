@@ -426,16 +426,22 @@ class KBSource(GraphSource, ABC):
     async def import_database_data(self, database: str, data: dict) -> None:
         await self._knowledge.import_database_data(database, data)
 
+    async def get_metadata(self, database: str, node_id: str) -> dict:
+        return await self._knowledge.get_metadata(database, node_id)
+
     async def answer(
         self,
         database: str,
         question: str,
         model: str = "gpt-4o",
         natural_language: bool = False,
+        include_metadata: bool = False,
         on_tool_call: Callable[[str, dict], None] | None = None,
         on_tool_result: Callable[[str, dict, Any], None] | None = None,
-    ) -> list[dict] | str:
-        return await self._knowledge.answer(database, question, model, natural_language, on_tool_call, on_tool_result)
+    ) -> list[dict] | str | tuple[list[dict] | str, dict]:
+        return await self._knowledge.answer(
+            database, question, model, natural_language, include_metadata, on_tool_call, on_tool_result
+        )
 
     async def validate(
         self,
@@ -443,10 +449,13 @@ class KBSource(GraphSource, ABC):
         statement: str,
         model: str = "gpt-4o",
         natural_language: bool = False,
+        include_metadata: bool = False,
         on_tool_call: Callable[[str, dict], None] | None = None,
         on_tool_result: Callable[[str, dict, Any], None] | None = None,
-    ) -> ValidationResult | str:
-        return await self._knowledge.validate(database, statement, model, natural_language, on_tool_call, on_tool_result)
+    ) -> ValidationResult | str | tuple[ValidationResult | str, dict]:
+        return await self._knowledge.validate(
+            database, statement, model, natural_language, include_metadata, on_tool_call, on_tool_result
+        )
 
     async def enrich(
         self,

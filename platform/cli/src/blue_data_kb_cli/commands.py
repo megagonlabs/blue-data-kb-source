@@ -81,6 +81,38 @@ def _humanize_date(iso_str: str | None) -> str:
         return iso_str
 
 
+def _metadata_display_name(meta: dict) -> str:
+    """Human-readable identity string for a get_metadata entry, type-dependent."""
+    if meta.get("type") == "LITERAL":
+        return f"{meta.get('owner_name') or '?'}.{meta.get('property_name') or '?'} = {meta.get('value')}"
+    return meta.get("name") or ""
+
+
+def _print_metadata_table(metadata: dict) -> None:
+    """Render a get_metadata dict (id -> metadata) as a 'Metadata' table, if non-empty."""
+    if not metadata:
+        return
+    t = Table(title="Metadata", show_header=True, header_style="bold")
+    t.add_column("Type",            style="dim")
+    t.add_column("Name",            style="bold")
+    t.add_column("Created",         style="dim")
+    t.add_column("Modified",        style="dim")
+    t.add_column("Extraction",      style="dim")
+    t.add_column("Source",          style="dim")
+    t.add_column("Source Original", style="dim")
+    for meta in metadata.values():
+        t.add_row(
+            meta.get("type") or "",
+            _metadata_display_name(meta),
+            _humanize_date(meta.get("created")),
+            _humanize_date(meta.get("modified")),
+            meta.get("extraction") or "",
+            meta.get("source") or "",
+            meta.get("source_original") or "",
+        )
+    console.print(t)
+
+
 def _status_tool_callbacks(
     status: Any, label: str, verbose: bool = False, log: bool = False, log_limit: int = 80
 ) -> tuple[Any, Any]:
@@ -2959,36 +2991,46 @@ def extract_cmd(
     help="Output format: table, json, or nl (prose natural-language answer).",
 )
 @click.option("--model", default="gpt-4o", show_default=True, help="OpenAI model.")
+@click.option("--include-metadata", "include_metadata", is_flag=True, default=False,
+              help="Also collect created/modified/extraction/source metadata for cited entities/facts/properties.")
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Show tool call arguments in the status line.")
 @click.option("--log", "-l", is_flag=True, default=False, help="Also log each tool call and its result on its own line (in addition to the status line).")
 @click.option("--log-limit", type=int, default=80, show_default=True, help="Max characters to show per truncated verbose/log line.")
 @click.pass_obj
-def answer_cmd(obj: dict, question: str, fmt: str, model: str, verbose: bool, log: bool, log_limit: int) -> None:
+def answer_cmd(
+    obj: dict, question: str, fmt: str, model: str, include_metadata: bool,
+    verbose: bool, log: bool, log_limit: int,
+) -> None:
     """Answer a natural language question using the knowledge base."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
         with console.status("Answering…") as status:
             on_call, on_result = _status_tool_callbacks(status, "Answering", verbose, log, log_limit)
-            result = _run(kb.answer(db, question, model=model, natural_language=(fmt == "nl"),
-                                     on_tool_call=on_call, on_tool_result=on_result))
+            raw = _run(kb.answer(db, question, model=model, natural_language=(fmt == "nl"),
+                                  include_metadata=include_metadata,
+                                  on_tool_call=on_call, on_tool_result=on_result))
     except KBError as exc:
         raise click.ClickException(str(exc))
+    result, metadata = (raw if include_metadata else (raw, None))
+
     if fmt == "nl":
         console.print(result)
     elif fmt == "json":
-        console.print_json(json.dumps(result))
+        console.print_json(json.dumps({"result": result, "metadata": metadata} if include_metadata else result))
     else:
         if not result:
             console.print("(no results)")
-            return
-        columns: list[str] = list(dict.fromkeys(k for row in result for k in row))
-        t = Table(show_header=True, header_style="bold")
-        for col in columns:
-            t.add_column(col.replace("_", " ").title())
-        for row in result:
-            t.add_row(*[str(row.get(col, "")) for col in columns])
-        console.print(t)
+        else:
+            columns: list[str] = list(dict.fromkeys(k for row in result for k in row))
+            t = Table(show_header=True, header_style="bold")
+            for col in columns:
+                t.add_column(col.replace("_", " ").title())
+            for row in result:
+                t.add_row(*[str(row.get(col, "")) for col in columns])
+            console.print(t)
+        if include_metadata:
+            _print_metadata_table(metadata)
 
 
 # ------------------------------------------------------------------ #
@@ -3000,12 +3042,15 @@ def answer_cmd(obj: dict, question: str, fmt: str, model: str, verbose: bool, lo
 @click.option("--natural-language", "natural_language", is_flag=True, default=False,
               help="Return a prose assessment instead of supporting/counter lists.")
 @click.option("--model", default="gpt-4o", show_default=True, help="OpenAI model.")
+@click.option("--include-metadata", "include_metadata", is_flag=True, default=False,
+              help="Also collect created/modified/extraction/source metadata for cited entities/facts/properties.")
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Show tool call arguments in the status line.")
 @click.option("--log", "-l", is_flag=True, default=False, help="Also log each tool call and its result on its own line (in addition to the status line).")
 @click.option("--log-limit", type=int, default=80, show_default=True, help="Max characters to show per truncated verbose/log line.")
 @click.pass_obj
 def validate_cmd(
-    obj: dict, statement: str, natural_language: bool, model: str, verbose: bool, log: bool, log_limit: int
+    obj: dict, statement: str, natural_language: bool, model: str, include_metadata: bool,
+    verbose: bool, log: bool, log_limit: int,
 ) -> None:
     """Return supporting and counter evidence for a statement."""
     kb: FileKBSource = obj["kb"]
@@ -3013,10 +3058,12 @@ def validate_cmd(
     try:
         with console.status("Validating…") as status:
             on_call, on_result = _status_tool_callbacks(status, "Validating", verbose, log, log_limit)
-            result = _run(kb.validate(db, statement, model=model, natural_language=natural_language,
-                                       on_tool_call=on_call, on_tool_result=on_result))
+            raw = _run(kb.validate(db, statement, model=model, natural_language=natural_language,
+                                    include_metadata=include_metadata,
+                                    on_tool_call=on_call, on_tool_result=on_result))
     except KBError as exc:
         raise click.ClickException(str(exc))
+    result, metadata = (raw if include_metadata else (raw, None))
 
     if natural_language:
         console.print(result)
@@ -3039,6 +3086,10 @@ def validate_cmd(
             console.print(f"  • {fact}")
     else:
         console.print("  (none)")
+
+    if include_metadata:
+        console.print()
+        _print_metadata_table(metadata)
 
 
 @data_group.command("search")

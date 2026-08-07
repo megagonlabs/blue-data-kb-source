@@ -56,6 +56,49 @@ def _mock_openai_nl(result_payload, nl_text):
     return MagicMock(return_value=mock_client)
 
 
+def _tool_call_response(fn, args, call_id="call_0"):
+    """Build a mock chat response that calls an arbitrary tool (not return_result)."""
+    tc = MagicMock()
+    tc.id = call_id
+    tc.type = "function"
+    tc.function.name = fn
+    tc.function.arguments = json.dumps(args)
+
+    msg = MagicMock()
+    msg.role = "assistant"
+    msg.content = None
+    msg.tool_calls = [tc]
+
+    response = MagicMock()
+    response.choices = [MagicMock()]
+    response.choices[0].message = msg
+    return response
+
+
+def _mock_openai_with_metadata(node_id, result_payload):
+    """Patch openai.AsyncOpenAI: calls get_metadata(node_id) once, then return_result."""
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(
+        side_effect=[_tool_call_response("get_metadata", {"id": node_id}), _agent_response(result_payload)]
+    )
+    return MagicMock(return_value=mock_client)
+
+
+def _mock_openai_with_metadata_nl(node_id, result_payload, nl_text, metadata_nl_text):
+    """Patch openai.AsyncOpenAI: get_metadata tool call, return_result, then two NL completions
+    (main answer/validate text, then metadata text)."""
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(
+        side_effect=[
+            _tool_call_response("get_metadata", {"id": node_id}),
+            _agent_response(result_payload),
+            _text_response(nl_text),
+            _text_response(metadata_nl_text),
+        ]
+    )
+    return MagicMock(return_value=mock_client)
+
+
 # ------------------------------------------------------------------ #
 # add_entity                                                           #
 # ------------------------------------------------------------------ #
@@ -497,6 +540,72 @@ async def test_answer_default_returns_structured(populated_kb):
     with patch("openai.AsyncOpenAI", _mock_openai(_ANSWER_PAYLOAD)):
         result = await populated_kb.answer("test", "Where did Alice work?")
     assert isinstance(result, list)
+
+
+# ------------------------------------------------------------------ #
+# answer / validate include_metadata=True                             #
+# ------------------------------------------------------------------ #
+
+def _alice_id(populated_kb):
+    return next(
+        n["id"] for n in populated_kb.match_nodes("test", label="ENTITY")
+        if n["properties"]["name"] == "Alice"
+    )
+
+
+async def test_answer_include_metadata_returns_tuple(populated_kb):
+    alice_id = _alice_id(populated_kb)
+    with patch("openai.AsyncOpenAI", _mock_openai_with_metadata(alice_id, _ANSWER_PAYLOAD)):
+        results, metadata = await populated_kb.answer("test", "Where did Alice work?", include_metadata=True)
+    assert isinstance(results, list)
+    assert alice_id in metadata
+    assert metadata[alice_id]["type"] == "ENTITY"
+    assert metadata[alice_id]["name"] == "Alice"
+    assert metadata[alice_id]["source"] == "Alice's résumé"
+    assert metadata[alice_id]["created"] is not None
+
+
+async def test_answer_without_include_metadata_returns_bare_list(populated_kb):
+    with patch("openai.AsyncOpenAI", _mock_openai(_ANSWER_PAYLOAD)):
+        result = await populated_kb.answer("test", "Where did Alice work?")
+    assert isinstance(result, list)
+
+
+async def test_validate_include_metadata_returns_tuple(populated_kb):
+    alice_id = _alice_id(populated_kb)
+    with patch("openai.AsyncOpenAI", _mock_openai_with_metadata(alice_id, _VALIDATE_PAYLOAD)):
+        result, metadata = await populated_kb.validate("test", "Alice worked at IBM", include_metadata=True)
+    assert len(result.supporting) > 0
+    assert alice_id in metadata
+    assert metadata[alice_id]["source"] == "Alice's résumé"
+
+
+_METADATA_NL_TEXT = "This was extracted from Alice's résumé, added on 2026-08-07."
+
+async def test_answer_include_metadata_natural_language_appends_metadata_section(populated_kb):
+    alice_id = _alice_id(populated_kb)
+    mock = _mock_openai_with_metadata_nl(alice_id, _ANSWER_PAYLOAD, _ANSWER_NL_TEXT, _METADATA_NL_TEXT)
+    with patch("openai.AsyncOpenAI", mock):
+        text, metadata = await populated_kb.answer(
+            "test", "Where did Alice work?", natural_language=True, include_metadata=True
+        )
+    assert _ANSWER_NL_TEXT in text
+    assert _METADATA_NL_TEXT in text
+    assert text.index(_ANSWER_NL_TEXT) < text.index(_METADATA_NL_TEXT)
+    assert alice_id in metadata
+
+
+async def test_validate_include_metadata_natural_language_appends_metadata_section(populated_kb):
+    alice_id = _alice_id(populated_kb)
+    mock = _mock_openai_with_metadata_nl(alice_id, _VALIDATE_PAYLOAD, _VALIDATE_NL_TEXT, _METADATA_NL_TEXT)
+    with patch("openai.AsyncOpenAI", mock):
+        text, metadata = await populated_kb.validate(
+            "test", "Alice worked at IBM", natural_language=True, include_metadata=True
+        )
+    assert _VALIDATE_NL_TEXT in text
+    assert _METADATA_NL_TEXT in text
+    assert text.index(_VALIDATE_NL_TEXT) < text.index(_METADATA_NL_TEXT)
+    assert alice_id in metadata
 
 
 # ------------------------------------------------------------------ #

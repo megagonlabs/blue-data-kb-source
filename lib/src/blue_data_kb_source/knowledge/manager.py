@@ -21,8 +21,14 @@ from blue_data_kb_source._constants import (
     EXTRACTION,
     TAIL,
 )
-from blue_data_kb_source.checks import require_node_type
+from blue_data_kb_source.checks import require_node_type, require_node_type_one_of
 from blue_data_kb_source.knowledge.engine import QueryEngine
+from blue_data_kb_source.knowledge.helpers import (
+    detail_attrs,
+    fetch_node_metadata,
+    node_name,
+    provenance_detail,
+)
 from blue_data_kb_source.timestamps import edge_stamped, stamped, touched
 from blue_data_kb_source.types import (
     DataSearchResult,
@@ -592,47 +598,11 @@ class KnowledgeManager:
 
     def _fetch_compact(self, database: str, include_provenance: bool, detailed: bool = False) -> list[dict]:
         results: list[dict] = []
-
-        def _name(node: dict) -> str:
-            return node.get("properties", {}).get("name", node["id"])
-
-        def _detail_attrs(node: dict) -> dict:
-            props = node.get("properties", {})
-            return {
-                "description": props.get("description"),
-                "created": props.get("created"),
-                "modified": props.get("modified"),
-            }
+        _name = node_name
+        _detail_attrs = detail_attrs
 
         def _provenance_detail(node_id: str) -> dict:
-            """Extraction text and linked source name/original for node_id's EXTRACTED_FROM chain."""
-            ext_nbs = self._source.get_neighbors(database, node_id, edge_type=EXTRACTED_FROM, direction="out")
-            texts: list[str] = []
-            source_names: list[str] = []
-            source_originals: list[str] = []
-            seen_sources: set[str] = set()
-            for nb in ext_nbs:
-                extraction_node = nb["node"]
-                text = extraction_node.get("properties", {}).get("text")
-                if text:
-                    texts.append(text)
-                for src_nb in self._source.get_neighbors(
-                    database, extraction_node["id"], edge_type=EXTRACTED_FROM, direction="out"
-                ):
-                    source_node = src_nb["node"]
-                    if source_node["id"] in seen_sources:
-                        continue
-                    seen_sources.add(source_node["id"])
-                    sprops = source_node.get("properties", {})
-                    if sprops.get("name"):
-                        source_names.append(sprops["name"])
-                    if sprops.get("original"):
-                        source_originals.append(sprops["original"])
-            return {
-                "extraction": " | ".join(texts) or None,
-                "source": " | ".join(source_names) or None,
-                "source_original": " | ".join(source_originals) or None,
-            }
+            return provenance_detail(self._source, database, node_id)
 
         for entity_node in self._source.match_nodes(database, label=ENTITY):
             nid = entity_node["id"]
@@ -873,6 +843,15 @@ class KnowledgeManager:
             )
 
     # ------------------------------------------------------------------ #
+    # Metadata lookup                                                       #
+    # ------------------------------------------------------------------ #
+
+    async def get_metadata(self, database: str, node_id: str) -> dict:
+        """created/modified/extraction/source metadata for an entity, fact, or property value id."""
+        require_node_type_one_of(self._source, database, node_id, (ENTITY, FACT, LITERAL), "node_id", KnowledgeError)
+        return fetch_node_metadata(self._source, database, node_id)
+
+    # ------------------------------------------------------------------ #
     # Find (substring scan)                                                #
     # ------------------------------------------------------------------ #
 
@@ -935,10 +914,24 @@ class KnowledgeManager:
         question: str,
         model: str = "gpt-4o",
         natural_language: bool = False,
+        include_metadata: bool = False,
         on_tool_call: Callable[[str, dict], None] | None = None,
         on_tool_result: Callable[[str, dict, Any], None] | None = None,
-    ) -> list[dict] | str:
-        results = await self._query.answer(database, question, model, on_tool_call, on_tool_result)
+    ) -> list[dict] | str | tuple[list[dict] | str, dict]:
+        if include_metadata:
+            results, metadata = await self._query.answer(
+                database, question, model, include_metadata=True,
+                on_tool_call=on_tool_call, on_tool_result=on_tool_result,
+            )
+            if natural_language:
+                text = await self._query.answer_as_text(question, results, model)
+                if metadata:
+                    text = f"{text}\n\n{await self._query.metadata_as_text(metadata, model)}"
+                return text, metadata
+            return results, metadata
+        results = await self._query.answer(
+            database, question, model, on_tool_call=on_tool_call, on_tool_result=on_tool_result,
+        )
         if natural_language:
             return await self._query.answer_as_text(question, results, model)
         return results
@@ -949,10 +942,24 @@ class KnowledgeManager:
         statement: str,
         model: str = "gpt-4o",
         natural_language: bool = False,
+        include_metadata: bool = False,
         on_tool_call: Callable[[str, dict], None] | None = None,
         on_tool_result: Callable[[str, dict, Any], None] | None = None,
-    ) -> ValidationResult | str:
-        result = await self._query.validate(database, statement, model, on_tool_call, on_tool_result)
+    ) -> ValidationResult | str | tuple[ValidationResult | str, dict]:
+        if include_metadata:
+            result, metadata = await self._query.validate(
+                database, statement, model, include_metadata=True,
+                on_tool_call=on_tool_call, on_tool_result=on_tool_result,
+            )
+            if natural_language:
+                text = await self._query.validate_as_text(statement, result, model)
+                if metadata:
+                    text = f"{text}\n\n{await self._query.metadata_as_text(metadata, model)}"
+                return text, metadata
+            return result, metadata
+        result = await self._query.validate(
+            database, statement, model, on_tool_call=on_tool_call, on_tool_result=on_tool_result,
+        )
         if natural_language:
             return await self._query.validate_as_text(statement, result, model)
         return result
