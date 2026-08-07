@@ -112,6 +112,10 @@ class SchemaManager:
             (ENTITY,    EXTRACTED_FROM,  EXTRACTION, _extracted_desc),
             (LITERAL,   EXTRACTED_FROM,  EXTRACTION, _extracted_desc),
             (FACT,      EXTRACTED_FROM,  EXTRACTION, _extracted_desc),
+            (EXTRACTION, EXTRACTED_FROM, SOURCE,     "Links an extraction record to the source it was drawn from, "
+                                                      "continuing the evidence chain from entity/fact/literal down to "
+                                                      "origin. Example: Resume_Text_1 EXTRACTED_FROM Alices_Resume. "
+                                                      "Wired by add_extraction whenever source_id is given."),
         ]
         for domain, rel_name, range_, desc in _relations:
             schema.add_relation(domain, rel_name, range_, description=desc)
