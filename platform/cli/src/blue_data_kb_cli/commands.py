@@ -160,10 +160,26 @@ def _coerce_value(raw: str, literal_type: str | None) -> str | int | float | boo
     return raw
 
 
-def _provenance_text(kb: FileKBSource, db: str, node_id: str) -> str:
+def _provenance_detail(kb: FileKBSource, db: str, node_id: str) -> dict:
+    """Extraction text and linked source name(s) for node_id's EXTRACTED_FROM chain."""
     nbs = kb.get_neighbors(db, node_id, edge_type=EXTRACTED_FROM, direction="out")
-    texts = [nb["node"].get("properties", {}).get("text", "") for nb in nbs]
-    return " | ".join(t for t in texts if t)
+    texts: list[str] = []
+    source_names: list[str] = []
+    seen_sources: set[str] = set()
+    for nb in nbs:
+        extraction_node = nb["node"]
+        text = extraction_node.get("properties", {}).get("text")
+        if text:
+            texts.append(text)
+        for src_nb in kb.get_neighbors(db, extraction_node["id"], edge_type=EXTRACTED_FROM, direction="out"):
+            source_node = src_nb["node"]
+            if source_node["id"] in seen_sources:
+                continue
+            seen_sources.add(source_node["id"])
+            name = source_node.get("properties", {}).get("name")
+            if name:
+                source_names.append(name)
+    return {"extraction": " | ".join(texts), "source": " | ".join(source_names)}
 
 
 # ------------------------------------------------------------------ #
@@ -1887,7 +1903,9 @@ def entity_list(obj: dict, show_provenance: bool, fmt: str) -> None:
             "class": class_name,
         }
         if show_provenance:
-            row["provenance"] = _provenance_text(kb, db, nid)
+            prov = _provenance_detail(kb, db, nid)
+            row["provenance"] = prov["extraction"]
+            row["source"] = prov["source"]
         rows.append(row)
     if fmt == "json":
         console.print_json(json.dumps(rows))
@@ -1900,10 +1918,12 @@ def entity_list(obj: dict, show_provenance: bool, fmt: str) -> None:
         t.add_column("Class", style="dim")
         if show_provenance:
             t.add_column("Provenance", style="dim")
+            t.add_column("Source",     style="dim")
         for r in sorted(rows, key=lambda x: (x["class"], x["name"])):
             row_cells = [r["name"], r["class"]]
             if show_provenance:
                 row_cells.append(r.get("provenance", ""))
+                row_cells.append(r.get("source", ""))
             t.add_row(*row_cells)
         console.print(t)
 
@@ -2099,7 +2119,9 @@ def entity_property_list(
             "id":       lit["id"],
         }
         if show_provenance:
-            row["provenance"] = _provenance_text(kb, db, lit["id"])
+            prov = _provenance_detail(kb, db, lit["id"])
+            row["provenance"] = prov["extraction"]
+            row["source"] = prov["source"]
         rows.append(row)
     if fmt == "json":
         console.print_json(json.dumps(rows))
@@ -2110,10 +2132,12 @@ def entity_property_list(
         t.add_column("Type",     style="dim")
         if show_provenance:
             t.add_column("Provenance", style="dim")
+            t.add_column("Source",     style="dim")
         for r in rows:
             row_cells = [r["property"], r["value"], r["type"]]
             if show_provenance:
                 row_cells.append(r.get("provenance", ""))
+                row_cells.append(r.get("source", ""))
             t.add_row(*row_cells)
         console.print(t)
 
@@ -2328,7 +2352,9 @@ def fact_list(obj: dict, show_provenance: bool, fmt: str) -> None:
             "tail":     _name(tail_id),
         }
         if show_provenance:
-            row["provenance"] = _provenance_text(kb, db, nid)
+            prov = _provenance_detail(kb, db, nid)
+            row["provenance"] = prov["extraction"]
+            row["source"] = prov["source"]
         rows.append(row)
     if fmt == "json":
         console.print_json(json.dumps(rows))
@@ -2342,10 +2368,12 @@ def fact_list(obj: dict, show_provenance: bool, fmt: str) -> None:
         t.add_column("Tail",     style="bold")
         if show_provenance:
             t.add_column("Provenance", style="dim")
+            t.add_column("Source",     style="dim")
         for r in sorted(rows, key=lambda x: (x["relation"], x["head"])):
             row_cells = [r["head"], r["relation"], r["tail"]]
             if show_provenance:
                 row_cells.append(r.get("provenance", ""))
+                row_cells.append(r.get("source", ""))
             t.add_row(*row_cells)
         console.print(t)
 
@@ -2531,7 +2559,9 @@ def fact_property_list(obj: dict, fact_id: str, show_provenance: bool, fmt: str)
             "id":       lit["id"],
         }
         if show_provenance:
-            row["provenance"] = _provenance_text(kb, db, lit["id"])
+            prov = _provenance_detail(kb, db, lit["id"])
+            row["provenance"] = prov["extraction"]
+            row["source"] = prov["source"]
         rows.append(row)
     if fmt == "json":
         console.print_json(json.dumps(rows))
@@ -2542,10 +2572,12 @@ def fact_property_list(obj: dict, fact_id: str, show_provenance: bool, fmt: str)
         t.add_column("Type",     style="dim")
         if show_provenance:
             t.add_column("Provenance", style="dim")
+            t.add_column("Source",     style="dim")
         for r in rows:
             row_cells = [r["property"], r["value"], r["type"]]
             if show_provenance:
                 row_cells.append(r.get("provenance", ""))
+                row_cells.append(r.get("source", ""))
             t.add_row(*row_cells)
         console.print(t)
 
@@ -2695,6 +2727,19 @@ def list_cmd(obj: dict, show_provenance: bool, show_detailed: bool, fmt: str) ->
     def _detail_row(r: dict) -> list[str]:
         return [r.get("description") or "", _humanize_date(r.get("created")), _humanize_date(r.get("modified"))]
 
+    def _provenance_columns(t: Table) -> None:
+        t.add_column("Provenance", style="dim")
+        t.add_column("Source",     style="dim")
+
+    def _provenance_row(r: dict) -> list[str]:
+        return [r.get("extraction", "") or "", r.get("source", "") or ""]
+
+    def _source_original_column(t: Table) -> None:
+        t.add_column("Source Original", style="dim")
+
+    def _source_original_row(r: dict) -> list[str]:
+        return [r.get("source_original") or ""]
+
     if entities:
         t = Table(title="Entities", show_header=True, header_style="bold")
         t.add_column("Name",  style="bold")
@@ -2702,13 +2747,17 @@ def list_cmd(obj: dict, show_provenance: bool, show_detailed: bool, fmt: str) ->
         if show_detailed:
             _detail_columns(t)
         if show_provenance:
-            t.add_column("Provenance", style="dim")
+            _provenance_columns(t)
+        if show_detailed and show_provenance:
+            _source_original_column(t)
         for r in sorted(entities, key=lambda x: (x.get("class_name") or "", x.get("entity_name") or "")):
             row = [r.get("entity_name") or "", r.get("class_name") or ""]
             if show_detailed:
                 row += _detail_row(r)
             if show_provenance:
-                row.append(r.get("extraction", "") or "")
+                row += _provenance_row(r)
+            if show_detailed and show_provenance:
+                row += _source_original_row(r)
             t.add_row(*row)
         console.print(t)
 
@@ -2720,13 +2769,17 @@ def list_cmd(obj: dict, show_provenance: bool, show_detailed: bool, fmt: str) ->
         if show_detailed:
             _detail_columns(t)
         if show_provenance:
-            t.add_column("Provenance", style="dim")
+            _provenance_columns(t)
+        if show_detailed and show_provenance:
+            _source_original_column(t)
         for r in sorted(ent_props, key=lambda x: (x.get("entity_name") or "", x.get("property_name") or "")):
             row = [r.get("entity_name") or "", r.get("property_name") or "", str(r.get("property_value", ""))]
             if show_detailed:
                 row += _detail_row(r)
             if show_provenance:
-                row.append(r.get("extraction", "") or "")
+                row += _provenance_row(r)
+            if show_detailed and show_provenance:
+                row += _source_original_row(r)
             t.add_row(*row)
         console.print(t)
 
@@ -2738,13 +2791,17 @@ def list_cmd(obj: dict, show_provenance: bool, show_detailed: bool, fmt: str) ->
         if show_detailed:
             _detail_columns(t)
         if show_provenance:
-            t.add_column("Provenance", style="dim")
+            _provenance_columns(t)
+        if show_detailed and show_provenance:
+            _source_original_column(t)
         for r in sorted(facts, key=lambda x: (x.get("relation_name") or "", x.get("source_name") or "")):
             row = [r.get("source_name") or "", r.get("relation_name") or "", r.get("target_name") or ""]
             if show_detailed:
                 row += _detail_row(r)
             if show_provenance:
-                row.append(r.get("extraction", "") or "")
+                row += _provenance_row(r)
+            if show_detailed and show_provenance:
+                row += _source_original_row(r)
             t.add_row(*row)
         console.print(t)
 
@@ -2758,7 +2815,9 @@ def list_cmd(obj: dict, show_provenance: bool, show_detailed: bool, fmt: str) ->
         if show_detailed:
             _detail_columns(t)
         if show_provenance:
-            t.add_column("Provenance", style="dim")
+            _provenance_columns(t)
+        if show_detailed and show_provenance:
+            _source_original_column(t)
         for r in sorted(fact_props, key=lambda x: (x.get("relation_name") or "", x.get("head_name") or "", x.get("property_name") or "")):
             row = [
                 r.get("head_name") or "",
@@ -2770,7 +2829,9 @@ def list_cmd(obj: dict, show_provenance: bool, show_detailed: bool, fmt: str) ->
             if show_detailed:
                 row += _detail_row(r)
             if show_provenance:
-                row.append(r.get("extraction", "") or "")
+                row += _provenance_row(r)
+            if show_detailed and show_provenance:
+                row += _source_original_row(r)
             t.add_row(*row)
         console.print(t)
 

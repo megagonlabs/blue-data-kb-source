@@ -604,6 +604,36 @@ class KnowledgeManager:
                 "modified": props.get("modified"),
             }
 
+        def _provenance_detail(node_id: str) -> dict:
+            """Extraction text and linked source name/original for node_id's EXTRACTED_FROM chain."""
+            ext_nbs = self._source.get_neighbors(database, node_id, edge_type=EXTRACTED_FROM, direction="out")
+            texts: list[str] = []
+            source_names: list[str] = []
+            source_originals: list[str] = []
+            seen_sources: set[str] = set()
+            for nb in ext_nbs:
+                extraction_node = nb["node"]
+                text = extraction_node.get("properties", {}).get("text")
+                if text:
+                    texts.append(text)
+                for src_nb in self._source.get_neighbors(
+                    database, extraction_node["id"], edge_type=EXTRACTED_FROM, direction="out"
+                ):
+                    source_node = src_nb["node"]
+                    if source_node["id"] in seen_sources:
+                        continue
+                    seen_sources.add(source_node["id"])
+                    sprops = source_node.get("properties", {})
+                    if sprops.get("name"):
+                        source_names.append(sprops["name"])
+                    if sprops.get("original"):
+                        source_originals.append(sprops["original"])
+            return {
+                "extraction": " | ".join(texts) or None,
+                "source": " | ".join(source_names) or None,
+                "source_original": " | ".join(source_originals) or None,
+            }
+
         for entity_node in self._source.match_nodes(database, label=ENTITY):
             nid = entity_node["id"]
             for nb in self._source.get_neighbors(database, nid, edge_type=IS_INSTANCE_OF, direction="out"):
@@ -612,10 +642,14 @@ class KnowledgeManager:
                     "entity_name": _name(entity_node),
                     "class_name": _name(nb["node"]),
                 }
+                prov = _provenance_detail(nid) if (include_provenance or detailed) else None
                 if detailed:
                     entry.update(_detail_attrs(entity_node))
                 if include_provenance:
-                    entry["extraction"] = self._provenance_text(database, nid)
+                    entry["extraction"] = prov["extraction"]
+                    entry["source"] = prov["source"]
+                    if detailed:
+                        entry["source_original"] = prov["source_original"]
                 results.append(entry)
 
         for literal_node in self._source.match_nodes(database, label=LITERAL):
@@ -637,6 +671,7 @@ class KnowledgeManager:
                     "property_value": _name(literal_node),
                     "property_name":  _name(nb["node"]),
                 }
+                prov = _provenance_detail(nid) if (include_provenance or detailed) else None
                 if detailed:
                     entry.update(_detail_attrs(literal_node))
                 if owner_label == FACT and owner_id:
@@ -650,7 +685,10 @@ class KnowledgeManager:
                         entry["relation_name"] = _name(r["node"])
                         break
                 if include_provenance:
-                    entry["extraction"] = self._provenance_text(database, nid)
+                    entry["extraction"] = prov["extraction"]
+                    entry["source"] = prov["source"]
+                    if detailed:
+                        entry["source_original"] = prov["source_original"]
                 results.append(entry)
 
         for fact_node in self._source.match_nodes(database, label=FACT):
@@ -674,10 +712,14 @@ class KnowledgeManager:
                 "target_name": tail_name,
                 "relation_name": relation_name,
             }
+            prov = _provenance_detail(nid) if (include_provenance or detailed) else None
             if detailed:
                 entry.update(_detail_attrs(fact_node))
             if include_provenance:
-                entry["extraction"] = self._provenance_text(database, nid)
+                entry["extraction"] = prov["extraction"]
+                entry["source"] = prov["source"]
+                if detailed:
+                    entry["source_original"] = prov["source_original"]
             results.append(entry)
 
         return results

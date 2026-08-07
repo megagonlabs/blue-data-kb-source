@@ -299,7 +299,7 @@ Deleted database: main
 | `kb schema relation property delete --property NAME\|--property-id ID [--relation NAME\|--relation-id ID] [--yes]` | Delete a relation property (errors if values exist); --relation disambiguates |
 | `kb schema relation delete --relation NAME\|--relation-id ID [--yes]` | Delete a relation (errors if facts or sub-relations exist) |
 | `kb schema search QUERY [--type class\|relation\|property]… [--mode keyword\|semantic] [--top-k N] [--format table\|json]` | Search schema nodes; `--mode semantic` requires database configured with `--search semantic`; `--type` is repeatable |
-| `kb data list [--show-provenance] [--show-detailed] [--format table\|json]` | List all entity, property-value, and fact instances; `--show-detailed` adds each row's description/created/modified (table format shows created/modified as human-readable local dates, e.g. "Aug 7, 2026 5:48 PM"; `--format json` keeps the raw ISO-8601 timestamps) |
+| `kb data list [--show-provenance] [--show-detailed] [--format table\|json]` | List all entity, property-value, and fact instances; `--show-provenance` adds each row's extraction text and linked source name (if any); `--show-detailed` adds each row's description/created/modified (table format shows created/modified as human-readable local dates, e.g. "Aug 7, 2026 5:48 PM"; `--format json` keeps the raw ISO-8601 timestamps); combining both flags additionally shows the linked source's `original` attribute (if any) after the source name |
 | `kb data export [--show-provenance] [-o\|--output FILE]` | Export instance data (entities, facts, property values) as JSON (default: stdout); same shape `kb data import` reads. Does not include schema — export/import that first via `kb schema export`/`kb schema import` |
 | `kb data import FILE` | Import data previously produced by `kb data export`; referenced classes/relations/properties must already exist (`-` reads stdin) |
 | `kb data source add SOURCE [--name N] [--description D] [--original DATE]` | Register a provenance source; `--original` records the source's original date (e.g. publication date), separate from `created` |
@@ -307,22 +307,22 @@ Deleted database: main
 | `kb data source update --source NAME\|--source-id ID [--name N] [--description D] [--original DATE]` | Update the name, description, and/or original date of a source |
 | `kb data source delete --source NAME\|--source-id ID [--yes]` | Delete a source and its extraction records; instances are preserved |
 | `kb data entity add [--name NAME] [--class NAME\|--class-id ID] [--description D] [--text T] [--source NAME\|--source-id ID]` | Add an entity instance |
-| `kb data entity list [--show-provenance] [--format table\|json]` | List all entity instances |
+| `kb data entity list [--show-provenance] [--format table\|json]` | List all entity instances; `--show-provenance` adds extraction text and linked source name (if any) |
 | `kb data entity update --entity NAME\|--entity-id ID [--name N] [--description D]` | Update the name and/or description of an entity |
 | `kb data entity delete --entity NAME\|--entity-id ID [--cascade] [--yes]` | Delete an entity and its property values; with --cascade also deletes referencing facts |
 | `kb data entity extraction add --entity NAME\|--entity-id ID --text T [--source NAME\|--source-id ID]` | Link additional source text (a new `EXTRACTED_FROM` edge) to an existing entity |
 | `kb data entity property set VALUE [--name N] [--description D] --entity NAME\|--entity-id ID --property NAME [--type T] [--source NAME\|--source-id ID]` | Set a property value on an entity |
-| `kb data entity property list --entity NAME\|--entity-id ID [--show-provenance] [--format table\|json]` | List property values for an entity |
+| `kb data entity property list --entity NAME\|--entity-id ID [--show-provenance] [--format table\|json]` | List property values for an entity; `--show-provenance` adds extraction text and linked source name (if any) |
 | `kb data entity property update --entity NAME\|--entity-id ID --property NAME\|--property-id ID [--value V] [--name N] [--description D]` | Update the value, name, and/or description of an entity property value |
 | `kb data entity property delete --entity NAME\|--entity-id ID --property NAME\|--property-id ID [--yes]` | Delete a property value from an entity |
 | `kb data entity property extraction add --entity NAME\|--entity-id ID --property NAME\|--property-id ID --text T [--source NAME\|--source-id ID]` | Link additional source text to an entity's existing property value |
 | `kb data fact add [--name N] [--description D] [--head NAME\|--head-id ID] [--relation NAME\|--relation-id ID] [--tail NAME\|--tail-id ID] [--source NAME\|--source-id ID]` | Add a fact |
-| `kb data fact list [--show-provenance] [--format table\|json]` | List all facts |
+| `kb data fact list [--show-provenance] [--format table\|json]` | List all facts; `--show-provenance` adds extraction text and linked source name (if any) |
 | `kb data fact update --fact NAME\|--fact-id ID [--name N] [--description D]` | Update the name and/or description of a fact |
 | `kb data fact delete --fact NAME\|--fact-id ID [--yes]` | Delete a fact and its property values |
 | `kb data fact extraction add --fact NAME\|--fact-id ID --text T [--source NAME\|--source-id ID]` | Link additional source text (a new `EXTRACTED_FROM` edge) to an existing fact |
 | `kb data fact property set VALUE [--name N] [--description D] --fact-id ID --property NAME [--type T] [--source NAME\|--source-id ID]` | Set a property value on a fact |
-| `kb data fact property list --fact-id ID [--show-provenance] [--format table\|json]` | List property values for a fact |
+| `kb data fact property list --fact-id ID [--show-provenance] [--format table\|json]` | List property values for a fact; `--show-provenance` adds extraction text and linked source name (if any) |
 | `kb data fact property update --fact NAME\|--fact-id ID --property NAME\|--property-id ID [--value V] [--name N] [--description D]` | Update the value, name, and/or description of a fact property value |
 | `kb data fact property delete --fact NAME\|--fact-id ID --property NAME\|--property-id ID [--yes]` | Delete a property value from a fact |
 | `kb data fact property extraction add --fact NAME\|--fact-id ID --property NAME\|--property-id ID --text T [--source NAME\|--source-id ID]` | Link additional source text to a fact's existing property value |
