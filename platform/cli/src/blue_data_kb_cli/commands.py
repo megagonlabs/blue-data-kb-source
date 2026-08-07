@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+import arrow
 import click
 from rich.console import Console
 from rich.table import Table
@@ -65,6 +66,19 @@ def _run(coro: Any) -> Any:
 
 def _truncate(text: str, limit: int = 80) -> str:
     return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def _humanize_date(iso_str: str | None) -> str:
+    """Format an ISO-8601 created/modified timestamp for table display.
+
+    JSON output keeps the raw ISO string; this is only for `--format table`.
+    """
+    if not iso_str:
+        return ""
+    try:
+        return arrow.get(iso_str).to("local").format("MMM D, YYYY h:mm A")
+    except arrow.parser.ParserError:
+        return iso_str
 
 
 def _status_tool_callbacks(
@@ -1679,19 +1693,22 @@ def source_group() -> None:
 @click.argument("source")
 @click.option("--name", default=None, help="Human-readable label (defaults to source value).")
 @click.option("--description", default=None, help="Optional description.")
+@click.option("--original", default=None, help="Original date of the source (e.g. when it was originally published).")
 @click.pass_obj
-def source_add(obj: dict, source: str, name: str | None, description: str | None) -> None:
+def source_add(obj: dict, source: str, name: str | None, description: str | None, original: str | None) -> None:
     """Register a source document and return its ID."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
-        src_id = _run(kb.add_source(db, source, name=name, description=description))
+        src_id = _run(kb.add_source(db, source, name=name, description=description, original=original))
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(f"Added source: [bold]{source}[/bold] (id: {src_id})")
 
 
 @source_group.command("list")
+@click.option("--show-detailed", "show_detailed", is_flag=True,
+              help="Include created/modified timestamps in the table output.")
 @click.option(
     "--format", "fmt",
     type=click.Choice(["table", "json"]),
@@ -1699,7 +1716,7 @@ def source_add(obj: dict, source: str, name: str | None, description: str | None
     show_default=True,
 )
 @click.pass_obj
-def source_list(obj: dict, fmt: str) -> None:
+def source_list(obj: dict, show_detailed: bool, fmt: str) -> None:
     """List all registered provenance sources."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
@@ -1709,6 +1726,9 @@ def source_list(obj: dict, fmt: str) -> None:
             "name":        n.get("properties", {}).get("name", ""),
             "source":      n.get("properties", {}).get("source", ""),
             "description": n.get("properties", {}).get("description", ""),
+            "original":    n.get("properties", {}).get("original", ""),
+            "created":     n.get("properties", {}).get("created", ""),
+            "modified":    n.get("properties", {}).get("modified", ""),
         }
         for n in kb.match_nodes(db, label=SOURCE)
     ]
@@ -1722,8 +1742,15 @@ def source_list(obj: dict, fmt: str) -> None:
         t.add_column("Name",        style="bold")
         t.add_column("Source",      style="dim")
         t.add_column("Description", style="dim")
+        t.add_column("Original",    style="dim")
+        if show_detailed:
+            t.add_column("Created",  style="dim")
+            t.add_column("Modified", style="dim")
         for r in sorted(rows, key=lambda x: x["name"]):
-            t.add_row(r["name"], r["source"], r["description"])
+            row = [r["name"], r["source"], r["description"], r["original"]]
+            if show_detailed:
+                row += [_humanize_date(r["created"]), _humanize_date(r["modified"])]
+            t.add_row(*row)
         console.print(t)
 
 
@@ -1732,19 +1759,20 @@ def source_list(obj: dict, fmt: str) -> None:
 @click.option("--source-id",                  default=None, help="Source node ID (overrides --source).")
 @click.option("--name",                       default=None, help="New name.")
 @click.option("--description",                default=None, help="New description.")
+@click.option("--original",                   default=None, help="New original date.")
 @click.pass_obj
 def source_update(
     obj: dict, source_name: str | None, source_id: str | None,
-    name: str | None, description: str | None,
+    name: str | None, description: str | None, original: str | None,
 ) -> None:
-    """Update the name and/or description of a source."""
-    if not name and not description:
-        raise click.UsageError("Provide at least one of --name or --description.")
+    """Update the name, description, and/or original date of a source."""
+    if not name and not description and not original:
+        raise click.UsageError("Provide at least one of --name, --description, or --original.")
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     sid = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
     try:
-        _run(kb.update_source(db, sid, name=name, description=description))
+        _run(kb.update_source(db, sid, name=name, description=description, original=original))
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(f"Updated source: [bold]{name or source_name or source_id}[/bold]")
@@ -2629,6 +2657,8 @@ def fact_property_extraction_add(
 
 @data_group.command("list")
 @click.option("--show-provenance", "show_provenance", is_flag=True, help="Include provenance text.")
+@click.option("--show-detailed", "show_detailed", is_flag=True,
+              help="Include each row's node attributes: description, created, modified.")
 @click.option(
     "--format", "fmt",
     type=click.Choice(["table", "json"]),
@@ -2636,12 +2666,14 @@ def fact_property_extraction_add(
     show_default=True,
 )
 @click.pass_obj
-def list_cmd(obj: dict, show_provenance: bool, fmt: str) -> None:
+def list_cmd(obj: dict, show_provenance: bool, show_detailed: bool, fmt: str) -> None:
     """List all entities, property values, and facts in the current database."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
-        rows: list[dict] = _run(kb.fetch_database_data(db, include_provenance=show_provenance, compact=True))  # type: ignore[assignment]
+        rows: list[dict] = _run(kb.fetch_database_data(  # type: ignore[assignment]
+            db, include_provenance=show_provenance, compact=True, detailed=show_detailed,
+        ))
     except KBError as exc:
         raise click.ClickException(str(exc))
 
@@ -2655,14 +2687,26 @@ def list_cmd(obj: dict, show_provenance: bool, fmt: str) -> None:
     fact_props  = [r for r in all_props if r.get("owner_label") == "FACT"]
     facts       = [r for r in rows if r.get("relation_type") == "REPRESENTS"]
 
+    def _detail_columns(t: Table) -> None:
+        t.add_column("Description", style="dim")
+        t.add_column("Created",     style="dim")
+        t.add_column("Modified",    style="dim")
+
+    def _detail_row(r: dict) -> list[str]:
+        return [r.get("description") or "", _humanize_date(r.get("created")), _humanize_date(r.get("modified"))]
+
     if entities:
         t = Table(title="Entities", show_header=True, header_style="bold")
         t.add_column("Name",  style="bold")
         t.add_column("Class", style="dim")
+        if show_detailed:
+            _detail_columns(t)
         if show_provenance:
             t.add_column("Provenance", style="dim")
         for r in sorted(entities, key=lambda x: (x.get("class_name") or "", x.get("entity_name") or "")):
             row = [r.get("entity_name") or "", r.get("class_name") or ""]
+            if show_detailed:
+                row += _detail_row(r)
             if show_provenance:
                 row.append(r.get("extraction", "") or "")
             t.add_row(*row)
@@ -2673,10 +2717,14 @@ def list_cmd(obj: dict, show_provenance: bool, fmt: str) -> None:
         t.add_column("Entity",   style="bold")
         t.add_column("Property", style="dim")
         t.add_column("Value")
+        if show_detailed:
+            _detail_columns(t)
         if show_provenance:
             t.add_column("Provenance", style="dim")
         for r in sorted(ent_props, key=lambda x: (x.get("entity_name") or "", x.get("property_name") or "")):
             row = [r.get("entity_name") or "", r.get("property_name") or "", str(r.get("property_value", ""))]
+            if show_detailed:
+                row += _detail_row(r)
             if show_provenance:
                 row.append(r.get("extraction", "") or "")
             t.add_row(*row)
@@ -2687,10 +2735,14 @@ def list_cmd(obj: dict, show_provenance: bool, fmt: str) -> None:
         t.add_column("Head",     style="bold")
         t.add_column("Relation", style="dim")
         t.add_column("Tail",     style="bold")
+        if show_detailed:
+            _detail_columns(t)
         if show_provenance:
             t.add_column("Provenance", style="dim")
         for r in sorted(facts, key=lambda x: (x.get("relation_name") or "", x.get("source_name") or "")):
             row = [r.get("source_name") or "", r.get("relation_name") or "", r.get("target_name") or ""]
+            if show_detailed:
+                row += _detail_row(r)
             if show_provenance:
                 row.append(r.get("extraction", "") or "")
             t.add_row(*row)
@@ -2703,6 +2755,8 @@ def list_cmd(obj: dict, show_provenance: bool, fmt: str) -> None:
         t.add_column("Tail",     style="bold")
         t.add_column("Property", style="dim")
         t.add_column("Value")
+        if show_detailed:
+            _detail_columns(t)
         if show_provenance:
             t.add_column("Provenance", style="dim")
         for r in sorted(fact_props, key=lambda x: (x.get("relation_name") or "", x.get("head_name") or "", x.get("property_name") or "")):
@@ -2713,6 +2767,8 @@ def list_cmd(obj: dict, show_provenance: bool, fmt: str) -> None:
                 r.get("property_name") or "",
                 str(r.get("property_value", "")),
             ]
+            if show_detailed:
+                row += _detail_row(r)
             if show_provenance:
                 row.append(r.get("extraction", "") or "")
             t.add_row(*row)

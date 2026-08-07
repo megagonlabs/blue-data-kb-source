@@ -301,6 +301,8 @@ Abstract base class. Extend it alongside a concrete `GraphSource` implementation
 
 All I/O-bound methods are `async def`. `add_change_hook` and `remove_change_hook` are synchronous (hooks themselves must also be synchronous `def` functions).
 
+Every node (`CLASS`, `RELATION`, `PROPERTY`, `ENTITY`, `FACT`, `LITERAL`, `SOURCE`, `EXTRACTION`) carries `created` and `modified` timestamps (ISO-8601 UTC) alongside its other attributes: `created` is set once when the node is created, `modified` is refreshed whenever one of the `update_*` methods changes the node's own attributes (wiring an edge to/from the node does not count as a modification). Every edge also carries a `created` timestamp (no `modified` — edges aren't updated in place). `SOURCE` nodes additionally support an `original` attribute (see `add_source` below) for a caller-supplied original date, distinct from `created`.
+
 ---
 
 #### Schema operations (→ `SchemaManager`)
@@ -335,7 +337,7 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | `await add_fact_extraction(database, fact_id, text, source_id?)` | `str` | Link a new text span to an *existing* fact, same as above |
 | `await add_entity_property_value_extraction(database, entity_id, property_id, text, source_id?)` | `str` | Link a new text span to an entity's existing property value (resolved via `entity_id`+`property_id`); raises if no such value exists |
 | `await add_fact_property_value_extraction(database, fact_id, property_id, text, source_id?)` | `str` | Link a new text span to a fact's existing property value (resolved via `fact_id`+`property_id`); raises if no such value exists |
-| `await fetch_database_data(database, include_provenance?, compact?)` | `dict \| list` | `compact=False` (default): raw `{nodes, edges}` graph form. `compact=True`: flat denormalized rows (entity/class, property/value, fact head/relation/tail), the shape `kb data list`/`kb data list --format json` uses |
+| `await fetch_database_data(database, include_provenance?, compact?, detailed?)` | `dict \| list` | `compact=False` (default): raw `{nodes, edges}` graph form (already includes each node's full `properties`, so `detailed` has no effect here). `compact=True`: flat denormalized rows (entity/class, property/value, fact head/relation/tail), the shape `kb data list`/`kb data list --format json` uses; `detailed=True` adds each row's own `description`/`created`/`modified` (the entity for entity rows, the literal for property rows, the fact for fact rows) |
 | `await export_database_data(database, include_provenance?)` | `dict` | Portable, name-based export of entities/facts/property values (schema not included — export/import that separately first); symmetric with `import_database_data` |
 | `await import_database_data(database, data)` | `None` | Populate *database* from an `export_database_data` dict; resolves classes/relations/properties **by name** against the target database's current schema, raising `KnowledgeError` if a reference can't be resolved |
 | `await answer(database, question, model?, natural_language?, on_tool_call?)` | `list[AnswerResult] \| str` | LLM agent answers a natural language question by traversing the instance graph |
@@ -348,7 +350,7 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 
 | Method | Returns | Description |
 |---|---|---|
-| `await add_source(database, source, name?, description?, node_id?)` | `str` | Add a `:SOURCE` node; `name` defaults to `source` if omitted |
+| `await add_source(database, source, name?, description?, node_id?, original?)` | `str` | Add a `:SOURCE` node; `name` defaults to `source` if omitted; `original` records the source's original date (e.g. publication date), separate from `created` (when it was added to the KB) |
 | `await add_extraction(database, text, name?, description?, node_id?, source_id?, element_id?)` | `str` | Add an `:EXTRACTION` node; optionally wires `EXTRACTED_FROM` to a source (`source_id`) and/or links it to an existing entity/fact/literal (`element_id`) in the same call |
 
 ---

@@ -25,6 +25,7 @@ from blue_data_kb_source._constants import (
     TAIL,
 )
 from blue_data_kb_source.checks import require_node_type, require_node_type_one_of
+from blue_data_kb_source.timestamps import edge_stamped, stamped, touched
 from blue_data_kb_source.types import SchemaError, SchemaSearchResult
 
 from typing import TYPE_CHECKING
@@ -62,19 +63,31 @@ class SchemaManager:
         for name, desc in _classes.items():
             schema.add_entity(name, description=desc)
 
+        _created_desc = "timestamp when the node was created"
+        _modified_desc = "timestamp when the node's attributes were last modified"
+        _timestamp_attrs = [("created", _created_desc), ("modified", _modified_desc)]
+
         _attrs: dict[str, list[tuple[str, str]]] = {
-            CLASS:      [("name", "name of the class"), ("description", "description of the class")],
+            CLASS:      [("name", "name of the class"), ("description", "description of the class"),
+                         *_timestamp_attrs],
             RELATION:   [("name", "name of the relation"), ("description", "description of the relation"),
-                         ("is_symmetric", "boolean indicating symmetry")],
-            PROPERTY:   [("name", "name of the property"), ("description", "description of the property")],
-            ENTITY:     [("name", "name of the entity"), ("description", "description of the entity")],
-            FACT:       [("name", "name of the fact"), ("description", "description of the fact")],
+                         ("is_symmetric", "boolean indicating symmetry"), *_timestamp_attrs],
+            PROPERTY:   [("name", "name of the property"), ("description", "description of the property"),
+                         *_timestamp_attrs],
+            ENTITY:     [("name", "name of the entity"), ("description", "description of the entity"),
+                         *_timestamp_attrs],
+            FACT:       [("name", "name of the fact"), ("description", "description of the fact"),
+                         *_timestamp_attrs],
             LITERAL:    [("name", "name of the literal"), ("description", "description of the literal"),
-                         ("value", "value of the property"), ("type", "type of the value")],
+                         ("value", "value of the property"), ("type", "type of the value"),
+                         *_timestamp_attrs],
             SOURCE:     [("id", "id of the source"), ("name", "name of the source"),
-                         ("description", "description of the source")],
+                         ("description", "description of the source"),
+                         ("original", "externally supplied date indicating the source's original date, "
+                                      "set via the API or CLI"),
+                         *_timestamp_attrs],
             EXTRACTION: [("name", "name of the extraction"), ("description", "description of the extraction"),
-                         ("text", "text segment of extraction from source")],
+                         ("text", "text segment of extraction from source"), *_timestamp_attrs],
         }
         for class_name, attrs in _attrs.items():
             for attr_name, attr_desc in attrs:
@@ -118,7 +131,8 @@ class SchemaManager:
                                                       "Wired by add_extraction whenever source_id is given."),
         ]
         for domain, rel_name, range_, desc in _relations:
-            schema.add_relation(domain, rel_name, range_, description=desc)
+            rel_key = schema.add_relation(domain, rel_name, range_, description=desc)
+            schema.add_relation_attribute(rel_key, "created", "str", description=_created_desc)
 
         return schema
 
@@ -139,7 +153,7 @@ class SchemaManager:
         node_id = self._source.add_node(
             database,
             CLASS,
-            {"name": name, "description": description},
+            stamped({"name": name, "description": description}),
             node_id=class_id,
         )
         self._fire({"type": "class_declared", "database": database, "id": node_id,
@@ -175,19 +189,19 @@ class SchemaManager:
         rid = self._source.add_node(
             database,
             RELATION,
-            {"name": name, "description": description, "is_symmetric": is_symmetric},
+            stamped({"name": name, "description": description, "is_symmetric": is_symmetric}),
             node_id=relation_id,
         )
         for class_name in domain_names:
             classes = self._source.match_nodes(database, label=CLASS, properties={"name": class_name})
             if not classes:
                 raise SchemaError(f"domain class '{class_name}' not found in '{database}'")
-            self._source.add_edge(database, rid, DOMAIN, classes[0]["id"])
+            self._source.add_edge(database, rid, DOMAIN, classes[0]["id"], properties=edge_stamped())
         for class_name in range_names:
             classes = self._source.match_nodes(database, label=CLASS, properties={"name": class_name})
             if not classes:
                 raise SchemaError(f"range class '{class_name}' not found in '{database}'")
-            self._source.add_edge(database, rid, RANGE, classes[0]["id"])
+            self._source.add_edge(database, rid, RANGE, classes[0]["id"], properties=edge_stamped())
         self._fire({"type": "relation_declared", "database": database, "id": rid,
                     "name": name, "description": description, "is_symmetric": is_symmetric,
                     "domain": domain_names, "range": range_names})
@@ -213,11 +227,11 @@ class SchemaManager:
         node_id = self._source.add_node(
             database,
             PROPERTY,
-            {"name": name, "description": description},
+            stamped({"name": name, "description": description}),
             node_id=property_id,
         )
         if class_id is not None:
-            self._source.add_edge(database, class_id, DEFINE_PROPERTY, node_id)
+            self._source.add_edge(database, class_id, DEFINE_PROPERTY, node_id, properties=edge_stamped())
         class_name = (
             (self._source.get_node(database, class_id) or {}).get("properties", {}).get("name")
             if class_id is not None else None
@@ -247,11 +261,11 @@ class SchemaManager:
         node_id = self._source.add_node(
             database,
             PROPERTY,
-            {"name": name, "description": description},
+            stamped({"name": name, "description": description}),
             node_id=property_id,
         )
         if relation_id is not None:
-            self._source.add_edge(database, relation_id, DEFINE_PROPERTY, node_id)
+            self._source.add_edge(database, relation_id, DEFINE_PROPERTY, node_id, properties=edge_stamped())
         relation_name = (
             (self._source.get_node(database, relation_id) or {}).get("properties", {}).get("name")
             if relation_id is not None else None
@@ -272,7 +286,7 @@ class SchemaManager:
         props = {k: v for k, v in {"name": name, "description": description}.items() if v is not None}
         if not props:
             raise SchemaError("At least one of name or description must be provided.")
-        self._source.update_node(database, class_id, props)
+        self._source.update_node(database, class_id, touched(props))
         self._fire({"type": "class_updated", "database": database, "id": class_id})
 
     async def update_relation(
@@ -286,7 +300,7 @@ class SchemaManager:
         props = {k: v for k, v in {"name": name, "description": description}.items() if v is not None}
         if not props:
             raise SchemaError("At least one of name or description must be provided.")
-        self._source.update_node(database, relation_id, props)
+        self._source.update_node(database, relation_id, touched(props))
         self._fire({"type": "relation_updated", "database": database, "id": relation_id})
 
     async def update_property(
@@ -300,7 +314,7 @@ class SchemaManager:
         props = {k: v for k, v in {"name": name, "description": description}.items() if v is not None}
         if not props:
             raise SchemaError("At least one of name or description must be provided.")
-        self._source.update_node(database, property_id, props)
+        self._source.update_node(database, property_id, touched(props))
         self._fire({"type": "property_updated", "database": database, "id": property_id})
 
     async def delete_class(self, database: str, class_id: str) -> None:
@@ -355,7 +369,7 @@ class SchemaManager:
                 f"{parent_label} node — a subclass relationship requires both to be the same kind "
                 "(both CLASS or both RELATION)."
             )
-        self._source.add_edge(database, child_id, IS_SUBCLASS_OF, parent_id)
+        self._source.add_edge(database, child_id, IS_SUBCLASS_OF, parent_id, properties=edge_stamped())
         event_type = "class_subclass" if child_label == CLASS else "relation_subclass"
         self._fire({
             "type": event_type,
@@ -557,7 +571,7 @@ class SchemaManager:
         target_id = (
             existing_target[0]["id"]
             if existing_target
-            else self._source.add_node(database, label, {"name": target_name, "description": ""})
+            else self._source.add_node(database, label, stamped({"name": target_name, "description": ""}))
         )
 
         # Edge type and direction for finding instances that reference each source node
@@ -581,6 +595,6 @@ class SchemaManager:
             for nb in self._source.get_neighbors(database, src_node["id"], edge_type=edge_type, direction="in"):
                 instance_id = nb["node"]["id"]
                 try:
-                    self._source.add_edge(database, instance_id, edge_type, target_id)
+                    self._source.add_edge(database, instance_id, edge_type, target_id, properties=edge_stamped())
                 except Exception:  # noqa: BLE001
                     pass

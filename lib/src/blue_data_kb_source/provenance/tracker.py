@@ -3,6 +3,7 @@ from __future__ import annotations
 from blue_data.source.graph.graph_source import GraphSource
 
 from blue_data_kb_source._constants import EXTRACTED_FROM, EXTRACTION, SOURCE
+from blue_data_kb_source.timestamps import edge_stamped, stamped, touched
 
 
 class ProvenanceTracker:
@@ -18,13 +19,14 @@ class ProvenanceTracker:
         name: str | None = None,
         description: str | None = None,
         node_id: str | None = None,
+        original: str | None = None,
     ) -> str:
         if name is None:
             name = source
         return self._source.add_node(
             database,
             SOURCE,
-            {"name": name, "description": description, "source": source},
+            stamped({"name": name, "description": description, "source": source, "original": original}),
             node_id=node_id,
         )
 
@@ -42,11 +44,11 @@ class ProvenanceTracker:
         n = self._source.add_node(
             database,
             EXTRACTION,
-            {"name": name, "description": description, "text": text},
+            stamped({"name": name, "description": description, "text": text}),
             node_id=node_id,
         )
         if source_id is not None:
-            self._source.add_edge(database, n, EXTRACTED_FROM, source_id)
+            self._source.add_edge(database, n, EXTRACTED_FROM, source_id, properties=edge_stamped())
         return n
 
     async def link_extraction(
@@ -63,7 +65,7 @@ class ProvenanceTracker:
         element_id adds a new edge rather than replacing the existing one.
         """
         extraction_id = await self.add_extraction(database, text=text, source_id=source_id)
-        self._source.add_edge(database, element_id, EXTRACTED_FROM, extraction_id)
+        self._source.add_edge(database, element_id, EXTRACTED_FROM, extraction_id, properties=edge_stamped())
         return extraction_id
 
     async def add_extracted_from(
@@ -72,7 +74,7 @@ class ProvenanceTracker:
         element_id: str,
         extraction_id: str,
     ) -> None:
-        self._source.add_edge(database, element_id, EXTRACTED_FROM, extraction_id)
+        self._source.add_edge(database, element_id, EXTRACTED_FROM, extraction_id, properties=edge_stamped())
 
     async def update_source(
         self,
@@ -80,11 +82,13 @@ class ProvenanceTracker:
         source_id: str,
         name: str | None = None,
         description: str | None = None,
+        original: str | None = None,
     ) -> None:
-        props = {k: v for k, v in {"name": name, "description": description}.items() if v is not None}
+        props = {k: v for k, v in {"name": name, "description": description, "original": original}.items()
+                 if v is not None}
         if not props:
-            raise ValueError("At least one of name or description must be provided.")
-        self._source.update_node(database, source_id, props)
+            raise ValueError("At least one of name, description, or original must be provided.")
+        self._source.update_node(database, source_id, touched(props))
 
     async def delete_source(self, database: str, source_id: str) -> None:
         """Delete a SOURCE node and all its EXTRACTION nodes.

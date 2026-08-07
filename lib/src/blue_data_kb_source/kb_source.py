@@ -416,8 +416,9 @@ class KBSource(GraphSource, ABC):
         database: str,
         include_provenance: bool = False,
         compact: bool = False,
+        detailed: bool = False,
     ) -> dict | list:
-        return await self._knowledge.fetch_database_data(database, include_provenance, compact)
+        return await self._knowledge.fetch_database_data(database, include_provenance, compact, detailed)
 
     async def export_database_data(self, database: str, include_provenance: bool = False) -> dict:
         return await self._knowledge.export_database_data(database, include_provenance)
@@ -469,8 +470,9 @@ class KBSource(GraphSource, ABC):
         name: str | None = None,
         description: str | None = None,
         node_id: str | None = None,
+        original: str | None = None,
     ) -> str:
-        return await self._provenance.add_source(database, source, name, description, node_id)
+        return await self._provenance.add_source(database, source, name, description, node_id, original)
 
     async def add_extraction(
         self,
@@ -535,8 +537,9 @@ class KBSource(GraphSource, ABC):
         source_id: str,
         name: str | None = None,
         description: str | None = None,
+        original: str | None = None,
     ) -> None:
-        await self._provenance.update_source(database, source_id, name, description)
+        await self._provenance.update_source(database, source_id, name, description, original)
 
     async def delete_source(self, database: str, source_id: str) -> None:
         await self._provenance.delete_source(database, source_id)
@@ -637,16 +640,16 @@ class KBSource(GraphSource, ABC):
                 "KB.DELETE_FACT"               fact_id
                 "KB.DELETE_ENTITY_PROPERTY"    entity_id, property_id
                 "KB.DELETE_FACT_PROPERTY"      fact_id, property_id
-                "KB.GET_DATA"                  include_provenance (opt), compact (opt)
+                "KB.GET_DATA"                  include_provenance (opt), compact (opt), detailed (opt)
                 "KB.ADD_ENTITY_EXTRACTION"          entity_id, text, source_id (opt)
                 "KB.ADD_FACT_EXTRACTION"            fact_id, text, source_id (opt)
                 "KB.ADD_ENTITY_PROPERTY_EXTRACTION" entity_id, property_id, text, source_id (opt)
                 "KB.ADD_FACT_PROPERTY_EXTRACTION"   fact_id, property_id, text, source_id (opt)
 
             Provenance:
-                "KB.ADD_SOURCE"                source, name (opt), description (opt), node_id (opt)
+                "KB.ADD_SOURCE"                source, name (opt), description (opt), node_id (opt), original (opt)
                 "KB.ADD_EXTRACTION"            text, name (opt), description (opt), source_id (opt), node_id (opt), element_id (opt)
-                "KB.UPDATE_SOURCE"             source_id, name (opt), description (opt)
+                "KB.UPDATE_SOURCE"             source_id, name (opt), description (opt), original (opt)
                 "KB.DELETE_SOURCE"             source_id
 
         GRAPH.* ops are also accepted and forwarded to the GraphSource implementation.
@@ -854,6 +857,7 @@ class KBSource(GraphSource, ABC):
                 database,
                 include_provenance=query.get("include_provenance", False),
                 compact=query.get("compact", False),
+                detailed=query.get("detailed", False),
             ))
 
         if op == "KB.ADD_ENTITY_EXTRACTION":
@@ -899,6 +903,7 @@ class KBSource(GraphSource, ABC):
                 name=query.get("name"),
                 description=query.get("description"),
                 node_id=query.get("node_id"),
+                original=query.get("original"),
             ))
 
         if op == "KB.ADD_EXTRACTION":
@@ -913,7 +918,10 @@ class KBSource(GraphSource, ABC):
             ))
 
         if op == "KB.UPDATE_SOURCE":
-            _r(self.update_source(database, query["source_id"], query.get("name"), query.get("description")))
+            _r(self.update_source(
+                database, query["source_id"], query.get("name"), query.get("description"),
+                query.get("original"),
+            ))
             return None
 
         if op == "KB.DELETE_SOURCE":

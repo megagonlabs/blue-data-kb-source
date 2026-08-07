@@ -23,6 +23,7 @@ from blue_data_kb_source._constants import (
 )
 from blue_data_kb_source.checks import require_node_type
 from blue_data_kb_source.knowledge.engine import QueryEngine
+from blue_data_kb_source.timestamps import edge_stamped, stamped, touched
 from blue_data_kb_source.types import (
     DataSearchResult,
     EnrichmentResult,
@@ -119,11 +120,11 @@ class KnowledgeManager:
         node_id = self._source.add_node(
             database,
             ENTITY,
-            {"name": name, "description": description},
+            stamped({"name": name, "description": description}),
             node_id=entity_id,
         )
         if class_id is not None:
-            self._source.add_edge(database, node_id, IS_INSTANCE_OF, class_id)
+            self._source.add_edge(database, node_id, IS_INSTANCE_OF, class_id, properties=edge_stamped())
         if text is not None:
             await self._provenance.link_extraction(database, node_id, text, source_id)
         self._notifier.fire({
@@ -162,14 +163,14 @@ class KnowledgeManager:
             rel_name = self._node_name(database, relation_id) or "?"
             name = f"{head_name}_{rel_name}_{tail_name}"
         node_id = self._source.add_node(
-            database, FACT, {"name": name, "description": description}, node_id=fact_id
+            database, FACT, stamped({"name": name, "description": description}), node_id=fact_id
         )
         if head_entity_id is not None:
-            self._source.add_edge(database, node_id, HEAD, head_entity_id)
+            self._source.add_edge(database, node_id, HEAD, head_entity_id, properties=edge_stamped())
         if tail_entity_id is not None:
-            self._source.add_edge(database, node_id, TAIL, tail_entity_id)
+            self._source.add_edge(database, node_id, TAIL, tail_entity_id, properties=edge_stamped())
         if relation_id is not None:
-            self._source.add_edge(database, node_id, REPRESENTS, relation_id)
+            self._source.add_edge(database, node_id, REPRESENTS, relation_id, properties=edge_stamped())
         if text is not None:
             await self._provenance.link_extraction(database, node_id, text, source_id)
         self._notifier.fire({
@@ -211,11 +212,11 @@ class KnowledgeManager:
         lid = self._source.add_node(
             database,
             LITERAL,
-            {"name": name, "description": description, "value": value, "type": literal_type},
+            stamped({"name": name, "description": description, "value": value, "type": literal_type}),
             node_id=node_id,
         )
         if property_id is not None:
-            self._source.add_edge(database, lid, IS_VALUE_OF, property_id)
+            self._source.add_edge(database, lid, IS_VALUE_OF, property_id, properties=edge_stamped())
         return lid
 
     async def add_entity_property_value(
@@ -239,7 +240,7 @@ class KnowledgeManager:
             literal_type=literal_type, property_id=property_id
         )
         if entity_id is not None:
-            self._source.add_edge(database, entity_id, HAS_PROPERTY, literal_id)
+            self._source.add_edge(database, entity_id, HAS_PROPERTY, literal_id, properties=edge_stamped())
         if text is not None:
             await self._provenance.link_extraction(database, literal_id, text, source_id)
         self._notifier.fire({
@@ -275,7 +276,7 @@ class KnowledgeManager:
             literal_type=literal_type, property_id=property_id
         )
         if fact_id is not None:
-            self._source.add_edge(database, fact_id, HAS_PROPERTY, literal_id)
+            self._source.add_edge(database, fact_id, HAS_PROPERTY, literal_id, properties=edge_stamped())
         if text is not None:
             await self._provenance.link_extraction(database, literal_id, text, source_id)
         self._notifier.fire({
@@ -379,7 +380,7 @@ class KnowledgeManager:
         props = {k: v for k, v in {"name": name, "description": description}.items() if v is not None}
         if not props:
             raise KnowledgeError("At least one of --name or --description must be provided.")
-        self._source.update_node(database, entity_id, props)
+        self._source.update_node(database, entity_id, touched(props))
         self._notifier.fire({"type": "entity_updated", "database": database, "id": entity_id})
 
     async def update_fact(
@@ -393,7 +394,7 @@ class KnowledgeManager:
         props = {k: v for k, v in {"name": name, "description": description}.items() if v is not None}
         if not props:
             raise KnowledgeError("At least one of --name or --description must be provided.")
-        self._source.update_node(database, fact_id, props)
+        self._source.update_node(database, fact_id, touched(props))
         self._notifier.fire({"type": "fact_updated", "database": database, "id": fact_id})
 
     def _find_literal(self, database: str, owner_id: str, property_id: str) -> str | None:
@@ -429,7 +430,7 @@ class KnowledgeManager:
             props["description"] = description
         if not props:
             raise KnowledgeError("At least one of --value, --name, or --description must be provided.")
-        self._source.update_node(database, lit_id, props)
+        self._source.update_node(database, lit_id, touched(props))
         self._notifier.fire({"type": "entity_property_updated", "database": database,
                              "id": lit_id, "entity_id": entity_id})
 
@@ -458,7 +459,7 @@ class KnowledgeManager:
             props["description"] = description
         if not props:
             raise KnowledgeError("At least one of --value, --name, or --description must be provided.")
-        self._source.update_node(database, lit_id, props)
+        self._source.update_node(database, lit_id, touched(props))
         self._notifier.fire({"type": "fact_property_updated", "database": database,
                              "id": lit_id, "fact_id": fact_id})
 
@@ -535,9 +536,10 @@ class KnowledgeManager:
         database: str,
         include_provenance: bool = False,
         compact: bool = False,
+        detailed: bool = False,
     ) -> dict | list:
         if compact:
-            return self._fetch_compact(database, include_provenance)
+            return self._fetch_compact(database, include_provenance, detailed)
 
         nodes: list[dict] = []
         edges: list[dict] = []
@@ -588,11 +590,19 @@ class KnowledgeManager:
 
         return {"nodes": nodes, "edges": edges}
 
-    def _fetch_compact(self, database: str, include_provenance: bool) -> list[dict]:
+    def _fetch_compact(self, database: str, include_provenance: bool, detailed: bool = False) -> list[dict]:
         results: list[dict] = []
 
         def _name(node: dict) -> str:
             return node.get("properties", {}).get("name", node["id"])
+
+        def _detail_attrs(node: dict) -> dict:
+            props = node.get("properties", {})
+            return {
+                "description": props.get("description"),
+                "created": props.get("created"),
+                "modified": props.get("modified"),
+            }
 
         for entity_node in self._source.match_nodes(database, label=ENTITY):
             nid = entity_node["id"]
@@ -602,6 +612,8 @@ class KnowledgeManager:
                     "entity_name": _name(entity_node),
                     "class_name": _name(nb["node"]),
                 }
+                if detailed:
+                    entry.update(_detail_attrs(entity_node))
                 if include_provenance:
                     entry["extraction"] = self._provenance_text(database, nid)
                 results.append(entry)
@@ -625,6 +637,8 @@ class KnowledgeManager:
                     "property_value": _name(literal_node),
                     "property_name":  _name(nb["node"]),
                 }
+                if detailed:
+                    entry.update(_detail_attrs(literal_node))
                 if owner_label == FACT and owner_id:
                     for h in self._source.get_neighbors(database, owner_id, edge_type=HEAD, direction="out"):
                         entry["head_name"] = _name(h["node"])
@@ -660,6 +674,8 @@ class KnowledgeManager:
                 "target_name": tail_name,
                 "relation_name": relation_name,
             }
+            if detailed:
+                entry.update(_detail_attrs(fact_node))
             if include_provenance:
                 entry["extraction"] = self._provenance_text(database, nid)
             results.append(entry)

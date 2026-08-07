@@ -299,12 +299,12 @@ Deleted database: main
 | `kb schema relation property delete --property NAME\|--property-id ID [--relation NAME\|--relation-id ID] [--yes]` | Delete a relation property (errors if values exist); --relation disambiguates |
 | `kb schema relation delete --relation NAME\|--relation-id ID [--yes]` | Delete a relation (errors if facts or sub-relations exist) |
 | `kb schema search QUERY [--type class\|relation\|property]… [--mode keyword\|semantic] [--top-k N] [--format table\|json]` | Search schema nodes; `--mode semantic` requires database configured with `--search semantic`; `--type` is repeatable |
-| `kb data list [--show-provenance] [--format table\|json]` | List all entity, property-value, and fact instances |
+| `kb data list [--show-provenance] [--show-detailed] [--format table\|json]` | List all entity, property-value, and fact instances; `--show-detailed` adds each row's description/created/modified (table format shows created/modified as human-readable local dates, e.g. "Aug 7, 2026 5:48 PM"; `--format json` keeps the raw ISO-8601 timestamps) |
 | `kb data export [--show-provenance] [-o\|--output FILE]` | Export instance data (entities, facts, property values) as JSON (default: stdout); same shape `kb data import` reads. Does not include schema — export/import that first via `kb schema export`/`kb schema import` |
 | `kb data import FILE` | Import data previously produced by `kb data export`; referenced classes/relations/properties must already exist (`-` reads stdin) |
-| `kb data source add SOURCE [--name N] [--description D]` | Register a provenance source |
-| `kb data source list [--format table\|json]` | List all registered provenance sources |
-| `kb data source update --source NAME\|--source-id ID [--name N] [--description D]` | Update the name and/or description of a source |
+| `kb data source add SOURCE [--name N] [--description D] [--original DATE]` | Register a provenance source; `--original` records the source's original date (e.g. publication date), separate from `created` |
+| `kb data source list [--show-detailed] [--format table\|json]` | List all registered provenance sources; `--show-detailed` adds Created/Modified columns to the table as human-readable local dates (`--format json` always includes `original`/`created`/`modified` as raw ISO-8601 timestamps) |
+| `kb data source update --source NAME\|--source-id ID [--name N] [--description D] [--original DATE]` | Update the name, description, and/or original date of a source |
 | `kb data source delete --source NAME\|--source-id ID [--yes]` | Delete a source and its extraction records; instances are preserved |
 | `kb data entity add [--name NAME] [--class NAME\|--class-id ID] [--description D] [--text T] [--source NAME\|--source-id ID]` | Add an entity instance |
 | `kb data entity list [--show-provenance] [--format table\|json]` | List all entity instances |
