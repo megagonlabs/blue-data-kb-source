@@ -2,7 +2,7 @@
 
 A typed knowledge-base graph layer with schema management, LLM-based knowledge extraction, and natural language querying.
 
-→ **[Full documentation](docs/README.md)** · **[Quick start](docs/quickstart.md)** · **[Installation](docs/installation.md)**
+→ **[Full documentation](docs/README.md)** · **[Quick start](docs/quickstart.md)** · **[Installation](docs/installation.md)** · **[Examples](examples/README.md)**
 
 ## What it does
 
@@ -31,6 +31,7 @@ blue-data-kb-source/
 │   │   └── tests/
 │   └── api/                    # REST API — planned, not yet implemented
 ├── docs/                       # User-facing documentation (start at docs/README.md)
+├── examples/                   # Runnable examples (start at examples/README.md)
 └── design/                     # Architecture and design-process documents
 ```
 
@@ -84,6 +85,8 @@ kb --database main data extract \
 ```
 
 The full walkthrough — with expected output at each step, the Python-library equivalent, and how to connect an LLM agent via MCP — is in **[docs/quickstart.md](docs/quickstart.md)**.
+
+For runnable scripts with real captured output — one per storage/search backend, one per library feature, LangGraph integrations, full end-to-end pipelines, and a scored before/after scenario — see **[examples/](examples/README.md)**.
 
 ## Packages
 

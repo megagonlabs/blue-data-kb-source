@@ -312,6 +312,10 @@ enrich("Alice", depth=2)
 get_metadata("<alice-id>")
 ```
 
+For a LangGraph agent that connects to this server and picks tools itself (rather than a
+hand-typed session like above), see
+[examples/framework-demos/langgraph_mcp_demo.py](../../examples/framework-demos/langgraph_mcp_demo.py).
+
 ---
 
 ## Architecture

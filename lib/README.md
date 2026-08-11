@@ -293,6 +293,12 @@ Entities/facts in the export carry their original id as a `ref` purely as an in-
 
 The CLI exposes the same round trip: `kb schema export -o schema.json` / `kb schema import schema.json`, then `kb data export -o data.json` / `kb data import data.json` (see [CLI usage](../platform/cli/README.md)).
 
+For runnable versions of the patterns above with real captured output, see
+[examples/backends/](../examples/backends/) (one script per `GraphSource`/`VectorSource`
+combination) and [examples/feature-demos/](../examples/feature-demos/) (one script per
+feature — schema declaration, provenance, change hooks, export/import, LLM extraction and
+querying).
+
 ## API
 
 ### `KBSource`

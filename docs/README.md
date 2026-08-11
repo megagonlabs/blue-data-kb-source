@@ -10,6 +10,7 @@ Landing page for all ocumentation in `blue-data-kb-source` — what to read depe
 | [quickstart.md](quickstart.md) | Get a knowledge base running in the next five minutes |
 | [installation.md](installation.md) | Install any combination of the library, CLI, and MCP server, with all optional extras |
 | [features.md](features.md) | See what the library can do, at a glance, with a short example per feature |
+| [examples/](../examples/README.md) | Run something — 20 scripts with real captured output, organized by backend, feature, framework integration, full pipeline, and a scored before/after scenario |
 
 ## Using it
 
