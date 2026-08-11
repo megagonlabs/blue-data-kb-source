@@ -1,12 +1,7 @@
 # Documentation
 
-User-facing documentation for `blue-data-kb-source` — what to read depends on what you're doing.
+Landing page for all ocumentation in `blue-data-kb-source` — what to read depends on what you're doing.
 
-> This is distinct from [`../design/`](../design/), which holds the architecture and design-process
-> documents written for whoever (human or agent) is implementing or extending this project —
-> decision rationale, detailed component specs, the full interface sketch. The pages here assume
-> you just want to *use* the library, CLI, or MCP server; they draw on `design/` for accuracy but
-> don't require reading it.
 
 ## Start here
 
