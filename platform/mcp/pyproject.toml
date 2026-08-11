@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "blue-data-kb-mcp"
+version = "0.1.0"
+description = "MCP server exposing KBSource operations to LLM clients"
+requires-python = ">=3.10"
+dependencies = [
+    "blue-data-kb-source>=0.1.0",
+    "mcp[cli]>=1.0.0,<2.0.0",
+    "openai>=1.0",
+]
+
+[project.scripts]
+blue-data-kb-mcp = "blue_data_kb_mcp.server:main"
+
+[project.optional-dependencies]
+dev      = ["pytest", "pytest-asyncio"]
+neo4j    = ["neo4j>=5.0"]
+chromadb = ["chromadb>=0.4"]
+redis    = ["redis>=5.0"]
+search   = ["rank-bm25"]
+all      = ["neo4j>=5.0", "chromadb>=0.4", "redis>=5.0", "rank-bm25"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.pyright]
+pythonVersion = "3.10"
+typeCheckingMode = "strict"
+venvPath = "."
+venv = ".venv"
