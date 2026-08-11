@@ -2,13 +2,18 @@
 
 A typed knowledge-base graph layer with schema management, LLM-based knowledge extraction, and natural language querying.
 
+→ **[Full documentation](docs/README.md)** · **[Quick start](docs/quickstart.md)** · **[Installation](docs/installation.md)**
+
 ## What it does
 
 - **Model** domain knowledge with a typed schema: classes, relations, properties, and subclass hierarchies.
-- **Populate** the graph with entity and fact instances linked to their provenance sources.
+- **Populate** the graph with entity and fact instances linked to their provenance sources, with automatic `created`/`modified` timestamps on every node.
 - **Extract** entities, facts, and property values from free text using an OpenAI LLM agent that extends the schema as needed.
 - **Query** the knowledge base in natural language — answer questions, validate statements, and enrich queries by traversing the graph.
 - **Observe** writes via database-scoped change hooks that fire synchronously with enriched event payloads.
+- **Connect an LLM agent** directly via the MCP server, or drive everything from the `kb` CLI.
+
+See [docs/features.md](docs/features.md) for the full list with examples.
 
 ## Repository layout
 
@@ -18,10 +23,15 @@ blue-data-kb-source/
 │   ├── src/blue_data_kb_source/
 │   └── tests/
 ├── platform/
-│   └── cli/                    # Command-line interface (kb)
-│       ├── src/blue_data_kb_cli/
-│       └── tests/
-└── design/                     # Architecture and design documents
+│   ├── cli/                    # Command-line interface (kb)
+│   │   ├── src/blue_data_kb_cli/
+│   │   └── tests/
+│   ├── mcp/                    # MCP server (blue-data-kb-mcp)
+│   │   ├── src/blue_data_kb_mcp/
+│   │   └── tests/
+│   └── api/                    # REST API — planned, not yet implemented
+├── docs/                       # User-facing documentation (start at docs/README.md)
+└── design/                     # Architecture and design-process documents
 ```
 
 ## Requirements
@@ -37,52 +47,43 @@ export OPENAI_API_KEY=sk-...
 ## Quick start
 
 ```bash
-# Install the library (with OpenAI support for LLM features)
-cd lib && pip install -e ../../blue-data/lib && pip install -e ".[openai]" && cd ..
-
-# Install the CLI
+# Install the library (with OpenAI support for LLM features) and the CLI
+cd lib && bash scripts/install.sh && cd ..
 cd platform/cli && bash scripts/install.sh && cd ../..
 
-# Databases are persisted automatically under ~/.kbdb/
-# Override the directory:
+# Databases persist under ~/.kbdb/ by default; override with:
 export KBDB_DATA_DIR=/path/to/my-kbdb
 
-# Create a database
+# Create a database and declare a schema
 kb database create main
-
-# Declare a schema (names used everywhere — no IDs needed)
-kb --database main schema declare class PERSON "A human individual"
-kb --database main schema declare class COMPANY "A business organization"
-kb --database main schema declare relation WORKED_AT "Employment relationship" \
+kb --database main schema class add PERSON "A human individual"
+kb --database main schema class add COMPANY "A business organization"
+kb --database main schema relation add WORKED_AT "Employment relationship" \
     --domain PERSON --range COMPANY
-kb --database main schema declare property AGE "Age of a person" --class PERSON
+kb --database main schema class property add AGE "Age of a person" --class PERSON
 
 # Add entities and a fact by name
-kb --database main entity add Alice --class PERSON \
+kb --database main data entity add --name Alice --class PERSON \
     --text "Alice is a software engineer."
-kb --database main entity add IBM --class COMPANY
-
-kb --database main fact add \
+kb --database main data entity add --name IBM --class COMPANY
+kb --database main data fact add \
     --head Alice --relation WORKED_AT --tail IBM \
     --text "Alice joined IBM in June 1998."
-
-# Set and list property values
-kb --database main entity property set 30 --entity Alice --property AGE --type NUMBER
-kb --database main entity property list --entity Alice
+kb --database main data entity property set 30 --entity Alice --property AGE --type NUMBER
 
 # Show schema and instances
-kb --database main schema show
-kb --database main show
+kb --database main schema list
+kb --database main data list
 
-# LLM query (requires OPENAI_API_KEY)
-kb --database main answer "Where did Alice work?"
-kb --database main validate "Alice worked at IBM"
-
-# LLM extraction (requires OPENAI_API_KEY)
-kb --database main extract \
+# LLM query and extraction (both require OPENAI_API_KEY)
+kb --database main data answer "Where did Alice work?"
+kb --database main data validate "Alice worked at IBM"
+kb --database main data extract \
     "Alice joined IBM as a software engineer in June 1998. She later moved to Google in 2005." \
     --query "Where did Alice work?" --query "When did she start?"
 ```
+
+The full walkthrough — with expected output at each step, the Python-library equivalent, and how to connect an LLM agent via MCP — is in **[docs/quickstart.md](docs/quickstart.md)**.
 
 ## Packages
 
@@ -90,3 +91,4 @@ kb --database main extract \
 |---|---|
 | [lib/](lib/README.md) | `blue-data-kb-source` — core Python library |
 | [platform/cli/](platform/cli/README.md) | `blue-data-kb-cli` — `kb` CLI |
+| [platform/mcp/](platform/mcp/README.md) | `blue-data-kb-mcp` — MCP server for LLM agent tool use |
