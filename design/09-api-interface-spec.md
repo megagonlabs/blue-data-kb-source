@@ -1,6 +1,6 @@
 # KBDB — API / Interface Spec
 
-Four external interfaces are planned over the core library: the Python library itself, a REST API, an MCP server, and a CLI. Today only the **Python library** and the **CLI** exist in the repository; the REST API and MCP server are design-stage only (see [07-repo-organization.md](07-repo-organization.md), which lists `api/` and `mcp/` as "Planned"). No business logic belongs in any interface layer — REST/MCP/CLI are meant to stay thin adapters over the Python library. Authentication and authorization are left to the deployment layer.
+Four external interfaces are planned over the core library: the Python library itself, a REST API, an MCP server, and a CLI. Today the **Python library**, the **CLI**, and the **MCP server** exist in the repository; the REST API is design-stage only (see [07-repo-organization.md](07-repo-organization.md), which lists `api/` as "Planned" and `mcp/` as "Implemented"). No business logic belongs in any interface layer — REST/MCP/CLI are meant to stay thin adapters over the Python library. Authentication and authorization are left to the deployment layer.
 
 ---
 
@@ -575,190 +575,51 @@ FastAPI exception handlers catch `KBError` subtypes and map them to these respon
 
 ---
 
-## 3. MCP Server — planned, not yet implemented
+## 3. MCP Server
 
-**Nothing under this section exists in the repository.** There is no MCP server code and the `mcp` package is not a runtime dependency of either package today (see [05-software-stack.md](05-software-stack.md), where it's marked provisional). The design below is a forward-looking sketch of what an MCP adapter over `KBSource` would look like, kept for when `platform/mcp/` is built. Treat every tool in this section as speculative.
+Implemented at `platform/mcp/` (package `blue-data-kb-mcp`, module `blue_data_kb_mcp`), built with
+the official MCP SDK's `FastMCP` (`mcp.server.fastmcp.FastMCP` — the SDK's `2.x` release renamed
+this to `mcp.server.MCPServer`; the package is pinned `mcp[cli]>=1.0.0,<2.0.0` to stay on the
+`FastMCP` API). Modeled closely on the sibling `blue-data` repo's `platform/registry-mcp/` (same
+`_ok`/`_err` JSON-string tool-return pattern catching every exception rather than raising through
+the transport, same singleton-config-factory shape) — see `platform/mcp/README.md` for the full
+architecture note and `design/13-decision-log.md` for the two deliberate departures from that model
+(env-var-only config instead of reusing the CLI's registry file; read + additive-write tools only,
+no `update_*`/`delete_*`). Tool handlers are `async def`, directly `await`ing `KBSource` methods —
+unlike `DataRegistry`/`JSONSource` (both sync), `KBSource` is fully async, and FastMCP's `@mcp.tool()`
+supports async functions natively.
 
-Exposes KBDB operations as MCP tools. Tool handlers are thin wrappers over the Python library; all business logic remains in the library. A default database may be configured at server startup.
+The server holds one `KBSource` instance for the process lifetime, built from `BLUE_DATA_KB_SOURCE_*`
+env vars (`platform/mcp/src/blue_data_kb_mcp/config.py:get_kb()`) — **not** the CLI's
+`~/.kbdb/registry.json`; `database` is a plain string parameter on every tool (default `"default"`),
+since `KBSource` already supports multiple logical databases on one backend. See
+`platform/mcp/README.md`'s Configuration reference for the full env var table.
 
-### Tool: `declare_class`
+24 tools, grouped (matching `platform/mcp/src/blue_data_kb_mcp/server.py`'s section banners):
 
-```json
-{
-  "name": "declare_class",
-  "description": "Declare a class in the knowledge base schema. Idempotent — if a class with this name already exists its ID is returned.",
-  "inputSchema": {
-    "type": "object",
-    "required": ["name", "description"],
-    "properties": {
-      "database": { "type": "string", "description": "Target database. Uses server default if omitted." },
-      "name":        { "type": "string", "description": "Class name (e.g. PERSON, COMPANY)" },
-      "description": { "type": "string", "description": "Human-readable description of the class" }
-    }
-  }
-}
-```
+| Group | Tools |
+|---|---|
+| Schema (write) | `declare_class`, `declare_relation`, `declare_class_property`, `declare_relation_property`, `add_is_subclass_of` |
+| Schema (read) | `search_schema`, `fetch_schema`, `fetch_meta_schema` |
+| Knowledge (write) | `add_entity`, `add_fact`, `add_entity_property`, `add_fact_property`, `add_entity_extraction`, `add_fact_extraction`, `add_entity_property_extraction`, `add_fact_property_extraction` |
+| Knowledge (read) | `search_data`, `fetch_data`, `get_metadata` |
+| Query | `answer`, `validate`, `enrich` |
+| Extraction | `import_text` |
+| Provenance (write) | `add_source` |
 
-**Returns:** `{ "id": "..." }`
+All are thin 1:1 wrappers over the matching `KBSource` method (§1 above) — same parameters, same
+idempotency/provenance semantics — with two adaptations: every tool takes `database: str = "default"`
+instead of a required positional `database`, and `answer`/`validate` wrap `include_metadata=True`'s
+`(result, metadata)` tuple into a single `{"result": ..., "metadata": ...}` JSON object (`validate`
+unpacks further into `{"supporting", "counter", "metadata"}`). `fetch_data`'s `compact` defaults to
+`True` here (vs. `False` on `KBSource.fetch_database_data` itself) — the flat row form is the useful
+one for an LLM consumer; the raw graph form is still reachable with `compact=False`. There is
+deliberately no `update_*`/`delete_*` tool, and no `KB.GET_METADATA`-style raw op dispatch — see
+`ADR-018` in `design/13-decision-log.md`.
 
----
-
-### Tool: `declare_relation`
-
-```json
-{
-  "name": "declare_relation",
-  "description": "Declare a relation type in the schema. Idempotent. Requires domain and range class constraints.",
-  "inputSchema": {
-    "type": "object",
-    "required": ["name", "description", "domain", "range"],
-    "properties": {
-      "database":    { "type": "string" },
-      "name":        { "type": "string" },
-      "description": { "type": "string" },
-      "domain":      { "type": "string", "description": "Name of the head entity class" },
-      "range":       { "type": "string", "description": "Name of the tail entity class" }
-    }
-  }
-}
-```
-
-**Returns:** `{ "id": "..." }`
-
----
-
-### Tool: `search_schema`
-
-```json
-{
-  "name": "search_schema",
-  "description": "Search the current schema by keyword or semantic similarity. Use before declaring new classes or relations to check if a suitable element already exists.",
-  "inputSchema": {
-    "type": "object",
-    "required": ["query"],
-    "properties": {
-      "database": { "type": "string" },
-      "query":    { "type": "string", "description": "Keywords or natural language query" },
-      "mode":     { "type": "string", "enum": ["keyword", "semantic"], "description": "Default: keyword" }
-    }
-  }
-}
-```
-
-**Returns:** array of `{ "id", "type", "name", "description" }` objects.
-
----
-
-### Tool: `add_entity`
-
-```json
-{
-  "name": "add_entity",
-  "description": "Add an entity instance to the knowledge base.",
-  "inputSchema": {
-    "type": "object",
-    "required": ["name"],
-    "properties": {
-      "database":  { "type": "string" },
-      "name":      { "type": "string" },
-      "class_id":  { "type": "string", "description": "ID of the entity's class (optional)" },
-      "text":      { "type": "string", "description": "Verbatim source text span this entity was drawn from (optional)" },
-      "source_id": { "type": "string", "description": "ID of the source document node (optional)" }
-    }
-  }
-}
-```
-
-**Returns:** `{ "id": "..." }`
-
----
-
-### Tool: `add_fact`
-
-```json
-{
-  "name": "add_fact",
-  "description": "Add a fact (relation instance) between two entities.",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "database":        { "type": "string" },
-      "relation_id":     { "type": "string" },
-      "head_entity_id":  { "type": "string" },
-      "tail_entity_id":  { "type": "string" },
-      "text":            { "type": "string" },
-      "source_id":       { "type": "string" }
-    }
-  }
-}
-```
-
-**Returns:** `{ "id": "..." }`
-
----
-
-### Tool: `answer`
-
-```json
-{
-  "name": "answer",
-  "description": "Answer a natural language question using the knowledge base.",
-  "inputSchema": {
-    "type": "object",
-    "required": ["question"],
-    "properties": {
-      "database": { "type": "string" },
-      "question": { "type": "string" }
-    }
-  }
-}
-```
-
-**Returns:** array of flat dicts, e.g. `{ "entity", "relation", "value", "provenance" }` (keys vary by question; not a fixed schema).
-
----
-
-### Tool: `validate`
-
-```json
-{
-  "name": "validate",
-  "description": "Return supporting and counter evidence from the knowledge base for a given statement.",
-  "inputSchema": {
-    "type": "object",
-    "required": ["statement"],
-    "properties": {
-      "database":  { "type": "string" },
-      "statement": { "type": "string" }
-    }
-  }
-}
-```
-
-**Returns:** `{ "supporting": [{"fact", "head", "tail", "relation"}, ...], "counter": [...] }`
-
----
-
-### Tool: `import_text`
-
-```json
-{
-  "name": "import_text",
-  "description": "Extract entities, facts, and property values from free text into the knowledge base. Extends the schema as needed.",
-  "inputSchema": {
-    "type": "object",
-    "required": ["text"],
-    "properties": {
-      "database":  { "type": "string" },
-      "text":      { "type": "string", "description": "Free-text passage to extract from" },
-      "queries":   { "type": "array", "items": { "type": "string" }, "description": "Guiding questions to focus extraction" },
-      "source_id": { "type": "string", "description": "ID of an existing source node for provenance" }
-    }
-  }
-}
-```
-
-**Returns:** empty content on success. Structured MCP error content on failure.
+Full per-tool parameter/return documentation lives in `platform/mcp/README.md`'s Tool reference
+(kept there rather than duplicated here, since it's generated from the same docstrings FastMCP
+surfaces to MCP clients — `platform/mcp/src/blue_data_kb_mcp/server.py`).
 
 ---
 

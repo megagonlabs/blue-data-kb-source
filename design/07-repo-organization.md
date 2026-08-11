@@ -124,7 +124,7 @@ Currently implemented:
 |---------|--------|-------|
 | `cli/` | Implemented | `FileKBSource` adapter; persistent JSON-backed state per database |
 | `api/` | Planned | FastAPI REST adapter |
-| `mcp/` | Planned | MCP server adapter for LLM agent tool use |
+| `mcp/` | Implemented | FastMCP adapter (`blue-data-kb-mcp`); env-var-configured `KBSource` singleton, no dependency on `cli/`'s registry — see [09-api-interface-spec.md](09-api-interface-spec.md) §3 |
 
 `cli/` follows this internal structure:
 
