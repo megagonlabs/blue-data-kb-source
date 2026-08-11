@@ -99,15 +99,6 @@ python3 examples/backends/chromadb_vector_backend_demo.py
 `scan_prefix` and cleans up every key/index it creates — safe to run against a shared
 Redis instance.
 
-> **Known limitation (upstream `blue-data` bug, not `blue-data-kb-source`):**
-> `RedisVectorSource`'s index schema never declares `node_id`/`type`/`name` as
-> returnable fields, so semantic search hits can't currently be resolved back to KB
-> nodes through Redis. This demo shows the write path succeeding (the document really is
-> in Redis, indexed) and the read-path gap explicitly, rather than silently swallowing
-> it. Filed as
-> [blue-data#56](https://github.com/megagon-internal/blue-data/issues/56). BM25 keyword
-> search is unaffected — it never touches the vector backend.
-
 ```bash
 redis-stack-server &   # or: docker run -p 6379:6379 redis/redis-stack
 python3 examples/backends/redis_vector_backend_demo.py
