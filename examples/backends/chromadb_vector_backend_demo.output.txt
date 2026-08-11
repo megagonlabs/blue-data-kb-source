@@ -1,0 +1,22 @@
+Graph directory:   /tmp/blue-data-kb-chromadb-j6dosin2/graph
+ChromaDB directory: /tmp/blue-data-kb-chromadb-j6dosin2/chroma
+
+------------------------------------------------------------
+1. Seed schema and data
+------------------------------------------------------------
+Declared PERSON/COMPANY/WORKED_AT, added Alice, IBM, and their fact
+
+------------------------------------------------------------
+2. Semantic search via ChromaDB
+------------------------------------------------------------
+search_data('Alice', mode='semantic'): [('Alice', 0.371), ('Alice_WORKED_AT_IBM', 0.169), ('IBM', 0.088)]
+search_schema('employment', mode='semantic'): [('COMPANY', 0.0), ('WORKED_AT', 0.0), ('PERSON', 0.0)]
+
+------------------------------------------------------------
+3. Persistence — reopen the same graph + ChromaDB directories
+------------------------------------------------------------
+Reopened KB sees 3 graph rows
+search_data('Alice', mode='semantic') after reconnect: [('Alice', 0.371), ('Alice_WORKED_AT_IBM', 0.169), ('IBM', 0.088)]
+
+Cleaned up /tmp/blue-data-kb-chromadb-j6dosin2
+Demo complete.

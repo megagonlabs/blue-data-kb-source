@@ -1,0 +1,47 @@
+Working directory: /tmp/blue-data-kb-demo-89ailacy
+
+------------------------------------------------------------
+1. Declare schema, add data with provenance
+------------------------------------------------------------
+Wrote 4 compact rows; entities: ['Alice', 'IBM']
+
+------------------------------------------------------------
+2. Persistence — reopen the same directory
+------------------------------------------------------------
+Reopened KB sees 4 rows without any explicit save/load call
+Entities visible after reopen: ['Alice', 'IBM']
+
+------------------------------------------------------------
+3. Change hooks
+------------------------------------------------------------
+  hook: entity 'Google' (class: COMPANY)
+  hook: entity 'Bob' (class: PERSON)
+Hook fired for event types: ['entity_added', 'entity_added']
+
+------------------------------------------------------------
+4. get_metadata
+------------------------------------------------------------
+Alice's metadata:
+  type: ENTITY
+  name: Alice
+  class_name: PERSON
+  created: 2026-08-11T21:01:59.435865+00:00
+  modified: 2026-08-11T21:01:59.435865+00:00
+  extraction: Alice is a software engineer.
+  source: Alice's résumé
+  source_original: 2020-01-15
+
+------------------------------------------------------------
+5. Schema export / import
+------------------------------------------------------------
+Exported schema: 2 classes, 1 relation entries
+Classes in 'copy' after import: ['COMPANY', 'PERSON']
+
+------------------------------------------------------------
+6. Data export / import
+------------------------------------------------------------
+Exported data: 4 entities, 1 facts, 1 entity property values
+'copy' now has 6 rows after data import
+
+Cleaned up /tmp/blue-data-kb-demo-89ailacy
+Demo complete.

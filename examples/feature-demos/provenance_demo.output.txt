@@ -1,0 +1,36 @@
+------------------------------------------------------------
+1. Sources -- add_source(..., original=...) for externally known dates
+------------------------------------------------------------
+Two SOURCE nodes: resume=0c5d2c35..., linkedin=71e9c699...
+`original` is a free-text externally supplied date -- distinct from the node's
+own `created`/`modified` timestamps, which the library stamps automatically.
+
+------------------------------------------------------------
+2. Provenance on a write -- add_entity(text=..., source_id=...)
+------------------------------------------------------------
+get_metadata after one write: extraction='Alice is a software engineer.'
+                              source="Alice's resume"
+                              source_original='2020-01-15'
+
+------------------------------------------------------------
+3. Accumulating more evidence with add_entity_extraction
+------------------------------------------------------------
+add_entity_extraction does NOT touch the entity's name/description -- it only
+requires the entity to already exist, and appends one more EXTRACTED_FROM record.
+get_metadata after two extractions: extraction='Alice is a software engineer. | Alice currently works as a senior engineer.'
+                                    source="Alice's resume | Alice's LinkedIn profile"
+                                    source_original='2020-01-15 | 2023-06-01'
+Both texts and both sources are pipe-joined -- neither call replaced the other.
+
+------------------------------------------------------------
+4. Same pattern for property values (add_entity_property_value_extraction)
+------------------------------------------------------------
+TITLE literal's accumulated extraction: "Alice's title is Senior Software Engineer. | Confirmed via a phone call on 2024-03-01."
+
+------------------------------------------------------------
+5. Same pattern for facts (add_fact_extraction)
+------------------------------------------------------------
+WORKED_AT fact's accumulated extraction: "Alice worked at IBM. | LinkedIn confirms Alice's employment at IBM."
+WORKED_AT fact's accumulated source:      "Alice's resume | Alice's LinkedIn profile"
+
+Demo complete.

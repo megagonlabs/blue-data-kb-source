@@ -1,0 +1,30 @@
+File backend directory: /tmp/blue-data-kb-migration-a9i6fp2u
+
+------------------------------------------------------------
+1. Seed a MemoryKBSource with schema, data, and provenance
+------------------------------------------------------------
+Declared PERSON/COMPANY/WORKED_AT and added Alice, IBM, and their fact
+
+------------------------------------------------------------
+2. Migrate the schema -- import is idempotent by name, safe to repeat
+------------------------------------------------------------
+export_database_schema returned 2 class(es)
+Importing the same schema twice is safe: has_entity('PERSON')=True, has_entity('COMPANY')=True -- no duplicate PERSON/COMPANY classes
+
+------------------------------------------------------------
+3. Migrate the data
+------------------------------------------------------------
+export_database_data: 2 entities, 1 facts
+Each entity carries a 'ref' join key, e.g.: {'ref': 'fb9625b1-f39c-4e25-8857-fbb6dd0c9c42', 'name': 'Alice', 'class': 'PERSON'}
+Migrated KB now has 3 graph rows via fetch_database_data(compact=True)
+
+------------------------------------------------------------
+4. Gotcha: import_database_data is NOT idempotent -- it always creates new nodes
+------------------------------------------------------------
+Importing the same export a second time: 6 graph rows (was 3) -- entities and facts are duplicated, unlike schema import.
+Unlike declare_class/declare_relation_type (idempotent by name), add_entity/add_fact
+never dedupe -- import_database_data mints brand-new ids on every call. Only import
+a given export once, or track what you've already migrated.
+
+Cleaned up /tmp/blue-data-kb-migration-a9i6fp2u
+Demo complete.

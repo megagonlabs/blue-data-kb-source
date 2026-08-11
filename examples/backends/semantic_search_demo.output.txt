@@ -1,0 +1,15 @@
+has_semantic_search: True
+
+------------------------------------------------------------
+1. Seed schema and data
+------------------------------------------------------------
+Declared PERSON/COMPANY/WORKED_AT, added Alice, IBM, and their fact
+
+------------------------------------------------------------
+2. keyword vs semantic search
+------------------------------------------------------------
+search_data('Alice', mode='keyword'): [('Alice_WORKED_AT_IBM', None), ('Alice', None), ('IBM', None)]
+search_data('Alice', mode='semantic'): [('Alice', 0.371), ('Alice_WORKED_AT_IBM', 0.169), ('IBM', 0.088)]
+search_schema('employment', mode='semantic'): [('COMPANY', 0.0), ('WORKED_AT', 0.0), ('PERSON', 0.0)]
+
+Demo complete.

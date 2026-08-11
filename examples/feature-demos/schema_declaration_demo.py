@@ -1,0 +1,114 @@
+"""
+Schema declaration — idempotency, hierarchy, and consolidation.
+
+Covers the parts of the schema API that backends/*.py only touch in
+passing: declare_* idempotency semantics, class/relation hierarchy via
+add_is_subclass_of, property scoping by class_id, and consolidate_schema's
+"merge" operation for redirecting instances from one schema element to
+another.
+"""
+import asyncio
+
+from blue_data.source.graph.memory_graph_source import MemoryGraphSource
+from blue_data_kb_source import KBSource
+
+DIVIDER = "-" * 60
+
+
+class MemoryKBSource(KBSource, MemoryGraphSource):
+    pass
+
+
+async def main():
+    kb = MemoryKBSource(name="schema-demo")
+    kb.create_database("main")
+
+    print(DIVIDER)
+    print("1. declare_class is idempotent by name")
+    print(DIVIDER)
+
+    id1 = await kb.declare_class("main", "PERSON", "A human individual")
+    id2 = await kb.declare_class("main", "PERSON", "This description is ignored")
+    print(f"declare_class('PERSON', ...) twice -> same id: {id1 == id2} ({id1})")
+    schema = await kb.fetch_database_schema("main")
+    person_desc = schema.entities["PERSON"]["description"]
+    print(f"Description is still the first one: {person_desc!r}")
+
+    print()
+    print(DIVIDER)
+    print("2. declare_relation_type requires domain/range by class name")
+    print(DIVIDER)
+
+    company_id = await kb.declare_class("main", "COMPANY", "A business organization")
+    worked_at = await kb.declare_relation_type(
+        "main", "WORKED_AT", "Employment relationship", domain="PERSON", range="COMPANY"
+    )
+    worked_at_again = await kb.declare_relation_type(
+        "main", "WORKED_AT", "Employment relationship", domain=["PERSON"], range=["COMPANY"]
+    )
+    print(f"declare_relation_type('WORKED_AT', ...) twice -> same id: {worked_at == worked_at_again}")
+
+    print()
+    print(DIVIDER)
+    print("3. Class hierarchy via add_is_subclass_of")
+    print(DIVIDER)
+
+    employee = await kb.declare_class("main", "EMPLOYEE", "A person employed by a company")
+    person = id1
+    await kb.add_is_subclass_of("main", child_id=employee, parent_id=person)
+    schema = await kb.fetch_database_schema("main")
+    print(f"EMPLOYEE is_subclass_of PERSON: {schema.has_relation('EMPLOYEE', 'IS_SUBCLASS_OF', 'PERSON')}")
+    print("Gotcha: add_is_subclass_of does not dedupe -- calling it again adds a second,")
+    print("identical IS_SUBCLASS_OF edge in the underlying graph between the same two nodes.")
+    await kb.add_is_subclass_of("main", child_id=employee, parent_id=person)
+
+    print()
+    print(DIVIDER)
+    print("4. declare_class_property is scoped by class_id, not global")
+    print(DIVIDER)
+
+    name_on_person = await kb.declare_class_property(
+        "main", "NAME", "Given name", class_id=person
+    )
+    name_on_company = await kb.declare_class_property(
+        "main", "NAME", "Trading name", class_id=company_id
+    )
+    print(f"Two different PROPERTY nodes both named 'NAME': {name_on_person != name_on_company}")
+
+    print()
+    print(DIVIDER)
+    print("5. consolidate_schema('merge') adds a new instance edge, it doesn't move the old one")
+    print(DIVIDER)
+
+    organization = await kb.declare_class("main", "ORGANIZATION", "A generic organizational entity")
+    acme = await kb.add_entity("main", "Acme Corp", class_id=organization, description="A generic org")
+
+    before = await kb.get_metadata("main", acme)
+    print(f"Before merge, Acme Corp's class_name: {before['class_name']!r}")
+
+    await kb.consolidate_schema(
+        "main", operation="merge", source_names=["ORGANIZATION"], target_name="COMPANY"
+    )
+
+    # get_neighbors is the underlying GraphSource's own inspection method (KBSource mixes
+    # in a GraphSource directly) -- useful here because fetch_database_schema/get_metadata
+    # only ever report *one* class per entity, and this merge can leave more than one.
+    classes = [
+        nb["node"]["properties"]["name"]
+        for nb in kb.get_neighbors("main", acme, edge_type="IS_INSTANCE_OF", direction="out")
+    ]
+    print(f"Acme Corp's IS_INSTANCE_OF edges after merge: {classes}")
+    after = await kb.get_metadata("main", acme)
+    print(f"get_metadata still reports the first one found: class_name={after['class_name']!r}")
+    print("Gotcha: consolidate_schema('merge') ADDS a new IS_INSTANCE_OF edge from each")
+    print("instance of a source class to the target class -- it does not remove the edge to")
+    print("the source class, and it does not delete the source schema node itself. A merged")
+    print("instance ends up belonging to *both* classes; get_metadata's class_name (which")
+    print("assumes one class per entity) keeps reporting whichever edge was added first,")
+    print("until you clean up the old edges yourself.")
+
+    print()
+    print("Demo complete.")
+
+
+asyncio.run(main())

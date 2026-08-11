@@ -1,0 +1,30 @@
+Connecting to Redis at localhost:6379, scan_prefix='blue_data_kb_examples_demo:'
+
+------------------------------------------------------------
+1. Seed schema and data
+------------------------------------------------------------
+Declared PERSON/COMPANY/WORKED_AT, added Alice, IBM, and their fact
+
+------------------------------------------------------------
+2. BM25 keyword search — local, doesn't touch Redis at all
+------------------------------------------------------------
+search_data('Alice', mode='keyword'): ['Alice_WORKED_AT_IBM', 'Alice', 'IBM']
+
+------------------------------------------------------------
+3. Semantic search via Redis Stack — write path
+------------------------------------------------------------
+Documents actually written to Redis by add_entity/declare_class: 6
+  blue_data_kb_examples_demo:kb_data_main:33c86227-055a-460a-ab9f-d90111788b55
+  blue_data_kb_examples_demo:kb_data_main:c44e7374-3813-445a-b695-0db1d55a12ae
+
+------------------------------------------------------------
+4. Semantic search via Redis Stack — read path (known gap)
+------------------------------------------------------------
+search_data('Alice', mode='semantic'): []
+
+------------------------------------------------------------
+5. Cleanup
+------------------------------------------------------------
+Cleanup: dropped 2 index(es), deleted 0 leftover key(s)
+
+Demo complete.

@@ -1,0 +1,37 @@
+------------------------------------------------------------
+1. declare_class is idempotent by name
+------------------------------------------------------------
+declare_class('PERSON', ...) twice -> same id: True (f19864b9-17e5-4726-a21f-eff8ce997528)
+Description is still the first one: 'A human individual'
+
+------------------------------------------------------------
+2. declare_relation_type requires domain/range by class name
+------------------------------------------------------------
+declare_relation_type('WORKED_AT', ...) twice -> same id: True
+
+------------------------------------------------------------
+3. Class hierarchy via add_is_subclass_of
+------------------------------------------------------------
+EMPLOYEE is_subclass_of PERSON: True
+Gotcha: add_is_subclass_of does not dedupe -- calling it again adds a second,
+identical IS_SUBCLASS_OF edge in the underlying graph between the same two nodes.
+
+------------------------------------------------------------
+4. declare_class_property is scoped by class_id, not global
+------------------------------------------------------------
+Two different PROPERTY nodes both named 'NAME': True
+
+------------------------------------------------------------
+5. consolidate_schema('merge') adds a new instance edge, it doesn't move the old one
+------------------------------------------------------------
+Before merge, Acme Corp's class_name: 'ORGANIZATION'
+Acme Corp's IS_INSTANCE_OF edges after merge: ['ORGANIZATION', 'COMPANY']
+get_metadata still reports the first one found: class_name='ORGANIZATION'
+Gotcha: consolidate_schema('merge') ADDS a new IS_INSTANCE_OF edge from each
+instance of a source class to the target class -- it does not remove the edge to
+the source class, and it does not delete the source schema node itself. A merged
+instance ends up belonging to *both* classes; get_metadata's class_name (which
+assumes one class per entity) keeps reporting whichever edge was added first,
+until you clean up the old edges yourself.
+
+Demo complete.

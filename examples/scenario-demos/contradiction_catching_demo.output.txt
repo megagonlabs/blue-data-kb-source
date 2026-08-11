@@ -1,0 +1,51 @@
+
+============================================================
+Scenario: catching contradictions with provenance, not guessing
+============================================================
+
+Problem:  add_entity_property_value is additive -- a second write for the same
+          entity+property doesn't replace the first, it coexists alongside it.
+          A lookup with no notion of provenance can't tell which value is current.
+Solution: every write carries a source with an externally supplied `original`
+          date. A lookup that checks provenance can resolve the conflict correctly.
+
+------------------------------------------------------------
+Step 1 -- seed 4 people, each with two conflicting TITLE values
+------------------------------------------------------------
+  Alice: wrote 'Software Engineer' (2020-01-15), then 'Staff Software Engineer' (2024-06-01)
+  Bob: wrote 'Sales Director' (2019-08-01), then 'VP of Sales' (2023-11-12)
+  Carol: wrote 'Data Analyst' (2018-03-20), then 'Principal Data Scientist' (2025-02-10)
+  Dave: wrote 'Junior Developer' (2021-05-05), then 'Engineering Manager' (2024-09-30)
+
+------------------------------------------------------------
+Step 2 -- naive lookup vs. provenance-aware lookup, scored
+------------------------------------------------------------
+Person   Naive lookup                 Provenance-aware lookup      Correct value
+Alice    Software Engineer            Staff Software Engineer      Staff Software Engineer
+         ✗                            ✓                           
+Bob      Sales Director               VP of Sales                  VP of Sales
+         ✗                            ✓                           
+Carol    Data Analyst                 Principal Data Scientist     Principal Data Scientist
+         ✗                            ✓                           
+Dave     Junior Developer             Engineering Manager          Engineering Manager
+         ✗                            ✓                           
+
+============================================================
+Result
+============================================================
+Naive lookup:             0/4 correct
+Provenance-aware lookup:  4/4 correct
+
+The naive lookup isn't wrong by chance -- it doesn't know a conflict exists at
+all, so it just returns the first HAS_PROPERTY edge it walks. The provenance-aware
+lookup used nothing but get_metadata's source_original field, no LLM involved.
+
+------------------------------------------------------------
+Bonus -- validate() surfaces the same conflict conversationally (needs an LLM)
+------------------------------------------------------------
+Requires OPENAI_API_KEY -- not live-verified in this session (no key available
+in the sandboxed environment this was written in).
+validate() did not run: OpenAIError: Missing credentials. Please pass an `api_key`, `workload_identity`, `admin_api_key`, or set the `OPENAI_API_KEY` or `OPENAI_ADMIN_KEY` environment variable.
+Set OPENAI_API_KEY and rerun to see the live conflict-surfacing behavior.
+
+Demo complete.

@@ -1,0 +1,1 @@
+Query result: [{'relation_type': 'IS_INSTANCE_OF', 'entity_name': 'Alice', 'class_name': 'PERSON'}, {'relation_type': 'IS_INSTANCE_OF', 'entity_name': 'IBM', 'class_name': 'COMPANY'}, {'relation_type': 'REPRESENTS', 'entity_name': 'Alice_WORKED_AT_IBM', 'source_name': 'Alice', 'target_name': 'IBM', 'relation_name': 'WORKED_AT'}]

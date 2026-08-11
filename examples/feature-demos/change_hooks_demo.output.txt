@@ -1,0 +1,44 @@
+------------------------------------------------------------
+1. add_change_hook -- a plain callback receiving one event dict per call
+------------------------------------------------------------
+Schema-write event types fired so far:
+  class_declared               ['description', 'id', 'name']
+  class_declared               ['description', 'id', 'name']
+  relation_declared            ['description', 'domain', 'id', 'is_symmetric', 'name', 'range']
+  class_property_declared      ['class_id', 'class_name', 'description', 'id', 'name']
+  class_declared               ['description', 'id', 'name']
+  class_subclass               ['child_id', 'child_name', 'id', 'parent_id', 'parent_name']
+
+------------------------------------------------------------
+2. Idempotent declare_* calls do not re-fire
+------------------------------------------------------------
+Redeclaring PERSON: 0 new event(s) fired (expected 0)
+
+------------------------------------------------------------
+3. Instance-write events
+------------------------------------------------------------
+Instance-write event types fired:
+  entity_added                 ['class_id', 'class_name', 'id', 'name']
+  entity_added                 ['class_id', 'class_name', 'id', 'name']
+  fact_added                   ['head_entity_id', 'head_entity_name', 'id', 'name', 'relation_id', 'relation_name', 'tail_entity_id', 'tail_entity_name']
+  entity_property_added        ['entity_id', 'entity_name', 'id', 'property_id', 'property_name', 'value']
+
+------------------------------------------------------------
+4. Update and delete events
+------------------------------------------------------------
+Update/delete event types fired:
+  entity_updated               ['id']
+  entity_property_deleted      ['entity_id', 'id']
+
+------------------------------------------------------------
+5. Hooks are scoped per database
+------------------------------------------------------------
+After a write on 'main': main_events=1, other_events=0
+The 'other' hook never fires for events on 'main' -- hooks are keyed by database.
+
+------------------------------------------------------------
+6. remove_change_hook requires the exact function object
+------------------------------------------------------------
+After remove_change_hook + a write: main_events=0 (expected 0)
+
+Demo complete.

@@ -1,0 +1,60 @@
+------------------------------------------------------------
+1. Declare schema
+------------------------------------------------------------
+Declared PERSON, COMPANY, WORKED_AT, ACQUIRED, TITLE
+
+------------------------------------------------------------
+2. Populate with provenance -- a small org, from two source documents
+------------------------------------------------------------
+Added 3 people, 3 companies, 3 titles, 3 WORKED_AT facts, and 1 ACQUIRED fact
+
+------------------------------------------------------------
+3. Observe -- what the change hook saw across the whole populate step
+------------------------------------------------------------
+Event counts:
+  class_declared               2
+  class_property_declared      1
+  entity_added                 6
+  entity_property_added        3
+  fact_added                   4
+  relation_declared            2
+
+------------------------------------------------------------
+4. Search -- BM25 keyword vs semantic, over the same populated KB
+------------------------------------------------------------
+search_data('acquired open-source company', mode='keyword'):
+  FACT     IBM_ACQUIRED_Red Hat
+  ENTITY   Red Hat
+  ENTITY   IBM
+  ENTITY   Nimbus Analytics
+  ENTITY   Alice
+search_data('acquired open-source company', mode='semantic'):
+  ENTITY   Carol                score=0.19
+  ENTITY   Nimbus Analytics     score=0.03
+  FACT     Alice_WORKED_AT_IBM  score=0.017
+  FACT     Carol_WORKED_AT_Nimbus Analytics score=0.0
+  ENTITY   IBM                  score=0.0
+(the embedding is a deterministic hash, not a real model -- like semantic_search_demo.py,
+this proves the wiring works, not that the ranking is meaningful; a real embedding model
+would rank Red Hat/IBM/the ACQUIRED fact above Carol for this query)
+
+------------------------------------------------------------
+5. Migrate -- export/import the graph into a second, file-backed KB
+------------------------------------------------------------
+Migrated KB (FileGraphSource, /tmp/blue-data-kb-lifecycle-kbz12d44) now has 13 graph rows
+Semantic search still works after migration (import re-triggers the target's own indexer):
+  ENTITY   Carol                score=0.19
+  ENTITY   Nimbus Analytics     score=0.03
+  FACT     Alice_WORKED_AT_IBM  score=0.017
+  FACT     Carol_WORKED_AT_Nimbus Analytics score=0.0
+  ENTITY   IBM                  score=0.0
+IBM's extraction text survived the migration: 'IBM is listed in the org directory.'
+But its SOURCE-node link did not: source=None, source_original=None
+Gotcha: export_database_data/import_database_data carry over extraction *text*
+(re-linked via a fresh EXTRACTED_FROM edge on import) but SOURCE nodes themselves
+are never exported -- only entities/facts/property values are. If you need the
+SOURCE name/original date to survive a migration too, add_source() them again in
+the target database and re-link with add_*_extraction(..., source_id=...).
+
+Cleaned up /tmp/blue-data-kb-lifecycle-kbz12d44
+Demo complete.
