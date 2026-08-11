@@ -222,3 +222,16 @@ Architectural decisions are recorded here as they are made, throughout the desig
 **Rationale:** Self-hosted deployments use heterogeneous observability infrastructure. Emitting to standard interfaces (structured stdout, Prometheus, OTLP) keeps KBDB decoupled from any specific platform. Knowledge base content is never included in span attributes.
 
 **Consequences:** KBDB takes a dependency on the OpenTelemetry Python SDK. All significant I/O boundaries (graph store operations, OpenAI calls, interface requests) must be instrumented with spans.
+
+---
+
+## ADR-018 — created/modified/original Timestamps; get_metadata Kept Off execute_query
+
+**Date:** 2026-08-07
+**Status:** Accepted
+
+**Decision:** Every node carries `created`/`modified` timestamps and every edge carries `created` (set/refreshed automatically by the write methods, not caller-supplied); `SOURCE` additionally carries a caller-supplied `original` date. A new `get_metadata(database, node_id)` method (and matching `answer`/`validate` LLM tool, gated by `include_metadata=True`) surfaces these plus provenance (extraction text, source name) for a single entity/fact/property-value id. `get_metadata` is **not** added as an `execute_query` (`KB.*`) op — it stays a direct library method (and MCP/agent tool), unlike every other read/write operation, which is mirrored 1:1 into `execute_query`.
+
+**Rationale:** `created`/`modified`/`original` give every interface (CLI `--show-detailed`, MCP, REST) a uniform way to answer "when was this added/changed, and where did it come from" without bespoke bookkeeping per node type. Keeping `get_metadata` off `execute_query` was an explicit call during implementation: `execute_query` is the sync dict-dispatch surface mirroring the full CRUD API 1:1, whereas `get_metadata` is a narrower, read-only convenience lookup whose primary consumers (CLI table rendering, the LLM tool) already call the async method or `KBSource.get_metadata` directly — adding it to `execute_query` would be surface-area growth with no consumer.
+
+**Consequences:** `_fetch_compact`/`get_metadata`/the `get_metadata` LLM tool share one implementation (`blue_data_kb_source.knowledge.helpers`) rather than duplicating per-type lookup logic three times. `execute_query`'s op table intentionally has no `KB.GET_METADATA` entry — this is a deliberate omission, not an oversight, and should stay that way unless a concrete `execute_query`-only consumer appears.

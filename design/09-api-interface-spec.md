@@ -28,6 +28,8 @@ class KBSource(GraphSource, ABC):
 
 ### `KBSource`
 
+Every node (`CLASS`, `RELATION`, `PROPERTY`, `ENTITY`, `FACT`, `LITERAL`, `SOURCE`, `EXTRACTION`) carries `created`/`modified` timestamps (ISO-8601 UTC) in its `properties`, set/refreshed automatically by every `declare_*`/`add_*`/`update_*` call below — there is no separate parameter for them. Every edge carries a `created` timestamp only. `SOURCE` additionally carries an `original` attribute (a caller-supplied date, e.g. a document's publication date, distinct from `created`), settable via `add_source`/`update_source`.
+
 ```python
 class KBSource(GraphSource, ABC):
     # Schema — declare / update / delete
@@ -46,9 +48,10 @@ class KBSource(GraphSource, ABC):
 
     # Schema — export / import / consolidate
     async def fetch_database_schema(self, database: str) -> DataSchema: ...
+    async def export_database_schema(self, database: str) -> dict: ...             # fetch_database_schema(...).to_json()
     async def import_database_schema(self, database: str, schema_json: dict) -> None: ...
-    async def fetch_meta_schema(self) -> DataSchema: ...
-    async def consolidate_schema(self, database: str, operation: str, source_names: list[str], target_name: str, predicate: Callable | None = None) -> None: ...
+    async def fetch_meta_schema(self) -> DataSchema: ...                           # fixed schema describing the KB's own node/edge taxonomy
+    async def consolidate_schema(self, database: str, operation: str, source_names: list[str], target_name: str, predicate: Callable | None = None) -> None: ...  # operation="merge" only, today
 
     # Search — schema and data, keyword (BM25) or semantic
     async def search_schema(self, database: str, query: str, k: int = 5, mode: str = "keyword", type_filter: str | list[str] | None = None) -> list[SchemaSearchResult]: ...
@@ -70,35 +73,66 @@ class KBSource(GraphSource, ABC):
     async def delete_fact(self, database: str, fact_id: str) -> None: ...
     async def delete_entity_property_value(self, database: str, entity_id: str, property_id: str) -> None: ...
     async def delete_fact_property_value(self, database: str, fact_id: str, property_id: str) -> None: ...
-    async def fetch_database_data(self, database: str, include_provenance: bool = False, compact: bool = False) -> dict | list: ...
+    async def fetch_database_data(self, database: str, include_provenance: bool = False, compact: bool = False, detailed: bool = False) -> dict | list: ...
+
+    # Knowledge — export / import
+    async def export_database_data(self, database: str, include_provenance: bool = False) -> dict: ...    # portable, ref-based; symmetric with import
+    async def import_database_data(self, database: str, data: dict) -> None: ...                          # resolves CLASS/RELATION/PROPERTY by name
+
+    # Knowledge — metadata lookup
+    async def get_metadata(self, database: str, node_id: str) -> dict: ...   # created/modified/extraction/source for one entity, fact, or property-value (literal) id; raises KnowledgeError for any other node type
 
     # Knowledge — read (LLM agent over the instance graph)
-    async def answer(self, database: str, question: str, model: str = "gpt-4o", natural_language: bool = False, on_tool_call: Callable[[str, dict], None] | None = None) -> list[dict] | str: ...
-    async def validate(self, database: str, statement: str, model: str = "gpt-4o", natural_language: bool = False, on_tool_call: Callable[[str, dict], None] | None = None) -> ValidationResult | str: ...
-    async def enrich(self, database: str, query: str, depth: int = 2, model: str = "gpt-4o", on_tool_call: Callable[[str, dict], None] | None = None) -> list[EnrichmentResult]: ...
+    async def answer(self, database: str, question: str, model: str = "gpt-4o", natural_language: bool = False, include_metadata: bool = False, on_tool_call: Callable[[str, dict], None] | None = None, on_tool_result: Callable[[str, dict, Any], None] | None = None) -> list[dict] | str | tuple[list[dict] | str, dict]: ...
+    async def validate(self, database: str, statement: str, model: str = "gpt-4o", natural_language: bool = False, include_metadata: bool = False, on_tool_call: Callable[[str, dict], None] | None = None, on_tool_result: Callable[[str, dict, Any], None] | None = None) -> ValidationResult | str | tuple[ValidationResult | str, dict]: ...
+    async def enrich(self, database: str, query: str, depth: int = 2, model: str = "gpt-4o", on_tool_call: Callable[[str, dict], None] | None = None, on_tool_result: Callable[[str, dict, Any], None] | None = None) -> list[EnrichmentResult]: ...
 
     # Provenance
-    async def add_source(self, database: str, source: str, name: str | None = None, description: str | None = None, node_id: str | None = None) -> str: ...
-    async def add_extraction(self, database: str, text: str, name: str | None = None, description: str | None = None, node_id: str | None = None, source_id: str | None = None) -> str: ...
-    async def add_extracted_from(self, database: str, element_id: str, extraction_id: str) -> None: ...
-    async def update_source(self, database: str, source_id: str, name: str | None = None, description: str | None = None) -> None: ...
+    async def add_source(self, database: str, source: str, name: str | None = None, description: str | None = None, node_id: str | None = None, original: str | None = None) -> str: ...
+    async def add_extraction(self, database: str, text: str, name: str | None = None, description: str | None = None, node_id: str | None = None, source_id: str | None = None, element_id: str | None = None) -> str: ...  # element_id wires EXTRACTED_FROM to an existing entity/fact/literal in the same call
+    async def add_entity_extraction(self, database: str, entity_id: str, text: str, source_id: str | None = None) -> str: ...       # additional text span for an *existing* entity
+    async def add_fact_extraction(self, database: str, fact_id: str, text: str, source_id: str | None = None) -> str: ...
+    async def add_entity_property_value_extraction(self, database: str, entity_id: str, property_id: str, text: str, source_id: str | None = None) -> str: ...
+    async def add_fact_property_value_extraction(self, database: str, fact_id: str, property_id: str, text: str, source_id: str | None = None) -> str: ...
+    async def update_source(self, database: str, source_id: str, name: str | None = None, description: str | None = None, original: str | None = None) -> None: ...
     async def delete_source(self, database: str, source_id: str) -> None: ...
 
     # Extraction
-    async def import_text(self, database: str, text: str, queries: list[str] | None = None, model: str = "gpt-4o", source_id: str | None = None, on_tool_call: Callable[[str, dict], None] | None = None) -> None: ...
+    async def import_text(self, database: str, text: str, queries: list[str] | None = None, model: str = "gpt-4o", source_id: str | None = None, schema_discovery_mode: Literal["search", "llm", "none"] = "search", on_tool_call: Callable[[str, dict], None] | None = None, on_tool_result: Callable[[str, dict, Any], None] | None = None) -> None: ...
 
     # Change hooks (database-scoped only — global hooks are internal, used to wire up KBSearchIndexer)
     def add_change_hook(self, database: str, fn: Callable[[dict], None]) -> None: ...
     def remove_change_hook(self, database: str, fn: Callable[[dict], None]) -> None: ...
 ```
 
-Note: `add_domain`/`add_range` do **not** exist as separate methods — `domain`/`range` are wired inline as part of `declare_relation_type`, and are required (not optional) there.
+Notes:
+- `add_domain`/`add_range` do **not** exist as separate methods — `domain`/`range` are wired inline as part of `declare_relation_type`, and are required (not optional) there.
+- `add_extracted_from` is **not** a public `KBSource` method (it exists only as a private `ProvenanceTracker` helper, invoked internally by `add_extraction` when `element_id` is given) — use `add_extraction(..., element_id=...)` instead.
+- `answer`/`validate` return a 2-tuple `(result, metadata)` only when `include_metadata=True`; `metadata` is `dict[node_id, dict]` (see "Metadata lookup" below). This composes with `natural_language`: with both flags set, the prose `result` has a natural-language provenance section appended after the main answer/assessment, and `metadata` (element 1) is still the raw structured dict.
+
+### Metadata lookup
+
+`get_metadata(database, node_id)` returns a dict describing a single entity, fact, or property value (`LITERAL`) node:
+
+```python
+{
+    "id": "...", "type": "ENTITY" | "FACT" | "LITERAL",
+    # type-dependent identity fields:
+    #   ENTITY:  "name", "class_name"
+    #   FACT:    "name", "head_name", "relation_name", "tail_name"
+    #   LITERAL: "property_name", "value", "owner_label", "owner_name"
+    "description": "...", "created": "...", "modified": "...",     # the node's own attributes
+    "extraction": "...", "source": "...", "source_original": "...",  # via its EXTRACTED_FROM chain, if any
+}
+```
+
+The `answer`/`validate` LLM agents can also call this as a tool (`get_metadata(id)`) when `include_metadata=True` — the engine harvests every such tool call into the `metadata` dict returned alongside the result, independent of whether the LLM references the id in its own structured output.
 
 ### Sync convenience methods
 
 Two additional synchronous methods exist for callers that can't await, both wrapping the async API via `asyncio.run()` internally:
 
-- `execute_query(query: dict, database=None, collection=None, optional_properties=None)` — a generic op-code dispatcher (`query["op"]` such as `"KB.DECLARE_CLASS"`, `"KB.ADD_ENTITY"`, `"KB.GET_DATA"`, etc., mirroring the async methods above 1:1); `GRAPH.*` ops are forwarded to the underlying `GraphSource`.
+- `execute_query(query: dict, database=None, collection=None, optional_properties=None)` — a generic op-code dispatcher (`query["op"]` such as `"KB.DECLARE_CLASS"`, `"KB.ADD_ENTITY"`, `"KB.GET_DATA"`, etc., mirroring most of the async methods above 1:1); `GRAPH.*` ops are forwarded to the underlying `GraphSource`. Note: `get_metadata` is deliberately **not** exposed as an op here (library method + MCP/agent tool only, by design) — see [13-decision-log.md](13-decision-log.md).
 - `execute_query_nl(query: str, database=None, ...)` — a sync convenience wrapper around `answer(..., natural_language=False)`, always returning a structured `list[dict]`.
 
 ### Result types
@@ -784,9 +818,11 @@ Created database: scratch
 ```
 kb schema list [--format table|json]
 kb schema search QUERY [--type class|relation|property]... [--mode keyword|semantic] [--top-k N] [--format table|json]
+kb schema export [--output|-o FILE]
+kb schema import INPUT_FILE
 ```
 
-`schema list` prints classes, class properties, class hierarchy, relations, relation properties, and relation hierarchy in one pass. `schema search` runs in keyword mode by default (works without search enabled, unranked); `--mode semantic` requires the database to be registered with `--search semantic`.
+`schema list` prints classes, class properties, class hierarchy, relations, relation properties, and relation hierarchy in one pass. `schema search` runs in keyword mode by default (works without search enabled, unranked); `--mode semantic` requires the database to be registered with `--search semantic`. `schema export`/`schema import` round-trip the full schema as JSON (`DataSchema.to_json()`/`from_json()`); import declares idempotently, so re-importing the same file is safe. Export/import instance data separately with `kb data export`/`kb data import` below — import the schema first so data import has classes/relations/properties to resolve names against.
 
 **Example**
 ```
@@ -856,30 +892,34 @@ Added relation: WORKED_AT (id: ...)
 
 ---
 
-### `kb data` — instance data, search, and reindexing
+### `kb data` — instance data, export/import, search, and reindexing
 
 ```
-kb data list [--show-provenance] [--format table|json]
+kb data list [--show-provenance] [--show-detailed] [--format table|json]
+kb data export [--show-provenance] [--output|-o FILE]
+kb data import INPUT_FILE
 kb data search QUERY [--type entity|fact]... [--mode keyword|semantic] [--top-k N] [--format table|json]
 kb data reindex
 ```
 
-`data list` prints entities, entity property values, facts, and fact property values. `data reindex` rebuilds the BM25/vector index from the current graph contents; it errors if the database wasn't registered with `--search bm25`/`semantic`.
+`data list` prints entities, entity property values, facts, and fact property values. `--show-provenance` adds each row's extraction text and linked source name (via its `EXTRACTED_FROM` chain, if any). `--show-detailed` adds each row's own `description`/`created`/`modified`; combined with `--show-provenance` it additionally shows the linked source's `original` date, after the Source column. `--format table` renders `created`/`modified` as human-readable local dates (via `arrow`, e.g. "Aug 7, 2026 5:48 PM"); `--format json` keeps raw ISO-8601 timestamps. `data export`/`data import` round-trip instance data (entities, facts, property values) as portable, ref-based JSON — schema isn't included (export/import that separately via `kb schema export`/`kb schema import` first, so `data import` has classes/relations/properties to resolve names against). `data reindex` rebuilds the BM25/vector index from the current graph contents; it errors if the database wasn't registered with `--search bm25`/`semantic`.
 
 ---
 
 ### `kb data source` — provenance sources
 
 ```
-kb data source add SOURCE [--name NAME] [--description DESC]
-kb data source list [--format table|json]
-kb data source update (--source NAME | --source-id ID) [--name NEW] [--description NEW]
+kb data source add SOURCE [--name NAME] [--description DESC] [--original DATE]
+kb data source list [--show-detailed] [--format table|json]
+kb data source update (--source NAME | --source-id ID) [--name NEW] [--description NEW] [--original NEW]
 kb data source delete (--source NAME | --source-id ID) [--yes]
 ```
 
+`--original` records the source's own date (e.g. a document's publication date) — a caller-supplied string, distinct from `created` (when the source was added to the KB). `source list --show-detailed` adds Created/Modified columns to the table (`--format json` always includes `original`/`created`/`modified`).
+
 **Example**
 ```
-$ kb data source add resume_alice --name "Alice's résumé"
+$ kb data source add resume_alice --name "Alice's résumé" --original 2020-01-15
 Added source: resume_alice (id: ...)
 ```
 
@@ -894,13 +934,19 @@ kb data entity list [--show-provenance] [--format table|json]
 kb data entity update (--entity NAME | --entity-id ID) [--name NEW] [--description NEW]
 kb data entity delete (--entity NAME | --entity-id ID) [--cascade] [--yes]
 
+kb data entity extraction add (--entity ... | --entity-id ...) --text TEXT (--source ... | --source-id ...)
+
 kb data entity property set VALUE (--entity ... | --entity-id ...) (--property ... | --property-id ...)
                                    [--type NUMBER|DATE|BOOLEAN|STRING] [--text TEXT] [--source ... | --source-id ...]
 kb data entity property list   (--entity ... | --entity-id ...) [--show-provenance] [--format table|json]
 kb data entity property update (--entity ... | --entity-id ...) (--property ... | --property-id ...)
                                 [--value NEW] [--name NEW] [--description NEW]
 kb data entity property delete (--entity ... | --entity-id ...) (--property ... | --property-id ...) [--yes]
+kb data entity property extraction add (--entity ... | --entity-id ...) (--property ... | --property-id ...)
+                                        --text TEXT (--source ... | --source-id ...)
 ```
+
+`entity extraction add` / `entity property extraction add` link an *additional* text span to an entity or property value that already exists — unlike `--text` on `entity add`/`property set`, they don't create a new node, just another `EXTRACTED_FROM` edge, so multiple spans accumulate over time.
 
 **Example**
 ```
@@ -922,15 +968,19 @@ kb data fact list [--show-provenance] [--format table|json]
 kb data fact update (--fact NAME | --fact-id ID) [--name NEW] [--description NEW]
 kb data fact delete (--fact NAME | --fact-id ID) [--yes]
 
+kb data fact extraction add (--fact ... | --fact-id ...) --text TEXT (--source ... | --source-id ...)
+
 kb data fact property set VALUE --fact-id ID (--property ... | --property-id ...)
                                  [--type NUMBER|DATE|BOOLEAN|STRING] [--text TEXT] [--source ... | --source-id ...]
 kb data fact property list   --fact-id ID [--show-provenance] [--format table|json]
 kb data fact property update --fact-id ID (--property ... | --property-id ...)
                               [--value NEW] [--name NEW] [--description NEW]
 kb data fact property delete --fact-id ID (--property ... | --property-id ...) [--yes]
+kb data fact property extraction add --fact-id ID (--property ... | --property-id ...)
+                                      --text TEXT (--source ... | --source-id ...)
 ```
 
-Note: fact-property commands identify the fact only by `--fact-id` (no `--fact` name lookup), unlike entity-property commands.
+Note: fact-property commands identify the fact only by `--fact-id` (no `--fact` name lookup), unlike entity-property commands. `fact extraction add` / `fact property extraction add` behave like their entity counterparts above.
 
 **Example**
 ```
@@ -943,12 +993,15 @@ Added fact (id: ...)
 ### `kb data extract` / `kb data answer` / `kb data validate` — LLM operations
 
 ```
-kb data extract TEXT [--query Q]... (--source NAME | --source-id ID) [--model MODEL] [-v|--verbose] [-l|--log]
-kb data answer QUESTION [--format table|json|nl] [--model MODEL] [-v] [-l]
-kb data validate STATEMENT [--natural-language] [--model MODEL] [-v] [-l]
+kb data extract TEXT [--query Q]... (--source NAME | --source-id ID) [--model MODEL]
+                 [--schema-discovery-mode search|llm|none] [-v|--verbose] [-l|--log] [--log-limit N]
+kb data answer QUESTION [--format table|json|nl] [--model MODEL] [--include-metadata] [-v] [-l] [--log-limit N]
+kb data validate STATEMENT [--natural-language] [--model MODEL] [--include-metadata] [-v] [-l] [--log-limit N]
 ```
 
-All three require `OPENAI_API_KEY` (and the `openai` extra installed). `-v/--verbose` and `-l/--log` surface each tool call the LLM agent makes while the command runs.
+All three require `OPENAI_API_KEY` (and the `openai` extra installed). `-v/--verbose` shows tool call arguments in the status line; `-l/--log` also prints each tool call and its result on its own persistent line; `--log-limit` sets the truncation length for verbose/log output (default 80). `--schema-discovery-mode` controls how `extract`'s agent checks for existing schema elements before declaring new ones (`search` uses the configured search backend, `llm` asks the model to judge synonyms, `none` disables the check).
+
+`--include-metadata` (on `answer`/`validate`) has the agent additionally call `get_metadata` for each entity/fact/property value it cites, and surfaces created/modified/extraction/source info alongside the result: a second "Metadata" table (`--format table`, or unadorned `answer`/`validate` output), a `metadata` key alongside `result` (`--format json`), or folded into the prose as a follow-up section after the main answer (`--format nl` / `--natural-language`).
 
 **Example**
 ```

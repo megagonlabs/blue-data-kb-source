@@ -8,7 +8,6 @@ cassettes) use `run.py` in this directory instead.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -45,8 +44,8 @@ def _print_and_write_report():
 @pytest.mark.parametrize("case_id,mode", _params, ids=[f"{c}-{m}" for c, m in _params])
 async def test_case(kb, case_id, mode):
     cassette_path = CASSETTE_DIR / cassette_filename(case_id, mode)
-    if not cassette_path.exists() and not os.environ.get("OPENAI_API_KEY"):
-        pytest.skip(f"no cassette recorded for {cassette_path.name!r} and OPENAI_API_KEY is unset")
+    if not cassette_path.exists():
+        pytest.skip(f"no cassette recorded for {cassette_path.name!r} — this suite only replays committed cassettes")
 
     import openai
 

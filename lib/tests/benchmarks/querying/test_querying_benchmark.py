@@ -14,7 +14,6 @@ driven by the case's `search_mode`, not a per-call argument.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -52,8 +51,8 @@ def _print_and_write_report():
 @pytest.mark.parametrize("case_id,search_mode", _params, ids=[f"{c}-{m}" for c, m in _params])
 async def test_case(case_id, search_mode):
     cassette_path = CASSETTE_DIR / cassette_filename(case_id, search_mode)
-    if not cassette_path.exists() and not os.environ.get("OPENAI_API_KEY"):
-        pytest.skip(f"no cassette recorded for {cassette_path.name!r} and OPENAI_API_KEY is unset")
+    if not cassette_path.exists():
+        pytest.skip(f"no cassette recorded for {cassette_path.name!r} — this suite only replays committed cassettes")
 
     import openai
 
