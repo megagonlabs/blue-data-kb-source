@@ -2,10 +2,15 @@
 
 ## Overview
 
-KBDB uses two test tiers:
+**There is no CI in this repository yet** (see [12-deployment-ops.md](12-deployment-ops.md) §7) — everything below describes how to run tests locally; none of it runs automatically today.
 
-- **Unit tests** — run on every push in CI; all I/O boundaries are doubled via `MemoryKBSource` (the in-process graph backend) and recorded OpenAI responses
-- **Integration tests** — run on demand or in a dedicated CI job; exercise the Neo4j backend against a live instance
+KBDB has three real test tiers, spread across independently-installed packages:
+
+- **`lib/tests/unit/`** — fast, offline unit tests for the library, doubling `MemoryKBSource` for the graph backend and `unittest.mock.patch` for OpenAI calls
+- **`lib/tests/benchmarks/`** — gold-standard-case suites for `import_text`/`answer`/`validate`/`enrich` against real OpenAI responses (via VCR cassettes), with LLM-judge scoring; a heavier, opt-in tier, not part of the default `pytest` run
+- **`platform/cli/tests/`** and **`platform/mcp/tests/`** — adapter-layer tests for the CLI and MCP server, each in their own package with their own fixtures
+
+There is no Neo4j-backed integration test suite today — the Neo4j backend (via the `blue-data` dependency) is real and wired into both the CLI and MCP server, but nothing currently tests against a live Neo4j instance.
 
 ---
 
@@ -15,41 +20,42 @@ KBDB uses two test tiers:
 |------|---------|
 | `pytest` | Test runner |
 | `pytest-asyncio` | Async test support (`asyncio_mode = "auto"`) |
-| `pytest-recording` | Record and replay OpenAI HTTP interactions (VCR-based) |
-| `pytest-cov` | Coverage measurement (reported, not enforced) |
+| `pytest-recording` | Record and replay OpenAI HTTP interactions (VCR-based) — used by the **benchmark** suites only, not by `lib/tests/unit/` |
+| `pytest-cov` | Coverage measurement, via `[tool.coverage.run]` (not wired into pytest's default `addopts`) |
 
-All tools are declared as `dev` dependencies in `pyproject.toml`.
+Declared as `dev` extras in `lib/pyproject.toml`. `platform/cli/pyproject.toml` and `platform/mcp/pyproject.toml` each declare their own, smaller `dev` extras (`pytest`, `pytest-asyncio`) — neither uses `pytest-cov` or `pytest-recording`.
 
 ---
 
 ## 2. Test Layout
 
-Tests mirror the source layout under `lib/tests/`.
-
 ```
 lib/tests/
-  conftest.py                  # shared fixtures: MemoryKBSource, pre-populated schema and instances
-  cassettes/                   # recorded OpenAI responses (VCR cassettes)
-    extraction/
+  conftest.py                  # shared fixtures: kb (MemoryKBSource), populated_kb
   unit/
-    schema/
-      test_manager.py          # declare, search, consolidate, import/export
-    knowledge/
-      test_manager.py          # add_entity, add_fact, add_property_value, answer, validate, enrich
-    provenance/
-      test_tracker.py          # add_source, add_extraction, track
-    notification/
-      test_notifier.py         # hook registration, event delivery, database scoping
-    extraction/
-      test_engine.py           # import_text: tool dispatch, schema extension, provenance wiring
-    interfaces/
-      test_rest_api.py
-      test_mcp_server.py
-      test_cli.py
-  integration/
-    conftest.py                # Neo4j connection fixture
-    test_neo4j_backend.py      # verifies full KBDB operation set against a live Neo4j instance
+    schema/       test_manager.py       # declare, update, delete, hierarchy, search, consolidate, import/export
+    knowledge/    test_manager.py       # add/update/delete entity/fact/property, get_metadata, export/import, answer/validate/enrich (QueryEngine mocked)
+    provenance/   test_tracker.py       # add_source, add_extraction, link_extraction, update/delete_source
+    notification/ test_notifier.py      # hook registration, event delivery, database scoping
+    extraction/   test_engine.py        # import_text: tool dispatch, schema extension, provenance wiring (OpenAI mocked)
+  benchmarks/
+    common/       capture.py, cases.py, query_cases.py, (query_)reporting.py, (query_)runner.py, (query_)scoring.py
+    extraction/   cases/*.yaml, cassettes/, conftest.py, test_extraction_benchmark.py, run.py
+    querying/     cases/*.yaml, cassettes/, conftest.py, test_querying_benchmark.py, run.py
+
+platform/cli/tests/
+  unit/
+    conftest.py       # CliRunner fixture, isolated KBDB_DATA_DIR
+    test_database.py  # database register/create/select/delete, config
+    test_schema.py     # class/relation declaration, hierarchy, search
+    test_data.py        # entity/fact/property CRUD, data search, reindex
+    test_llm.py          # extract/answer/validate with mocked OpenAI
+
+platform/mcp/tests/
+  test_tools.py    # all 24 tools, called directly against an injected MemoryKBSource singleton
 ```
+
+Each `lib/tests/unit/` subdirectory carries an `__init__.py` so pytest doesn't confuse identically-named files (e.g. `schema/test_manager.py` vs. `knowledge/test_manager.py`) across directories.
 
 ---
 
@@ -66,39 +72,42 @@ No separate mock or stub is needed: the same code path that runs against Neo4j i
 
 @pytest.fixture
 def kb() -> MemoryKBSource:
-    kb = MemoryKBSource(name="test-kb")
-    asyncio.run(kb.create_database("test"))
-    return kb
+    inst = MemoryKBSource(name="test-kb")
+    inst.create_database("test")   # inherited from GraphSource — synchronous, no await/asyncio.run
+    return inst
 ```
 
 ---
 
 ## 4. LLM Test Doubles
 
-OpenAI calls within `ExtractionEngine.import_text` are tested using recorded HTTP responses via `pytest-recording` (VCR.py). On first run with `--record-mode=once`, real API responses are captured and saved as cassettes under `tests/cassettes/extraction/`. Subsequent runs replay the cassettes without hitting the network.
+Two different, deliberately separate mocking strategies exist depending on the tier:
 
-**Recording rules:**
+**`lib/tests/unit/`** (fast, offline, no network) mocks `openai.AsyncOpenAI` directly via `unittest.mock.patch`, returning a scripted `MagicMock`/`AsyncMock` response sequence (see `lib/tests/benchmarks/common/capture.py`'s `_mock_openai_sequence` helper, reused by `unit/extraction/test_engine.py` and `unit/knowledge/test_manager.py`'s `answer`/`validate`/`enrich` tests). No cassettes, no `@pytest.mark.vcr`, no network access at all — this is what makes `lib/tests/unit/` safe to run with no `OPENAI_API_KEY`.
+
+**`lib/tests/benchmarks/`** (opt-in, heavier) uses `pytest-recording` (VCR.py) against real OpenAI responses, scoped per suite — `lib/tests/benchmarks/extraction/cassettes/` and `lib/tests/benchmarks/querying/cassettes/`, each with its own `conftest.py` defining `vcr_config`/`vcr_cassette_dir`, and `pytestmark = pytest.mark.vcr` set at the module level in each suite's `test_*_benchmark.py`. This is where cassette-recording rules apply:
 
 - Cassettes are committed to the repository.
 - When a prompt or tool set changes in a way that would alter the response, the cassette must be re-recorded: delete the cassette file and run with `--record-mode=once`.
-- Tests fail if a cassette is missing and `--record-mode` is not set (default CI behavior).
 - API keys must be present when recording; they are stripped from cassette files before committing.
 
-**Example:**
+**Example — unit test (mocked, no cassette):**
 
 ```python
-@pytest.mark.vcr
 async def test_import_text_extracts_entity(kb):
-    src = await kb.add_source("test", source="doc1", name="Test Document")
-    await kb.import_text(
-        "test",
-        "Alice joined IBM as a software engineer in June 1998.",
-        queries=["Where did Alice work?"],
-        source_id=src,
-    )
+    with patch("openai.AsyncOpenAI", return_value=_mock_openai_sequence([...])):
+        src = await kb.add_source("test", source="doc1", name="Test Document")
+        await kb.import_text(
+            "test",
+            "Alice joined IBM as a software engineer in June 1998.",
+            queries=["Where did Alice work?"],
+            source_id=src,
+        )
     results = await kb.answer("test", "Where did Alice work?")
-    assert any(r.value == "IBM" for r in results)
+    assert any(r.get("value") == "IBM" for r in results)
 ```
+
+See §12 below for the benchmark tier's real, live-LLM equivalent of this same scenario.
 
 ---
 
@@ -192,52 +201,76 @@ async def populated_kb(kb) -> MemoryKBSource:
 
 ## 8. Interface Tests
 
-Each external interface has its own test module under `tests/unit/interfaces/`. These are still unit tests — they use `MemoryKBSource` and recorded cassettes. They exercise the translation layer (request parsing, response serialization, error mapping) rather than end-to-end behavior.
+Interface tests live in each interface's **own package**, not under `lib/tests/` — each adapter is a separate deployable unit (see [07-repo-organization.md](07-repo-organization.md)) with its own test suite and fixtures rather than importing `lib/tests/conftest.py`.
 
-- **REST API** — tested via FastAPI's `TestClient` (sync wrapper, compatible with `pytest-asyncio`)
-- **MCP Server** — tested by calling tool handler functions directly with a mock MCP context
-- **CLI** — tested via Click's `CliRunner`
+- **CLI** (`platform/cli/tests/unit/`) — tested via Click's `CliRunner`, pointed at an isolated `tmp_path` per test via `KBDB_DATA_DIR` (`conftest.py`); `extract`/`answer`/`validate` tests mock `openai.AsyncOpenAI` the same way `lib/tests/unit/` does.
+- **MCP Server** (`platform/mcp/tests/test_tools.py`) — an `autouse` fixture builds a `MemoryKBSource`, injects it as the module-level singleton via `config.reset_kb()`/monkeypatching `get_kb`, and tests call the `@mcp.tool()`-decorated async functions directly, asserting on the JSON string each returns.
+- **REST API** — doesn't exist yet (`platform/api/` is empty); no tests exist for it.
 
 ---
 
-## 9. Integration Tests
+## 9. Neo4j — not covered by an automated test today
 
-Integration tests run the full operation set against a live Neo4j instance. They are structurally identical to unit tests but swap the fixture backend from `MemoryKBSource` to `Neo4jKBSource` pointed at a local or CI-managed Neo4j container.
-
-Integration tests are excluded from the default `pytest` run (`testpaths = ["tests/unit"]` in `pyproject.toml`) and must be invoked explicitly:
-
-```bash
-pytest lib/tests/integration/ --neo4j-uri bolt://localhost:7687
-```
+A `Neo4jGraphSource`/`NEO4JSource` backend is real and wired into both the CLI (`kb database register --graph-backend neo4j`) and the MCP server (`BLUE_DATA_KB_SOURCE_GRAPH_BACKEND=neo4j`), but no automated test — unit or otherwise — currently runs against a live Neo4j instance. There is no `lib/tests/integration/` directory. Manual verification against Neo4j has been done ad hoc (e.g. `examples/backends/neo4j_backend_demo.py`); building a real Neo4j-backed test suite (structurally similar to the `MemoryKBSource`-backed unit tests, swapping the fixture backend) is open work, not yet started.
 
 ---
 
 ## 10. Coverage
 
-Coverage is measured via `pytest-cov` and reported in CI output. No minimum threshold is enforced.
+Coverage is measured via `pytest-cov`, configured separately from pytest's own options — it does not run automatically on a bare `pytest` invocation, only when `--cov` flags are passed explicitly or via the `[tool.coverage.run]` section:
 
 ```toml
-# pyproject.toml
+# lib/pyproject.toml
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths    = ["tests/unit"]
-addopts      = "--cov=src --cov-report=term-missing"
+addopts      = ""
+
+[tool.coverage.run]
+source = ["src"]
 ```
+
+`testpaths = ["tests/unit"]` is also what keeps `lib/tests/benchmarks/` out of the default `pytest` run — the benchmark suites are invoked explicitly (§11). No minimum coverage threshold is enforced. `platform/cli/` and `platform/mcp/` don't declare `pytest-cov` at all.
 
 ---
 
 ## 11. Running Tests
 
 ```bash
-# Run all unit tests
-pytest lib/tests/unit/
+# Library unit tests (fast, offline, no OPENAI_API_KEY needed)
+cd lib && pytest tests/unit/
 
-# Run with coverage
-pytest lib/tests/unit/ --cov=src --cov-report=term-missing
+# With coverage
+cd lib && pytest tests/unit/ --cov=src --cov-report=term-missing
 
-# Re-record OpenAI cassettes for extraction tests
-pytest lib/tests/unit/extraction/ --record-mode=once
+# Library benchmark suites (opt-in, real OpenAI calls unless cassettes already exist)
+cd lib && pytest tests/benchmarks/extraction/
+cd lib && pytest tests/benchmarks/querying/
 
-# Run integration tests against a local Neo4j instance
-pytest lib/tests/integration/ --neo4j-uri bolt://localhost:7687
+# Re-record a benchmark suite's cassettes
+cd lib && pytest tests/benchmarks/extraction/ --record-mode=once
+
+# CLI adapter tests
+cd platform/cli && pytest tests/
+
+# MCP server adapter tests
+cd platform/mcp && pytest tests/
 ```
+
+---
+
+## 12. Benchmark Suites
+
+`lib/tests/benchmarks/` is a first-class test tier, not a side project — gold-standard-case suites that score `import_text` (extraction) and `answer`/`validate`/`enrich` (querying) against real LLM output, not mocks. As of this writing: 11 extraction case files and 18 querying case files under `lib/tests/benchmarks/{extraction,querying}/cases/*.yaml`, spanning multiple domains (business, healthcare, finance, legal, supply-chain).
+
+Shared harness under `lib/tests/benchmarks/common/`:
+
+| Module | Purpose |
+|---|---|
+| `capture.py` | Records/mocks OpenAI interactions for both cassette-based and scripted-mock testing |
+| `cases.py` / `query_cases.py` | Load and parse gold-standard YAML case files |
+| `runner.py` / `query_runner.py` | Drive `import_text`/`answer`/`validate`/`enrich` against each case |
+| `scoring.py` / `query_scoring.py` | Score results — includes an LLM-judge comparison for cases where exact-match scoring isn't meaningful, plus deterministic checks (e.g. provenance/domain-range compliance) |
+| `reporting.py` / `query_reporting.py` | Format scored results into a report |
+
+Each suite also ships a live `run.py` CLI (see `lib/README.md` for usage) for ad hoc runs against real cases outside of pytest. Full documentation of the benchmark harness lives in `lib/README.md`, not duplicated here.

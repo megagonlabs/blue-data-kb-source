@@ -112,24 +112,25 @@ FastAPI provides automatic OpenAPI schema generation and async request handling.
 
 ### MCP Server
 
-**Provisional**
+**Implemented** — `platform/mcp/` (package `blue-data-kb-mcp`)
 
 | Concern | Choice |
 |---------|--------|
-| Library | `mcp` (official MCP Python SDK) |
+| Library | `mcp[cli]` (official MCP Python SDK), pinned `>=1.0.0,<2.0.0` |
 
-Exposes KBDB schema, knowledge, and extraction operations as MCP tools for consumption by LLM agents. The `mcp` package provides the server scaffolding; tool handlers delegate directly to the Python library.
+Exposes 24 KBDB schema, knowledge, query, extraction, and provenance operations as MCP tools (`FastMCP`) for consumption by LLM agents; tool handlers delegate directly to the Python library. The version pin is deliberate: `mcp==2.0.0` renamed `mcp.server.fastmcp.FastMCP` to `mcp.server.MCPServer`, a breaking import-path change — staying on `1.x` keeps `FastMCP` importable at the path the server code uses.
 
 ### CLI
 
-**Provisional**
+**Implemented** — `platform/cli/` (package `blue-data-kb-cli`, console script `kb`)
 
 | Concern | Choice |
 |---------|--------|
-| Argument parsing | Click |
-| Output formatting | Rich |
+| Argument parsing | Click (`>=8.0`) |
+| Output formatting | Rich (`>=13.0`) |
+| Date parsing | `arrow` (`>=1.3`) |
 
-Click handles command routing and argument parsing. Rich provides formatted terminal output (tables, progress indicators) for schema inspection and interactive ingestion.
+Click handles command routing and argument parsing. Rich provides formatted terminal output (tables, progress indicators) for schema inspection and interactive ingestion. `arrow` is used for date handling in CLI-facing date arguments/output.
 
 ---
 
@@ -140,9 +141,9 @@ Click handles command routing and argument parsing. Rich provides formatted term
 | Test runner | pytest |
 | Async support | pytest-asyncio |
 | Coverage | pytest-cov |
-| Test scope | Unit tests against `MemoryGraphSource`; integration tests against Neo4j |
+| Test scope | Unit tests (`lib/tests/unit/`) against `MemoryGraphSource`; separate opt-in benchmark suites (`lib/tests/benchmarks/`) against real OpenAI responses. No automated Neo4j-backed test exists yet — see [11-testing-strategy.md](11-testing-strategy.md) §9. |
 
-Unit tests exercise the full KB API using the in-memory backend with no external dependencies. OpenAI calls made by the Extraction Engine and Query Engine during unit tests are stubbed out with `unittest.mock.patch("openai.AsyncOpenAI", ...)`, so the suite runs deterministically without a live API key. `pytest-recording` is listed as a dev dependency but is not currently used by any test. Integration tests run against a live Neo4j instance to validate backend-specific behavior.
+Unit tests exercise the full KB API using the in-memory backend with no external dependencies. OpenAI calls made by the Extraction Engine and Query Engine during unit tests are stubbed out with `unittest.mock.patch("openai.AsyncOpenAI", ...)`, so the suite runs deterministically without a live API key. `pytest-recording` **is** used — but only by `lib/tests/benchmarks/{extraction,querying}/`, which are excluded from the default `pytest` run (`testpaths = ["tests/unit"]`) and invoked explicitly; it's unused by `lib/tests/unit/` itself.
 
 ---
 
@@ -177,12 +178,13 @@ Provides the `GraphSource` abstract base class and all concrete graph backends c
 | `rank-bm25` | latest stable | PyPI | BM25 keyword search over schema and data |
 | `chromadb` | latest stable | PyPI | ChromaDB vector backend (optional, semantic search) |
 | `redis` | latest stable | PyPI | Redis vector backend (optional, semantic search) |
-| `fastapi` | latest stable | PyPI | REST API framework (provisional) |
+| `fastapi` | latest stable | PyPI | REST API framework (provisional — `platform/api/` not yet built) |
 | `uvicorn` | latest stable | PyPI | ASGI server for FastAPI (provisional) |
-| `mcp` | latest stable | PyPI | MCP server SDK (provisional) |
-| `click` | latest stable | PyPI | CLI argument parsing (provisional) |
-| `rich` | latest stable | PyPI | CLI output formatting (provisional) |
+| `mcp[cli]` | `>=1.0.0,<2.0.0` | PyPI | MCP server SDK — implemented, pinned below 2.0 (see MCP Server above) |
+| `click` | `>=8.0` | PyPI | CLI argument parsing — implemented |
+| `rich` | `>=13.0` | PyPI | CLI output formatting — implemented |
+| `arrow` | `>=1.3` | PyPI | CLI date handling — implemented |
 | `pytest` | latest stable | PyPI | Test runner |
 | `pytest-asyncio` | latest stable | PyPI | Async test support |
-| `pytest-recording` | latest stable | PyPI | Listed dev dependency; not currently used by any test |
-| `pytest-cov` | latest stable | PyPI | Test coverage |
+| `pytest-recording` | latest stable | PyPI | Used by `lib/tests/benchmarks/` only (VCR cassettes), not by `lib/tests/unit/` |
+| `pytest-cov` | latest stable | PyPI | Test coverage (`lib/` only — not declared by `platform/cli/`/`platform/mcp/`) |

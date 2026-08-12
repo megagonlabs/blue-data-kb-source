@@ -169,7 +169,7 @@ Architectural decisions are recorded here as they are made, throughout the desig
 
 **Rationale:** Different consumers require different integration points: Python applications embed the library directly; LLM agents use MCP tools; non-Python services and remote clients use REST; developers and operators use the CLI. Providing all four from the same library ensures consistent behavior across contexts.
 
-**Consequences:** Each interface lives in its own `platform/` sub-package, independently versioned and deployed. REST and MCP are bundled into a Docker image. CLI is distributed as a PyPI extra.
+**Consequences:** Each interface lives in its own `platform/` sub-package, independently versioned and deployed. REST and MCP were originally planned to bundle into a Docker image; as implemented, the MCP server runs over stdio transport (launched as a subprocess by its client), not as a network listener, so that specific packaging shape needs revisiting once the REST API is actually built — see [12-deployment-ops.md](12-deployment-ops.md) §6. **Correction (post-implementation):** the CLI is not a PyPI extra of `blue-data-kb-source` — it shipped as its own separate package, `blue-data-kb-cli`, depending on `blue-data-kb-source` rather than being an `extras_require` of it. Same for the MCP server (`blue-data-kb-mcp`). See [12-deployment-ops.md](12-deployment-ops.md) §2 for the actual packaging.
 
 ---
 

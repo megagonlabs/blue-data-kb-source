@@ -4,12 +4,12 @@
 
 All four interfaces are thin adapters over the Python library. They each ultimately delegate to the same core operations on `KBSource`.
 
-| Interface | Technology | Primary Use |
-|-----------|-----------|-------------|
-| Python Library | Native Python API | Embedding KBDB directly in Python applications and pipelines |
-| MCP Server | MCP protocol | LLM agent tool use (e.g. Claude) |
-| REST API | FastAPI (HTTP/JSON) | Non-Python consumers and microservice deployments |
-| CLI | Click + Rich | Development, debugging, schema inspection, and scripting |
+| Interface | Technology | Primary Use | Status |
+|-----------|-----------|-------------|--------|
+| Python Library | Native Python API | Embedding KBDB directly in Python applications and pipelines | Implemented |
+| MCP Server | MCP protocol | LLM agent tool use (e.g. Claude) | Implemented |
+| CLI | Click + Rich | Development, debugging, schema inspection, and scripting | Implemented |
+| REST API | FastAPI (HTTP/JSON) | Non-Python consumers and microservice deployments | **Planned, not yet implemented** |
 
 ### Python Library
 
@@ -19,7 +19,9 @@ All four interfaces are thin adapters over the Python library. They each ultimat
 
 Exposes schema declaration, instance ingestion, text extraction, and query operations as MCP tools. Enables LLM agents to build and query a knowledge base directly within an agentic context.
 
-### REST API
+### REST API — planned, not yet implemented
+
+Nothing under this heading exists in the repository yet — no FastAPI application, no route handlers, `platform/api/` is an empty directory. The description below is a forward-looking sketch, not current behavior; see [09-api-interface-spec.md](09-api-interface-spec.md) §2 for the full speculative endpoint design.
 
 HTTP interface built with FastAPI. Endpoints map to the core schema and knowledge operations. Enables non-Python services and remote clients to interact with KBDB over the network.
 
@@ -56,14 +58,16 @@ Command-line interface built with Click and Rich. Thin wrapper over the Python l
 5. For each identified item, the LLM Agent calls Knowledge Manager tools, passing the verbatim text span — triggering the full Ingest Path including provenance and change notification
 6. The loop continues until the LLM Agent reports no further items to extract
 
+All three paths below take a common set of cross-cutting parameters not repeated in each numbered list: `model` (default `"gpt-4o"`), and `on_tool_call`/`on_tool_result` observability callbacks invoked synchronously during the agent loop. `answer` and `validate` additionally take `natural_language: bool = False` and `include_metadata: bool = False` (`enrich` has neither). `include_metadata=True` adds a `get_metadata` tool to the agent's tool set (see Query Engine Tool Set below); every call the agent makes to it is harvested into a `metadata: dict[node_id, dict]` returned alongside the result as a `(result, metadata)` tuple, regardless of whether the LLM's own structured output references that id. `natural_language=True` (on `answer`/`validate` only) additionally asks the LLM to compose prose from the structured result instead of returning it raw — with `include_metadata=True` also set, the prose has a metadata section appended and `metadata` is still returned as the second tuple element. This composition happens one layer up, in `KnowledgeManager`, not inside `QueryEngine` itself — `QueryEngine.answer`/`validate` take `include_metadata` but have no `natural_language` parameter of their own.
+
 ### Answer Path
 
 1. Caller submits a natural language question
 2. Knowledge Manager delegates to Query Engine
 3. Query Engine fetches the current schema and constructs a system prompt with schema context and the question
-4. LLM agent loop: the agent calls read-only graph tools (`search_entities`, `get_entity_facts`, `get_entity_properties`, `get_fact_properties`, `get_neighbors`) until it has enough information
-5. Agent calls `return_result` with a structured list of `{entity, relation, value, provenance}` items
-6. Query Engine returns that payload as-is, as a plain `list[dict]` — unlike Validate and Enrich below, it is not wrapped in a dataclass
+4. LLM agent loop: the agent calls read-only graph tools (`search_entities`, `get_entity_facts`, `get_entity_properties`, `get_fact_properties`, `get_neighbors`, and `get_metadata` when `include_metadata=True`) until it has enough information
+5. Agent calls `return_result` with a structured list of `{entity, relation, value, provenance}`-shaped items — the exact keys are whatever the LLM decided fit the question, not a fixed schema
+6. Query Engine returns that payload as-is, as a plain `list[dict]` — unlike Validate and Enrich below, it is not wrapped in a dataclass. `KnowledgeManager` then applies `natural_language`/`include_metadata` handling on top (see above) before returning to the caller.
 
 ### Validate Path
 
@@ -72,7 +76,7 @@ Command-line interface built with Click and Rich. Thin wrapper over the Python l
 3. Query Engine fetches the current schema and constructs a system prompt directing the agent to find supporting and counter evidence
 4. LLM agent loop: the agent uses graph tools to search for facts that confirm or contradict the statement
 5. Agent calls `return_result` with `{supporting: [...], counter: [...]}` where each item is `{fact, head, tail, relation}`
-6. Query Engine unpacks the payload into a `ValidationResult` and returns it to the caller
+6. Query Engine unpacks the payload into a `ValidationResult` and returns it to the caller; `KnowledgeManager` then applies `natural_language`/`include_metadata` handling on top
 
 ### Enrich Path
 
@@ -81,7 +85,7 @@ Command-line interface built with Click and Rich. Thin wrapper over the Python l
 3. Query Engine fetches the current schema and constructs a system prompt directing the agent to traverse the graph up to `depth` hops from seed entities
 4. LLM agent loop: the agent uses `search_entities` to find seeds, then `get_neighbors` and `get_entity_facts` to explore outward
 5. Agent calls `return_result` with a list of `{entity, relation, value, distance}` items
-6. Query Engine unpacks the payload into `EnrichmentResult` objects and returns them to the caller
+6. Query Engine unpacks the payload into `EnrichmentResult` objects and returns them to the caller — `enrich` has no `natural_language`/`include_metadata` variance, unlike `answer`/`validate`
 
 ---
 
@@ -94,12 +98,13 @@ The Schema Layer manages the typed vocabulary of the knowledge base. It is the a
 **Responsibilities**
 
 - Declare classes, relation types, and properties (idempotent: existing names return their IDs without modification)
-- Maintain class and relation hierarchies (subclass, sub-relation)
+- Update or delete classes, relation types, and properties (`update_class`/`update_relation`/`update_property`, `delete_class`/`delete_relation`/`delete_property`) — not idempotent, and not part of the extraction/query agents' tool sets
+- Maintain class and relation hierarchies (subclass, sub-relation), including removal (`remove_is_subclass_of`)
 - Wire domain and range constraints from relation types to classes
 - Export the schema to a portable JSON representation and import it from that representation into any database
 - Expose the meta-schema — the fixed description of KBDB's own graph structure — for agent introspection
 - Search schema elements by natural language query or keywords
-- Consolidate schema elements: merge redundant classes, properties, or relations; split overloaded ones; propagate all changes to affected instances
+- Consolidate schema elements: today, only merging redundant classes, properties, or relations into one target is implemented (see below) — splitting is not
 
 **Schema Declaration**
 
@@ -111,15 +116,14 @@ When a caller declares a schema element, the Schema Manager:
 
 **Schema Consolidation**
 
-Consolidation is a multi-step transaction:
+Only `operation="merge"` is implemented today; any other value (including `"split"`) raises `SchemaError`. `consolidate_schema` accepts a `predicate` parameter in its signature, but nothing in the current implementation reads it — it's unused.
 
-1. Identify all instances that reference the source element(s) via typed edges
-2. Rewrite those edges to reference the target element
-3. Remove the source element(s) from the schema
-4. Validate that no dangling references remain
+Merge is **not** a rewrite-and-remove transaction; it's additive:
 
-For a merge (two classes → one): all instances of both classes are re-typed to the merged class.
-For a split (one class → two): instances are partitioned by a caller-supplied predicate and re-typed accordingly.
+1. Identify all instances whose primary instance edge (`IS_INSTANCE_OF` for classes, `REPRESENTS` for relations, `IS_VALUE_OF` for properties) points at one of the source elements
+2. For each such instance, add a **new** instance edge pointing at the target element (creating the target if it doesn't already exist by name)
+
+That's the whole operation. It does **not** remove the old instance edge, does **not** delete the source schema node, and does **not** touch `DEFINE_PROPERTY`/`DOMAIN`/`RANGE`/`IS_SUBCLASS_OF` edges on the source. After a merge, an affected instance has instance edges to *both* the source and target elements, and the source element is still present in `fetch_database_schema`'s output. Downstream code that assumes one class per entity (e.g. `get_metadata`'s `class_name`) will keep reporting whichever edge it finds first, which is the edge to the *source* element, since it was created first — not necessarily the merge target. Callers who need old edges removed or source nodes deleted must do so explicitly with `delete_class`/`delete_relation`/`delete_property` after the merge.
 
 **Schema Search**
 
@@ -148,6 +152,9 @@ The Knowledge Layer populates the knowledge base with instance data and answers 
 **Responsibilities**
 
 - Create entity, fact, and literal nodes; wire their typed schema edges
+- Update or delete entity, fact, and literal nodes (`update_entity`/`update_fact`/`update_entity_property_value`/`update_fact_property_value`, `delete_entity`/`delete_fact`/`delete_entity_property_value`/`delete_fact_property_value`) — `delete_entity` takes a `cascade` flag that also deletes facts referencing the entity
+- Look up per-item metadata (`get_metadata`) — created/modified timestamps, extraction text, and source name/original date for a single entity, fact, or property value
+- Export instance data to a portable, `ref`-keyed JSON representation and import it into any database whose schema already has the referenced classes/relations/properties declared (`export_database_data`/`import_database_data`) — data import is **not** idempotent: re-importing the same export creates duplicate entities/facts, unlike schema import
 - Delegate answer, validate, and enrich queries to the Query Engine
 - Delegate provenance creation to the Provenance Tracker
 - Trigger the Change Notifier after each write
@@ -161,6 +168,8 @@ For each new entity, fact, or property value:
 2. Wire schema edges: IS_INSTANCE_OF (entity → class), REPRESENTS (fact → relation), HAS_PROPERTY / IS_VALUE_OF (literal → entity or fact)
 3. If `text` is provided: delegate to Provenance Tracker
 4. Trigger Change Notifier with a fully enriched event
+
+Unlike schema declaration, instance creation is never idempotent — `add_entity`/`add_fact`/`add_entity_property_value`/`add_fact_property_value` always create a new node, even when an identical one already exists. Attaching more evidence to an *existing* instance instead of creating a new one uses the `add_*_extraction` family (see Provenance Tracker below), not another `add_*` call.
 
 **Answer / Validate / Enrich**
 
@@ -189,7 +198,10 @@ The LLM agent has access to the following read-only tools during each query:
 | `get_entity_properties` | Return all property values attached to an entity |
 | `get_fact_properties` | Return all property values attached to a fact |
 | `get_neighbors` | BFS from an entity through facts up to a given depth |
+| `get_metadata` | Return created/modified timestamps, extraction text, and source name/original date for one entity, fact, or property value — only offered when the caller passed `include_metadata=True` |
 | `return_result` | Terminal tool — delivers the final structured payload and ends the loop |
+
+Every `get_metadata` call the agent makes is harvested into the `metadata` dict returned alongside the result when `include_metadata=True` — the engine doesn't wait for the agent to reference an id in `return_result`'s own payload.
 
 **Agent Loop**
 
@@ -208,6 +220,8 @@ The LLM agent has access to the following read-only tools during each query:
 - Create EXTRACTION nodes capturing verbatim text spans
 - Wire EXTRACTED_FROM edges from instances to their EXTRACTION nodes
 - Wire EXTRACTION nodes to SOURCE nodes when a source is provided
+- Attach *additional* evidence to an entity/fact/property value that already exists, without touching its name/description or creating a duplicate (`add_entity_extraction`, `add_fact_extraction`, `add_entity_property_value_extraction`, `add_fact_property_value_extraction`) — each call adds one more EXTRACTED_FROM edge; an item can accumulate several as more sources are found, none of them replacing a prior one
+- Create SOURCE nodes with a caller-supplied `original` date (`add_source`), and update or delete them (`update_source`/`delete_source`)
 
 **Provenance Flow**
 
@@ -229,16 +243,29 @@ One EXTRACTION node is created per item, giving per-item granularity. Multiple i
 
 **Event Structure**
 
-Every event carries `type`, `database`, and `id`. Additional fields by type:
+Every event carries `type`, `database`, and `id`. Additional fields by type — schema events fire only on first declaration (idempotent repeats of `declare_*` don't re-fire):
 
 | Type | Additional Fields |
 |------|------------------|
+| `class_declared` | `name`, `description` |
+| `relation_declared` | `name`, `description`, `is_symmetric`, `domain`, `range` |
+| `class_property_declared` | `name`, `description`, `class_id`, `class_name` |
+| `relation_property_declared` | `name`, `description`, `relation_id`, `relation_name` |
+| `class_subclass` / `relation_subclass` | `child_id`, `child_name`, `parent_id`, `parent_name` |
+| `class_updated` / `relation_updated` / `property_updated` | `id` only |
+| `class_deleted` / `relation_deleted` / `property_deleted` | `id` only |
 | `entity_added` | `name`, `class_id`, `class_name` |
 | `fact_added` | `head_entity_id`, `head_entity_name`, `tail_entity_id`, `tail_entity_name`, `relation_id`, `relation_name` |
-| `entity_property_added` | `entity_id`, `property_id`, `property_name`, `value` |
+| `entity_property_added` | `entity_id`, `entity_name`, `property_id`, `property_name`, `value` |
 | `fact_property_added` | `fact_id`, `property_id`, `property_name`, `value`, `head_entity_name`, `tail_entity_name`, `relation_name` |
+| `entity_updated` / `fact_updated` | `id` only |
+| `entity_property_updated` / `fact_property_updated` | `id` only |
+| `entity_deleted` / `fact_deleted` | `id` only |
+| `entity_property_deleted` / `fact_property_deleted` | `id` only |
 
-Hooks are scoped to a single database: a hook registered on database `"main"` does not fire for writes to any other database.
+Note the schema-event category above (`class_declared` through `relation_subclass`) is fired by the **Schema Manager**, not the Knowledge Manager — the Change Notifier itself is shared infrastructure, not scoped to one layer. `add_source`/`add_extraction`/`update_source`/`delete_source` on the Provenance Tracker fire **no** change events at all — there's no notifier wired into it.
+
+Hooks are scoped to a single database: a hook registered on database `"main"` does not fire for writes to any other database. There is also an internal *global* hook mechanism (firing across all databases) used exclusively to keep the Search Indexer in sync — it is not exposed on `KBSource`.
 
 ---
 
@@ -262,19 +289,21 @@ The LLM Agent has access to the following tools during the extraction loop:
 
 | Tool Group | Tools |
 |------------|-------|
-| Schema inspection | `get_schema`, `find_class`, `find_relation_type`, `find_entity` |
+| Schema inspection | `get_schema`, `find_class`, `find_relation_type`, `find_entity`, `find_fact` |
 | Schema declaration | `declare_class`, `declare_relation_type`, `declare_class_property`, `declare_relation_property` |
 | Instance creation | `add_entity`, `add_fact`, `add_entity_property_value`, `add_fact_property_value` |
+| Instance reuse | `link_extraction` — attach a new verbatim span to an *existing* entity/fact/literal instead of creating a duplicate |
 
-`find_class`, `find_relation_type`, and `find_entity` look an element up by exact name so the LLM Agent can check idempotently before declaring or creating — they are distinct from the Search Indexer's keyword/semantic `search_schema` tool used by the Query Engine.
+`find_class`, `find_relation_type`, `find_entity`, and `find_fact` look an element up by exact name so the LLM Agent can check idempotently before declaring or creating. The Extraction Engine has its own `search_schema` tool too — a fuzzy/duplicate-avoidance lookup distinct from exact-name `find_*`, gated by `import_text`'s `schema_discovery_mode` parameter (`"search"` — the default, offers `search_schema` backed by keyword/semantic search; `"llm"` — routes near-duplicate detection through a separate LLM judge call instead; `"none"` — drops schema-discovery tooling entirely). This is a second, independent `search_schema` tool from the one the Query Engine offers for `answer`/`validate`/`enrich` — both exist, on different agents, for different purposes.
 
 **Extraction Loop**
 
 1. Fetch the current schema and present it to the LLM alongside the text and guiding queries
 2. The LLM identifies the next item to extract and the verbatim span it comes from
-3. If the item requires a new schema element: the LLM calls the appropriate declare tool first
-4. The LLM calls the appropriate instance tool, passing the verbatim span as `text`
-5. Repeat from step 2 until the LLM signals completion
+3. The LLM first checks whether the item already exists (`find_entity`/`find_fact`, or `search_schema` for near-duplicate schema elements under the default `schema_discovery_mode`)
+4. If it already exists: the LLM calls `link_extraction` with its id to add the new span as further evidence, rather than creating a duplicate
+5. If it's new and requires a new schema element: the LLM calls the appropriate declare tool first, then the appropriate instance tool, passing the verbatim span as `text`
+6. Repeat from step 2 until the LLM signals completion
 
 **Example**
 
@@ -308,7 +337,18 @@ The indexer keeps two collections per database: `schema` (classes, relations, pr
 
 **Search**
 
-`search_schema` and `search_data` both accept a `mode` (`keyword` or `semantic`), an optional `type_filter`, and a result limit `k`. In `keyword` mode, results are ranked by BM25 score against the corpus; in `semantic` mode, results are ranked by embedding similarity via the configured vector store. Each result carries the node's ID, type, name, and description (plus head/relation/tail names for facts), and a similarity `score` when in semantic mode.
+`search_schema` and `search_data` both accept a `mode` (`keyword` or `semantic`), an optional `type_filter`, and a result limit `k`. In `keyword` mode, results are ranked by BM25 score against the corpus; in `semantic` mode, results are ranked by embedding similarity via the configured vector store. Each result carries the node's ID, type, name, and description (plus head/relation/tail names for facts), and a similarity `score` — populated only in `semantic` mode; `keyword` mode results (ranked or, if search isn't enabled at all, unranked) always report `score=None`.
+
+**Vector Backends**
+
+Semantic search requires a `vector_source` and `embedding_fn` at construction time, on top of `enable_search=True`. Four vector backends are supported, mirroring the Graph Store's own pluggability:
+
+| Backend | Characteristics | Typical Use |
+|---------|----------------|------------|
+| Memory | In-process, non-persistent | Development, testing |
+| File | Persisted to disk, single-process | Persistent semantic search without a server |
+| ChromaDB | Embedded, persisted to disk | No separate server to run, still persistent |
+| Redis | Shared, production vector store (via Redis Stack / RediSearch) | Multi-process or multi-host deployments |
 
 ---
 

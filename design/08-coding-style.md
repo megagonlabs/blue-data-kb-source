@@ -168,7 +168,7 @@ class ProvenanceError(KBError): ...
 
 - Do not catch and swallow exceptions silently.
 - Let exceptions propagate to interface boundaries, where each interface handles them appropriately:
-  - **REST API** — FastAPI exception handlers convert `KBError` subtypes to HTTP responses.
-  - **MCP server** — tool handlers catch `KBError` and return structured error responses.
+  - **REST API** — planned; sketched to have FastAPI exception handlers convert `KBError` subtypes to HTTP responses (see [09-api-interface-spec.md](09-api-interface-spec.md) §2).
+  - **MCP server** — every tool handler wraps its body in `try: ... except Exception as e: return _err(e)`, turning *any* exception (not just `KBError` subtypes) into a structured `{"error": str(e)}` JSON response, mirroring the sibling `blue-data` repo's `registry-mcp` pattern. This is a deliberate, narrow exception to the "never bare `except Exception`" rule below — a raised exception here would crash the MCP transport for the whole session, not just fail one tool call, so every tool boundary catches broadly on purpose.
   - **CLI** — top-level Click error handler renders `KBError` messages via Rich.
-- Only catch specific exception types; never bare `except:` or `except Exception:`.
+- Only catch specific exception types; never bare `except:` or `except Exception:` — **except** at MCP tool-handler boundaries, per above.

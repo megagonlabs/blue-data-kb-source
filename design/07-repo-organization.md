@@ -48,35 +48,59 @@ blue-data-kb-source/
 │   │           └── engine.py            # ExtractionEngine and LLM agent loop
 │   │
 │   └── tests/
-│       ├── conftest.py                  # shared fixtures and MemoryKBSource instances
-│       └── unit/
-│           ├── schema/                  # SchemaManager tests
-│           ├── knowledge/               # KnowledgeManager and QueryEngine tests
-│           ├── provenance/              # ProvenanceTracker tests
-│           └── notification/            # ChangeNotifier tests
+│       ├── conftest.py                  # shared fixtures: kb (MemoryKBSource), populated_kb
+│       ├── unit/
+│       │   ├── schema/                  # SchemaManager tests
+│       │   ├── knowledge/               # KnowledgeManager and QueryEngine tests
+│       │   ├── provenance/              # ProvenanceTracker tests
+│       │   ├── notification/            # ChangeNotifier tests
+│       │   └── extraction/              # ExtractionEngine tests (OpenAI mocked)
+│       └── benchmarks/                  # gold-standard-case suites against real OpenAI (VCR cassettes)
+│           ├── common/                  # shared harness: capture, (query_)cases, (query_)runner, (query_)scoring, (query_)reporting
+│           ├── extraction/              # import_text cases + pytest suite + live run.py CLI
+│           └── querying/                # answer/validate/enrich cases + pytest suite + live run.py CLI
+│
+├── docs/                                # User-facing documentation — start at docs/README.md
+│
+├── examples/                            # Runnable example scripts with captured output — start at examples/README.md
 │
 └── platform/                            # External interface services
-    └── cli/                             # CLI tool (blue-data-kb-cli PyPI package)
+    ├── cli/                             # CLI tool (blue-data-kb-cli PyPI package)
+    │   ├── pyproject.toml
+    │   ├── README.md                    # CLI usage, command reference, walkthrough
+    │   ├── scripts/
+    │   │   ├── build.sh                 # build distributable
+    │   │   ├── deploy.sh                # publish CLI package
+    │   │   └── install.sh               # install blue-data and lib locally, then this package
+    │   ├── src/
+    │   │   └── blue_data_kb_cli/
+    │   │       ├── __init__.py
+    │   │       ├── commands.py          # Click command groups; FileKBSource adapter
+    │   │       └── config.py            # Database registry and KBSource factory
+    │   └── tests/
+    │       ├── __init__.py
+    │       └── unit/
+    │           ├── __init__.py
+    │           ├── conftest.py          # CliRunner fixture with isolated KBDB_DATA_DIR
+    │           ├── test_database.py     # database register/create/select/delete, config
+    │           ├── test_schema.py       # class/relation declaration, hierarchy, search
+    │           ├── test_data.py         # entity/fact/property CRUD, data search, reindex
+    │           └── test_llm.py          # extract/answer/validate with mocked OpenAI
+    │
+    └── mcp/                             # MCP server (blue-data-kb-mcp PyPI package)
         ├── pyproject.toml
-        ├── README.md                    # CLI usage, command reference, walkthrough
+        ├── README.md                    # tool reference, Claude Desktop config, architecture note
         ├── scripts/
         │   ├── build.sh                 # build distributable
-        │   ├── deploy.sh                # publish CLI package
-        │   └── install.sh               # install blue-data and lib locally, then this package
+        │   └── install.sh               # install blue-data and lib locally, then this package (no deploy.sh yet)
         ├── src/
-        │   └── blue_data_kb_cli/
+        │   └── blue_data_kb_mcp/
         │       ├── __init__.py
-        │       ├── commands.py          # Click command groups; FileKBSource adapter
-        │       └── config.py            # Database registry and KBSource factory
+        │       ├── server.py            # FastMCP app; 24 @mcp.tool() handlers
+        │       └── config.py            # BLUE_DATA_KB_SOURCE_* env-var-driven KBSource singleton factory
         └── tests/
             ├── __init__.py
-            └── unit/
-                ├── __init__.py
-                ├── conftest.py          # CliRunner fixture with isolated KBDB_DATA_DIR
-                ├── test_database.py     # database register/create/select/delete, config
-                ├── test_schema.py       # class/relation declaration, hierarchy, search
-                ├── test_data.py         # entity/fact/property CRUD, data search, reindex
-                └── test_llm.py          # extract/answer/validate with mocked OpenAI
+            └── test_tools.py            # all 24 tools, called directly against an injected MemoryKBSource
 ```
 
 ---
@@ -138,21 +162,37 @@ Currently implemented:
 | `src/blue_data_kb_cli/config.py` | Database registry (`registry.json`) and the `_make_kb` `KBSource` factory |
 | `tests/unit/` | Unit tests for the CLI adapter layer, run with `click.testing.CliRunner` against an isolated `KBDB_DATA_DIR` |
 
+`mcp/` follows a lighter version of the same shape:
+
+| Path | Purpose |
+|------|---------|
+| `pyproject.toml` | Package metadata and dependencies (includes `lib` as a dependency; no `cli` dependency) |
+| `scripts/install.sh` | Installs `blue-data` and `lib` locally, then this package in editable mode |
+| `scripts/build.sh` | Builds the distributable package (no `deploy.sh` yet — publishing is a manual `build && twine upload`, see [12-deployment-ops.md](12-deployment-ops.md) §5) |
+| `src/blue_data_kb_mcp/server.py` | `FastMCP` app; 24 `@mcp.tool()` handlers, grouped by comment banner (schema/knowledge read+write, query, extraction, provenance) |
+| `src/blue_data_kb_mcp/config.py` | `BLUE_DATA_KB_SOURCE_*` env-var-driven singleton `KBSource` factory — independent of `cli/`'s `registry.json` |
+| `tests/test_tools.py` | Calls the 24 tool functions directly against an injected `MemoryKBSource` singleton |
+
 ### `tests/`
 
-Library tests live under `lib/tests/`. Each platform service has its own `tests/` directory for adapter-layer tests.
+Library tests live under `lib/tests/`. Each platform service has its own `tests/` directory for adapter-layer tests, with its own fixtures rather than importing `lib/tests/conftest.py`.
 
 ```
 lib/tests/
-├── conftest.py          # shared fixtures: MemoryKBSource instance, pre-populated schemas
-└── unit/
-    ├── schema/          # SchemaManager: declare, consolidate, search, import/export
-    ├── knowledge/       # KnowledgeManager and QueryEngine: add, answer, validate, enrich
-    ├── provenance/      # ProvenanceTracker: source and extraction node wiring
-    └── notification/    # ChangeNotifier: hook registration, event delivery
+├── conftest.py          # shared fixtures: kb (MemoryKBSource), populated_kb
+├── unit/
+│   ├── schema/          # SchemaManager: declare, update, delete, hierarchy, consolidate, search, import/export
+│   ├── knowledge/       # KnowledgeManager and QueryEngine: add/update/delete, get_metadata, answer, validate, enrich
+│   ├── provenance/      # ProvenanceTracker: source and extraction node wiring
+│   ├── notification/    # ChangeNotifier: hook registration, event delivery
+│   └── extraction/      # ExtractionEngine: import_text tool dispatch (OpenAI mocked)
+└── benchmarks/          # opt-in, real-OpenAI gold-standard-case suites — excluded from the default `pytest` run
+    ├── common/          # shared harness: capture, (query_)cases, (query_)runner, (query_)scoring, (query_)reporting
+    ├── extraction/      # import_text cases (VCR cassettes) + pytest suite + live run.py CLI
+    └── querying/        # answer/validate/enrich cases (VCR cassettes) + pytest suite + live run.py CLI
 ```
 
-Each test subdirectory carries an `__init__.py` to prevent pytest from confusing identically-named test files (e.g. `schema/test_manager.py` and `knowledge/test_manager.py`).
+Each `unit/` subdirectory carries an `__init__.py` to prevent pytest from confusing identically-named test files (e.g. `schema/test_manager.py` and `knowledge/test_manager.py`). See [11-testing-strategy.md](11-testing-strategy.md) for the full testing approach, including why the benchmark tier is kept separate from `unit/`.
 
 `answer`, `validate`, and `enrich` tests in `unit/knowledge/` mock `openai.AsyncOpenAI` via `unittest.mock.patch` so the agent loop runs without a live API key.
 

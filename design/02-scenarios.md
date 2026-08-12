@@ -24,10 +24,10 @@ A developer populates the knowledge base from a document whose content is alread
 A developer ingests Alice's résumé:
 - Source: `Alice's résumé (PDF)`
 - Entity: `Alice` of class `EMPLOYEE`, name property `"Alice"` — both linked to the résumé
-- Entity: `IBM` of class `COMPANY`
+- Entity: `IBM` of class `COMPANY` — added without a `text`/`source_id`, so it carries no provenance link
 - Fact: `Alice —WORKED_AT→ IBM`, start date `1998-06-01` — both linked to the résumé
 
-Every node carries a provenance link back to the résumé source.
+Provenance linking is opt-in per write, not automatic — only items created with `text=`/`source_id=` get an EXTRACTED_FROM link back to a source; `IBM` above shows what an item without one looks like. Every node, linked or not, also carries `created` and `modified` timestamps set automatically on write — distinct from a SOURCE node's own `original` field (e.g. the résumé's own date, if supplied when the source was added), which is about when the *source document* is from, not when the KB learned about it.
 
 ---
 
@@ -57,7 +57,7 @@ Each item is stored alongside the verbatim span the LLM identified.
 
 ## Scenario 4: Schema Evolution During Ingestion
 
-A new document introduces concepts not present in the existing schema. During extraction the LLM detects that no suitable class or relation exists for the new concepts, declares them, and then populates the corresponding instances. The schema has grown to accommodate the new domain, and all subsequent documents benefit from the expanded vocabulary without any manual intervention from the developer.
+A new document introduces concepts not present in the existing schema. During extraction the LLM first checks — by default, via a `search_schema` tool over the existing schema (`import_text`'s `schema_discovery_mode="search"`, the default) — whether something close enough already exists, to avoid declaring a near-duplicate (e.g. `JOIN_DATE` when `START_DATE` already covers it). Finding no suitable class or relation, it declares the new ones and then populates the corresponding instances. The schema has grown to accommodate the new domain, and all subsequent documents benefit from the expanded vocabulary without any manual intervention from the developer.
 
 **Example:**
 
@@ -86,7 +86,7 @@ Three documents are ingested in sequence:
 2. **TechCrunch article** → `Alice —FOUNDED→ Acme AI` (year: 2018)
 3. **LinkedIn export** → `Alice —WORKED_AT→ Google` (already known — entity reused, no duplicate created)
 
-After all three passes, `Alice` is a single entity with three outgoing facts, each carrying a distinct provenance link. A query for "what do we know about Alice and where does it come from?" yields all three facts with their respective source documents.
+After all three passes, `Alice` is a single entity with three outgoing facts, each carrying a distinct provenance link. A plain `answer("main", "what do we know about Alice?")` call returns the facts with their extraction text (the verbatim span each was drawn from) — to also get *which document* each came from, the caller passes `include_metadata=True`, which adds a `get_metadata` tool to the agent's loop and returns a `metadata` dict alongside the result, keyed by node id, giving the source name and its `original` date for each cited item (see Scenario 7).
 
 ---
 
@@ -140,11 +140,21 @@ context = await kb.enrich("main", "Alice's career", depth=2)
 
 The agent loop is invisible to the caller — only the final structured result is returned. A custom model can be chosen by passing `model=` to any of the three methods.
 
+`answer` and `validate` additionally take `include_metadata=True`, which returns a `(result, metadata)` tuple instead of the bare result — `metadata` is a dict keyed by node id, giving each cited item's `created`/`modified` timestamps, extraction text, and source name/`original` date:
+
+```python
+answers, metadata = await kb.answer("main", "Where has Alice worked?", include_metadata=True)
+# answers is the same list[dict] as above; metadata might look like:
+# {"fact-abc123": {"source": "Alice's résumé", "source_original": "2020-01-15", "created": "...", ...}, ...}
+```
+
+Both `answer` and `validate` also take `natural_language=True`, returning prose instead of the structured result (composed with `include_metadata=True`, the prose gets a metadata section appended, and `metadata` is still returned alongside it). `enrich` has neither `include_metadata` nor `natural_language` — it always returns structured `EnrichmentResult` objects.
+
 ---
 
 ## Scenario 8: Schema Consolidation
 
-During ingestion from several sources, redundant or overlapping schema elements accumulate. Two separate extraction runs have produced both a `COMPANY` class and a `CORPORATION` class, and all facts referencing `CORPORATION` need to be migrated to `COMPANY`. A developer calls `consolidate_schema` to merge them. The Schema Manager identifies every instance wired to `CORPORATION`, rewires those edges to `COMPANY`, and removes `CORPORATION` from the schema. The operation is transparent to any downstream queries: all facts that previously pointed to `CORPORATION` now resolve correctly under `COMPANY`.
+During ingestion from several sources, redundant or overlapping schema elements accumulate. Two separate extraction runs have produced both a `COMPANY` class and a `CORPORATION` class, and instances of `CORPORATION` need to be reachable as `COMPANY` too. A developer calls `consolidate_schema` to merge them. The Schema Manager identifies every instance whose primary instance edge points at `CORPORATION` and adds a **new** instance edge from each one to `COMPANY` — it does not remove the old edge, and it does not delete `CORPORATION` from the schema. `operation="split"` is not implemented — `consolidate_schema` only supports `"merge"` today.
 
 **Example:**
 
@@ -174,14 +184,15 @@ await kb.consolidate_schema(
 
 Result:
 ```
-COMPANY CLASS  "A business organization"
-# CORPORATION removed
+COMPANY     CLASS  "A business organization"
+CORPORATION CLASS  "A commercial entity"   # still in the schema — merge doesn't delete it
 
-Acme —IS_INSTANCE_OF→ COMPANY   # rewired automatically
-IBM  —IS_INSTANCE_OF→ COMPANY   # unchanged
+Acme —IS_INSTANCE_OF→ COMPANY       # new edge, added by the merge
+Acme —IS_INSTANCE_OF→ CORPORATION   # old edge, still there
+IBM  —IS_INSTANCE_OF→ COMPANY       # unchanged
 ```
 
-A subsequent call to `fetch_database_schema` returns only `COMPANY`, and `answer("main", "What companies are in the KB?")` correctly returns both IBM and Acme.
+A subsequent call to `fetch_database_schema` still lists both `COMPANY` and `CORPORATION`. `answer("main", "What companies are in the KB?")` returns both IBM and Acme, since the agent can reach Acme via either class edge — but code that assumes one class per entity (like `get_metadata`'s `class_name`) reports whichever edge it finds first, which is the original `CORPORATION` edge, not the new `COMPANY` one, since it was created first. If a clean single-class result matters, follow the merge with `delete_class("main", corporation_id)` to remove the source class and its now-orphaned edges explicitly.
 
 ---
 

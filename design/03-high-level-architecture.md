@@ -7,6 +7,7 @@
 
 ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
 │ Python Lib  │  │ MCP Server  │  │  REST API   │  │     CLI     │
+│(implemented)│  │(implemented)│  │  (planned)  │  │(implemented)│
 └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘
        └────────────────┴────────────────┴────────────────┘
                                   │
@@ -38,8 +39,8 @@
 │                                │  ┌────────────────────────┐   │  │
 │                                │  │   Change Notifier      │   │  │
 │                                │  └────────────────────────┘   │  │
-│                                └────────────────────────────────┘  │
-│                                                                     │
+│                                └───────────────────────────────┘  │
+│                                                                   │
 │  ┌─────────────────────────────────────────────────────────────┐   │
 │  │                       Search Indexer                        │   │
 │  │       (used by Schema Manager and Knowledge Manager)        │   │
@@ -63,9 +64,9 @@ Four interface adapters sit in front of KBDB and delegate to the core library. T
 
 **MCP Server** — Exposes schema declaration, instance ingestion, and query operations as MCP tools, enabling LLM agents to interact with KBDB within an agentic context.
 
-**REST API** — HTTP/JSON interface (FastAPI). Enables non-Python services and remote clients to call KBDB over the network.
-
 **CLI** — Command-line interface (Click + Rich). Used for interactive development, debugging, scripting, and schema inspection.
+
+**REST API — planned, not yet implemented.** `platform/api/` is an empty directory today; nothing under this heading exists in the repository. HTTP/JSON interface (FastAPI), sketched to enable non-Python services and remote clients to call KBDB over the network — see [09-api-interface-spec.md](09-api-interface-spec.md) §2 for the speculative design.
 
 ### Schema Layer
 

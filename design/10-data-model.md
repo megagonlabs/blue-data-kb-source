@@ -30,8 +30,10 @@ Every node carries:
 | `id` | string | Unique identifier within the database; auto-generated if not provided |
 | `name` | string | Human-readable name; used for display and idempotency checks |
 | `description` | string \| null | Optional longer description |
+| `created` | string (ISO-8601 UTC) | Set automatically when the node is created; never changes afterward |
+| `modified` | string (ISO-8601 UTC) | Set to the same value as `created` on creation; refreshed automatically on every subsequent update to the node |
 
-Additional fields are specific to each label.
+`created`/`modified` are stamped on every node of every label below — CLASS, RELATION, PROPERTY, ENTITY, FACT, LITERAL, SOURCE, and EXTRACTION alike — with no separate parameter to set them; callers never pass `created`/`modified` directly. Edges carry a `created` timestamp only (no `modified`). Additional fields beyond this common set are specific to each label.
 
 ---
 
@@ -46,6 +48,7 @@ Represents a category of entity. Used as the type of ENTITY instances.
 | `id` | string | |
 | `name` | string | Uppercase by convention (e.g., `PERSON`, `COMPANY`) |
 | `description` | string \| null | |
+| `created` / `modified` | string (ISO-8601) | See §2 above |
 
 **Example:**
 ```
@@ -53,6 +56,8 @@ label:       CLASS
 id:          "cls-001"
 name:        "EMPLOYEE"
 description: "A person employed by an organization"
+created:     "2026-06-01T09:00:00+00:00"
+modified:    "2026-06-01T09:00:00+00:00"
 ```
 
 ---
@@ -67,6 +72,7 @@ Represents a typed relationship between entities. Used as the type of FACT insta
 | `name` | string | Uppercase by convention (e.g., `WORKED_AT`, `FOUNDED`) |
 | `description` | string \| null | |
 | `is_symmetric` | boolean | Whether the relation holds in both directions |
+| `created` / `modified` | string (ISO-8601) | See §2 above |
 
 **Example:**
 ```
@@ -75,6 +81,8 @@ id:           "rel-001"
 name:         "WORKED_AT"
 description:  "Employment relationship between a person and a company"
 is_symmetric: false
+created:      "2026-06-01T09:00:00+00:00"
+modified:     "2026-06-01T09:00:00+00:00"
 ```
 
 ---
@@ -88,6 +96,7 @@ Represents an attribute that can be attached to a CLASS or RELATION. Used to typ
 | `id` | string | |
 | `name` | string | Uppercase by convention (e.g., `NAME`, `START_DATE`) |
 | `description` | string \| null | |
+| `created` / `modified` | string (ISO-8601) | See §2 above |
 
 **Example:**
 ```
@@ -95,6 +104,8 @@ label:       PROPERTY
 id:          "prop-001"
 name:        "START_DATE"
 description: "Date when employment began"
+created:     "2026-06-01T09:00:00+00:00"
+modified:    "2026-06-01T09:00:00+00:00"
 ```
 
 ---
@@ -110,6 +121,7 @@ A concrete instance of a CLASS.
 | `id` | string | |
 | `name` | string | The entity's display name (e.g., `"Alice"`, `"IBM"`) |
 | `description` | string \| null | |
+| `created` / `modified` | string (ISO-8601) | See §2 above |
 
 **Example:**
 ```
@@ -117,6 +129,8 @@ label:       ENTITY
 id:          "ent-001"
 name:        "Alice"
 description: null
+created:     "2026-06-01T09:00:00+00:00"
+modified:    "2026-06-01T09:00:00+00:00"
 ```
 
 ---
@@ -128,14 +142,17 @@ A concrete instance of a RELATION, connecting two ENTITY nodes.
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | string | |
-| `name` | string \| null | Optional label for the fact (e.g., `"Alice at IBM"`) |
+| `name` | string \| null | Label for the fact. If not supplied, `add_fact` auto-synthesizes one as `{head_name}_{relation_name}_{tail_name}` — in practice a FACT's `name` is essentially never `null` |
 | `description` | string \| null | |
+| `created` / `modified` | string (ISO-8601) | See §2 above |
 
 **Example:**
 ```
-label: FACT
-id:    "fact-001"
-name:  null
+label:    FACT
+id:       "fact-001"
+name:     "Alice_WORKED_AT_IBM"
+created:  "2026-06-01T09:00:00+00:00"
+modified: "2026-06-01T09:00:00+00:00"
 ```
 
 ---
@@ -150,6 +167,7 @@ A typed scalar value attached to an ENTITY or FACT via a PROPERTY.
 | `name` | string \| null | |
 | `value` | string \| number \| boolean | The stored value |
 | `literal_type` | string | One of `STRING`, `NUMBER`, `DATE`, `BOOLEAN` |
+| `created` / `modified` | string (ISO-8601) | See §2 above |
 
 `literal_type` is inferred from the Python value type when not supplied: `int`/`float` → `NUMBER`, `bool` → `BOOLEAN`, everything else → `STRING`.
 
@@ -159,6 +177,8 @@ label:        LITERAL
 id:           "lit-001"
 value:        "1998-06-01"
 literal_type: "DATE"
+created:      "2026-06-01T09:00:00+00:00"
+modified:     "2026-06-01T09:00:00+00:00"
 ```
 
 ---
@@ -175,6 +195,8 @@ Represents an originating document or data source. Serves as the top-level ancho
 | `name` | string | Human-readable name for the source (e.g., `"Alice's résumé"`) |
 | `source` | string | Opaque source identifier (e.g., filename, URL, session ID) |
 | `description` | string \| null | |
+| `original` | string \| null | Caller-supplied date for the source itself (e.g. a document's publication date) — distinct from `created` below, which is when the SOURCE node was added to the KB. Free text, not parsed or validated. Settable via `add_source`/`update_source` |
+| `created` / `modified` | string (ISO-8601) | See §2 above |
 
 **Example:**
 ```
@@ -183,6 +205,9 @@ id:          "src-001"
 name:        "Alice's résumé"
 source:      "resume_alice.pdf"
 description: "PDF résumé uploaded 2026-06-01"
+original:    "2020-01-15"
+created:     "2026-06-01T09:00:00+00:00"
+modified:    "2026-06-01T09:00:00+00:00"
 ```
 
 ---
@@ -197,12 +222,15 @@ Captures a verbatim text span that an entity, fact, or literal was drawn from. E
 | `text` | string | The verbatim text span |
 | `name` | string \| null | |
 | `description` | string \| null | |
+| `created` / `modified` | string (ISO-8601) | See §2 above |
 
 **Example:**
 ```
-label: EXTRACTION
-id:    "ext-001"
-text:  "Alice joined IBM as a software engineer in June 1998."
+label:    EXTRACTION
+id:       "ext-001"
+text:     "Alice joined IBM as a software engineer in June 1998."
+created:  "2026-06-01T09:00:00+00:00"
+modified: "2026-06-01T09:00:00+00:00"
 ```
 
 ---

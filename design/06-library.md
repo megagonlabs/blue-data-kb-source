@@ -88,26 +88,49 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `declare_relation_type(database, name, description, is_symmetric?, relation_id?, *, domain, range)` | `str` | Declare a RELATION node; `domain`/`range` are required (keyword-only); wires DOMAIN/RANGE edges inline |
 | `declare_class_property(database, name, description, property_id?, class_id?)` | `str` | Declare a PROPERTY node; wires DEFINE_PROPERTY from a class |
 | `declare_relation_property(database, name, description, property_id?, relation_id?)` | `str` | Declare a PROPERTY node; wires DEFINE_PROPERTY from a relation |
-| `add_is_subclass_of(database, child_id, parent_id)` | `None` | Wire IS_SUBCLASS_OF edge |
-| `add_domain(database, relation_id, class_id)` | `None` | Wire DOMAIN edge |
-| `add_range(database, relation_id, class_id)` | `None` | Wire RANGE edge |
-| `fetch_database_schema(database)` | `DataSchema` | Export schema to portable object |
+| `update_class(database, class_id, name?, description?)` | `None` | Update a CLASS node's name/description; not idempotent |
+| `update_relation(database, relation_id, name?, description?)` | `None` | Update a RELATION node |
+| `update_property(database, property_id, name?, description?)` | `None` | Update a PROPERTY node |
+| `delete_class(database, class_id)` | `None` | Delete a CLASS node |
+| `delete_relation(database, relation_id)` | `None` | Delete a RELATION node |
+| `delete_property(database, property_id)` | `None` | Delete a PROPERTY node |
+| `add_is_subclass_of(database, child_id, parent_id)` | `None` | Wire IS_SUBCLASS_OF edge; not deduplicated — calling twice adds two edges |
+| `remove_is_subclass_of(database, child_id, parent_id)` | `None` | Remove an IS_SUBCLASS_OF edge |
+| `fetch_database_schema(database)` | `DataSchema` | Assemble a `DataSchema` object from the current graph |
+| `export_database_schema(database)` | `dict` | `fetch_database_schema(database).to_json()` — portable JSON form |
 | `fetch_meta_schema()` | `DataSchema` | Return the fixed KBDB meta-schema |
-| `import_database_schema(database, schema_json)` | `KBSource` | Populate schema from a `DataSchema.to_json()` dict |
-| `consolidate_schema(database, operation, ...)` | `None` | Merge or split schema elements; rewires affected instances |
+| `import_database_schema(database, schema_json)` | `None` | Replay a `DataSchema.to_json()` dict via idempotent `declare_*` calls — safe to import into a database that already has same-named elements |
+| `consolidate_schema(database, operation, source_names, target_name, predicate?)` | `None` | Only `operation="merge"` is implemented; any other value raises `SchemaError`. `predicate` is accepted but unused. See SchemaManager below for what merge actually does — it does not remove source elements. |
+
+`add_domain`/`add_range` do **not** exist as separate methods — `domain`/`range` are wired inline as part of `declare_relation_type` and are required there, not optional add-ons.
 
 #### Knowledge operations (delegate to `KnowledgeManager`)
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `add_entity(database, name, description?, entity_id?, class_id?, text?, source_id?)` | `str` | Create an ENTITY node |
-| `add_fact(database, name?, description?, fact_id?, head_entity_id?, tail_entity_id?, relation_id?, text?, source_id?)` | `str` | Create a FACT node |
+| `add_entity(database, name, description?, entity_id?, class_id?, text?, source_id?)` | `str` | Create an ENTITY node; never idempotent — always creates a new node |
+| `add_fact(database, name?, description?, fact_id?, head_entity_id?, tail_entity_id?, relation_id?, text?, source_id?)` | `str` | Create a FACT node; `name` auto-synthesizes as `{head}_{relation}_{tail}` if omitted |
 | `add_entity_property_value(database, value, name?, description?, literal_type?, entity_id?, property_id?, text?, source_id?)` | `str` | Create a LITERAL and wire it to an entity |
 | `add_fact_property_value(database, value, name?, description?, literal_type?, fact_id?, property_id?, text?, source_id?)` | `str` | Create a LITERAL and wire it to a fact |
-| `fetch_database_data(database, include_provenance?, compact?)` | `dict \| list` | Export all instance data in the database |
-| `answer(database, question, model?, natural_language?, on_tool_call?)` | `list[dict] \| str` | Answer a natural language question using an LLM agent over the instance graph; each dict is a flat `{entity, relation, value, provenance}`-shaped row (keys vary by question); returns prose when `natural_language=True` |
-| `validate(database, statement, model?, natural_language?, on_tool_call?)` | `ValidationResult \| str` | Return supporting and counter evidence for a statement using an LLM agent; returns prose when `natural_language=True` |
-| `enrich(database, query, depth?, model?, on_tool_call?)` | `list[EnrichmentResult]` | Return related knowledge bearing on a query using an LLM agent |
+| `update_entity(database, entity_id, name?, description?)` | `None` | Update an ENTITY node |
+| `update_fact(database, fact_id, name?, description?)` | `None` | Update a FACT node |
+| `update_entity_property_value(database, entity_id, property_id, value?, name?, description?)` | `None` | Update a LITERAL owned by an entity |
+| `update_fact_property_value(database, fact_id, property_id, value?, name?, description?)` | `None` | Update a LITERAL owned by a fact |
+| `delete_entity(database, entity_id, cascade?)` | `None` | Delete an entity; `cascade=True` also deletes facts that reference it |
+| `delete_fact(database, fact_id)` | `None` | Delete a fact |
+| `delete_entity_property_value(database, entity_id, property_id)` | `None` | Delete a LITERAL owned by an entity |
+| `delete_fact_property_value(database, fact_id, property_id)` | `None` | Delete a LITERAL owned by a fact |
+| `add_entity_extraction(database, entity_id, text, source_id?)` | `str` | Attach *additional* evidence to an existing entity — doesn't touch name/description, doesn't create a duplicate; multiple calls accumulate multiple EXTRACTED_FROM edges |
+| `add_fact_extraction(database, fact_id, text, source_id?)` | `str` | Same, for an existing fact |
+| `add_entity_property_value_extraction(database, entity_id, property_id, text, source_id?)` | `str` | Same, for an existing entity's property value |
+| `add_fact_property_value_extraction(database, fact_id, property_id, text, source_id?)` | `str` | Same, for an existing fact's property value |
+| `fetch_database_data(database, include_provenance?, compact?, detailed?)` | `dict \| list` | Fetch all instance data in the database |
+| `export_database_data(database, include_provenance?)` | `dict` | Portable, `ref`-keyed JSON export of entities/facts/property values (schema not included — export/import schema separately first) |
+| `import_database_data(database, data)` | `None` | Import from `export_database_data`'s format; resolves CLASS/RELATION/PROPERTY **by name** against the target's current schema. **Not idempotent** — re-importing the same export duplicates every entity/fact/property value, unlike schema import |
+| `get_metadata(database, node_id)` | `dict` | Created/modified timestamps, extraction text, and source name/original date for one entity, fact, or property-value id; raises `KnowledgeError` for any other node type |
+| `answer(database, question, model?, natural_language?, include_metadata?, on_tool_call?, on_tool_result?)` | `list[dict] \| str \| tuple[list[dict] \| str, dict]` | Answer a natural language question using an LLM agent over the instance graph; each dict is a flat `{entity, relation, value, provenance}`-shaped row (keys vary by question); returns prose when `natural_language=True`; returns a `(result, metadata)` tuple when `include_metadata=True` |
+| `validate(database, statement, model?, natural_language?, include_metadata?, on_tool_call?, on_tool_result?)` | `ValidationResult \| str \| tuple[ValidationResult \| str, dict]` | Return supporting and counter evidence for a statement using an LLM agent; same `natural_language`/`include_metadata` variance as `answer` |
+| `enrich(database, query, depth?, model?, on_tool_call?, on_tool_result?)` | `list[EnrichmentResult]` | Return related knowledge bearing on a query using an LLM agent; no `natural_language`/`include_metadata` variance |
 
 #### Search operations (delegate to `KBSearchIndexer` when search is enabled, otherwise served unranked by `SchemaManager`/`KnowledgeManager`)
 
@@ -122,9 +145,12 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `add_source(database, source, name?, description?, node_id?)` | `str` | Create a SOURCE node |
-| `add_extraction(database, text, name?, description?, node_id?, source_id?)` | `str` | Create an EXTRACTION node; wires EXTRACTED_FROM to source |
-| `add_extracted_from(database, element_id, extraction_id)` | `None` | Wire EXTRACTED_FROM from an instance to an extraction |
+| `add_source(database, source, name?, description?, node_id?, original?)` | `str` | Create a SOURCE node; `original` is a caller-supplied date (e.g. a document's publication date), distinct from the node's own `created` timestamp |
+| `update_source(database, source_id, name?, description?, original?)` | `None` | Update a SOURCE node |
+| `delete_source(database, source_id)` | `None` | Delete a SOURCE node |
+| `add_extraction(database, text, name?, description?, node_id?, source_id?, element_id?)` | `str` | Create an EXTRACTION node; wires EXTRACTED_FROM to `source_id` if given; if `element_id` is also given, additionally wires EXTRACTED_FROM from that existing entity/fact/literal to the new extraction in the same call |
+
+`add_extracted_from` is **not** a public `KBSource` method — it exists only as a private `ProvenanceTracker` helper, invoked internally by `add_extraction` when `element_id` is given. Use `add_extraction(..., element_id=...)` instead of calling it directly.
 
 #### Change hook operations (delegate to `ChangeNotifier`)
 
@@ -137,7 +163,16 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `import_text(database, text, queries?, model?, source_id?, on_tool_call?)` | `None` | Extract entities, facts, and properties from free text using an LLM |
+| `import_text(database, text, queries?, model?, source_id?, schema_discovery_mode?, on_tool_call?, on_tool_result?)` | `None` | Extract entities, facts, and properties from free text using an LLM; `schema_discovery_mode` (`"search"` default \| `"llm"` \| `"none"`) controls how the agent avoids declaring near-duplicate schema elements — see ExtractionEngine below |
+
+#### Sync convenience methods
+
+Two additional synchronous methods exist for callers that can't `await`, both wrapping the async API internally via `asyncio.run()`:
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `execute_query(query, database?, collection?, optional_properties?)` | varies | Generic op-code dispatcher — `query["op"]` such as `"KB.DECLARE_CLASS"`, `"KB.ADD_ENTITY"`, `"KB.GET_SCHEMA"`, mirroring most async methods above 1:1; `GRAPH.*` ops forward to the underlying `GraphSource`. `get_metadata` is deliberately **not** exposed as an op — library method and MCP/agent tool only, by design (see [13-decision-log.md](13-decision-log.md) ADR-018) |
+| `execute_query_nl(query, database?, ...)` | `list[dict]` | Sync convenience wrapper around `answer(..., natural_language=False)` |
 
 ---
 
@@ -148,12 +183,13 @@ Manages the typed vocabulary of the knowledge base. All declaration methods are 
 ### Constructor
 
 ```python
-SchemaManager(source)
+SchemaManager(source, notifier=None)
 ```
 
 **Parameters**
 
 - `source` — the parent `KBSource` instance; used for all Graph Store access
+- `notifier` — the `ChangeNotifier` instance; fires `class_declared`/`relation_declared`/`class_property_declared`/`relation_property_declared`/`class_subclass`/`relation_subclass` and the corresponding `*_updated`/`*_deleted` events
 
 ### Methods
 
@@ -204,29 +240,24 @@ Output:
 
 #### `consolidate_schema(database, operation, source_names, target_name, predicate=None)`
 
-Merges or splits schema elements and propagates the changes to all affected instances.
+Only `operation="merge"` is implemented — any other value, including `"split"`, raises `SchemaError(f"consolidate_schema operation '{operation}' is not supported")`. There is no split capability today despite the general-sounding name; `predicate` is accepted in the signature but never read by the current implementation.
 
 **Parameters**
 
-- `operation` — `"merge"` or `"split"`
-- `source_names` — names of the elements to merge (or the single element to split)
-- `target_name` — name of the resulting element (merge) or prefix for the resulting elements (split)
-- `predicate` — callable used to assign instances to output classes when splitting
+- `operation` — must be `"merge"`
+- `source_names` — names of the elements to merge away; all must resolve to the same kind of schema node (all CLASS, all RELATION, or all PROPERTY) or `SchemaError` is raised
+- `target_name` — name of the element to merge into; created automatically if it doesn't already exist
+- `predicate` — accepted for signature compatibility; not used
 
 **Algorithm — merge**
 
-1. Resolve each name in `source_names` to schema element IDs
-2. Create (or look up) the target element with `target_name`
-3. Find all instances referencing any source element
-4. Rewire each instance's typed edges to point to the target element
-5. Remove the source elements
+Merge is additive, not a rewrite-and-remove operation:
 
-**Algorithm — split**
+1. Resolve each name in `source_names` to a schema element ID (same label required across all of them)
+2. Look up the target element by `target_name`, or create it if absent
+3. For each instance whose primary instance edge (`IS_INSTANCE_OF`/`REPRESENTS`/`IS_VALUE_OF`) points at a source element, **add a new** instance edge from that same instance to the target element
 
-1. Resolve `source_names[0]` to a schema element ID
-2. Create both output elements from `target_name` variants
-3. For each instance referencing the source element: call `predicate(instance)` to determine which output element it belongs to; rewire its typed edge accordingly
-4. Remove the source element
+That's all it does. It does **not** remove the old instance edge, does **not** delete the source schema nodes, and does **not** touch `DEFINE_PROPERTY`/`DOMAIN`/`RANGE`/`IS_SUBCLASS_OF` edges on the sources. `fetch_database_schema` after a merge still lists the source elements. An instance that was merged now has instance edges to *both* its original class and the target class; code that assumes one class per entity (like `get_metadata`'s `class_name`) reports whichever edge it finds first — the original one, since it was created first. If you need the old edges gone or the source nodes removed, do that explicitly afterward with `delete_class`/`delete_relation`/`delete_property`.
 
 ---
 
@@ -252,25 +283,27 @@ Creates an ENTITY node.
 
 1. Create ENTITY node with `name`, `description`, optional `entity_id`
 2. If `class_id` provided: wire IS_INSTANCE_OF edge to the CLASS node
-3. If `text` provided: call `ProvenanceTracker.track(database, entity_id, text, source_id)`
+3. If `text` provided: call `ProvenanceTracker.link_extraction(database, entity_id, text, source_id)`
 4. Call `ChangeNotifier.fire({"type": "entity_added", ...})`
 5. Return entity ID
+
+`add_fact`/`add_entity_property_value`/`add_fact_property_value` follow the same shape. Attaching more evidence to an entity/fact/literal that already exists (without recreating it) goes through `add_entity_extraction`/`add_fact_extraction`/`add_entity_property_value_extraction`/`add_fact_property_value_extraction` instead — each just calls `ProvenanceTracker.link_extraction` again against the existing id, requiring the target to already exist.
 
 #### `find_data(database, query, type_filter=None)`
 
 Filters ENTITY and FACT nodes by a case-insensitive substring match of `query` against their own name/description plus related names (class name for entities; head, relation, and tail names for facts), with no relevance ranking. This is the fallback used by `KBSource.search_data` when the database was not registered with search enabled; when it is enabled, `KBSource.search_data` calls `KBSearchIndexer.search_data` instead, which supports BM25 ranking and semantic mode. Returns a list of `DataSearchResult`.
 
-#### `answer(database, question, model="gpt-4o", natural_language=False, on_tool_call=None)`
+#### `answer(database, question, model="gpt-4o", natural_language=False, include_metadata=False, on_tool_call=None, on_tool_result=None)`
 
-Delegates to `QueryEngine.answer`. Returns a list of plain dicts (not `AnswerResult` — see note below), or a prose string when `natural_language=True`. `on_tool_call`, if given, is invoked with `(tool_name, arguments)` for each tool call the agent makes.
+Delegates to `QueryEngine.answer(..., include_metadata=...)` for the structured result, then applies `natural_language` handling **at this layer**, not inside `QueryEngine` — `QueryEngine` itself has no `natural_language` parameter. Returns a list of plain dicts (not `AnswerResult` — see note below); a prose string when `natural_language=True`; or a `(result, metadata)` tuple when `include_metadata=True` (prose composition and the metadata tuple compose — with both flags set, the prose has a metadata section appended and `metadata` is still returned as the second element). `on_tool_call`/`on_tool_result`, if given, are invoked with `(tool_name, arguments)`/`(tool_name, arguments, result)` for each tool call the agent makes.
 
-#### `validate(database, statement, model="gpt-4o", natural_language=False, on_tool_call=None)`
+#### `validate(database, statement, model="gpt-4o", natural_language=False, include_metadata=False, on_tool_call=None, on_tool_result=None)`
 
-Delegates to `QueryEngine.validate`. Returns a `ValidationResult`, or a prose string when `natural_language=True`.
+Delegates to `QueryEngine.validate`, with the same `natural_language`/`include_metadata` layering as `answer` above. Returns a `ValidationResult`, a prose string, or a `(result, metadata)` tuple.
 
-#### `enrich(database, query, depth=2, model="gpt-4o", on_tool_call=None)`
+#### `enrich(database, query, depth=2, model="gpt-4o", on_tool_call=None, on_tool_result=None)`
 
-Delegates to `QueryEngine.enrich`. Returns a list of `EnrichmentResult` objects.
+Delegates to `QueryEngine.enrich`. Returns a list of `EnrichmentResult` objects. No `natural_language`/`include_metadata` variance — unlike `answer`/`validate`, `enrich` doesn't take either parameter.
 
 ---
 
@@ -292,9 +325,9 @@ QueryEngine(source, schema_manager, search_indexer=None)
 
 ### Methods
 
-#### `answer(database, question, model="gpt-4o", natural_language=False, on_tool_call=None)`
+#### `answer(database, question, model="gpt-4o", include_metadata=False, on_tool_call=None, on_tool_result=None)`
 
-Fetches the schema, constructs a system prompt, and runs the agent loop. The agent calls graph tools to find relevant entities, facts, and property values, then calls `return_result` with a list of `{entity, relation, value, provenance}` items. That payload is returned as-is — a plain `list[dict]`, not wrapped in `AnswerResult` — or as a prose answer generated from those results when `natural_language=True`.
+Fetches the schema, constructs a system prompt, and runs the agent loop. The agent calls graph tools to find relevant entities, facts, and property values (plus `get_metadata` when `include_metadata=True`), then calls `return_result` with a list of `{entity, relation, value, provenance}` items. That payload is returned as-is — a plain `list[dict]`, not wrapped in `AnswerResult`. `QueryEngine.answer` has no `natural_language` parameter — prose composition happens one layer up, in `KnowledgeManager.answer`.
 
 > **Note:** `AnswerResult` is defined in `types.py` and re-exported from the package, but `answer()` does not currently construct or return it — unlike `validate()` (`ValidationResult`) and `enrich()` (`EnrichmentResult`), which do wrap their results in their respective dataclasses. Treat `AnswerResult` as unused until this is reconciled in code.
 
@@ -310,9 +343,9 @@ Output:
 ]
 ```
 
-#### `validate(database, statement, model="gpt-4o", natural_language=False, on_tool_call=None)`
+#### `validate(database, statement, model="gpt-4o", include_metadata=False, on_tool_call=None, on_tool_result=None)`
 
-Fetches the schema, constructs a system prompt directing the agent to find supporting and counter evidence, and runs the agent loop. The agent calls `return_result` with `{supporting: [...], counter: [...]}` where each item is `{fact, head, tail, relation}`. Returns a `ValidationResult`, or a prose verdict when `natural_language=True`.
+Fetches the schema, constructs a system prompt directing the agent to find supporting and counter evidence, and runs the agent loop. The agent calls `return_result` with `{supporting: [...], counter: [...]}` where each item is `{fact, head, tail, relation}`. Returns a `ValidationResult` — like `answer`, no `natural_language` parameter at this layer; that's handled by `KnowledgeManager.validate`.
 
 **Example**
 
@@ -326,7 +359,7 @@ ValidationResult(
 )
 ```
 
-#### `enrich(database, query, depth=2, model="gpt-4o", on_tool_call=None)`
+#### `enrich(database, query, depth=2, model="gpt-4o", on_tool_call=None, on_tool_result=None)`
 
 Fetches the schema, constructs a system prompt directing the agent to traverse the graph up to `depth` hops from seed entities, and runs the agent loop. The agent uses `search_entities` to find seeds, then `get_neighbors` and `get_entity_facts` to explore, then calls `return_result` with a list of `{entity, relation, value, distance}` items. Returns a list of `EnrichmentResult` objects.
 
@@ -354,6 +387,7 @@ Output (partial):
 | `get_entity_properties` | All property values attached to an entity |
 | `get_fact_properties` | All property values attached to a fact |
 | `get_neighbors` | BFS from an entity through facts up to a given depth |
+| `get_metadata` | Created/modified timestamps, extraction text, and source name/original date for one entity/fact/property value — only offered when `include_metadata=True` |
 | `return_result` | Terminal tool — delivers the structured payload and ends the loop |
 
 ---
@@ -370,19 +404,27 @@ ProvenanceTracker(source)
 
 ### Methods
 
-#### `add_source(database, source, name=None, description=None, node_id=None)`
+#### `add_source(database, source, name=None, description=None, node_id=None, original=None)`
 
-Creates a SOURCE node. `name` defaults to `source` if omitted. Returns the SOURCE node ID.
+Creates a SOURCE node. `name` defaults to `source` if omitted. `original` is a caller-supplied date (e.g. a document's publication date), stored separately from the node's own `created` timestamp. Returns the SOURCE node ID. Not idempotent — every call creates a new SOURCE node, even with identical arguments.
 
-#### `add_extraction(database, text, name=None, description=None, node_id=None, source_id=None)`
+#### `update_source(database, source_id, name=None, description=None, original=None)`
 
-Creates an EXTRACTION node. If `source_id` is provided, wires an EXTRACTED_FROM edge from the EXTRACTION to the SOURCE. Returns the EXTRACTION node ID.
+Updates an existing SOURCE node's fields.
 
-#### `track(database, instance_id, text, source_id=None)`
+#### `delete_source(database, source_id)`
 
-Creates a per-item EXTRACTION node for `text`, optionally wires it to `source_id`, and wires an EXTRACTED_FROM edge from `instance_id` to the EXTRACTION.
+Deletes a SOURCE node.
 
-This is called internally by `KnowledgeManager` when `text` is provided on any instance-creation call. One EXTRACTION node is created per item — multiple items from the same passage each get their own EXTRACTION capturing their specific text span.
+#### `add_extraction(database, text, name=None, description=None, node_id=None, source_id=None, element_id=None)`
+
+Creates an EXTRACTION node. If `source_id` is provided, wires an EXTRACTED_FROM edge from the EXTRACTION to the SOURCE. If `element_id` is also provided, additionally wires EXTRACTED_FROM from that existing entity/fact/literal to the new extraction (via the private `add_extracted_from` helper) in the same call. Returns the EXTRACTION node ID.
+
+#### `link_extraction(database, element_id, text, source_id=None)`
+
+Creates a per-item EXTRACTION node for `text`, optionally wires it to `source_id`, and wires an EXTRACTED_FROM edge from `element_id` to the EXTRACTION.
+
+This is called internally by `KnowledgeManager` whenever `text` is provided on an instance-creation call, and again by the `add_*_extraction` family (`add_entity_extraction`, etc.) to attach more evidence to an item that already exists. One EXTRACTION node is created per call — multiple calls against the same `element_id` accumulate multiple EXTRACTED_FROM edges rather than replacing the previous one, so an item can carry evidence from several sources at once.
 
 ---
 
@@ -422,12 +464,23 @@ Calls all hooks registered for `event["database"]`, then all global hooks, in re
 
 | `type` | Additional fields |
 |--------|------------------|
+| `class_declared` | `name`, `description` |
+| `relation_declared` | `name`, `description`, `is_symmetric`, `domain`, `range` |
+| `class_property_declared` | `name`, `description`, `class_id`, `class_name` |
+| `relation_property_declared` | `name`, `description`, `relation_id`, `relation_name` |
+| `class_subclass` / `relation_subclass` | `child_id`, `child_name`, `parent_id`, `parent_name` |
+| `class_updated` / `relation_updated` / `property_updated` | — (`id` only) |
+| `class_deleted` / `relation_deleted` / `property_deleted` | — (`id` only) |
 | `entity_added` | `name`, `class_id`, `class_name` |
 | `fact_added` | `head_entity_id`, `head_entity_name`, `tail_entity_id`, `tail_entity_name`, `relation_id`, `relation_name` |
-| `entity_property_added` | `entity_id`, `property_id`, `property_name`, `value` |
+| `entity_property_added` | `entity_id`, `entity_name`, `property_id`, `property_name`, `value` |
 | `fact_property_added` | `fact_id`, `property_id`, `property_name`, `value`, `head_entity_name`, `tail_entity_name`, `relation_name` |
+| `entity_updated` / `fact_updated` | — (`id` only) |
+| `entity_property_updated` / `fact_property_updated` | — (`id` only) |
+| `entity_deleted` / `fact_deleted` | — (`id` only) |
+| `entity_property_deleted` / `fact_property_deleted` | — (`id` only) |
 
-All events also carry `type`, `database`, and `id`.
+All events also carry `type`, `database`, and `id`. Schema events (`class_declared` through `relation_subclass`, plus their `*_updated`/`*_deleted` counterparts) are fired by `SchemaManager`, not `KnowledgeManager` — `ChangeNotifier` is shared infrastructure used by both layers, not scoped to one. Schema declaration events fire only on first creation; idempotent repeats of `declare_*` don't re-fire. Note also: `ProvenanceTracker`'s methods (`add_source`, `add_extraction`, `link_extraction`, `update_source`, `delete_source`) fire **no** change events at all — no notifier is wired into it.
 
 ---
 
@@ -485,12 +538,14 @@ Bridges free text and the structured knowledge base using an LLM agent loop that
 ### Constructor
 
 ```python
-ExtractionEngine(source, schema_manager, knowledge_manager)
+ExtractionEngine(source, schema_manager, knowledge_manager, provenance_tracker, search_indexer=None)
 ```
+
+`search_indexer` is `None` unless the parent `KBSource` was constructed with `enable_search=True` or a `vector_source` — it backs the agent's `search_schema` tool under the default `schema_discovery_mode="search"`.
 
 ### Methods
 
-#### `import_text(database, text, queries=None, model="gpt-4o", source_id=None, on_tool_call=None)`
+#### `import_text(database, text, queries=None, model="gpt-4o", source_id=None, schema_discovery_mode="search", on_tool_call=None, on_tool_result=None)`
 
 Extracts entities, facts, and property values from `text` into `database`.
 
@@ -501,16 +556,18 @@ Extracts entities, facts, and property values from `text` into `database`.
 - `queries` — optional list of natural language questions guiding the extraction focus
 - `model` — OpenAI model to use for the agent loop
 - `source_id` — ID of an existing SOURCE node; passed through to each instance creation call
-- `on_tool_call` — optional callback invoked with `(tool_name, arguments)` for each tool call the agent makes
+- `schema_discovery_mode` — how the agent avoids declaring near-duplicate schema elements: `"search"` (default) offers a `search_schema` tool backed by keyword/semantic search; `"llm"` instead routes near-duplicate detection through a separate LLM-judge call; `"none"` drops schema-discovery tooling entirely
+- `on_tool_call` / `on_tool_result` — optional callbacks invoked with `(tool_name, arguments)` / `(tool_name, arguments, result)` for each tool call the agent makes
 
 **Algorithm**
 
 1. Call `SchemaManager.fetch_database_schema(database)` and serialize it as context for the LLM
-2. Assemble the tool set: schema inspection, schema declaration, and instance creation functions
-3. Submit `text`, `queries`, and schema context to the LLM with the tool set
+2. Assemble the tool set: schema inspection (`get_schema`, `find_class`, `find_relation_type`, `find_entity`, `find_fact`, and `search_schema` unless `schema_discovery_mode="none"`), schema declaration, instance creation, and `link_extraction` (attach evidence to an existing item instead of duplicating it)
+3. Submit `text`, `queries`, and schema context to the LLM with the tool set — the system prompt instructs the agent to check `find_entity`/`find_fact`/`search_schema` before creating anything new
 4. Loop:
    - Receive tool calls from the LLM
    - For schema declaration calls: dispatch to `SchemaManager`
    - For instance creation calls: dispatch to `KnowledgeManager`, passing `text=<verbatim span>` and `source_id=source_id`
+   - For `link_extraction` calls (item already exists): dispatch to `ProvenanceTracker.link_extraction`, attaching the new span as further evidence rather than creating a duplicate
    - Return tool results to the LLM
 5. Exit when the LLM returns without further tool calls
