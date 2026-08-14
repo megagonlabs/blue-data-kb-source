@@ -26,15 +26,10 @@ in this session (see examples/README.md).
 """
 import asyncio
 
-from blue_data.source.graph.memory_graph_source import MemoryGraphSource
-from blue_data_kb_source import KBSource
+from blue_data_kb_source import MemoryKBSource
 
 DIVIDER = "=" * 60
 STEP = "-" * 60
-
-
-class MemoryKBSource(KBSource, MemoryGraphSource):
-    pass
 
 
 # Each person gets an out-of-order pair of (value, source_name, original_date, is_stale)

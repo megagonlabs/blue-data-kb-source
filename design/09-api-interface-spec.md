@@ -6,7 +6,7 @@ Four external interfaces are planned over the core library: the Python library i
 
 ## 1. Python Library
 
-The canonical interface. All other interfaces delegate to it. `KBSource` is an abstract class — it must be subclassed together with a concrete `GraphSource` backend via Python MRO (e.g. `class MemoryKBSource(KBSource, MemoryGraphSource): pass`). Every method below is `async` and must be awaited, **except** `create_database`/`fetch_databases` (inherited from the `GraphSource` backend, synchronous), `add_change_hook`/`remove_change_hook`, `reindex`, and the `has_semantic_search` property.
+The canonical interface. All other interfaces delegate to it. `KBSource` is an abstract class — it must be subclassed together with a concrete `GraphSource` backend via Python MRO. `MemoryKBSource`/`FileKBSource`/`NEO4JKBSource` ship pre-built (see [06-library.md](06-library.md)); the CLI and MCP server construct them via `DataSource.instantiate("blue_data_kb_source.file_kb_source.FileKBSource", ...)` (a dotted-path factory) rather than importing the class directly, since the backend is a runtime config choice for those two callers — see [13-decision-log.md](13-decision-log.md) ADR-004. Every method below is `async` and must be awaited, **except** `create_database`/`fetch_databases` (inherited from the `GraphSource` backend, synchronous), `add_change_hook`/`remove_change_hook`, `reindex`, and the `has_semantic_search` property.
 
 ### Constructor
 

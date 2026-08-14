@@ -34,17 +34,13 @@ bash scripts/install.sh
 
 ## Usage
 
-`KBSource` is abstract — subclass it together with a concrete `GraphSource` backend (e.g. `MemoryGraphSource` or `Neo4jGraphSource`).
+`KBSource` is abstract. Pick a ready-made backend: `MemoryKBSource`, `FileKBSource` (both `from blue_data_kb_source import ...`), or `NEO4JKBSource` (`from blue_data_kb_source.neo4j.neo4j_kb_source import NEO4JKBSource` — kept out of the top-level package so plain `import blue_data_kb_source` never requires the `neo4j` driver). To wire up a new backend from scratch, subclass `KBSource` together with a concrete `GraphSource` directly.
 
 > **All I/O-bound methods are `async def`.** Use them inside an `async` function and run with `asyncio.run(…)` or an async framework.
 
 ```python
 import asyncio
-from blue_data_kb_source import KBSource
-from blue_data.source.graph.memory_graph_source import MemoryGraphSource
-
-class MemoryKBSource(KBSource, MemoryGraphSource):
-    pass
+from blue_data_kb_source import MemoryKBSource
 
 async def main():
     kb = MemoryKBSource(name="my-kb")

@@ -93,11 +93,7 @@ Everything above is a thin wrapper over the Python library. The same walkthrough
 
 ```python
 import asyncio
-from blue_data_kb_source import KBSource
-from blue_data.source.graph.memory_graph_source import MemoryGraphSource
-
-class MemoryKBSource(KBSource, MemoryGraphSource):
-    pass
+from blue_data_kb_source import MemoryKBSource
 
 async def main():
     kb = MemoryKBSource(name="quickstart")

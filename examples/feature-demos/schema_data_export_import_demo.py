@@ -13,19 +13,9 @@ import asyncio
 import shutil
 import tempfile
 
-from blue_data.source.graph.file_graph_source import FileGraphSource
-from blue_data.source.graph.memory_graph_source import MemoryGraphSource
-from blue_data_kb_source import KBSource
+from blue_data_kb_source import FileKBSource, MemoryKBSource
 
 DIVIDER = "-" * 60
-
-
-class MemoryKBSource(KBSource, MemoryGraphSource):
-    pass
-
-
-class FileKBSource(KBSource, FileGraphSource):
-    pass
 
 
 async def main():

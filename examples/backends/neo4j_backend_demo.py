@@ -2,9 +2,13 @@
 Neo4j-backed KBSource demo — the production graph backend.
 
 Same schema/data/query shape as memory_quickstart.py and file_backend_demo.py;
-the only thing that changes is the GraphSource mixed into KBSource. Requires a
-running Neo4j instance (Community or Enterprise — create_database degrades
-gracefully on Community, where multiple databases aren't supported).
+the only thing that changes is the GraphSource mixed into KBSource. NEO4JKBSource
+lives in its own blue_data_kb_source.neo4j subpackage rather than the top-level
+package — importing it (as below) is what pulls in the neo4j driver; plain
+`import blue_data_kb_source` never does, so installs that don't use Neo4j don't
+need the driver installed. Requires a running Neo4j instance (Community or
+Enterprise — create_database degrades gracefully on Community, where multiple
+databases aren't supported).
 
     docker run -p 7687:7687 -p 7474:7474 -e NEO4J_AUTH=neo4j/<password> neo4j
 
@@ -19,14 +23,9 @@ import asyncio
 import os
 from urllib.parse import urlparse
 
-from blue_data.source.graph.neo4j.neo4j_graph_source import NEO4JSource
-from blue_data_kb_source import KBSource
+from blue_data_kb_source.neo4j.neo4j_kb_source import NEO4JKBSource
 
 DIVIDER = "-" * 60
-
-
-class Neo4jKBSource(KBSource, NEO4JSource):
-    pass
 
 
 def _connection_from_env() -> dict:
@@ -45,7 +44,7 @@ async def main():
     connection = _connection_from_env()
     print(f"Connecting to Neo4j at {connection['protocol']}://{connection['host']}:{connection['port']}")
 
-    kb = Neo4jKBSource(name="kb", properties={"connection": connection})
+    kb = NEO4JKBSource(name="kb", properties={"connection": connection})
 
     print()
     print(DIVIDER)

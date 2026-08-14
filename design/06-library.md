@@ -1,12 +1,12 @@
 # KBDB — Library
 
-> External dependencies: `blue-data` provides `GraphSource`, `MemoryGraphSource`, `FileGraphSource`, `Neo4jGraphSource`, `VectorSource` and its backends, `DataSchema`, and related base classes.
+> External dependencies: `blue-data` provides `DataSource` (base class, incl. the `instantiate()` dotted-path factory), `GraphSource`, `MemoryGraphSource`, `FileGraphSource`, `NEO4JSource`, `VectorSource` and its backends, `DataSchema`, and related base classes.
 
 ---
 
 ## KBSource(GraphSource)
 
-Entry point for all KBDB operations. Abstract base class — must be subclassed together with a concrete `GraphSource` backend using Python MRO. Instantiates and coordinates the `SchemaManager`, `KnowledgeManager` (which internally owns a `QueryEngine`), `ProvenanceTracker`, `ChangeNotifier`, `ExtractionEngine`, and — when search is enabled — `KBSearchIndexer`. Every method except the `GraphSource` primitives it inherits (e.g. `create_database`) is `async` and must be awaited.
+Entry point for all KBDB operations. Abstract base class — must be subclassed together with a concrete `GraphSource` backend using Python MRO. Three such subclasses ship with the library already: `MemoryKBSource` (`memory_kb_source.py`), `FileKBSource` (`file_kb_source.py`), and `NEO4JKBSource` (`neo4j/neo4j_kb_source.py`, kept out of the package's top-level `__init__.py` so importing it — not `import blue_data_kb_source` itself — is what requires the `neo4j` driver). Each overrides `_initialize_connection_properties` to report a `kb/memory`/`kb/file`/`kb/neo4j` connection protocol instead of inheriting the mixed-in `GraphSource` backend's own `graph/*` protocol (see ADR-004 in [13-decision-log.md](13-decision-log.md)). Instantiates and coordinates the `SchemaManager`, `KnowledgeManager` (which internally owns a `QueryEngine`), `ProvenanceTracker`, `ChangeNotifier`, `ExtractionEngine`, and — when search is enabled — `KBSearchIndexer`. Every method except the `GraphSource` primitives it inherits (e.g. `create_database`) is `async` and must be awaited.
 
 ### Constructor
 
@@ -30,11 +30,7 @@ KBSource(
 
 ```python
 import asyncio
-from blue_data_kb_source import KBSource
-from blue_data.source.graph.memory_graph_source import MemoryGraphSource
-
-class MemoryKBSource(KBSource, MemoryGraphSource):
-    pass
+from blue_data_kb_source import MemoryKBSource
 
 async def main():
     kb = MemoryKBSource(name="my-kb")

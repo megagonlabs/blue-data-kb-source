@@ -327,10 +327,10 @@ Claude / MCP client
 blue_data_kb_mcp.server   ← FastMCP app, 24 tool handlers (async, await KBSource directly)
         │
 blue_data_kb_mcp.config   ← singleton KBSource factory (BLUE_DATA_KB_SOURCE_* env vars)
-        │
+        │  DataSource.instantiate(dotted_class_path, ...)
         ▼
    KBSource                ← lib/src/blue_data_kb_source/
-   ├── FileGraphSource | NEO4JSource
+   ├── FileKBSource | NEO4JKBSource   (pre-built KBSource + GraphSource mixins)
    └── KBSearchIndexer     ← BM25 | BM25 + semantic (optional)
 ```
 

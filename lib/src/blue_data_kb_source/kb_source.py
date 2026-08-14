@@ -55,9 +55,17 @@ class KBSource(GraphSource, ABC):
       Edges  — IS_SUBCLASS_OF, IS_INSTANCE_OF, DEFINE_PROPERTY, IS_VALUE_OF,
                HAS_PROPERTY, REPRESENTS, HEAD, TAIL, DOMAIN, RANGE, EXTRACTED_FROM
 
-    Backend is selected by mixing with a concrete GraphSource via Python MRO:
-
-        class MemoryKBSource(KBSource, MemoryGraphSource): pass
+    Backend is selected by mixing with a concrete GraphSource via Python MRO.
+    Ready-made mixins ship alongside this module — MemoryKBSource (memory_kb_source.py),
+    FileKBSource (file_kb_source.py), NEO4JKBSource (neo4j/neo4j_kb_source.py, imported
+    separately so `import blue_data_kb_source` never requires the `neo4j` package).
+    Each overrides `_initialize_connection_properties` to report its own protocol
+    (`kb/memory`, `kb/file`, `kb/neo4j`) rather than inheriting the mixed-in
+    GraphSource backend's `graph/*` protocol. Callers that pick a backend from a
+    config value (a string, not a fixed choice at write-time) should construct via
+    `DataSource.instantiate("blue_data_kb_source.file_kb_source.FileKBSource", ...)`
+    instead of importing the class directly — see platform/cli/config.py and
+    platform/mcp/config.py.
 
     Subclasses must implement the abstract GraphSource primitives:
     add_node, get_node, delete_node, add_edge, delete_edge, get_neighbors.

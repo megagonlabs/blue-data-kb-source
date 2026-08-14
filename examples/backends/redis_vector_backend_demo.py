@@ -27,9 +27,8 @@ import os
 
 import redis
 
-from blue_data.source.graph.memory_graph_source import MemoryGraphSource
 from blue_data.source.vector.redis.redis_vector_source import RedisVectorSource
-from blue_data_kb_source import KBSource
+from blue_data_kb_source import MemoryKBSource
 from blue_data_kb_source.types import KBError
 
 DIVIDER = "-" * 60
@@ -37,10 +36,6 @@ DIM = 64
 SCAN_PREFIX = "blue_data_kb_examples_demo:"
 REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
-
-
-class MemoryKBSource(KBSource, MemoryGraphSource):
-    pass
 
 
 def fake_embedding(text: str) -> list[float]:

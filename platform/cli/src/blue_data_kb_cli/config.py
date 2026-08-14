@@ -23,8 +23,11 @@ import os
 from pathlib import Path
 from typing import Any, Callable
 
-from blue_data.source.graph.file_graph_source import FileGraphSource
+from blue_data.source.source import DataSource
 from blue_data_kb_source import KBSource
+
+_FILE_KB_CLASS = "blue_data_kb_source.file_kb_source.FileKBSource"
+_NEO4J_KB_CLASS = "blue_data_kb_source.neo4j.neo4j_kb_source.NEO4JKBSource"
 
 
 def _data_dir() -> str:
@@ -189,24 +192,23 @@ def _make_kb(database: str) -> KBSource:
     graph_backend = cfg.get("graph_backend", "file")
     search_mode = cfg.get("search", "none")
 
-    # Determine graph kwargs and default BM25 directory
+    # Determine class path, graph kwargs, and default BM25 directory.
+    # Constructed via DataSource.instantiate() rather than importing the class
+    # directly, since the backend is a runtime choice (from the registry), not a
+    # fixed one — instantiate()'s dotted-path import also keeps the neo4j driver
+    # out of the process unless graph_backend == "neo4j" is actually selected.
+    kb_class: str
     graph_kwargs: dict[str, Any]
     default_index_dir: str
 
     if graph_backend == "neo4j":
-        from blue_data.source.graph.neo4j.neo4j_graph_source import NEO4JSource  # type: ignore[import]
-
-        class _KB(KBSource, NEO4JSource):  # type: ignore[misc]
-            pass
-
+        kb_class = _NEO4J_KB_CLASS
         gcfg = cfg.get("graph", {})
         connection = _neo4j_connection_dict(gcfg)
         graph_kwargs = {"name": "kb", "properties": {"connection": connection}}
         default_index_dir = _data_dir()
     else:
-        class _KB(KBSource, FileGraphSource):  # type: ignore[misc]
-            pass
-
+        kb_class = _FILE_KB_CLASS
         gcfg = cfg.get("graph", {})
         directory = str(Path(gcfg.get("directory", _data_dir())).expanduser())
         graph_kwargs = {"name": "kb", "directory": directory}
@@ -222,4 +224,4 @@ def _make_kb(database: str) -> KBSource:
         search_kwargs["vector_source"] = _make_vector_source(cfg)
         search_kwargs["embedding_fn"] = _make_embedding_fn(cfg)
 
-    return _KB(**graph_kwargs, **search_kwargs)
+    return DataSource.instantiate(kb_class, **graph_kwargs, **search_kwargs)

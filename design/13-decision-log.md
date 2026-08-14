@@ -48,11 +48,11 @@ Architectural decisions are recorded here as they are made, throughout the desig
 **Date:** 2026-07-07
 **Status:** Accepted
 
-**Decision:** The graph backend is selected by subclassing `KBSource` together with the chosen `GraphSource` concrete class using Python's method resolution order (MRO). No factory function, registry, or `__init__` parameter is used.
+**Decision:** The graph backend is selected by subclassing `KBSource` together with the chosen `GraphSource` concrete class using Python's method resolution order (MRO). No factory function, registry, or `__init__` parameter is used *for the mixing itself*.
 
 **Rationale:** The MRO pattern requires zero conditional logic in `KBSource` and zero configuration beyond the class definition. It is idiomatic for mixin-based composition in Python and makes the backend choice explicit and static at the class level rather than dynamic at runtime.
 
-**Consequences:** Applications define a concrete `KBSource` subclass (e.g. `class MemoryKBSource(KBSource, MemoryGraphSource): pass`) before instantiating it. Switching backends requires changing only the class definition. `KBSource` cannot be instantiated directly.
+**Consequences:** `KBSource` cannot be instantiated directly. The three mixin classes this decision implies (`MemoryKBSource`, `FileKBSource`, `NEO4JKBSource`) now ship pre-built with the library (`lib/src/blue_data_kb_source/{memory_kb_source,file_kb_source}.py`, `neo4j/neo4j_kb_source.py`) rather than being redefined ad hoc by every application. Building a genuinely new backend still follows this ADR's original pattern directly (`class MyKBSource(KBSource, MyGraphSource): pass`). **Addendum, post-implementation:** callers that need to pick one of the three shipped classes *dynamically* (from a config string, not a fixed choice at write-time — the CLI's `registry.json` and the MCP server's `BLUE_DATA_KB_SOURCE_GRAPH_BACKEND` env var) go through `DataSource.instantiate(full_class_path, ...)` (a dotted-path factory inherited from `blue-data`'s `DataSource`) rather than an `if`/`elif` importing each concrete mixin — this doesn't contradict "no registry" above, since it's a generic mechanism already provided by the base class, not one built for this decision.
 
 ---
 

@@ -16,8 +16,11 @@ import os
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from blue_data.source.graph.file_graph_source import FileGraphSource
+from blue_data.source.source import DataSource
 from blue_data_kb_source import KBSource
+
+_FILE_KB_CLASS = "blue_data_kb_source.file_kb_source.FileKBSource"
+_NEO4J_KB_CLASS = "blue_data_kb_source.neo4j.neo4j_kb_source.NEO4JKBSource"
 
 _kb: Optional[KBSource] = None
 
@@ -103,21 +106,20 @@ def _build_kb() -> KBSource:
     graph_backend = os.environ.get("BLUE_DATA_KB_SOURCE_GRAPH_BACKEND", "file")
     search_mode = os.environ.get("BLUE_DATA_KB_SOURCE_SEARCH", "none")
 
+    # Constructed via DataSource.instantiate() since the backend is chosen at
+    # runtime from an env var, not a fixed class known at write-time — the
+    # dotted-path import also keeps the neo4j driver out of the process unless
+    # BLUE_DATA_KB_SOURCE_GRAPH_BACKEND=neo4j is actually set.
+    kb_class: str
     graph_kwargs: dict[str, Any]
     default_index_dir: str
 
     if graph_backend == "neo4j":
-        from blue_data.source.graph.neo4j.neo4j_graph_source import NEO4JSource
-
-        class _KB(KBSource, NEO4JSource):
-            pass
-
+        kb_class = _NEO4J_KB_CLASS
         graph_kwargs = {"name": "kb", "properties": {"connection": _neo4j_connection()}}
         default_index_dir = _directory()
     else:
-        class _KB(KBSource, FileGraphSource):
-            pass
-
+        kb_class = _FILE_KB_CLASS
         directory = _directory()
         graph_kwargs = {"name": "kb", "directory": directory}
         default_index_dir = directory
@@ -132,4 +134,4 @@ def _build_kb() -> KBSource:
         search_kwargs["vector_source"] = _vector_source()
         search_kwargs["embedding_fn"] = _embedding_fn()
 
-    return _KB(**graph_kwargs, **search_kwargs)
+    return DataSource.instantiate(kb_class, **graph_kwargs, **search_kwargs)

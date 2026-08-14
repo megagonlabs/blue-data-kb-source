@@ -4,17 +4,13 @@ This is a task-oriented walkthrough of the Python library. For the full method-b
 
 ## Setup
 
-`KBSource` is abstract — subclass it together with a concrete `GraphSource` backend (see [architecture.md](architecture.md#graph-backends)).
+`KBSource` is abstract — pick a ready-made backend (see [architecture.md](architecture.md#graph-backends)): `MemoryKBSource`, `FileKBSource`, or `NEO4JKBSource`.
 
 > All I/O-bound methods are `async def`. Call them from inside an `async` function and run with `asyncio.run(...)` or an async framework.
 
 ```python
 import asyncio
-from blue_data_kb_source import KBSource
-from blue_data.source.graph.memory_graph_source import MemoryGraphSource
-
-class MemoryKBSource(KBSource, MemoryGraphSource):
-    pass
+from blue_data_kb_source import MemoryKBSource
 
 async def main():
     kb = MemoryKBSource(name="my-kb")

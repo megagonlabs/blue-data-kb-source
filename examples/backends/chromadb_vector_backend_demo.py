@@ -17,16 +17,11 @@ import os
 import shutil
 import tempfile
 
-from blue_data.source.graph.file_graph_source import FileGraphSource
 from blue_data.source.vector.chromadb.chromadb_vector_source import ChromaDBVectorSource
-from blue_data_kb_source import KBSource
+from blue_data_kb_source import FileKBSource
 
 DIVIDER = "-" * 60
 DIM = 64
-
-
-class FileKBSource(KBSource, FileGraphSource):
-    pass
 
 
 def fake_embedding(text: str) -> list[float]:

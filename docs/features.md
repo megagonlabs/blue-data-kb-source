@@ -120,15 +120,17 @@ Idempotent re-declarations don't re-fire; hooks are scoped per database, so a ho
 
 ## Pluggable graph backend
 
-The same `KBSource` operations run unmodified against any `GraphSource` backend — mix in the concrete class via Python MRO:
+The same `KBSource` operations run unmodified against any `GraphSource` backend. Three ready-made classes ship with the library:
 
 ```python
-class MyKBSource(KBSource, MemoryGraphSource): ...   # dev/test
-class MyKBSource(KBSource, FileGraphSource): ...      # CLI default, JSON files on disk
-class MyKBSource(KBSource, NEO4JSource): ...           # production
+from blue_data_kb_source import MemoryKBSource                       # dev/test, no persistence
+from blue_data_kb_source import FileKBSource                         # CLI default, JSON files on disk
+from blue_data_kb_source.neo4j.neo4j_kb_source import NEO4JKBSource  # production; separate module so
+                                                                       # `import blue_data_kb_source` never
+                                                                       # requires the neo4j driver
 ```
 
-See [extending.md](extending.md) for implementing a new backend.
+Each mixes `KBSource` in with a concrete `GraphSource` via Python MRO under the hood — see [extending.md](extending.md) for wiring up a genuinely new backend the same way.
 
 ---
 

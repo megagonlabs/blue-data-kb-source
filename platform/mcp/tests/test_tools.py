@@ -7,8 +7,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from blue_data.source.graph.memory_graph_source import MemoryGraphSource
-from blue_data_kb_source import KBSource
+from blue_data_kb_source import MemoryKBSource
 
 import blue_data_kb_mcp.config as config_module
 from blue_data_kb_mcp.server import (
@@ -39,10 +38,6 @@ from blue_data_kb_mcp.server import (
 )
 
 DB = "test"
-
-
-class MemoryKBSource(KBSource, MemoryGraphSource):
-    pass
 
 
 # ---------------------------------------------------------------------------

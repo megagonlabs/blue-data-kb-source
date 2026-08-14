@@ -12,7 +12,7 @@ Full method-by-method reference for the Python library. For a task-oriented intr
 from blue_data_kb_source import KBSource
 ```
 
-Abstract base class — subclass it together with a concrete `GraphSource` implementation (`class MyKBSource(KBSource, MemoryGraphSource): pass`; see [extending.md](extending.md)). Inherits all `GraphSource` primitives (`add_node`, `add_edge`, `get_node`, `get_neighbors`, `match_nodes`, ...).
+Abstract base class. Three ready-made backends ship alongside it — `MemoryKBSource`, `FileKBSource` (both `from blue_data_kb_source import ...`), and `NEO4JKBSource` (`from blue_data_kb_source.neo4j.neo4j_kb_source import NEO4JKBSource`, kept out of the top-level package so importing it is what pulls in the `neo4j` driver, not `import blue_data_kb_source` itself). To add a genuinely new backend, subclass `KBSource` together with a concrete `GraphSource` implementation directly (`class MyKBSource(KBSource, MyGraphSource): pass`; see [extending.md](extending.md)). Inherits all `GraphSource` primitives (`add_node`, `add_edge`, `get_node`, `get_neighbors`, `match_nodes`, ...).
 
 ```python
 KBSource(

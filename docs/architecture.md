@@ -59,7 +59,7 @@
                          └────────────────────────────────────────┘
 ```
 
-`KBSource` is an abstract class — it must be mixed in with a concrete `GraphSource` backend via Python MRO (`class MyKBSource(KBSource, MemoryGraphSource): pass`). It inherits `GraphSource`'s primitives (`add_node`, `add_edge`, `get_node`, `get_neighbors`, `match_nodes`, ...) and adds everything above on top: typed schema/instance builders, provenance, search, LLM extraction, and LLM querying.
+`KBSource` is an abstract class — it must be mixed in with a concrete `GraphSource` backend via Python MRO. Three ready-made mixins ship with the library (`MemoryKBSource`, `FileKBSource`, `NEO4JKBSource` — see [Graph backends](#graph-backends) below); building a genuinely new one follows the same pattern directly (`class MyKBSource(KBSource, MyGraphSource): pass`, see [extending.md](extending.md)). Either way, the mixed-in `GraphSource` primitives (`add_node`, `add_edge`, `get_node`, `get_neighbors`, `match_nodes`, ...) are what `KBSource` adds everything above on top of: typed schema/instance builders, provenance, search, LLM extraction, and LLM querying.
 
 | Component | Module | Role |
 |---|---|---|
@@ -202,10 +202,10 @@ Idempotent schema declarations mean re-running `import_text` over overlapping te
 
 ## Graph backends
 
-| Backend | Persistence | Concurrency | Typical use |
-|---|---|---|---|
-| `MemoryGraphSource` | None (in-process) | Single process | Development, testing, short-lived pipelines |
-| `FileGraphSource` | One JSON file per database | Single process | CLI default (`~/.kbdb/` or `KBDB_DATA_DIR`) — no server required |
-| `NEO4JSource` | Neo4j database | Concurrent | Production deployments |
+| Backend | `KBSource` mixin | Persistence | Concurrency | Typical use |
+|---|---|---|---|---|
+| `MemoryGraphSource` | `MemoryKBSource` (`from blue_data_kb_source import ...`) | None (in-process) | Single process | Development, testing, short-lived pipelines |
+| `FileGraphSource` | `FileKBSource` (`from blue_data_kb_source import ...`) | One JSON file per database | Single process | CLI default (`~/.kbdb/` or `KBDB_DATA_DIR`) — no server required |
+| `NEO4JSource` | `NEO4JKBSource` (`from blue_data_kb_source.neo4j.neo4j_kb_source import NEO4JKBSource`) | Neo4j database | Concurrent | Production deployments |
 
-All three implement the same `GraphSource` interface from the sibling `blue-data` library; `KBSource` never imports a concrete backend directly (see [extending.md](extending.md) for implementing another one).
+All three `GraphSource` implementations come from the sibling `blue-data` library; `kb_source.py` itself never imports a concrete backend directly — each mixin lives in its own module (`memory_kb_source.py`, `file_kb_source.py`, `neo4j/neo4j_kb_source.py`) that does the mixing. `NEO4JKBSource` is deliberately kept out of the top-level package: importing it is what pulls in the `neo4j` driver, so plain `import blue_data_kb_source` never requires it to be installed. Each mixin overrides `_initialize_connection_properties` to report its own `kb/memory`/`kb/file`/`kb/neo4j` connection protocol rather than inheriting the mixed-in `GraphSource`'s `graph/*` one. See [extending.md](extending.md) for implementing another backend the same way.

@@ -5,12 +5,7 @@ No persistence, no search, no LLM — the smallest useful KBSource example.
 """
 import asyncio
 
-from blue_data.source.graph.memory_graph_source import MemoryGraphSource
-from blue_data_kb_source import KBSource
-
-
-class MemoryKBSource(KBSource, MemoryGraphSource):
-    pass
+from blue_data_kb_source import MemoryKBSource
 
 
 async def main():

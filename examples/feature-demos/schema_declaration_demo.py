@@ -9,14 +9,9 @@ another.
 """
 import asyncio
 
-from blue_data.source.graph.memory_graph_source import MemoryGraphSource
-from blue_data_kb_source import KBSource
+from blue_data_kb_source import MemoryKBSource
 
 DIVIDER = "-" * 60
-
-
-class MemoryKBSource(KBSource, MemoryGraphSource):
-    pass
 
 
 async def main():

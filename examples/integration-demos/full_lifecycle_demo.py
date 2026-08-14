@@ -20,21 +20,11 @@ import math
 import shutil
 import tempfile
 
-from blue_data.source.graph.file_graph_source import FileGraphSource
-from blue_data.source.graph.memory_graph_source import MemoryGraphSource
 from blue_data.source.vector.memory_vector_source import MemoryVectorSource
-from blue_data_kb_source import KBSource
+from blue_data_kb_source import FileKBSource, MemoryKBSource
 
 DIVIDER = "-" * 60
 DIM = 64
-
-
-class MemoryKBSource(KBSource, MemoryGraphSource):
-    pass
-
-
-class FileKBSource(KBSource, FileGraphSource):
-    pass
 
 
 def fake_embedding(text: str) -> list[float]:
