@@ -96,14 +96,20 @@ meta = await kb.get_metadata("main", alice)
 
 ## Search
 
-Enable BM25 keyword search (and, with a vector backend, semantic search) per database at construction:
+Enable BM25 keyword search (and, with a vector backend, semantic search) per database via `properties["search"]` at construction — this is the only way to configure it, since `KBSource.__init__(name, properties=None)` takes no other constructor arguments:
 
 ```python
-kb = MemoryKBSource(name="my-kb", enable_search=True)   # keyword only
+kb = MemoryKBSource(name="my-kb", properties={"search": {"mode": "bm25"}})   # keyword only
 
 kb = MemoryKBSource(
-    name="my-kb", enable_search=True,
-    vector_source=my_vector_source, embedding_fn=my_embedding_fn,
+    name="my-kb",
+    properties={
+        "search": {
+            "mode": "semantic",
+            "vector_source": my_vector_source,   # a live object — or "vector": {"_class": "...", "connection": {...}}
+            "embedding_fn": my_embedding_fn,     # a live callable — or "embedding": {"provider": "openai", "model": "..."}
+        }
+    },
 )
 ```
 

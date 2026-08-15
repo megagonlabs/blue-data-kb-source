@@ -1,12 +1,12 @@
 ------------------------------------------------------------
 1. No search enabled — unranked substring match
 ------------------------------------------------------------
-search_data('software') without enable_search (graph iteration order):
+search_data('software') with no search configured (graph iteration order):
   ENTITY   Alice      Software engineer
   ENTITY   Red Hat    Enterprise open-source software company
 
 ------------------------------------------------------------
-2. enable_search=True — ranked by BM25 relevance
+2. properties={'search': {'mode': 'bm25'}} — ranked by BM25 relevance
 ------------------------------------------------------------
 search_data('software') with BM25 (most relevant first):
   ENTITY   Alice      Software engineer

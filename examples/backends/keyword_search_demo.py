@@ -1,5 +1,5 @@
 """
-BM25 keyword search — enable_search=True, no vector backend.
+BM25 keyword search — properties={"search": {"mode": "bm25"}}, no vector backend.
 
 Compares the ranked BM25 path against the unranked substring fallback used
 when search isn't enabled at all, then shows search_schema/search_data with
@@ -51,7 +51,7 @@ async def main():
     await seed(plain_kb)
 
     hits = await plain_kb.search_data("main", "software")
-    print("search_data('software') without enable_search (graph iteration order):")
+    print("search_data('software') with no search configured (graph iteration order):")
     for h in hits:
         print(f"  {h.type:<8} {h.name:<10} {h.description}")
 
@@ -60,10 +60,10 @@ async def main():
     # ---------------------------------------------------------------- #
     print()
     print(DIVIDER)
-    print("2. enable_search=True — ranked by BM25 relevance")
+    print("2. properties={'search': {'mode': 'bm25'}} — ranked by BM25 relevance")
     print(DIVIDER)
 
-    kb = MemoryKBSource(name="bm25", enable_search=True)
+    kb = MemoryKBSource(name="bm25", properties={"search": {"mode": "bm25"}})
     kb.create_database("main")
     await seed(kb)
 

@@ -26,8 +26,9 @@ DB = "benchmark"
 def _build_kb(search_mode: str) -> KBSource:
     """Construct a KB configured for *search_mode*.
 
-    Search backend choice is a KBSource construction-time parameter
-    (`enable_search`/`vector_source`/`embedding_fn`), unlike extraction's
+    Search backend choice is declarative config under properties["search"]
+    (KBSource.__init__ takes no construction-time kwargs beyond name/properties,
+    matching DataSource's own signature), unlike extraction's
     `schema_discovery_mode` which is a per-call `import_text` argument — so,
     unlike `runner.run_case`, this owns KB construction rather than taking a
     pre-built `kb` from the caller.
@@ -35,7 +36,7 @@ def _build_kb(search_mode: str) -> KBSource:
     if search_mode == "keyword":
         # Real in-memory BM25 (rank-bm25), not the raw substring fallback used
         # when no indexer is configured at all.
-        return MemoryKBSource(name="query-benchmark", enable_search=True)
+        return MemoryKBSource(name="query-benchmark", properties={"search": {"mode": "bm25"}})
 
     if search_mode == "semantic":
         import openai
@@ -51,10 +52,14 @@ def _build_kb(search_mode: str) -> KBSource:
 
         return MemoryKBSource(
             name="query-benchmark",
-            enable_search=True,
-            vector_source=MemoryVectorSource(),
-            embedding_fn=embedding_fn,
-            vector_dim=1536,
+            properties={
+                "search": {
+                    "mode": "semantic",
+                    "vector_dim": 1536,
+                    "vector_source": MemoryVectorSource(),
+                    "embedding_fn": embedding_fn,
+                }
+            },
         )
 
     raise ValueError(f"unknown search_mode: {search_mode!r}")

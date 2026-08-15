@@ -6,14 +6,14 @@ demo is about the *wiring*, not embedding quality, so it needs no API key and
 no external service. See chromadb_vector_backend_demo.py / redis_vector_backend_demo.py
 for the two production vector backends, wired the same way.
 
-Swapping vector backends is a one-line change to the KBSource constructor:
+Swapping vector backends is a one-line change to properties["search"]["vector"]'s
+`_class` (KBSource.__init__ constructs it via DataSource.instantiate() — see
+design/06-library.md):
 
-    MemoryVectorSource("kb_vectors")                                  # dev/test, this demo
-    FileVectorSource("kb_vectors", directory="/path/to/dir")          # persistent, single-process
-    ChromaDBVectorSource("kb_vectors", path="/path/to/dir")           # embedded, persistent
-    RedisVectorSource("kb_vectors", properties={"connection": {       # shared, production
-        "host": "localhost", "port": 6379, "scan_prefix": "myapp:",
-    }})
+    "blue_data.source.vector.memory_vector_source.MemoryVectorSource"           # dev/test, this demo
+    "blue_data.source.vector.file_vector_source.FileVectorSource"               # persistent, single-process
+    "blue_data.source.vector.chromadb.chromadb_vector_source.ChromaDBVectorSource"  # embedded, persistent
+    "blue_data.source.vector.redis.redis_vector_source.RedisVectorSource"       # shared, production
 
 Everything downstream (`search_schema`/`search_data(mode="semantic")`, and the
 `answer`/`validate`/`enrich` agents' search tools) is identical regardless of
@@ -23,7 +23,6 @@ import asyncio
 import hashlib
 import math
 
-from blue_data.source.vector.memory_vector_source import MemoryVectorSource
 from blue_data_kb_source import MemoryKBSource
 
 DIVIDER = "-" * 60
@@ -41,10 +40,22 @@ def fake_embedding(text: str) -> list[float]:
 async def main():
     kb = MemoryKBSource(
         name="semantic",
-        enable_search=True,
-        vector_source=MemoryVectorSource("kb_vectors"),
-        embedding_fn=fake_embedding,
-        vector_dim=DIM,
+        properties={
+            "search": {
+                "mode": "semantic",
+                "vector_dim": DIM,
+                # Declarative: a dotted _class path, constructed internally via
+                # DataSource.instantiate() -- swap this string to change backend.
+                "vector": {
+                    "_class": "blue_data.source.vector.memory_vector_source.MemoryVectorSource",
+                    "name": "kb_vectors",
+                    "connection": {},
+                },
+                # embedding_fn is a live callable, not a DataSource -- it isn't
+                # something a "_class" path can build, so it's passed directly.
+                "embedding_fn": fake_embedding,
+            }
+        },
     )
     kb.create_database("main")
     print("has_semantic_search:", kb.has_semantic_search)

@@ -49,7 +49,7 @@ async def main():
     print("2. Migrate the schema -- import is idempotent by name, safe to repeat")
     print(DIVIDER)
 
-    target_kb = FileKBSource(name="target", directory=tmp)
+    target_kb = FileKBSource(name="target", properties={"connection": {"directory": tmp}})
     target_kb.create_database("migrated")
 
     schema_json = await source_kb.export_database_schema("main")

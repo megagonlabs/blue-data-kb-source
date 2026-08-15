@@ -15,18 +15,22 @@ from blue_data_kb_source import KBSource
 Abstract base class. Three ready-made backends ship alongside it — `MemoryKBSource`, `FileKBSource` (both `from blue_data_kb_source import ...`), and `NEO4JKBSource` (`from blue_data_kb_source.neo4j.neo4j_kb_source import NEO4JKBSource`, kept out of the top-level package so importing it is what pulls in the `neo4j` driver, not `import blue_data_kb_source` itself). To add a genuinely new backend, subclass `KBSource` together with a concrete `GraphSource` implementation directly (`class MyKBSource(KBSource, MyGraphSource): pass`; see [extending.md](extending.md)). Inherits all `GraphSource` primitives (`add_node`, `add_edge`, `get_node`, `get_neighbors`, `match_nodes`, ...).
 
 ```python
-KBSource(
-    *args,                                          # forwarded to the GraphSource backend, e.g. name=, directory=
-    enable_search: bool = False,
-    vector_source: VectorSource | None = None,
-    embedding_fn: Callable[[str], list[float]] | None = None,
-    vector_dim: int = 1536,
-    corpus_dir: str | None = None,
-    **kwargs,
-)
+KBSource(name: str, properties: dict | None = None)
 ```
 
-`enable_search=True` (or passing `vector_source`) constructs a `KBSearchIndexer` for BM25 keyword search; supplying `vector_source` and `embedding_fn` together additionally enables semantic search.
+Matches `DataSource`'s own signature exactly — no other constructor arguments. Everything backend/search-specific is config under `properties`: `properties["connection"]` for the graph backend (e.g. `{"directory": ...}` for `FileKBSource`), `properties["search"]` for search —
+
+| `properties["search"]` key | Meaning |
+|---|---|
+| `mode` | `"none"` (default) \| `"bm25"` \| `"semantic"` |
+| `bm25_index_dir` | Persist the BM25 corpus to disk across restarts |
+| `vector_dim` | Embedding dimension, default `1536` |
+| `vector` | `{"_class": "<dotted VectorSource path>", "name": ..., "connection": {...}}` — constructed internally via `DataSource.instantiate()`; only used when `mode="semantic"` |
+| `vector_source` | An already-live `VectorSource` object — takes precedence over `vector` if both are given; for in-memory/programmatic use, not persistable |
+| `embedding` | `{"provider": "openai", "model": ...}` — `KBSource` builds the embedding callable itself |
+| `embedding_fn` | An already-live `Callable[[str], list[float]]` — takes precedence over `embedding`; not persistable |
+
+A database reconstructed purely from `DataSource.instantiate(class_path, name, properties=stored_properties)` — e.g. from the CLI's registry — gets its search indexer, vector source, and embedding function fully wired up from `properties["search"]` alone, no other code required.
 
 All methods below are `async def` and must be awaited, **except** `create_database`/`fetch_databases` (inherited from the `GraphSource` backend, synchronous), `add_change_hook`/`remove_change_hook`, `reindex`, and the `has_semantic_search` property.
 

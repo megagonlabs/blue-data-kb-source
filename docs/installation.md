@@ -64,8 +64,8 @@ None of the three packages are published to PyPI yet — always install from the
 | Extra | Packages | Required for |
 |---|---|---|
 | `openai` | `openai>=1.0` | `import_text`, `answer`, `validate`, `enrich` (all LLM agent operations) |
-| `neo4j` | `neo4j` | The `Neo4jGraphSource` backend |
-| `search` | `rank-bm25` | `enable_search=True` (real BM25 ranking; without it, keyword search falls back to unranked substring matching) |
+| `neo4j` | `neo4j` | The `NEO4JSource`/`NEO4JKBSource` backend |
+| `search` | `rank-bm25` | `properties["search"]["mode"]="bm25"` (real BM25 ranking; without it, keyword search falls back to unranked substring matching) |
 | `dev` | `pytest`, `pytest-asyncio`, `pytest-recording`, `pytest-cov`, `pyyaml`, `rich` | Running the test suite and benchmarks |
 | `all` | `neo4j`, `openai>=1.0`, `rank-bm25` | Everything above except `dev` |
 

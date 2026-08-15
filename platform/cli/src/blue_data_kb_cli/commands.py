@@ -42,12 +42,17 @@ from blue_data_kb_source._constants import (
 from blue_data_kb_source.types import KBError
 
 from blue_data_kb_cli.config import (
+    _BACKEND_BY_KB_CLASS,
+    _FILE_KB_CLASS,
+    _KB_CLASS_BY_BACKEND,
     _data_dir,
     _default_database,
-    _load_registry,
+    _get_registry,
     _make_kb,
-    _registry_path,
+    _neo4j_connection_dict,
     _selected_database_path,
+    _vector_properties,
+    list_databases,
     load_db_config,
     register_database,
     unregister_database,
@@ -259,21 +264,22 @@ def database_group() -> None:
 )
 def database_list(fmt: str) -> None:
     """List registered databases."""
-    registry = _load_registry()
+    records = sorted(list_databases(), key=lambda r: r["name"])
     if fmt == "json":
-        console.print_json(json.dumps(
-            {name: cfg for name, cfg in sorted(registry.items())}
-        ))
+        console.print_json(json.dumps({r["name"]: r["properties"] for r in records}))
         return
-    if not registry:
+    if not records:
         console.print("[dim](no databases registered — run `kb database register NAME`)[/dim]")
         return
     t = Table(show_header=True, header_style="bold")
     t.add_column("Database")
     t.add_column("Graph Backend", style="dim")
     t.add_column("Search",        style="dim")
-    for name, cfg in sorted(registry.items()):
-        t.add_row(name, cfg.get("graph_backend", "file"), cfg.get("search", "none"))
+    for r in records:
+        props = r["properties"]
+        backend = _BACKEND_BY_KB_CLASS.get(props.get("_class"), props.get("_class", "?"))
+        search_mode = (props.get("search") or {}).get("mode", "none")
+        t.add_row(r["name"], backend, search_mode)
     console.print(t)
 
 
@@ -313,54 +319,43 @@ def database_register(
     embedding_model: str | None,
 ) -> None:
     """Register a new database with the specified backend and search config."""
-    cfg: dict[str, Any] = {"graph_backend": graph_backend, "search": search}
+    class_path = _KB_CLASS_BY_BACKEND[graph_backend]
 
     if graph_backend == "neo4j":
-        graph_cfg: dict[str, Any] = {}
-        if neo4j_uri:
-            graph_cfg["uri"] = neo4j_uri
-        if neo4j_user:
-            graph_cfg["username"] = neo4j_user
-        if neo4j_password:
-            graph_cfg["password"] = neo4j_password
-        cfg["graph"] = graph_cfg
+        connection = _neo4j_connection_dict(uri=neo4j_uri, user=neo4j_user, password=neo4j_password)
     else:
-        cfg["graph"] = {"directory": directory or _data_dir()}
+        connection = {"directory": directory or _data_dir()}
 
+    search_cfg: dict[str, Any] | None = None
     if search in ("bm25", "semantic"):
+        search_cfg = {"mode": search}
         if bm25_index_dir:
-            cfg["bm25"] = {"index_dir": bm25_index_dir}
+            search_cfg["bm25_index_dir"] = bm25_index_dir
+        if search == "semantic":
+            vconn: dict[str, Any] = {}
+            if vector_backend == "file" and vector_directory:
+                vconn["directory"] = vector_directory
+            if vector_backend == "chromadb" and vector_path:
+                vconn["path"] = vector_path
+            if vector_backend == "redis":
+                if redis_host:
+                    vconn["host"] = redis_host
+                if redis_port is not None:
+                    vconn["port"] = redis_port
+                if redis_db is not None:
+                    vconn["db"] = redis_db
+            search_cfg["vector"] = _vector_properties(vector_backend, vconn)
+            embedding_cfg: dict[str, Any] = {"provider": embedding_provider}
+            if embedding_model:
+                embedding_cfg["model"] = embedding_model
+            search_cfg["embedding"] = embedding_cfg
 
-    if search == "semantic":
-        vcfg: dict[str, Any] = {"backend": vector_backend}
-        if vector_backend == "file" and vector_directory:
-            vcfg["directory"] = vector_directory
-        if vector_backend == "chromadb" and vector_path:
-            vcfg["path"] = vector_path
-        if vector_backend == "redis":
-            conn: dict[str, Any] = {}
-            if redis_host:
-                conn["host"] = redis_host
-            if redis_port is not None:
-                conn["port"] = redis_port
-            if redis_db is not None:
-                conn["db"] = redis_db
-            if conn:
-                vcfg["connection"] = conn
-        cfg["vector"] = vcfg
-        ecfg: dict[str, Any] = {"provider": embedding_provider}
-        if embedding_model:
-            ecfg["model"] = embedding_model
-        cfg["embedding"] = ecfg
-
-    register_database(name, cfg)
-    # Ensure the graph database exists
     try:
-        kb = _make_kb(name)
+        kb = register_database(name, class_path, connection=connection, search=search_cfg)
         if name not in kb.fetch_databases():
             kb.create_database(name)
     except Exception as exc:
-        raise click.ClickException(f"Registered config but failed to initialize backend: {exc}")
+        raise click.ClickException(f"Failed to register/initialize backend: {exc}")
     console.print(f"Registered database: [bold]{name}[/bold] (graph={graph_backend}, search={search})")
 
 
@@ -375,13 +370,8 @@ def database_create(obj: dict, name: str) -> None:
     except KBError as exc:
         raise click.ClickException(str(exc))
     # Auto-register with defaults if not present
-    registry = _load_registry()
-    if name not in registry:
-        register_database(name, {
-            "graph_backend": "file",
-            "graph": {"directory": _data_dir()},
-            "search": "none",
-        })
+    if _get_registry().get_source_record(name) is None:
+        register_database(name, _FILE_KB_CLASS, connection={"directory": _data_dir()})
     console.print(f"Created database: [bold]{name}[/bold]")
 
 
@@ -391,11 +381,11 @@ def database_create(obj: dict, name: str) -> None:
 def database_delete(name: str, yes: bool) -> None:
     """Delete a database and remove it from the registry."""
     cfg = load_db_config(name)
-    graph_backend = cfg.get("graph_backend", "file")
+    class_path = cfg.get("_class", _FILE_KB_CLASS)
+    graph_backend = _BACKEND_BY_KB_CLASS.get(class_path, class_path)
 
-    if graph_backend == "file":
-        gcfg = cfg.get("graph", {})
-        directory = Path(gcfg.get("directory", _data_dir())).expanduser()
+    if class_path == _FILE_KB_CLASS:
+        directory = Path(cfg.get("connection", {}).get("directory", _data_dir())).expanduser()
         path = directory / f"{name}.json"
         if not path.exists():
             # Not in registry or file not found
@@ -412,7 +402,7 @@ def database_delete(name: str, yes: bool) -> None:
             )
 
     # Remove BM25 index files if present
-    bm25_dir = cfg.get("bm25", {}).get("index_dir")
+    bm25_dir = (cfg.get("search") or {}).get("bm25_index_dir")
     if bm25_dir:
         import glob
         for f in glob.glob(str(Path(bm25_dir).expanduser() / f"{name}_*_bm25.json")):
@@ -472,18 +462,13 @@ def database_config_set(
     db: str = obj["db"]
     updates: dict[str, Any] = {}
     if graph_backend:
-        updates["graph_backend"] = graph_backend
-    graph_updates: dict[str, Any] = {}
+        updates["_class"] = _KB_CLASS_BY_BACKEND[graph_backend]
+    connection_updates: dict[str, Any] = {}
     if directory:
-        graph_updates["directory"] = directory
-    if neo4j_uri:
-        graph_updates["uri"] = neo4j_uri
-    if neo4j_user:
-        graph_updates["username"] = neo4j_user
-    if neo4j_password:
-        graph_updates["password"] = neo4j_password
-    if graph_updates:
-        updates["graph"] = graph_updates
+        connection_updates["directory"] = directory
+    connection_updates.update(_neo4j_connection_dict(uri=neo4j_uri, user=neo4j_user, password=neo4j_password))
+    if connection_updates:
+        updates["connection"] = connection_updates
     if not updates:
         raise click.ClickException("No options provided.")
     update_db_config(db, updates)
@@ -510,13 +495,7 @@ def database_search_config_show(obj: dict) -> None:
     """Print search configuration for the current database."""
     db: str = obj["db"]
     cfg = load_db_config(db)
-    search_cfg = {
-        "search": cfg.get("search", "none"),
-        "bm25": cfg.get("bm25", {}),
-        "vector": cfg.get("vector", {}),
-        "embedding": cfg.get("embedding", {}),
-    }
-    console.print_json(json.dumps(search_cfg, indent=2))
+    console.print_json(json.dumps(cfg.get("search") or {"mode": "none"}, indent=2))
 
 
 @database_search_config_group.command("set")
@@ -546,39 +525,34 @@ def database_search_config_set(
 ) -> None:
     """Update search configuration for the current database."""
     db: str = obj["db"]
-    updates: dict[str, Any] = {}
+    search_updates: dict[str, Any] = {}
     if search:
-        updates["search"] = search
+        search_updates["mode"] = search
     if bm25_index_dir:
-        updates["bm25"] = {"index_dir": bm25_index_dir}
-    vcfg: dict[str, Any] = {}
-    if vector_backend:
-        vcfg["backend"] = vector_backend
-    if vector_directory:
-        vcfg["directory"] = vector_directory
-    if vector_path:
-        vcfg["path"] = vector_path
-    conn: dict[str, Any] = {}
-    if redis_host:
-        conn["host"] = redis_host
-    if redis_port is not None:
-        conn["port"] = redis_port
-    if redis_db is not None:
-        conn["db"] = redis_db
-    if conn:
-        vcfg["connection"] = conn
-    if vcfg:
-        updates["vector"] = vcfg
-    ecfg: dict[str, Any] = {}
+        search_updates["bm25_index_dir"] = bm25_index_dir
+    if vector_backend or vector_directory or vector_path or redis_host or redis_port is not None or redis_db is not None:
+        vconn: dict[str, Any] = {}
+        if vector_directory:
+            vconn["directory"] = vector_directory
+        if vector_path:
+            vconn["path"] = vector_path
+        if redis_host:
+            vconn["host"] = redis_host
+        if redis_port is not None:
+            vconn["port"] = redis_port
+        if redis_db is not None:
+            vconn["db"] = redis_db
+        search_updates["vector"] = _vector_properties(vector_backend or "memory", vconn)
+    embedding_updates: dict[str, Any] = {}
     if embedding_provider:
-        ecfg["provider"] = embedding_provider
+        embedding_updates["provider"] = embedding_provider
     if embedding_model:
-        ecfg["model"] = embedding_model
-    if ecfg:
-        updates["embedding"] = ecfg
-    if not updates:
+        embedding_updates["model"] = embedding_model
+    if embedding_updates:
+        search_updates["embedding"] = embedding_updates
+    if not search_updates:
         raise click.ClickException("No options provided.")
-    update_db_config(db, updates)
+    update_db_config(db, {"search": search_updates})
     console.print(f"Updated search config for database: [bold]{db}[/bold]")
 
 

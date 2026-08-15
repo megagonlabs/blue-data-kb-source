@@ -30,7 +30,7 @@ class MyGraphSource(GraphSource):
 
 **Transactions** (`begin_transaction`/`commit_transaction`/`rollback_transaction`/`transaction`) have base-class defaults — override them only if your backend can offer real atomicity across multiple writes; `KBSource` itself doesn't require it.
 
-Once implemented, mix it into `KBSource` via Python MRO — no factory, no registry:
+Once implemented, mix it into `KBSource` via Python MRO — no factory, no registry required for the mixing itself:
 
 ```python
 from blue_data_kb_source import KBSource
@@ -38,8 +38,10 @@ from blue_data_kb_source import KBSource
 class MyKBSource(KBSource, MyGraphSource):
     pass
 
-kb = MyKBSource(name="my-kb", **my_graph_source_kwargs)
+kb = MyKBSource(name="my-kb", properties={"connection": {...}})
 ```
+
+`KBSource.__init__(name, properties=None)` matches `DataSource`'s own signature exactly — `MyGraphSource` should too (no extra constructor kwargs of its own), so anything backend-specific belongs under `properties["connection"]`, read via your own `_initialize_connection_properties` override (see the three shipped mixins — `memory_kb_source.py`, `file_kb_source.py`, `neo4j/neo4j_kb_source.py` — for the pattern). Doing this also means your class can be constructed dynamically from a config-driven backend choice via `DataSource.instantiate("mypackage.MyKBSource", "my-kb", properties=...)`, the same mechanism the CLI's registry and MCP server use for the built-in backends.
 
 The three existing backends (`MemoryGraphSource`, `FileGraphSource`, `NEO4JSource`, all in `blue_data.source.graph`) are the reference implementations to read alongside this — `FileGraphSource` in particular is a good template for a from-scratch persistent backend, since it implements the full interface without a database server dependency.
 
@@ -73,21 +75,39 @@ results = source.execute_query({
 # → [{"id": "...", "score": 0.12, "name": "...", ...}, ...]  (score = cosine distance, lower = closer)
 ```
 
-Implement this interface (see `blue_data.source.vector.memory_vector_source.MemoryVectorSource` for the simplest reference, or `redis_vector_source.RedisVectorSource` for a production-shaped one) and pass an instance as `vector_source=` at construction, alongside an `embedding_fn: Callable[[str], list[float]]`:
+Implement this interface (see `blue_data.source.vector.memory_vector_source.MemoryVectorSource` for the simplest reference, or `redis_vector_source.RedisVectorSource` for a production-shaped one). `KBSource.__init__(name, properties=None)` takes no other constructor arguments — matching `DataSource`'s own signature — so search config lives entirely under `properties["search"]`, either as an already-live object or as a declarative `_class` path `DataSource.instantiate()` constructs internally:
 
 ```python
+# Live object -- for in-memory/programmatic use, nothing here needs to be JSON-safe
 kb = MyKBSource(
     name="my-kb",
-    enable_search=True,
-    vector_source=MyVectorSource(),
-    embedding_fn=my_embedding_fn,
-    vector_dim=1536,
+    properties={
+        "search": {
+            "mode": "semantic",
+            "vector_source": MyVectorSource(),
+            "embedding_fn": my_embedding_fn,
+            "vector_dim": 1536,
+        }
+    },
+)
+
+# Declarative -- reconstructible from nothing but this dict (e.g. persisted in a registry)
+kb2 = MyKBSource(
+    name="my-kb",
+    properties={
+        "search": {
+            "mode": "semantic",
+            "vector_dim": 1536,
+            "vector": {"_class": "mypackage.my_vector_source.MyVectorSource", "connection": {}},
+            "embedding": {"provider": "openai", "model": "text-embedding-3-small"},
+        }
+    },
 )
 ```
 
-`embedding_fn` is called **synchronously** from `KBSearchIndexer` — if your embedding call is naturally async (e.g. an async HTTP client), wrap it in a sync call (`asyncio.run`, or a sync SDK client) rather than passing an `async def`.
+`embedding_fn` is called **synchronously** from `KBSearchIndexer` — if your embedding call is naturally async (e.g. an async HTTP client), wrap it in a sync call (`asyncio.run`, or a sync SDK client) rather than passing an `async def`. The `"embedding"` declarative form only supports `provider: "openai"` today (built by `KBSource.__init__`'s own `_build_embedding_fn` helper) — a custom provider needs the live-callable form.
 
-The CLI and MCP server both already wire up `memory`/`file`/`chromadb`/`redis` vector backends behind a `--vector-backend`/`BLUE_DATA_KB_SOURCE_VECTOR_BACKEND` option — see `platform/cli/src/blue_data_kb_cli/config.py`'s `_make_vector_source` for the exact factory pattern if you're adding a new backend there too.
+The CLI and MCP server both already wire up `memory`/`file`/`chromadb`/`redis` vector backends behind a `--vector-backend`/`BLUE_DATA_KB_SOURCE_VECTOR_BACKEND` option — see `platform/cli/src/blue_data_kb_cli/config.py`'s `_vector_properties` for the exact `_class` path table if you're adding a new backend there too.
 
 ---
 

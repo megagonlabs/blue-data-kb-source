@@ -9,7 +9,5 @@ class FileKBSource(KBSource, FileGraphSource):
     """File-backed KBSource — JSON file per database, single-process persistence, no server required."""
 
     def _initialize_connection_properties(self) -> None:
-        conn = self.properties.get("connection", {})
-        conn.setdefault("protocol", "kb/file")
-        conn.setdefault("directory", ".")
-        self.properties["connection"] = conn
+        super()._initialize_connection_properties()
+        self.properties["connection"]["protocol"] = "kb/file"

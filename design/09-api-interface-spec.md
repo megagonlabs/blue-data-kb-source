@@ -12,19 +12,10 @@ The canonical interface. All other interfaces delegate to it. `KBSource` is an a
 
 ```python
 class KBSource(GraphSource, ABC):
-    def __init__(
-        self,
-        *args: Any,                                   # forwarded to the GraphSource backend, e.g. name=, directory=
-        enable_search: bool = False,
-        vector_source: VectorSource | None = None,
-        embedding_fn: Callable[[str], list[float]] | None = None,
-        vector_dim: int = 1536,
-        corpus_dir: str | None = None,
-        **kwargs: Any,
-    ) -> None: ...
+    def __init__(self, name: str, properties: dict[str, Any] | None = None) -> None: ...
 ```
 
-`enable_search=True` (or passing `vector_source`) constructs a `KBSearchIndexer` for BM25 keyword search; supplying `vector_source` and `embedding_fn` together additionally enables semantic search.
+Matches `DataSource.__init__`'s own signature exactly — every `KBSource` subclass in this codebase (`MemoryKBSource`, `FileKBSource`, `NEO4JKBSource`) does too, taking no other constructor kwargs of their own (backend connection config lives under `properties["connection"]`, read by each subclass's own `_initialize_connection_properties` override). Search is `properties["search"]`: `{"mode": "bm25"|"semantic", "bm25_index_dir"?, "vector_dim"?, "vector": {"_class": ..., "connection": {...}}, "embedding": {"provider": ..., "model": ...}}` — `"vector"`/`"embedding"` are declarative and JSON-safe (constructed internally via `DataSource.instantiate()` and a small provider-config helper, respectively); `"vector_source"`/`"embedding_fn"` may instead hold already-live objects for in-memory/programmatic use, taking precedence when present. See [06-library.md](06-library.md) for the full breakdown.
 
 ### `KBSource`
 

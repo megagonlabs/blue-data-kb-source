@@ -17,7 +17,6 @@ import os
 import shutil
 import tempfile
 
-from blue_data.source.vector.chromadb.chromadb_vector_source import ChromaDBVectorSource
 from blue_data_kb_source import FileKBSource
 
 DIVIDER = "-" * 60
@@ -32,11 +31,21 @@ def fake_embedding(text: str) -> list[float]:
 def build_kb(name: str, graph_dir: str, chroma_dir: str) -> FileKBSource:
     return FileKBSource(
         name=name,
-        directory=graph_dir,
-        enable_search=True,
-        vector_source=ChromaDBVectorSource("kb_vectors", path=chroma_dir),
-        embedding_fn=fake_embedding,
-        vector_dim=DIM,
+        properties={
+            "connection": {"directory": graph_dir},
+            "search": {
+                "mode": "semantic",
+                "vector_dim": DIM,
+                # Declarative: ChromaDBVectorSource is constructed internally via
+                # DataSource.instantiate() from this _class + connection.path.
+                "vector": {
+                    "_class": "blue_data.source.vector.chromadb.chromadb_vector_source.ChromaDBVectorSource",
+                    "name": "kb_vectors",
+                    "connection": {"path": chroma_dir},
+                },
+                "embedding_fn": fake_embedding,
+            },
+        },
     )
 
 

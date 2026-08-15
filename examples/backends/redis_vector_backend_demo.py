@@ -27,7 +27,6 @@ import os
 
 import redis
 
-from blue_data.source.vector.redis.redis_vector_source import RedisVectorSource
 from blue_data_kb_source import MemoryKBSource
 from blue_data_kb_source.types import KBError
 
@@ -63,13 +62,20 @@ async def main():
 
     kb = MemoryKBSource(
         name="redis-demo",
-        enable_search=True,
-        vector_source=RedisVectorSource(
-            "kb_vectors",
-            properties={"connection": {"host": REDIS_HOST, "port": REDIS_PORT, "scan_prefix": SCAN_PREFIX}},
-        ),
-        embedding_fn=fake_embedding,
-        vector_dim=DIM,
+        properties={
+            "search": {
+                "mode": "semantic",
+                "vector_dim": DIM,
+                # Declarative: RedisVectorSource is constructed internally via
+                # DataSource.instantiate() from this _class + connection.
+                "vector": {
+                    "_class": "blue_data.source.vector.redis.redis_vector_source.RedisVectorSource",
+                    "name": "kb_vectors",
+                    "connection": {"host": REDIS_HOST, "port": REDIS_PORT, "scan_prefix": SCAN_PREFIX},
+                },
+                "embedding_fn": fake_embedding,
+            }
+        },
     )
     kb.create_database("main")
 

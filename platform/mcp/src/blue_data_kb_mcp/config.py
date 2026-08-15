@@ -14,13 +14,21 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Optional
+from urllib.parse import urlparse
 
 from blue_data.source.source import DataSource
 from blue_data_kb_source import KBSource
 
 _FILE_KB_CLASS = "blue_data_kb_source.file_kb_source.FileKBSource"
 _NEO4J_KB_CLASS = "blue_data_kb_source.neo4j.neo4j_kb_source.NEO4JKBSource"
+
+_VECTOR_CLASS_BY_BACKEND = {
+    "memory": "blue_data.source.vector.memory_vector_source.MemoryVectorSource",
+    "file": "blue_data.source.vector.file_vector_source.FileVectorSource",
+    "chromadb": "blue_data.source.vector.chromadb.chromadb_vector_source.ChromaDBVectorSource",
+    "redis": "blue_data.source.vector.redis.redis_vector_source.RedisVectorSource",
+}
 
 _kb: Optional[KBSource] = None
 
@@ -54,7 +62,6 @@ def _neo4j_connection() -> dict[str, Any]:
     connection: dict[str, Any] = {"user": os.environ.get("BLUE_DATA_KB_SOURCE_NEO4J_USER", "neo4j")}
     uri = os.environ.get("BLUE_DATA_KB_SOURCE_NEO4J_URI", "")
     if uri:
-        from urllib.parse import urlparse
         parsed = urlparse(uri)
         connection["protocol"] = parsed.scheme or "bolt"
         connection["host"] = parsed.hostname or "localhost"
@@ -64,38 +71,6 @@ def _neo4j_connection() -> dict[str, Any]:
     if password:
         connection["password"] = password
     return connection
-
-
-# ---------------------------------------------------------------------------
-# Search backend helpers
-# ---------------------------------------------------------------------------
-
-def _vector_source() -> Any:
-    backend = os.environ.get("BLUE_DATA_KB_SOURCE_VECTOR_BACKEND", "memory")
-    if backend == "file":
-        from blue_data.source.vector.file_vector_source import FileVectorSource
-        return FileVectorSource("kb_vectors", directory=_directory())
-    if backend == "chromadb":
-        from blue_data.source.vector.chromadb.chromadb_vector_source import ChromaDBVectorSource
-        return ChromaDBVectorSource("kb_vectors")
-    if backend == "redis":
-        from blue_data.source.vector.redis.redis_vector_source import RedisVectorSource
-        return RedisVectorSource("kb_vectors")
-    from blue_data.source.vector.memory_vector_source import MemoryVectorSource
-    return MemoryVectorSource("kb_vectors")
-
-
-def _embedding_fn() -> Callable[[str], list[float]]:
-    model = os.environ.get("BLUE_DATA_KB_SOURCE_EMBEDDING_MODEL", "text-embedding-3-small")
-    _client: list[Any] = []  # lazy singleton, created on first call
-
-    def _embed(text: str) -> list[float]:
-        if not _client:
-            import openai
-            _client.append(openai.OpenAI())
-        return _client[0].embeddings.create(input=text, model=model).data[0].embedding
-
-    return _embed
 
 
 # ---------------------------------------------------------------------------
@@ -109,29 +84,42 @@ def _build_kb() -> KBSource:
     # Constructed via DataSource.instantiate() since the backend is chosen at
     # runtime from an env var, not a fixed class known at write-time — the
     # dotted-path import also keeps the neo4j driver out of the process unless
-    # BLUE_DATA_KB_SOURCE_GRAPH_BACKEND=neo4j is actually set.
+    # BLUE_DATA_KB_SOURCE_GRAPH_BACKEND=neo4j is actually set. Every other
+    # kwarg KBSource.__init__ takes lives under properties too, matching
+    # DataSource's own (name, properties=None) signature.
     kb_class: str
-    graph_kwargs: dict[str, Any]
+    connection: dict[str, Any]
     default_index_dir: str
 
     if graph_backend == "neo4j":
         kb_class = _NEO4J_KB_CLASS
-        graph_kwargs = {"name": "kb", "properties": {"connection": _neo4j_connection()}}
+        connection = _neo4j_connection()
         default_index_dir = _directory()
     else:
         kb_class = _FILE_KB_CLASS
         directory = _directory()
-        graph_kwargs = {"name": "kb", "directory": directory}
+        connection = {"directory": directory}
         default_index_dir = directory
 
-    search_kwargs: dict[str, Any] = {}
+    properties: dict[str, Any] = {"connection": connection}
+
     if search_mode in ("bm25", "semantic"):
-        search_kwargs["enable_search"] = True
         bm25_dir = os.environ.get("BLUE_DATA_KB_SOURCE_BM25_INDEX_DIR") or default_index_dir
-        search_kwargs["corpus_dir"] = str(Path(bm25_dir).expanduser())
+        search_cfg: dict[str, Any] = {"mode": search_mode, "bm25_index_dir": str(Path(bm25_dir).expanduser())}
+        if search_mode == "semantic":
+            vector_backend = os.environ.get("BLUE_DATA_KB_SOURCE_VECTOR_BACKEND", "memory")
+            vector_connection: dict[str, Any] = {}
+            if vector_backend == "file":
+                vector_connection["directory"] = _directory()
+            search_cfg["vector"] = {
+                "_class": _VECTOR_CLASS_BY_BACKEND[vector_backend],
+                "name": "kb_vectors",
+                "connection": vector_connection,
+            }
+            search_cfg["embedding"] = {
+                "provider": "openai",
+                "model": os.environ.get("BLUE_DATA_KB_SOURCE_EMBEDDING_MODEL", "text-embedding-3-small"),
+            }
+        properties["search"] = search_cfg
 
-    if search_mode == "semantic":
-        search_kwargs["vector_source"] = _vector_source()
-        search_kwargs["embedding_fn"] = _embedding_fn()
-
-    return DataSource.instantiate(kb_class, **graph_kwargs, **search_kwargs)
+    return DataSource.instantiate(kb_class, "kb", properties=properties)

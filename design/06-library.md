@@ -11,20 +11,24 @@ Entry point for all KBDB operations. Abstract base class — must be subclassed 
 ### Constructor
 
 ```python
-KBSource(
-    *args,
-    enable_search: bool = False,
-    vector_source: VectorSource | None = None,
-    embedding_fn: Callable[[str], list[float]] | None = None,
-    vector_dim: int = 1536,
-    corpus_dir: str | None = None,
-    **kwargs,
-)
+KBSource(name: str, properties: dict[str, Any] | None = None)
 ```
 
-`*args`/`**kwargs` are forwarded to the concrete `GraphSource` backend mixed in via MRO (e.g. `name` for `MemoryGraphSource`, `name` + `directory` for `FileGraphSource`).
+Matches `DataSource.__init__`'s own signature exactly — no `*args`/`**kwargs`, no separate `enable_search=`/`vector_source=`/`embedding_fn=`/`vector_dim=`/`corpus_dir=` parameters. Every `KBSource` subclass in this codebase follows the same rule (no extra constructor kwargs of its own); backend connection config lives under `properties["connection"]` instead — e.g. `FileKBSource(name="x", properties={"connection": {"directory": "/data"}})`, picked up by `FileGraphSource`'s own `_initialize_connection_properties` default-filling once no `directory=` kwarg is passed.
 
-`enable_search=True` (or passing a `vector_source`) constructs a `KBSearchIndexer` and registers it as a global change hook so it stays in sync automatically. Without a `vector_source`/`embedding_fn`, the indexer supports keyword (BM25) search only; supplying both enables semantic search. `corpus_dir` persists the BM25 corpus to disk across restarts.
+Search config is `properties["search"]`:
+
+| Key | Type | Meaning |
+|---|---|---|
+| `mode` | `"none"` \| `"bm25"` \| `"semantic"` | Default `"none"` |
+| `bm25_index_dir` | `str` | Persist the BM25 corpus to disk across restarts |
+| `vector_dim` | `int` | Embedding dimension, default `1536` |
+| `vector` | `{"_class": str, "name"?: str, "connection": dict}` | Declarative — constructed via `DataSource.instantiate(vcfg["_class"], vcfg.get("name", "kb_vectors"), properties=vcfg)`. Only consulted when `mode="semantic"` and no live `vector_source` is given |
+| `vector_source` | already-live `VectorSource` object | In-memory/programmatic use — takes precedence over `vector`, never persisted |
+| `embedding` | `{"provider": str, "model"?: str}` | Declarative — `KBSource`'s own `_build_embedding_fn` helper constructs the callable (`provider="openai"` only, today) |
+| `embedding_fn` | already-live `Callable[[str], list[float]]` | Takes precedence over `embedding`, never persisted |
+
+A `KBSource` reconstructed purely via `DataSource.instantiate(class_path, name, properties=stored_properties)` — e.g. the CLI's registry, or the MCP server's env-var-driven singleton — gets its search indexer, vector source, and embedding function fully wired up from `properties["search"]` alone; no bespoke translation code needed at the call site. `KBSearchIndexer` itself (the class `__init__` actually constructs) is unaffected by this — it still takes `vector_source=`/`embedding_fn=`/`vector_dim=`/`corpus_dir=` as its own explicit kwargs; only `KBSource`'s own outward-facing constructor changed.
 
 ### Example
 
@@ -267,7 +271,7 @@ Populates the knowledge base with instance data and delegates natural language q
 KnowledgeManager(source, provenance_tracker, change_notifier, schema_manager, search_indexer=None)
 ```
 
-`search_indexer` is `None` unless the parent `KBSource` was constructed with `enable_search=True` or a `vector_source`.
+`search_indexer` is `None` unless `properties["search"]["mode"]` was `"bm25"`/`"semantic"` (or a live `vector_source` was given directly) when the parent `KBSource` was constructed.
 
 ### Methods
 
@@ -482,7 +486,7 @@ All events also carry `type`, `database`, and `id`. Schema events (`class_declar
 
 ## KBSearchIndexer
 
-Maintains a keyword (BM25) or embedding-based (semantic) search index over schema elements and instance data. Constructed only when the parent `KBSource` is created with `enable_search=True` or a `vector_source`; otherwise `KBSource.search_schema`/`search_data` fall back to `SchemaManager.find_schema`/`KnowledgeManager.find_data`.
+Maintains a keyword (BM25) or embedding-based (semantic) search index over schema elements and instance data. Constructed only when the parent `KBSource` is created with `properties["search"]["mode"]` in `("bm25", "semantic")` (or a live `vector_source` given directly); otherwise `KBSource.search_schema`/`search_data` fall back to `SchemaManager.find_schema`/`KnowledgeManager.find_data`.
 
 ### Constructor
 
@@ -537,7 +541,7 @@ Bridges free text and the structured knowledge base using an LLM agent loop that
 ExtractionEngine(source, schema_manager, knowledge_manager, provenance_tracker, search_indexer=None)
 ```
 
-`search_indexer` is `None` unless the parent `KBSource` was constructed with `enable_search=True` or a `vector_source` — it backs the agent's `search_schema` tool under the default `schema_discovery_mode="search"`.
+`search_indexer` is `None` unless `properties["search"]["mode"]` was `"bm25"`/`"semantic"` (or a live `vector_source` was given directly) — it backs the agent's `search_schema` tool under the default `schema_discovery_mode="search"`.
 
 ### Methods
 

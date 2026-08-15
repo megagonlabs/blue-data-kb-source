@@ -16,11 +16,5 @@ class NEO4JKBSource(KBSource, NEO4JSource):
     """
 
     def _initialize_connection_properties(self) -> None:
-        connection = self.properties.get("connection", {})
-        connection.setdefault("protocol", "kb/neo4j")
-        connection.setdefault("scheme", "bolt")
-        connection.setdefault("host", "localhost")
-        connection.setdefault("port", 7687)
-        connection.setdefault("user", "neo4j")
-        connection.setdefault("password", "")
-        self.properties["connection"] = connection
+        super()._initialize_connection_properties()
+        self.properties["connection"]["protocol"] = "kb/neo4j"

@@ -41,10 +41,14 @@ async def main():
     # and change hooks are registered before any writes so nothing is missed.
     kb = MemoryKBSource(
         name="lifecycle-demo",
-        enable_search=True,
-        vector_source=MemoryVectorSource("kb_vectors"),
-        embedding_fn=fake_embedding,
-        vector_dim=DIM,
+        properties={
+            "search": {
+                "mode": "semantic",
+                "vector_dim": DIM,
+                "vector_source": MemoryVectorSource("kb_vectors"),
+                "embedding_fn": fake_embedding,
+            }
+        },
     )
     kb.create_database("main")
 
@@ -152,11 +156,15 @@ async def main():
     tmp = tempfile.mkdtemp(prefix="blue-data-kb-lifecycle-")
     migrated = FileKBSource(
         name="lifecycle-demo-migrated",
-        directory=tmp,
-        enable_search=True,
-        vector_source=MemoryVectorSource("kb_vectors"),
-        embedding_fn=fake_embedding,
-        vector_dim=DIM,
+        properties={
+            "connection": {"directory": tmp},
+            "search": {
+                "mode": "semantic",
+                "vector_dim": DIM,
+                "vector_source": MemoryVectorSource("kb_vectors"),
+                "embedding_fn": fake_embedding,
+            },
+        },
     )
     migrated.create_database("main")
 

@@ -341,7 +341,7 @@ The indexer keeps two collections per database: `schema` (classes, relations, pr
 
 **Vector Backends**
 
-Semantic search requires a `vector_source` and `embedding_fn` at construction time, on top of `enable_search=True`. Four vector backends are supported, mirroring the Graph Store's own pluggability:
+Semantic search requires a vector source and embedding function at construction time, configured via `properties["search"]["mode"]="semantic"` (see [06-library.md](06-library.md) for the full `properties["search"]` shape). Four vector backends are supported, mirroring the Graph Store's own pluggability:
 
 | Backend | Characteristics | Typical Use |
 |---------|----------------|------------|

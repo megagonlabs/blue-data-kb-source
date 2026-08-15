@@ -6,6 +6,7 @@ from typing import Any, Callable, Literal
 
 from blue_data.core.schema import DataSchema
 from blue_data.source.graph.graph_source import GraphSource
+from blue_data.source.source import DataSource
 
 from blue_data_kb_source._constants import (
     BOOLEAN,
@@ -47,6 +48,26 @@ from blue_data_kb_source.types import (
 )
 
 
+def _build_embedding_fn(cfg: dict[str, Any]) -> Callable[[str], list[float]]:
+    """Build an embedding callable from properties["search"]["embedding"] config
+    (`{"provider": ..., "model": ...}`) — used when a caller supplies that
+    declarative config instead of an already-live `embedding_fn` callable."""
+    provider = cfg.get("provider", "openai")
+    if provider == "openai":
+        model = cfg.get("model", "text-embedding-3-small")
+        _client: list[Any] = []  # lazy singleton, created on first call
+
+        def _embed(text: str) -> list[float]:
+            if not _client:
+                import openai
+
+                _client.append(openai.OpenAI())
+            return _client[0].embeddings.create(input=text, model=model).data[0].embedding
+
+        return _embed
+    raise ValueError(f"Unsupported embedding provider: {provider!r}")
+
+
 class KBSource(GraphSource, ABC):
     """Abstract knowledge-base source built on top of GraphSource.
 
@@ -69,6 +90,13 @@ class KBSource(GraphSource, ABC):
 
     Subclasses must implement the abstract GraphSource primitives:
     add_node, get_node, delete_node, add_edge, delete_edge, get_neighbors.
+
+    Constructor matches DataSource's own `(name, properties=None)` exactly — no
+    extra keyword arguments. Everything backend/search-specific (graph connection,
+    BM25/semantic search mode, vector backend, embedding provider) is config under
+    `properties`, e.g. `properties["connection"]["directory"]` for FileKBSource,
+    `properties["search"]["mode"]` / `["vector"]` / `["embedding"]` for search. See
+    design/06-library.md for the full properties shape.
     """
 
     # ------------------------------------------------------------------ #
@@ -113,29 +141,43 @@ class KBSource(GraphSource, ABC):
     # Initialisation                                                       #
     # ------------------------------------------------------------------ #
 
-    def __init__(
-        self,
-        *args: Any,
-        enable_search: bool = False,
-        vector_source: Any = None,
-        embedding_fn: Callable[..., Any] | None = None,
-        vector_dim: int = 1536,
-        corpus_dir: str | None = None,
-        **kwargs: Any,
-    ) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(self, name: str, properties: dict[str, Any] | None = None) -> None:
+        super().__init__(name, properties=properties)
         self._notifier = ChangeNotifier()
         self._provenance = ProvenanceTracker(self)
         self._schema = SchemaManager(self, self._notifier)
 
+        # Search/vector/embedding config lives entirely under properties["search"] —
+        # matching DataSource.__init__(name, properties=None): no extra constructor
+        # kwargs. This makes a KBSource fully reconstructible from nothing but
+        # DataSource.instantiate(class_path, name, properties=stored_properties),
+        # e.g. from the CLI's registry — see design/06-library.md for the shape.
+        # "vector_source"/"embedding_fn" may also be passed as already-live objects
+        # nested in properties["search"] for in-memory/programmatic use (they're
+        # never meant to be persisted that way — only the declarative "vector"/
+        # "embedding" config sub-dicts are JSON-safe).
+        search_cfg = self.properties.get("search") or {}
+        mode = search_cfg.get("mode", "none")
+        vector_source = search_cfg.get("vector_source")
+        embedding_fn = search_cfg.get("embedding_fn")
+
         self._search_indexer: KBSearchIndexer | None = None
-        if enable_search or vector_source is not None:
+        if mode in ("bm25", "semantic") or vector_source is not None:
+            if mode == "semantic" and vector_source is None:
+                vcfg = search_cfg.get("vector")
+                if vcfg:
+                    vector_source = DataSource.instantiate(
+                        vcfg["_class"], vcfg.get("name", "kb_vectors"), properties=vcfg
+                    )
+            if embedding_fn is None and search_cfg.get("embedding"):
+                embedding_fn = _build_embedding_fn(search_cfg["embedding"])
+
             self._search_indexer = KBSearchIndexer(
                 self,
                 vector_source=vector_source,
                 embedding_fn=embedding_fn,
-                vector_dim=vector_dim,
-                corpus_dir=corpus_dir,
+                vector_dim=search_cfg.get("vector_dim", 1536),
+                corpus_dir=search_cfg.get("bm25_index_dir"),
             )
             self._notifier.add_global_hook(self._search_indexer.on_change)
 

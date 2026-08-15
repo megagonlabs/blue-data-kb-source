@@ -194,7 +194,7 @@ Idempotent schema declarations mean re-running `import_text` over overlapping te
 
 ## Search
 
-`KBSearchIndexer` is optional per database (`enable_search=True`, or passing `vector_source`) and, once enabled, registers itself as a global change hook — so it stays in sync incrementally as writes happen anywhere else in the system, without requiring a full rebuild. It maintains two collections per database (`schema`, `data`), each indexed with a composite text built from the node's own name/description plus relevant neighbors (e.g. a fact's index text includes its head/relation/tail names), so a query can match context a node doesn't literally contain in its own name.
+`KBSearchIndexer` is optional per database (`properties["search"]["mode"]` in `("bm25", "semantic")`, or a live `vector_source` given directly — see [api-reference.md](api-reference.md#kbsource)) and, once enabled, registers itself as a global change hook — so it stays in sync incrementally as writes happen anywhere else in the system, without requiring a full rebuild. It maintains two collections per database (`schema`, `data`), each indexed with a composite text built from the node's own name/description plus relevant neighbors (e.g. a fact's index text includes its head/relation/tail names), so a query can match context a node doesn't literally contain in its own name.
 
 `mode="keyword"` ranks by BM25 (`rank-bm25`, falling back to substring matching when the `search` extra isn't installed); `mode="semantic"` additionally ranks by embedding similarity through a pluggable `VectorSource` (in-memory, file, ChromaDB, or Redis). `reindex()` rebuilds the corpus from scratch — used after a bulk import or an embedding model change.
 

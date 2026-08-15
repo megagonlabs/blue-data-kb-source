@@ -9,6 +9,5 @@ class MemoryKBSource(KBSource, MemoryGraphSource):
     """In-memory KBSource — in-process, non-persistent. Development, testing, short-lived pipelines."""
 
     def _initialize_connection_properties(self) -> None:
-        conn = self.properties.get("connection", {})
-        conn.setdefault("protocol", "kb/memory")
-        self.properties["connection"] = conn
+        super()._initialize_connection_properties()
+        self.properties["connection"]["protocol"] = "kb/memory"

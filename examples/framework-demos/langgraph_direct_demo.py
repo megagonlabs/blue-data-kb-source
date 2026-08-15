@@ -41,7 +41,7 @@ DIVIDER = "-" * 60
 # Setup: seed a small KB with BM25 search enabled (no API key needed for this)
 # --------------------------------------------------------------------------- #
 
-kb = MemoryKBSource(name="direct-demo", enable_search=True)
+kb = MemoryKBSource(name="direct-demo", properties={"search": {"mode": "bm25"}})
 kb.create_database("main")
 
 

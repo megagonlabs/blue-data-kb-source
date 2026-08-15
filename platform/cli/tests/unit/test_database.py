@@ -13,8 +13,8 @@ def test_database_list_empty(runner):
 def test_database_create_auto_registers(runner):
     invoke(runner, ["--database", "main", "database", "create", "main"])
     rows = invoke_json(runner, ["database", "list", "--format", "json"])
-    assert rows["main"]["graph_backend"] == "file"
-    assert rows["main"]["search"] == "none"
+    assert rows["main"]["_class"] == "blue_data_kb_source.file_kb_source.FileKBSource"
+    assert rows["main"].get("search") is None
 
 
 def test_database_register_file_backend(runner, tmp_path):
@@ -25,7 +25,7 @@ def test_database_register_file_backend(runner, tmp_path):
     ])
     assert "Registered database" in result.output
     rows = invoke_json(runner, ["database", "list", "--format", "json"])
-    assert rows["mydb"]["graph"]["directory"] == str(tmp_path / "data")
+    assert rows["mydb"]["connection"]["directory"] == str(tmp_path / "data")
     # The backend file should have been created immediately.
     assert (tmp_path / "data" / "mydb.json").exists()
 
@@ -33,14 +33,14 @@ def test_database_register_file_backend(runner, tmp_path):
 def test_database_register_bm25_search(runner):
     invoke(runner, ["database", "register", "searchable", "--search", "bm25"])
     cfg = invoke_json(runner, ["--database", "searchable", "database", "search", "config", "show"])
-    assert cfg["search"] == "bm25"
+    assert cfg["mode"] == "bm25"
 
 
 def test_database_search_config_set(runner):
     invoke(runner, ["--database", "main", "database", "create", "main"])
     invoke(runner, ["--database", "main", "database", "search", "config", "set", "--search", "bm25"])
     cfg = invoke_json(runner, ["--database", "main", "database", "search", "config", "show"])
-    assert cfg["search"] == "bm25"
+    assert cfg["mode"] == "bm25"
 
 
 def test_database_select_changes_default(runner):
@@ -68,9 +68,9 @@ def test_database_delete_missing_fails(runner):
 def test_database_config_show_and_set(runner, tmp_path):
     invoke(runner, ["--database", "main", "database", "create", "main"])
     cfg = json.loads(runner.invoke(cli, ["--database", "main", "database", "config", "show"]).output)
-    assert cfg["graph_backend"] == "file"
+    assert cfg["_class"] == "blue_data_kb_source.file_kb_source.FileKBSource"
 
     new_dir = tmp_path / "elsewhere"
     invoke(runner, ["--database", "main", "database", "config", "set", "--directory", str(new_dir)])
     cfg = json.loads(runner.invoke(cli, ["--database", "main", "database", "config", "show"]).output)
-    assert cfg["graph"]["directory"] == str(new_dir)
+    assert cfg["connection"]["directory"] == str(new_dir)

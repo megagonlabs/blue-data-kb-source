@@ -34,7 +34,7 @@ async def main():
     print("1. Declare schema, add data with provenance")
     print(DIVIDER)
 
-    kb = FileKBSource(name="kb", directory=tmp)
+    kb = FileKBSource(name="kb", properties={"connection": {"directory": tmp}})
     kb.create_database("main")
 
     person = await kb.declare_class("main", "PERSON", "A human individual")
@@ -67,7 +67,7 @@ async def main():
     print("2. Persistence — reopen the same directory")
     print(DIVIDER)
 
-    kb2 = FileKBSource(name="kb", directory=tmp)
+    kb2 = FileKBSource(name="kb", properties={"connection": {"directory": tmp}})
     rows2 = await kb2.fetch_database_data("main", compact=True)
     print(f"Reopened KB sees {len(rows2)} rows without any explicit save/load call")
     entities = sorted(r["entity_name"] for r in rows2 if r.get("relation_type") == "IS_INSTANCE_OF")

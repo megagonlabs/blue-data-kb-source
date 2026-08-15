@@ -14,8 +14,8 @@ search_data('Alice', mode='keyword'): ['Alice_WORKED_AT_IBM', 'Alice', 'IBM']
 3. Semantic search via Redis Stack — write path
 ------------------------------------------------------------
 Documents actually written to Redis by add_entity/declare_class: 6
-  blue_data_kb_examples_demo:kb_data_main:33c86227-055a-460a-ab9f-d90111788b55
-  blue_data_kb_examples_demo:kb_data_main:c44e7374-3813-445a-b695-0db1d55a12ae
+  blue_data_kb_examples_demo:kb_data_main:03767e27-8558-48f5-aae8-ac648eaa18db
+  blue_data_kb_examples_demo:kb_data_main:1bc6f884-6bb8-4706-8eb5-a00a678e4818
 
 ------------------------------------------------------------
 4. Semantic search via Redis Stack — read path (known gap)

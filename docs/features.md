@@ -43,9 +43,12 @@ An item can accumulate evidence from multiple passages over time: `add_entity_ex
 Optional BM25 keyword search or hybrid semantic (embedding) search over both schema and instance data, enabled per database.
 
 ```python
-kb = MemoryKBSource(name="my-kb", enable_search=True)   # BM25
+kb = MemoryKBSource(name="my-kb", properties={"search": {"mode": "bm25"}})   # BM25
 # or, for semantic search too:
-kb = MemoryKBSource(name="my-kb", enable_search=True, vector_source=my_vector_source, embedding_fn=my_embed_fn)
+kb = MemoryKBSource(
+    name="my-kb",
+    properties={"search": {"mode": "semantic", "vector_source": my_vector_source, "embedding_fn": my_embed_fn}},
+)
 
 hits = await kb.search_schema("main", "employment")
 hits = await kb.search_data("main", "Alice", mode="semantic")
