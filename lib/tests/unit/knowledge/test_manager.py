@@ -1,3 +1,4 @@
+import itertools
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -82,6 +83,15 @@ def _mock_openai_with_metadata(node_id, result_payload):
         side_effect=[_tool_call_response("get_metadata", {"id": node_id}), _agent_response(result_payload)]
     )
     return MagicMock(return_value=mock_client)
+
+
+def _mock_openai_repeating_tool_call(fn, args=None):
+    """Patch openai.AsyncOpenAI: every call returns the same tool call, forever
+    (never return_result) — used to test the max_turns cutoff."""
+    response = _tool_call_response(fn, args or {}, call_id="call_repeat")
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(side_effect=itertools.repeat(response))
+    return MagicMock(return_value=mock_client), mock_client
 
 
 def _mock_openai_with_metadata_nl(node_id, result_payload, nl_text, metadata_nl_text):
@@ -456,6 +466,14 @@ async def test_answer_returns_empty_for_unknown_term(populated_kb):
     with patch("openai.AsyncOpenAI", _mock_openai([])):
         results = await populated_kb.answer("test", "zzz_unknown_zzz")
     assert results == []
+
+
+async def test_answer_stops_after_max_turns(populated_kb):
+    factory, mock_client = _mock_openai_repeating_tool_call("get_schema")
+    with patch("openai.AsyncOpenAI", factory):
+        results = await populated_kb.answer("test", "Where did Alice work?", max_turns=3)
+    assert results == []
+    assert mock_client.chat.completions.create.call_count == 3
 
 
 # ------------------------------------------------------------------ #

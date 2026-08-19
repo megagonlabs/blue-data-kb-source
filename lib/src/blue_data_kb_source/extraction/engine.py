@@ -357,6 +357,7 @@ class ExtractionEngine:
         schema_discovery_mode: Literal["search", "llm", "none"] = "search",
         on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
         on_tool_result: Callable[[str, dict[str, Any], Any], None] | None = None,
+        max_turns: int = 25,
     ) -> None:
         try:
             import openai
@@ -385,8 +386,12 @@ class ExtractionEngine:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": text},
         ]
+        turns = 0
 
         while True:
+            if turns >= max_turns:
+                break
+            turns += 1
             response = await client.chat.completions.create(
                 model=model,
                 messages=messages,  # type: ignore[arg-type]

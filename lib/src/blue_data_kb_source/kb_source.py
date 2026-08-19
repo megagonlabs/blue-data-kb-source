@@ -488,9 +488,11 @@ class KBSource(GraphSource, ABC):
         include_metadata: bool = False,
         on_tool_call: Callable[[str, dict], None] | None = None,
         on_tool_result: Callable[[str, dict, Any], None] | None = None,
+        max_turns: int = 25,
     ) -> list[dict] | str | tuple[list[dict] | str, dict]:
         return await self._knowledge.answer(
-            database, question, model, natural_language, include_metadata, on_tool_call, on_tool_result
+            database, question, model, natural_language, include_metadata,
+            on_tool_call, on_tool_result, max_turns=max_turns,
         )
 
     async def validate(
@@ -502,9 +504,11 @@ class KBSource(GraphSource, ABC):
         include_metadata: bool = False,
         on_tool_call: Callable[[str, dict], None] | None = None,
         on_tool_result: Callable[[str, dict, Any], None] | None = None,
+        max_turns: int = 25,
     ) -> ValidationResult | str | tuple[ValidationResult | str, dict]:
         return await self._knowledge.validate(
-            database, statement, model, natural_language, include_metadata, on_tool_call, on_tool_result
+            database, statement, model, natural_language, include_metadata,
+            on_tool_call, on_tool_result, max_turns=max_turns,
         )
 
     async def enrich(
@@ -515,8 +519,11 @@ class KBSource(GraphSource, ABC):
         model: str = "gpt-4o",
         on_tool_call: Callable[[str, dict], None] | None = None,
         on_tool_result: Callable[[str, dict, Any], None] | None = None,
+        max_turns: int = 25,
     ) -> list[EnrichmentResult]:
-        return await self._knowledge.enrich(database, query, depth, model, on_tool_call, on_tool_result)
+        return await self._knowledge.enrich(
+            database, query, depth, model, on_tool_call, on_tool_result, max_turns=max_turns
+        )
 
     # ------------------------------------------------------------------ #
     # Provenance operations → ProvenanceTracker                           #
@@ -648,9 +655,11 @@ class KBSource(GraphSource, ABC):
         schema_discovery_mode: Literal["search", "llm", "none"] = "search",
         on_tool_call: Callable[[str, dict], None] | None = None,
         on_tool_result: Callable[[str, dict, Any], None] | None = None,
+        max_turns: int = 25,
     ) -> None:
         await self._extraction.import_text(
-            database, text, queries, model, source_id, schema_discovery_mode, on_tool_call, on_tool_result
+            database, text, queries, model, source_id, schema_discovery_mode,
+            on_tool_call, on_tool_result, max_turns=max_turns,
         )
 
     # ------------------------------------------------------------------ #
@@ -1018,8 +1027,12 @@ class KBSource(GraphSource, ABC):
 
         Delegates to ``answer`` with ``natural_language=False`` so the result is
         always a structured ``list[dict]``.  The model is taken from
-        ``optional_properties["model"]``; defaults to ``"gpt-4o"``.
+        ``optional_properties["model"]``; defaults to ``"gpt-4o"``. ``max_turns``
+        is taken from ``optional_properties["max_turns"]``; defaults to ``25``.
         ``llm_fn``, ``collection``, and ``schema`` are ignored.
         """
         model = (optional_properties or {}).get("model", "gpt-4o")
-        return asyncio.run(self.answer(database, question=query, model=model, natural_language=False))
+        max_turns = (optional_properties or {}).get("max_turns", 25)
+        return asyncio.run(
+            self.answer(database, question=query, model=model, natural_language=False, max_turns=max_turns)
+        )

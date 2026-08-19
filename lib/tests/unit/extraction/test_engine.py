@@ -1,3 +1,4 @@
+import itertools
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -43,6 +44,14 @@ def _mock_openai_sequence(*responses):
     return MagicMock(return_value=mock_client)
 
 
+def _mock_openai_endless(response):
+    """Patch openai.AsyncOpenAI so every call returns the same tool-call response,
+    forever — used to test the max_turns cutoff."""
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(side_effect=itertools.repeat(response))
+    return MagicMock(return_value=mock_client), mock_client
+
+
 async def _seed_worked_at_with_start_date(kb):
     await kb.declare_class("test", "PERSON", "A human individual")
     await kb.declare_class("test", "COMPANY", "A business organization")
@@ -75,6 +84,18 @@ async def test_default_mode_includes_search_schema_tool(kb):
     call_kwargs = factory.return_value.chat.completions.create.call_args.kwargs
     tool_names = {t["function"]["name"] for t in call_kwargs["tools"]}
     assert "search_schema" in tool_names
+
+
+# ------------------------------------------------------------------ #
+# max_turns                                                            #
+# ------------------------------------------------------------------ #
+
+async def test_import_text_stops_after_max_turns(kb):
+    response = _tool_call_response("get_schema", {})
+    factory, mock_client = _mock_openai_endless(response)
+    with patch("openai.AsyncOpenAI", factory):
+        await kb.import_text("test", "Some text.", max_turns=3)
+    assert mock_client.chat.completions.create.call_count == 3
 
 
 # ------------------------------------------------------------------ #

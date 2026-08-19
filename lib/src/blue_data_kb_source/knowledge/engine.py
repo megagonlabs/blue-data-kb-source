@@ -356,16 +356,20 @@ class QueryEngine:
         include_metadata: bool = False,
         on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
         on_tool_result: Callable[[str, dict[str, Any], Any], None] | None = None,
+        max_turns: int = 25,
     ) -> list[dict] | tuple[list[dict], dict]:
         schema_str = (await self._schema.fetch_database_schema(database)).to_str(simplified=True)
         system = _ANSWER_PROMPT.format(schema=schema_str, question=question)
         if include_metadata:
             system += _METADATA_INSTRUCTION
             raw, metadata = await self._run_agent(
-                database, system, question, model, on_tool_call, on_tool_result, include_metadata=True
+                database, system, question, model, on_tool_call, on_tool_result,
+                include_metadata=True, max_turns=max_turns,
             )
             return (raw if isinstance(raw, list) else []), metadata
-        raw = await self._run_agent(database, system, question, model, on_tool_call, on_tool_result)
+        raw = await self._run_agent(
+            database, system, question, model, on_tool_call, on_tool_result, max_turns=max_turns
+        )
         return raw if isinstance(raw, list) else []
 
     async def validate(
@@ -376,20 +380,24 @@ class QueryEngine:
         include_metadata: bool = False,
         on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
         on_tool_result: Callable[[str, dict[str, Any], Any], None] | None = None,
+        max_turns: int = 25,
     ) -> ValidationResult | tuple[ValidationResult, dict]:
         schema_str = (await self._schema.fetch_database_schema(database)).to_str(simplified=True)
         system = _VALIDATE_PROMPT.format(schema=schema_str, statement=statement)
         if include_metadata:
             system += _METADATA_INSTRUCTION
             raw, metadata = await self._run_agent(
-                database, system, statement, model, on_tool_call, on_tool_result, include_metadata=True
+                database, system, statement, model, on_tool_call, on_tool_result,
+                include_metadata=True, max_turns=max_turns,
             )
             result = (
                 ValidationResult(supporting=raw.get("supporting", []), counter=raw.get("counter", []))
                 if isinstance(raw, dict) else ValidationResult(supporting=[], counter=[])
             )
             return result, metadata
-        raw = await self._run_agent(database, system, statement, model, on_tool_call, on_tool_result)
+        raw = await self._run_agent(
+            database, system, statement, model, on_tool_call, on_tool_result, max_turns=max_turns
+        )
         if isinstance(raw, dict):
             return ValidationResult(
                 supporting=raw.get("supporting", []),
@@ -405,10 +413,13 @@ class QueryEngine:
         model: str = "gpt-4o",
         on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
         on_tool_result: Callable[[str, dict[str, Any], Any], None] | None = None,
+        max_turns: int = 25,
     ) -> list[EnrichmentResult]:
         schema_str = (await self._schema.fetch_database_schema(database)).to_str(simplified=True)
         system = _ENRICH_PROMPT.format(schema=schema_str, query=query, depth=depth)
-        raw = await self._run_agent(database, system, query, model, on_tool_call, on_tool_result)
+        raw = await self._run_agent(
+            database, system, query, model, on_tool_call, on_tool_result, max_turns=max_turns
+        )
         return [
             EnrichmentResult(
                 entity=item.get("entity"),
@@ -477,6 +488,7 @@ class QueryEngine:
         on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
         on_tool_result: Callable[[str, dict[str, Any], Any], None] | None = None,
         include_metadata: bool = False,
+        max_turns: int = 25,
     ) -> Any:
         try:
             import openai
@@ -492,8 +504,12 @@ class QueryEngine:
         ]
         result_payload: Any = None
         metadata_acc: dict[str, dict] = {}
+        turns = 0
 
         while True:
+            if turns >= max_turns:
+                break
+            turns += 1
             response = await client.chat.completions.create(
                 model=model,
                 messages=messages,  # type: ignore[arg-type]

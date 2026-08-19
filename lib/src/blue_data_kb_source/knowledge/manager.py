@@ -917,11 +917,12 @@ class KnowledgeManager:
         include_metadata: bool = False,
         on_tool_call: Callable[[str, dict], None] | None = None,
         on_tool_result: Callable[[str, dict, Any], None] | None = None,
+        max_turns: int = 25,
     ) -> list[dict] | str | tuple[list[dict] | str, dict]:
         if include_metadata:
             results, metadata = await self._query.answer(
                 database, question, model, include_metadata=True,
-                on_tool_call=on_tool_call, on_tool_result=on_tool_result,
+                on_tool_call=on_tool_call, on_tool_result=on_tool_result, max_turns=max_turns,
             )
             if natural_language:
                 text = await self._query.answer_as_text(question, results, model)
@@ -930,7 +931,8 @@ class KnowledgeManager:
                 return text, metadata
             return results, metadata
         results = await self._query.answer(
-            database, question, model, on_tool_call=on_tool_call, on_tool_result=on_tool_result,
+            database, question, model,
+            on_tool_call=on_tool_call, on_tool_result=on_tool_result, max_turns=max_turns,
         )
         if natural_language:
             return await self._query.answer_as_text(question, results, model)
@@ -945,11 +947,12 @@ class KnowledgeManager:
         include_metadata: bool = False,
         on_tool_call: Callable[[str, dict], None] | None = None,
         on_tool_result: Callable[[str, dict, Any], None] | None = None,
+        max_turns: int = 25,
     ) -> ValidationResult | str | tuple[ValidationResult | str, dict]:
         if include_metadata:
             result, metadata = await self._query.validate(
                 database, statement, model, include_metadata=True,
-                on_tool_call=on_tool_call, on_tool_result=on_tool_result,
+                on_tool_call=on_tool_call, on_tool_result=on_tool_result, max_turns=max_turns,
             )
             if natural_language:
                 text = await self._query.validate_as_text(statement, result, model)
@@ -958,7 +961,8 @@ class KnowledgeManager:
                 return text, metadata
             return result, metadata
         result = await self._query.validate(
-            database, statement, model, on_tool_call=on_tool_call, on_tool_result=on_tool_result,
+            database, statement, model,
+            on_tool_call=on_tool_call, on_tool_result=on_tool_result, max_turns=max_turns,
         )
         if natural_language:
             return await self._query.validate_as_text(statement, result, model)
@@ -972,5 +976,8 @@ class KnowledgeManager:
         model: str = "gpt-4o",
         on_tool_call: Callable[[str, dict], None] | None = None,
         on_tool_result: Callable[[str, dict, Any], None] | None = None,
+        max_turns: int = 25,
     ) -> list[EnrichmentResult]:
-        return await self._query.enrich(database, query, depth, model, on_tool_call, on_tool_result)
+        return await self._query.enrich(
+            database, query, depth, model, on_tool_call, on_tool_result, max_turns=max_turns
+        )
