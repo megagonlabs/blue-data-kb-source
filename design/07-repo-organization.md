@@ -16,9 +16,13 @@ blue-data-kb-source/
 │   │   └── publish.sh                   # publish to PyPI
 │   ├── src/
 │   │   └── blue_data_kb_source/
-│   │       ├── __init__.py              # re-exports KBSource
+│   │       ├── __init__.py              # re-exports KBSource, the Memory/File mixins, and shared types
 │   │       ├── _constants.py            # node label and edge type string constants
+│   │       ├── checks.py                # node-id/label guards shared by both managers
 │   │       ├── kb_source.py             # KBSource — entry point and component coordinator
+│   │       ├── file_kb_source.py        # FileKBSource — KBSource + FileGraphSource mixin
+│   │       ├── memory_kb_source.py      # MemoryKBSource — KBSource + MemoryGraphSource mixin
+│   │       ├── timestamps.py            # created/modified stamping helpers
 │   │       ├── types.py                 # shared result types and data contracts
 │   │       ├── py.typed                 # PEP 561 marker — package ships inline types
 │   │       │
@@ -30,7 +34,8 @@ blue-data-kb-source/
 │   │       ├── knowledge/
 │   │       │   ├── __init__.py
 │   │       │   ├── manager.py           # KnowledgeManager — instance writes and query delegation
-│   │       │   └── engine.py            # QueryEngine — LLM agent for answer/validate/enrich
+│   │       │   ├── engine.py            # QueryEngine — LLM agent for answer/validate/enrich
+│   │       │   └── helpers.py           # shared metadata/provenance lookups for manager and engine
 │   │       │
 │   │       ├── provenance/
 │   │       │   ├── __init__.py
@@ -44,9 +49,13 @@ blue-data-kb-source/
 │   │       │   ├── __init__.py
 │   │       │   └── indexer.py           # KBSearchIndexer — BM25 + semantic search
 │   │       │
-│   │       └── extraction/
+│   │       ├── extraction/
+│   │       │   ├── __init__.py
+│   │       │   └── engine.py            # ExtractionEngine and LLM agent loop
+│   │       │
+│   │       └── neo4j/
 │   │           ├── __init__.py
-│   │           └── engine.py            # ExtractionEngine and LLM agent loop
+│   │           └── neo4j_kb_source.py   # NEO4JKBSource — KBSource + NEO4JSource mixin (needs the neo4j driver)
 │   │
 │   └── tests/
 │       ├── conftest.py                  # shared fixtures: kb (MemoryKBSource), populated_kb
@@ -143,8 +152,13 @@ All core business logic lives under `lib/src/`. This is the only artifact publis
 | `_constants.py` | Node label and edge type string constants shared across all modules |
 | `schema/manager.py` | `SchemaManager` — Schema Layer; bootstraps `__meta__` database on init; owns `SchemaExpansionEngine` |
 | `schema/expansion.py` | `SchemaExpansionEngine` — LLM agent for `expand_schema`; declares CLASS/RELATION/PROPERTY only, never entities/facts; not exposed at `KBSource` level |
+| `checks.py` | `require_node_type` guards — shared free functions used by both managers, not a component |
+| `timestamps.py` | `stamped`/`touched`/`edge_stamped` — every write path stamps `created`/`modified` through these |
+| `file_kb_source.py`, `memory_kb_source.py` | Pre-built `KBSource` + `GraphSource` mixins shipped with the library |
+| `neo4j/neo4j_kb_source.py` | `NEO4JKBSource` mixin — kept out of the package `__init__` so only importing this module requires the `neo4j` driver |
 | `knowledge/manager.py` | `KnowledgeManager` — Knowledge Layer; instance writes; owns `QueryEngine` |
 | `knowledge/engine.py` | `QueryEngine` — LLM agent for answer, validate, enrich; not exposed at `KBSource` level |
+| `knowledge/helpers.py` | Shared metadata/provenance lookup bodies used by `KnowledgeManager` and `QueryEngine` — free functions, not a component |
 | `provenance/tracker.py` | `ProvenanceTracker` — Knowledge Layer |
 | `notification/notifier.py` | `ChangeNotifier` — Knowledge Layer |
 | `search/indexer.py` | `KBSearchIndexer` — Search Indexer; BM25 and semantic search over schema and data, optional per database |
