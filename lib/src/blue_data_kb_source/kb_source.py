@@ -315,6 +315,38 @@ class KBSource(GraphSource, ABC):
             max_turns=max_turns,
         )
 
+    async def get_class_ancestors(
+        self,
+        database: str,
+        class_id: str,
+        max_hops: int | None = 5,
+    ) -> list[dict]:
+        return await self._schema.get_class_ancestors(database, class_id, max_hops)
+
+    async def get_class_descendants(
+        self,
+        database: str,
+        class_id: str,
+        max_hops: int | None = 5,
+    ) -> list[dict]:
+        return await self._schema.get_class_descendants(database, class_id, max_hops)
+
+    async def get_relation_ancestors(
+        self,
+        database: str,
+        relation_id: str,
+        max_hops: int | None = 5,
+    ) -> list[dict]:
+        return await self._schema.get_relation_ancestors(database, relation_id, max_hops)
+
+    async def get_relation_descendants(
+        self,
+        database: str,
+        relation_id: str,
+        max_hops: int | None = 5,
+    ) -> list[dict]:
+        return await self._schema.get_relation_descendants(database, relation_id, max_hops)
+
     async def fetch_database_schema(self, database: str) -> DataSchema:
         return await self._schema.fetch_database_schema(database)
 

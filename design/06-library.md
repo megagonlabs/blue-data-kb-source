@@ -97,6 +97,10 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `add_is_subclass_of(database, child_id, parent_id)` | `None` | Wire IS_SUBCLASS_OF edge; not deduplicated — calling twice adds two edges. The only way to express an is-a/type-of/kind-of hierarchy between two CLASSes or two RELATIONs — never a declared RELATION |
 | `remove_is_subclass_of(database, child_id, parent_id)` | `None` | Remove an IS_SUBCLASS_OF edge |
 | `attach_property(database, target_id, property_id)` | `None` | Wire DEFINE_PROPERTY from an existing CLASS/RELATION to an existing PROPERTY (idempotent) — reuse a property across classes/relations instead of declaring a same-meaning duplicate under a new name |
+| `get_class_ancestors(database, class_id, max_hops?)` | `list[dict]` | Ancestor CLASS nodes via IS_SUBCLASS_OF, breadth-first with cycle protection, ordered nearest-first (order within a depth is backend-dependent); `max_hops` defaults to 5, `None` = unbounded |
+| `get_class_descendants(database, class_id, max_hops?)` | `list[dict]` | Descendant CLASS nodes, same walk in the other direction |
+| `get_relation_ancestors(database, relation_id, max_hops?)` | `list[dict]` | Ancestor RELATION nodes — RELATION also carries IS_SUBCLASS_OF |
+| `get_relation_descendants(database, relation_id, max_hops?)` | `list[dict]` | Descendant RELATION nodes |
 | `fetch_database_schema(database)` | `DataSchema` | Assemble a `DataSchema` object from the current graph |
 | `export_database_schema(database)` | `dict` | `fetch_database_schema(database).to_json()` — portable JSON form |
 | `fetch_meta_schema()` | `DataSchema` | Return the fixed KBDB meta-schema |

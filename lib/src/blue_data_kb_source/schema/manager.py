@@ -456,6 +456,82 @@ class SchemaManager:
         )
 
     # ------------------------------------------------------------------ #
+    # Hierarchy reads                                                      #
+    # ------------------------------------------------------------------ #
+
+    def _hierarchy_walk(
+        self,
+        database: str,
+        node_id: str,
+        direction: str,
+        max_hops: int | None,
+    ) -> list[dict]:
+        # The start node is seeded into visited so a malformed cycle can never
+        # re-add it or hang the walk.
+        visited: set[str] = {node_id}
+        results: list[dict] = []
+        queue: list[tuple[str, int]] = [(node_id, 0)]
+        while queue:
+            current, depth = queue.pop(0)
+            if max_hops is not None and depth >= max_hops:
+                continue
+            neighbors = self._source.get_neighbors(
+                database, current, edge_type=IS_SUBCLASS_OF, direction=direction
+            )
+            for nb in neighbors:
+                node = nb["node"]
+                nid = node["id"]
+                if nid not in visited:
+                    visited.add(nid)
+                    results.append(node)
+                    queue.append((nid, depth + 1))
+        return results
+
+    async def get_class_ancestors(
+        self,
+        database: str,
+        class_id: str,
+        max_hops: int | None = 5,
+    ) -> list[dict]:
+        """CLASS ancestors via IS_SUBCLASS_OF, up to *max_hops* edges (None = unbounded)."""
+        require_node_type(self._source, database, class_id, CLASS, "class_id", SchemaError)
+        return self._hierarchy_walk(database, class_id, "out", max_hops)
+
+    async def get_class_descendants(
+        self,
+        database: str,
+        class_id: str,
+        max_hops: int | None = 5,
+    ) -> list[dict]:
+        """CLASS descendants via IS_SUBCLASS_OF, up to *max_hops* edges (None = unbounded)."""
+        require_node_type(self._source, database, class_id, CLASS, "class_id", SchemaError)
+        return self._hierarchy_walk(database, class_id, "in", max_hops)
+
+    async def get_relation_ancestors(
+        self,
+        database: str,
+        relation_id: str,
+        max_hops: int | None = 5,
+    ) -> list[dict]:
+        """RELATION ancestors via IS_SUBCLASS_OF, up to *max_hops* edges (None = unbounded)."""
+        require_node_type(
+            self._source, database, relation_id, RELATION, "relation_id", SchemaError
+        )
+        return self._hierarchy_walk(database, relation_id, "out", max_hops)
+
+    async def get_relation_descendants(
+        self,
+        database: str,
+        relation_id: str,
+        max_hops: int | None = 5,
+    ) -> list[dict]:
+        """RELATION descendants via IS_SUBCLASS_OF, up to *max_hops* edges (None = unbounded)."""
+        require_node_type(
+            self._source, database, relation_id, RELATION, "relation_id", SchemaError
+        )
+        return self._hierarchy_walk(database, relation_id, "in", max_hops)
+
+    # ------------------------------------------------------------------ #
     # Schema export / import                                               #
     # ------------------------------------------------------------------ #
 

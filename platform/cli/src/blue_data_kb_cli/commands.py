@@ -804,42 +804,6 @@ def schema_class_update(
 # kb schema class parent / child                                       #
 # ------------------------------------------------------------------ #
 
-def _class_ancestors(kb: FileKBSource, db: str, class_id: str, visited: set[str] | None = None) -> list[dict]:
-    """Return all ancestor classes via IS_SUBCLASS_OF, breadth-first."""
-    if visited is None:
-        visited = set()
-    results: list[dict] = []
-    queue = [class_id]
-    while queue:
-        current = queue.pop(0)
-        for nb in kb.get_neighbors(db, current, edge_type=IS_SUBCLASS_OF, direction="out"):
-            node = nb["node"]
-            nid = node["id"]
-            if nid not in visited:
-                visited.add(nid)
-                results.append(node)
-                queue.append(nid)
-    return results
-
-
-def _class_descendants(kb: FileKBSource, db: str, class_id: str, visited: set[str] | None = None) -> list[dict]:
-    """Return all descendant classes via IS_SUBCLASS_OF, breadth-first."""
-    if visited is None:
-        visited = set()
-    results: list[dict] = []
-    queue = [class_id]
-    while queue:
-        current = queue.pop(0)
-        for nb in kb.get_neighbors(db, current, edge_type=IS_SUBCLASS_OF, direction="in"):
-            node = nb["node"]
-            nid = node["id"]
-            if nid not in visited:
-                visited.add(nid)
-                results.append(node)
-                queue.append(nid)
-    return results
-
-
 def _build_parent_tree(kb: FileKBSource, db: str, class_id: str, label: str, tree: Tree, visited: set[str]) -> None:
     """Recursively attach parent nodes to a Rich Tree."""
     for nb in kb.get_neighbors(db, class_id, edge_type=IS_SUBCLASS_OF, direction="out"):
@@ -937,7 +901,7 @@ def schema_class_parent_list(
     resolved_id = _resolve_node(kb, db, CLASS, class_name, class_id, "class")
     root_label  = class_name or class_id
     if recursive:
-        nodes = _class_ancestors(kb, db, resolved_id)
+        nodes = _run(kb.get_class_ancestors(db, resolved_id, max_hops=None))
     else:
         nodes = [nb["node"] for nb in kb.get_neighbors(db, resolved_id, edge_type=IS_SUBCLASS_OF, direction="out")]
     if fmt == "json":
@@ -986,7 +950,7 @@ def schema_class_child_list(
     resolved_id = _resolve_node(kb, db, CLASS, class_name, class_id, "class")
     root_label  = class_name or class_id
     if recursive:
-        nodes = _class_descendants(kb, db, resolved_id)
+        nodes = _run(kb.get_class_descendants(db, resolved_id, max_hops=None))
     else:
         nodes = [nb["node"] for nb in kb.get_neighbors(db, resolved_id, edge_type=IS_SUBCLASS_OF, direction="in")]
     if fmt == "json":
@@ -1291,42 +1255,6 @@ def schema_relation_update(
 # kb schema relation parent / child                                    #
 # ------------------------------------------------------------------ #
 
-def _relation_ancestors(kb: FileKBSource, db: str, relation_id: str, visited: set[str] | None = None) -> list[dict]:
-    """Return all ancestor relations via IS_SUBCLASS_OF, breadth-first."""
-    if visited is None:
-        visited = set()
-    results: list[dict] = []
-    queue = [relation_id]
-    while queue:
-        current = queue.pop(0)
-        for nb in kb.get_neighbors(db, current, edge_type=IS_SUBCLASS_OF, direction="out"):
-            node = nb["node"]
-            nid = node["id"]
-            if nid not in visited:
-                visited.add(nid)
-                results.append(node)
-                queue.append(nid)
-    return results
-
-
-def _relation_descendants(kb: FileKBSource, db: str, relation_id: str, visited: set[str] | None = None) -> list[dict]:
-    """Return all descendant relations via IS_SUBCLASS_OF, breadth-first."""
-    if visited is None:
-        visited = set()
-    results: list[dict] = []
-    queue = [relation_id]
-    while queue:
-        current = queue.pop(0)
-        for nb in kb.get_neighbors(db, current, edge_type=IS_SUBCLASS_OF, direction="in"):
-            node = nb["node"]
-            nid = node["id"]
-            if nid not in visited:
-                visited.add(nid)
-                results.append(node)
-                queue.append(nid)
-    return results
-
-
 def _build_relation_parent_tree(kb: FileKBSource, db: str, relation_id: str, tree: Tree, visited: set[str]) -> None:
     for nb in kb.get_neighbors(db, relation_id, edge_type=IS_SUBCLASS_OF, direction="out"):
         node = nb["node"]
@@ -1424,7 +1352,7 @@ def schema_relation_parent_list(
     resolved_id = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
     root_label  = relation_name or relation_id
     if recursive:
-        nodes = _relation_ancestors(kb, db, resolved_id)
+        nodes = _run(kb.get_relation_ancestors(db, resolved_id, max_hops=None))
     else:
         nodes = [nb["node"] for nb in kb.get_neighbors(db, resolved_id, edge_type=IS_SUBCLASS_OF, direction="out")]
     if fmt == "json":
@@ -1473,7 +1401,7 @@ def schema_relation_child_list(
     resolved_id = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
     root_label  = relation_name or relation_id
     if recursive:
-        nodes = _relation_descendants(kb, db, resolved_id)
+        nodes = _run(kb.get_relation_descendants(db, resolved_id, max_hops=None))
     else:
         nodes = [nb["node"] for nb in kb.get_neighbors(db, resolved_id, edge_type=IS_SUBCLASS_OF, direction="in")]
     if fmt == "json":

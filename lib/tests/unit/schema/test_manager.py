@@ -13,6 +13,15 @@ def _collect_events(kb, database: str) -> list[dict]:
     return events
 
 
+async def _class_chain(kb) -> tuple[str, str, str]:
+    person   = await kb.declare_class("test", "PERSON", "")
+    employee = await kb.declare_class("test", "EMPLOYEE", "")
+    intern   = await kb.declare_class("test", "INTERN", "")
+    await kb.add_is_subclass_of("test", employee, person)
+    await kb.add_is_subclass_of("test", intern, employee)
+    return person, employee, intern
+
+
 # ------------------------------------------------------------------ #
 # declare_class                                                        #
 # ------------------------------------------------------------------ #
@@ -438,3 +447,87 @@ async def test_schema_hooks_scoped_to_database(kb):
     events = _collect_events(kb, "test")
     await kb.declare_class("other", "THING", "")
     assert not any(e["type"] == "class_declared" for e in events)
+
+
+# ------------------------------------------------------------------ #
+# Hierarchy reads                                                      #
+# ------------------------------------------------------------------ #
+
+async def test_get_class_ancestors_walks_transitively(kb):
+    _, _, intern = await _class_chain(kb)
+    ancestors = await kb.get_class_ancestors("test", intern)
+    assert [n["properties"]["name"] for n in ancestors] == ["EMPLOYEE", "PERSON"]
+
+
+async def test_get_class_descendants_walks_transitively(kb):
+    person, _, _ = await _class_chain(kb)
+    descendants = await kb.get_class_descendants("test", person)
+    assert [n["properties"]["name"] for n in descendants] == ["EMPLOYEE", "INTERN"]
+
+
+async def test_get_class_ancestors_respects_max_hops(kb):
+    _, _, intern = await _class_chain(kb)
+    capped = await kb.get_class_ancestors("test", intern, max_hops=1)
+    assert {n["properties"]["name"] for n in capped} == {"EMPLOYEE"}
+
+
+async def test_get_class_ancestors_survives_cycle(kb):
+    a = await kb.declare_class("test", "A", "")
+    b = await kb.declare_class("test", "B", "")
+    await kb.add_is_subclass_of("test", a, b)
+    await kb.add_is_subclass_of("test", b, a)
+    unbounded = await kb.get_class_ancestors("test", a, max_hops=None)
+    assert {n["properties"]["name"] for n in unbounded} == {"B"}
+
+
+async def test_get_class_ancestors_dedupes_diamond(kb):
+    a = await kb.declare_class("test", "A", "")
+    b = await kb.declare_class("test", "B", "")
+    c = await kb.declare_class("test", "C", "")
+    d = await kb.declare_class("test", "D", "")
+    await kb.add_is_subclass_of("test", d, b)
+    await kb.add_is_subclass_of("test", d, c)
+    await kb.add_is_subclass_of("test", b, a)
+    await kb.add_is_subclass_of("test", c, a)
+    ancestors = await kb.get_class_ancestors("test", d)
+    assert len(ancestors) == 3
+    assert {n["properties"]["name"] for n in ancestors} == {"A", "B", "C"}
+
+
+async def test_get_class_ancestors_default_caps_at_five_hops(kb):
+    ids = [await kb.declare_class("test", f"C{i}", "") for i in range(7)]
+    for child, parent in zip(ids, ids[1:]):
+        await kb.add_is_subclass_of("test", child, parent)
+    capped = await kb.get_class_ancestors("test", ids[0])
+    assert [n["properties"]["name"] for n in capped] == ["C1", "C2", "C3", "C4", "C5"]
+
+
+async def test_get_relation_hierarchy_reads(kb):
+    await kb.declare_class("test", "PERSON", "")
+    await kb.declare_class("test", "COMPANY", "")
+    parent = await kb.declare_relation_type(
+        "test", "WORKS_FOR", "", domain="PERSON", range="COMPANY"
+    )
+    child = await kb.declare_relation_type(
+        "test", "CONTRACTED_BY", "", domain="PERSON", range="COMPANY"
+    )
+    await kb.add_is_subclass_of("test", child, parent)
+    up   = {n["properties"]["name"] for n in await kb.get_relation_ancestors("test", child)}
+    down = {n["properties"]["name"] for n in await kb.get_relation_descendants("test", parent)}
+    assert up == {"WORKS_FOR"}
+    assert down == {"CONTRACTED_BY"}
+
+
+async def test_hierarchy_reads_reject_bad_ids(kb):
+    with pytest.raises(SchemaError):
+        await kb.get_class_ancestors("test", "no-such-id")
+    with pytest.raises(SchemaError):
+        await kb.get_class_descendants("test", "no-such-id")
+    entity_id = await kb.add_entity("test", "Alice")
+    with pytest.raises(SchemaError):
+        await kb.get_class_ancestors("test", entity_id)
+    class_id = await kb.declare_class("test", "PERSON", "")
+    with pytest.raises(SchemaError):
+        await kb.get_relation_ancestors("test", class_id)
+    with pytest.raises(SchemaError):
+        await kb.get_relation_descendants("test", class_id)
