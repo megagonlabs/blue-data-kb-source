@@ -218,7 +218,7 @@ modified:    "2026-06-01T09:00:00+00:00"
 
 #### EXTRACTION
 
-Captures one assertion that an entity, fact, or literal was drawn from, along with how confident that assertion is. Each instance item gets its own EXTRACTION node, even when several items come from the same assertion.
+Captures one assertion that an item was drawn from, along with how confident that assertion is. Any node an assertion creates can carry one: instance items (ENTITY, FACT, LITERAL) and schema elements (CLASS, RELATION, PROPERTY) alike, so a class or relation created inline by an assert records the submitted statement that forced it into existence. Each item gets its own EXTRACTION node, even when several items come from the same assertion.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -308,19 +308,21 @@ All edges are directed. Source and target node labels constrain which connection
 
 | Edge type | Source label | Target label | Meaning |
 |-----------|-------------|-------------|---------|
-| `EXTRACTED_FROM` | ENTITY, FACT, or LITERAL | EXTRACTION | Instance was asserted by this extraction |
+| `EXTRACTED_FROM` | ENTITY, FACT, LITERAL, CLASS, RELATION, or PROPERTY | EXTRACTION | Item was asserted by this extraction |
 | `EXTRACTED_FROM` | EXTRACTION | SOURCE | Assertion came from this source |
 
-One EXTRACTION node is created per instance item. The same SOURCE node may be the target of many EXTRACTION→SOURCE edges when multiple items are drawn from the same source.
+One EXTRACTION node is created per item. The same SOURCE node may be the target of many EXTRACTION→SOURCE edges when multiple items are drawn from the same source.
 
 **Example — provenance chain:**
 ```
-(Alice)    --[EXTRACTED_FROM]--> (ext-001:"Alice joined IBM...")
-(fact-001) --[EXTRACTED_FROM]--> (ext-002:"Alice joined IBM...")
-(lit-001)  --[EXTRACTED_FROM]--> (ext-003:"...in June 1998.")
-(ext-001)  --[EXTRACTED_FROM]--> (src-001:"Alice's résumé")
-(ext-002)  --[EXTRACTED_FROM]--> (src-001:"Alice's résumé")
-(ext-003)  --[EXTRACTED_FROM]--> (src-001:"Alice's résumé")
+(Alice)      --[EXTRACTED_FROM]--> (ext-001:"Alice joined IBM...")
+(fact-001)   --[EXTRACTED_FROM]--> (ext-002:"Alice joined IBM...")
+(lit-001)    --[EXTRACTED_FROM]--> (ext-003:"...in June 1998.")
+(WORKED_AT)  --[EXTRACTED_FROM]--> (ext-004:"Alice joined IBM...")
+(ext-001)    --[EXTRACTED_FROM]--> (src-001:"Alice's résumé")
+(ext-002)    --[EXTRACTED_FROM]--> (src-001:"Alice's résumé")
+(ext-003)    --[EXTRACTED_FROM]--> (src-001:"Alice's résumé")
+(ext-004)    --[EXTRACTED_FROM]--> (src-001:"Alice's résumé")
 ```
 
 ---
@@ -358,7 +360,7 @@ It allows any agent or tool to inspect the structure of the KB graph itself with
 | `TAIL` | FACT | ENTITY | Fact object |
 | `HAS_PROPERTY` | ENTITY or FACT | LITERAL | Property value attachment |
 | `IS_VALUE_OF` | LITERAL | PROPERTY | Property type reference |
-| `EXTRACTED_FROM` | ENTITY, FACT, LITERAL, or EXTRACTION | EXTRACTION or SOURCE | Provenance link |
+| `EXTRACTED_FROM` | ENTITY, FACT, LITERAL, CLASS, RELATION, PROPERTY, or EXTRACTION | EXTRACTION or SOURCE | Provenance link |
 
 ---
 
