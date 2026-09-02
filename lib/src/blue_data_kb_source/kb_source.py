@@ -589,6 +589,27 @@ class KBSource(GraphSource, ABC):
     async def get_property_values(self, database: str, owner_id: str) -> list[dict]:
         return await self._knowledge.get_property_values(database, owner_id)
 
+    async def is_fact_allowed(
+        self,
+        database: str,
+        head_entity_id: str,
+        relation_id: str,
+        tail_entity_id: str,
+        max_hops: int | None = 5,
+    ) -> dict:
+        return await self._knowledge.is_fact_allowed(
+            database, head_entity_id, relation_id, tail_entity_id, max_hops
+        )
+
+    async def is_property_allowed(
+        self,
+        database: str,
+        owner_id: str,
+        property_id: str,
+        max_hops: int | None = 5,
+    ) -> dict:
+        return await self._knowledge.is_property_allowed(database, owner_id, property_id, max_hops)
+
     async def find_entity(self, database: str, name: str) -> dict | None:
         return await self._knowledge.find_entity(database, name)
 

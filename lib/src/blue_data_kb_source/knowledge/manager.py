@@ -6,6 +6,7 @@ from blue_data.source.graph.graph_source import GraphSource
 
 from blue_data_kb_source._constants import (
     CLASS,
+    DEFINE_PROPERTY,
     ENTITY,
     EXTRACTED_FROM,
     FACT,
@@ -882,6 +883,119 @@ class KnowledgeManager:
             self._source, database, owner_id, (ENTITY, FACT), "owner_id", KnowledgeError
         )
         return property_values(self._source, database, owner_id)
+
+    # ------------------------------------------------------------------ #
+    # Conformance checks                                                   #
+    # ------------------------------------------------------------------ #
+
+    async def is_fact_allowed(
+        self,
+        database: str,
+        head_entity_id: str,
+        relation_id: str,
+        tail_entity_id: str,
+        max_hops: int | None = 5,
+    ) -> dict:
+        """Whether DOMAIN/RANGE accept the entities' classes, as {ok, reason, details}."""
+        require_node_type(
+            self._source, database, head_entity_id, ENTITY, "head_entity_id", KnowledgeError
+        )
+        require_node_type(
+            self._source, database, tail_entity_id, ENTITY, "tail_entity_id", KnowledgeError
+        )
+        require_node_type(
+            self._source, database, relation_id, RELATION, "relation_id", KnowledgeError
+        )
+        head_classes = entity_classes(self._source, database, head_entity_id)
+        tail_classes = entity_classes(self._source, database, tail_entity_id)
+        detail_names = {
+            "head_classes": [node_name(c) for c in head_classes],
+            "tail_classes": [node_name(c) for c in tail_classes],
+        }
+        if not head_classes or not tail_classes:
+            untyped = []
+            if not head_classes:
+                untyped.append("head")
+            if not tail_classes:
+                untyped.append("tail")
+            return {
+                "ok": False,
+                "reason": "UNTYPED_ENTITY",
+                "details": {**detail_names, "untyped": untyped},
+            }
+        dr = await self._schema.get_relation_domain_range(database, relation_id)
+        head_ok_ids = {c["id"] for c in head_classes}
+        tail_ok_ids = {c["id"] for c in tail_classes}
+        for c in head_classes:
+            anc = await self._schema.get_class_ancestors(database, c["id"], max_hops)
+            head_ok_ids |= {a["id"] for a in anc}
+        for c in tail_classes:
+            anc = await self._schema.get_class_ancestors(database, c["id"], max_hops)
+            tail_ok_ids |= {a["id"] for a in anc}
+        head_in_domain = bool({c["id"] for c in dr["domain"]} & head_ok_ids)
+        tail_in_range = bool({c["id"] for c in dr["range"]} & tail_ok_ids)
+        details = {
+            **detail_names,
+            "domain": [node_name(c) for c in dr["domain"]],
+            "range": [node_name(c) for c in dr["range"]],
+            "head_in_domain": head_in_domain,
+            "tail_in_range": tail_in_range,
+        }
+        if head_in_domain and tail_in_range:
+            return {"ok": True, "reason": "ALLOWED", "details": details}
+        return {"ok": False, "reason": "DOMAIN_RANGE_MISMATCH", "details": details}
+
+    async def is_property_allowed(
+        self,
+        database: str,
+        owner_id: str,
+        property_id: str,
+        max_hops: int | None = 5,
+    ) -> dict:
+        """Whether PROPERTY is defined for the owner's classes (entity) or relation (fact)."""
+        owner = require_node_type_one_of(
+            self._source, database, owner_id, (ENTITY, FACT), "owner_id", KnowledgeError
+        )
+        require_node_type(
+            self._source, database, property_id, PROPERTY, "property_id", KnowledgeError
+        )
+        owner_nbs = self._source.get_neighbors(
+            database, property_id, edge_type=DEFINE_PROPERTY, direction="in"
+        )
+        defined_on_ids = {nb["node"]["id"] for nb in owner_nbs}
+        defined_on_names = [node_name(nb["node"]) for nb in owner_nbs]
+        if owner.get("label") == ENTITY:
+            classes = entity_classes(self._source, database, owner_id)
+            if not classes:
+                return {
+                    "ok": False,
+                    "reason": "UNTYPED_ENTITY",
+                    "details": {"defined_on": defined_on_names},
+                }
+            ok_ids = {c["id"] for c in classes}
+            for c in classes:
+                anc = await self._schema.get_class_ancestors(database, c["id"], max_hops)
+                ok_ids |= {a["id"] for a in anc}
+            details = {
+                "owner_classes": [node_name(c) for c in classes],
+                "defined_on": defined_on_names,
+            }
+        else:
+            parts = fact_parts(self._source, database, owner_id)
+            rel = parts["relation"]
+            if rel is None:
+                return {
+                    "ok": False,
+                    "reason": "FACT_HAS_NO_RELATION",
+                    "details": {"defined_on": defined_on_names},
+                }
+            ok_ids = {rel["id"]}
+            anc = await self._schema.get_relation_ancestors(database, rel["id"], max_hops)
+            ok_ids |= {a["id"] for a in anc}
+            details = {"owner_relation": node_name(rel), "defined_on": defined_on_names}
+        if defined_on_ids & ok_ids:
+            return {"ok": True, "reason": "ALLOWED", "details": details}
+        return {"ok": False, "reason": "NOT_DEFINED_FOR_OWNER", "details": details}
 
     # ------------------------------------------------------------------ #
     # Exact-name lookups                                                   #

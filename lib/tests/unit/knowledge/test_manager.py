@@ -799,6 +799,230 @@ async def test_instance_walk_guards_reject_wrong_labels(kb):
 
 
 # ------------------------------------------------------------------ #
+# Conformance checks                                                   #
+# ------------------------------------------------------------------ #
+
+async def test_is_fact_allowed_exact_match(kb):
+    person  = await kb.declare_class("test", "PERSON", "")
+    company = await kb.declare_class("test", "COMPANY", "")
+    worked = await kb.declare_relation_type(
+        "test", "WORKED_AT", "", domain="PERSON", range="COMPANY"
+    )
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    ibm   = await kb.add_entity("test", "IBM", class_id=company)
+    verdict = await kb.is_fact_allowed("test", alice, worked, ibm)
+    assert verdict["ok"] is True
+    assert verdict["reason"] == "ALLOWED"
+    assert verdict["details"]["head_in_domain"] is True
+    assert verdict["details"]["tail_in_range"] is True
+
+
+async def test_is_fact_allowed_via_ancestor_class(kb):
+    person   = await kb.declare_class("test", "PERSON", "")
+    employee = await kb.declare_class("test", "EMPLOYEE", "")
+    company  = await kb.declare_class("test", "COMPANY", "")
+    await kb.add_is_subclass_of("test", employee, person)
+    worked = await kb.declare_relation_type(
+        "test", "WORKED_AT", "", domain="PERSON", range="COMPANY"
+    )
+    bob = await kb.add_entity("test", "Bob", class_id=employee)
+    ibm = await kb.add_entity("test", "IBM", class_id=company)
+    verdict = await kb.is_fact_allowed("test", bob, worked, ibm)
+    assert verdict["ok"] is True
+    assert verdict["reason"] == "ALLOWED"
+
+
+async def test_is_fact_allowed_tail_via_ancestor_class(kb):
+    person  = await kb.declare_class("test", "PERSON", "")
+    company = await kb.declare_class("test", "COMPANY", "")
+    startup = await kb.declare_class("test", "STARTUP", "")
+    await kb.add_is_subclass_of("test", startup, company)
+    worked = await kb.declare_relation_type(
+        "test", "WORKED_AT", "", domain="PERSON", range="COMPANY"
+    )
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    acme  = await kb.add_entity("test", "Acme", class_id=startup)
+    verdict = await kb.is_fact_allowed("test", alice, worked, acme)
+    assert verdict["ok"] is True
+    assert verdict["reason"] == "ALLOWED"
+
+
+async def test_is_fact_allowed_matches_any_of_multiple_classes(kb):
+    person  = await kb.declare_class("test", "PERSON", "")
+    company = await kb.declare_class("test", "COMPANY", "")
+    worked = await kb.declare_relation_type(
+        "test", "WORKED_AT", "", domain="PERSON", range="COMPANY"
+    )
+    bob = await kb.add_entity("test", "Bob", class_id=company)
+    kb.add_edge("test", bob, "IS_INSTANCE_OF", person)
+    ibm = await kb.add_entity("test", "IBM", class_id=company)
+    verdict = await kb.is_fact_allowed("test", bob, worked, ibm)
+    assert verdict["ok"] is True
+    assert set(verdict["details"]["head_classes"]) == {"COMPANY", "PERSON"}
+
+
+async def test_is_fact_allowed_max_hops_caps_ancestor_expansion(kb):
+    company = await kb.declare_class("test", "COMPANY", "")
+    chain = [await kb.declare_class("test", f"L{i}", "") for i in range(6)]
+    top = await kb.declare_class("test", "TOP", "")
+    lineage = chain + [top]
+    for i in range(len(lineage) - 1):
+        await kb.add_is_subclass_of("test", lineage[i], lineage[i + 1])
+    worked = await kb.declare_relation_type(
+        "test", "WORKED_AT", "", domain="TOP", range="COMPANY"
+    )
+    bob = await kb.add_entity("test", "Bob", class_id=chain[0])
+    ibm = await kb.add_entity("test", "IBM", class_id=company)
+    capped = await kb.is_fact_allowed("test", bob, worked, ibm)
+    assert capped["ok"] is False
+    assert capped["reason"] == "DOMAIN_RANGE_MISMATCH"
+    unlimited = await kb.is_fact_allowed("test", bob, worked, ibm, max_hops=None)
+    assert unlimited["ok"] is True
+
+
+async def test_is_fact_allowed_mismatch_reports_offending_side(kb):
+    person = await kb.declare_class("test", "PERSON", "")
+    await kb.declare_class("test", "COMPANY", "")
+    worked = await kb.declare_relation_type(
+        "test", "WORKED_AT", "", domain="PERSON", range="COMPANY"
+    )
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    carol = await kb.add_entity("test", "Carol", class_id=person)
+    verdict = await kb.is_fact_allowed("test", alice, worked, carol)
+    assert verdict["ok"] is False
+    assert verdict["reason"] == "DOMAIN_RANGE_MISMATCH"
+    assert verdict["details"]["head_in_domain"] is True
+    assert verdict["details"]["tail_in_range"] is False
+    assert verdict["details"]["tail_classes"] == ["PERSON"]
+    assert verdict["details"]["range"] == ["COMPANY"]
+
+
+async def test_is_fact_allowed_untyped_entity(kb):
+    await kb.declare_class("test", "PERSON", "")
+    company = await kb.declare_class("test", "COMPANY", "")
+    worked = await kb.declare_relation_type(
+        "test", "WORKED_AT", "", domain="PERSON", range="COMPANY"
+    )
+    ghost = await kb.add_entity("test", "Ghost")
+    ibm   = await kb.add_entity("test", "IBM", class_id=company)
+    verdict = await kb.is_fact_allowed("test", ghost, worked, ibm)
+    assert verdict["ok"] is False
+    assert verdict["reason"] == "UNTYPED_ENTITY"
+    assert verdict["details"]["untyped"] == ["head"]
+    tail_side = await kb.is_fact_allowed("test", ibm, worked, ghost)
+    assert tail_side["reason"] == "UNTYPED_ENTITY"
+    assert tail_side["details"]["untyped"] == ["tail"]
+    ghost2 = await kb.add_entity("test", "Ghost2")
+    both = await kb.is_fact_allowed("test", ghost, worked, ghost2)
+    assert both["details"]["untyped"] == ["head", "tail"]
+
+
+async def test_is_property_allowed_on_class_and_ancestor(kb):
+    person   = await kb.declare_class("test", "PERSON", "")
+    employee = await kb.declare_class("test", "EMPLOYEE", "")
+    await kb.add_is_subclass_of("test", employee, person)
+    age = await kb.declare_class_property("test", "AGE", "", class_id=person)
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    bob   = await kb.add_entity("test", "Bob", class_id=employee)
+    direct = await kb.is_property_allowed("test", alice, age)
+    assert direct["ok"] is True
+    assert direct["reason"] == "ALLOWED"
+    inherited = await kb.is_property_allowed("test", bob, age)
+    assert inherited["ok"] is True
+    assert inherited["details"]["defined_on"] == ["PERSON"]
+
+
+async def test_is_property_allowed_matches_any_of_multiple_classes(kb):
+    person  = await kb.declare_class("test", "PERSON", "")
+    company = await kb.declare_class("test", "COMPANY", "")
+    age = await kb.declare_class_property("test", "AGE", "", class_id=person)
+    bob = await kb.add_entity("test", "Bob", class_id=company)
+    kb.add_edge("test", bob, "IS_INSTANCE_OF", person)
+    verdict = await kb.is_property_allowed("test", bob, age)
+    assert verdict["ok"] is True
+    assert set(verdict["details"]["owner_classes"]) == {"COMPANY", "PERSON"}
+
+
+async def test_is_property_allowed_rejects_unrelated_and_orphan(kb):
+    person  = await kb.declare_class("test", "PERSON", "")
+    company = await kb.declare_class("test", "COMPANY", "")
+    motto = await kb.declare_class_property("test", "MOTTO", "", class_id=company)
+    note  = await kb.declare_class_property("test", "NOTE", "")
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    unrelated = await kb.is_property_allowed("test", alice, motto)
+    assert unrelated["ok"] is False
+    assert unrelated["reason"] == "NOT_DEFINED_FOR_OWNER"
+    assert unrelated["details"]["owner_classes"] == ["PERSON"]
+    assert unrelated["details"]["defined_on"] == ["COMPANY"]
+    orphan = await kb.is_property_allowed("test", alice, note)
+    assert orphan["ok"] is False
+    assert orphan["reason"] == "NOT_DEFINED_FOR_OWNER"
+    assert orphan["details"]["defined_on"] == []
+
+
+async def test_is_property_allowed_on_fact_owner(kb):
+    person  = await kb.declare_class("test", "PERSON", "")
+    company = await kb.declare_class("test", "COMPANY", "")
+    worked = await kb.declare_relation_type(
+        "test", "WORKED_AT", "", domain="PERSON", range="COMPANY"
+    )
+    start = await kb.declare_relation_property("test", "START_DATE", "", relation_id=worked)
+    age   = await kb.declare_class_property("test", "AGE", "", class_id=person)
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    ibm   = await kb.add_entity("test", "IBM", class_id=company)
+    fact  = await kb.add_fact("test", head_entity_id=alice, tail_entity_id=ibm, relation_id=worked)
+    verdict = await kb.is_property_allowed("test", fact, start)
+    assert verdict["ok"] is True
+    assert verdict["details"]["owner_relation"] == "WORKED_AT"
+    wrong = await kb.is_property_allowed("test", fact, age)
+    assert wrong["ok"] is False
+    assert wrong["reason"] == "NOT_DEFINED_FOR_OWNER"
+    bare = await kb.add_fact("test")
+    unwired = await kb.is_property_allowed("test", bare, start)
+    assert unwired["ok"] is False
+    assert unwired["reason"] == "FACT_HAS_NO_RELATION"
+
+
+async def test_is_property_allowed_via_relation_ancestor(kb):
+    person  = await kb.declare_class("test", "PERSON", "")
+    company = await kb.declare_class("test", "COMPANY", "")
+    affiliated = await kb.declare_relation_type(
+        "test", "AFFILIATED_WITH", "", domain="PERSON", range="COMPANY"
+    )
+    worked = await kb.declare_relation_type(
+        "test", "WORKED_AT", "", domain="PERSON", range="COMPANY"
+    )
+    await kb.add_is_subclass_of("test", worked, affiliated)
+    since = await kb.declare_relation_property("test", "SINCE", "", relation_id=affiliated)
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    ibm   = await kb.add_entity("test", "IBM", class_id=company)
+    fact  = await kb.add_fact("test", head_entity_id=alice, tail_entity_id=ibm, relation_id=worked)
+    verdict = await kb.is_property_allowed("test", fact, since)
+    assert verdict["ok"] is True
+    assert verdict["details"]["defined_on"] == ["AFFILIATED_WITH"]
+
+
+async def test_conformance_guards_reject_wrong_labels(kb):
+    person  = await kb.declare_class("test", "PERSON", "")
+    company = await kb.declare_class("test", "COMPANY", "")
+    worked = await kb.declare_relation_type(
+        "test", "WORKED_AT", "", domain="PERSON", range="COMPANY"
+    )
+    age   = await kb.declare_class_property("test", "AGE", "", class_id=person)
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    ibm   = await kb.add_entity("test", "IBM", class_id=company)
+    fact  = await kb.add_fact("test", head_entity_id=alice, tail_entity_id=ibm, relation_id=worked)
+    with pytest.raises(KBError):
+        await kb.is_fact_allowed("test", fact, worked, ibm)
+    with pytest.raises(KBError):
+        await kb.is_fact_allowed("test", alice, person, ibm)
+    with pytest.raises(KBError):
+        await kb.is_property_allowed("test", person, age)
+    with pytest.raises(KBError):
+        await kb.is_property_allowed("test", alice, alice)
+
+
+# ------------------------------------------------------------------ #
 # search_data fallback (find_data)                                     #
 # ------------------------------------------------------------------ #
 
