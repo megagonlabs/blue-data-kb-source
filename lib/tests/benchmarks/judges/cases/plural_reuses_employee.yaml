@@ -1,0 +1,11 @@
+id: plural_reuses_employee
+judge: class_name
+description: A plural surface form must merge into the singular class.
+inputs:
+  operand_name: "employees"
+  triple_text: "Initech EMPLOYS Bob"
+  existing_classes:
+    - {name: EMPLOYEE, description: "A person employed by an organization"}
+    - {name: COMPANY, description: "A business organization"}
+expected:
+  reuse: EMPLOYEE

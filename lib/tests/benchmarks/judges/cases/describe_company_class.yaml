@@ -1,0 +1,6 @@
+id: describe_company_class
+judge: description
+description: Plain one-sentence description for a class; guards + eyeball.
+inputs:
+  name: COMPANY
+  context: "a class created while asserting: Globex ACQUIRED Initech, where Globex and Initech are companies"

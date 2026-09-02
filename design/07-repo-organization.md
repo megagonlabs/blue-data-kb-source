@@ -66,9 +66,10 @@ blue-data-kb-source/
 │       │   ├── notification/            # ChangeNotifier tests
 │       │   └── extraction/              # ExtractionEngine tests (OpenAI mocked)
 │       └── benchmarks/                  # gold-standard-case suites against real OpenAI (VCR cassettes)
-│           ├── common/                  # shared harness: capture, (query_)cases, (query_)runner, (query_)scoring, (query_)reporting
+│           ├── common/                  # shared harness: capture + cases/runner/scoring/reporting per family (unprefixed = extraction, query_*, judge_*)
 │           ├── extraction/              # import_text cases + pytest suite + live run.py CLI
-│           └── querying/                # answer/validate/enrich cases + pytest suite + live run.py CLI
+│           ├── querying/                # answer/validate/enrich cases + pytest suite + live run.py CLI
+│           └── judges/                  # ingestion-judge cases + pytest suite + live run.py CLI
 │
 ├── docs/                                # User-facing documentation — start at docs/README.md
 │
@@ -231,9 +232,10 @@ lib/tests/
 │   ├── notification/    # ChangeNotifier: hook registration, event delivery
 │   └── extraction/      # ExtractionEngine: import_text tool dispatch (OpenAI mocked)
 └── benchmarks/          # opt-in, real-OpenAI gold-standard-case suites — excluded from the default `pytest` run
-    ├── common/          # shared harness: capture, (query_)cases, (query_)runner, (query_)scoring, (query_)reporting
+    ├── common/          # shared harness: capture + cases/runner/scoring/reporting per family (unprefixed = extraction, query_*, judge_*)
     ├── extraction/      # import_text cases (VCR cassettes) + pytest suite + live run.py CLI
-    └── querying/        # answer/validate/enrich cases (VCR cassettes) + pytest suite + live run.py CLI
+    ├── querying/        # answer/validate/enrich cases (VCR cassettes) + pytest suite + live run.py CLI
+    └── judges/          # ingestion-judge cases (VCR cassettes) + pytest suite + live run.py CLI
 ```
 
 Each `unit/` subdirectory carries an `__init__.py` to prevent pytest from confusing identically-named test files (e.g. `schema/test_manager.py` and `knowledge/test_manager.py`). See [11-testing-strategy.md](11-testing-strategy.md) for the full testing approach, including why the benchmark tier is kept separate from `unit/`.

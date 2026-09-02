@@ -1,0 +1,117 @@
+interactions:
+- request:
+    body: "{\"messages\":[{\"role\":\"system\",\"content\":\"You name the class for
+      an entity in a knowledge-base schema. Reuse an existing class when one means
+      the same thing (e.g. PERSON for 'a person'); be conservative \u2014 reuse only
+      on a clear meaning match. Otherwise coin a new name in the schema convention:
+      uppercase with underscores.\"},{\"role\":\"user\",\"content\":\"Entity: a physician\\nAsserted
+      in: Dr_Lee TREATED Bob\\n\\nExisting classes:\\n- DOCTOR \u2014 A medical practitioner\\n-
+      HOSPITAL \u2014 A medical institution\"}],\"model\":\"gpt-4o\",\"tool_choice\":{\"type\":\"function\",\"function\":{\"name\":\"return_class\"}},\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"return_class\",\"description\":\"Return
+      the judged result via return_class.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"class_name\":{\"type\":\"string\",\"description\":\"an
+      existing class name to reuse, or a new uppercase name\"}},\"required\":[\"class_name\"]}}}]}"
+    headers:
+      accept:
+      - application/json
+      accept-encoding:
+      - gzip, deflate
+      connection:
+      - keep-alive
+      content-length:
+      - '889'
+      content-type:
+      - application/json
+      host:
+      - api.openai.com
+      user-agent:
+      - AsyncOpenAI/Python 3.5.0
+      x-stainless-arch:
+      - arm64
+      x-stainless-async:
+      - async:asyncio
+      x-stainless-lang:
+      - python
+      x-stainless-os:
+      - MacOS
+      x-stainless-package-version:
+      - 3.5.0
+      x-stainless-read-timeout:
+      - '600'
+      x-stainless-retry-count:
+      - '0'
+      x-stainless-runtime:
+      - CPython
+      x-stainless-runtime-version:
+      - 3.10.20
+    method: POST
+    uri: https://api.openai.com/v1/chat/completions
+  response:
+    body:
+      string: !!binary |
+        H4sIAAAAAAAA/41TXW/aMBR9z69AfoaJr0LG41a0DalFoFYTHZVl7JvgzbEt29lWIf57bQeSQDtp
+        eYiSe+6599yvQ9LpIM7QrIPonjhaaNGbL1Q+vykKsrjlG7tai9UKJo/r+/RhCZ9QNzDU7idQd2Z9
+        oMrzwHElK5gaIA5C1ME0TUcfB9ObcQQKxUAEWq5db6x6w/5w3Ounvf7kRNwrTsF6jx/+t9M5xHeQ
+        KBn89eZ+92wpwFqSg7ednbzRKBEsiFjLrSPSoW4DUiUdyKBalkK0AKeUwJQI0SSunkPru+mTd8QL
+        nX5/Yo9s/u3P/Wo8MHebp69f7jbQyleFftFRUFZKWvenhdf22VUyj0lSRK4BVxqJqfBVXfG9FzF5
+        WfiygnZ02KLohgN3i2ZbdLv8/LBcb9ERXRCPyXvfz62mGMhKS8TbbhEplSNBdGzX8wk51pMRKtdG
+        7ewVFWVccrvHfjdsLBhZp3QlK0iIyVF5MVTkAxXaYad+QUw3mIyqeKjZuQadnjDnBYoWaXpam8tw
+        mIEjPA693jNK6B5YQ232jZSMqxaQtIp+K+a92FXhXOb/E74BKAXtjwlrA4zTy4IbNwPhIv/lVjc5
+        CkYWzG9/Z9hxMGEQDDJSiupYkH2xDgrsp5WD0YbHi0GZxlnG0lE/3Y2HKDkmr3dxavo6BAAA
+    headers:
+      access-control-expose-headers:
+      - X-Request-ID
+      - CF-Ray
+      - CF-Ray
+      alt-svc:
+      - h3=":443"; ma=86400
+      cf-cache-status:
+      - DYNAMIC
+      cf-ray:
+      - a3504bb1f9931ad1-LAX
+      connection:
+      - keep-alive
+      content-encoding:
+      - gzip
+      content-type:
+      - application/json
+      date:
+      - Wed, 02 Sep 2026 23:29:15 GMT
+      openai-organization:
+      - megagonai
+      openai-processing-ms:
+      - '469'
+      openai-project:
+      - proj_puKemqU0b2ILXkxJnSwAMmtk
+      openai-version:
+      - '2020-10-01'
+      server:
+      - cloudflare
+      set-cookie:
+      - __cf_bm=J7BrauLtrdbkODLdHWZm6zcOtiQSn51Nm3oL.LquAPs-1788391754.5521083-1.0.1.1-ojRqLaOvJtEy75F43JnCx5pUM67pig5weBO1WBhJ1k2eD6U5eazRPzMB.HeXBrxuhWOacjWixrLu_n_dKL1bh2531JmK8vPASCw2omCVPfKampDzD9fohjTuAqEuxIy0;
+        HttpOnly; SameSite=None; Secure; Path=/; Domain=api.openai.com; Expires=Wed,
+        02 Sep 2026 23:59:15 GMT
+      strict-transport-security:
+      - max-age=31536000; includeSubDomains; preload
+      transfer-encoding:
+      - chunked
+      x-content-type-options:
+      - nosniff
+      x-openai-proxy-wasm:
+      - v0.1
+      x-ratelimit-limit-requests:
+      - '10000'
+      x-ratelimit-limit-tokens:
+      - '30000000'
+      x-ratelimit-remaining-requests:
+      - '9999'
+      x-ratelimit-remaining-tokens:
+      - '29999891'
+      x-ratelimit-reset-requests:
+      - 6ms
+      x-ratelimit-reset-tokens:
+      - 0s
+      x-request-id:
+      - req_a4eb46accecf429f940a9f5dcce2844f
+    status:
+      code: 200
+      message: OK
+version: 1

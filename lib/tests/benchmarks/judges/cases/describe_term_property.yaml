@@ -1,0 +1,8 @@
+id: describe_term_property
+judge: description
+description: >
+  Ambiguous element name (TERM); the description must disambiguate to the
+  contract-duration meaning carried by the context.
+inputs:
+  name: TERM
+  context: "a property of AGREEMENT recording the contract's duration, for example '24 months'"

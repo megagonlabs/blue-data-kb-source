@@ -1,0 +1,12 @@
+id: salary_on_employee
+judge: placement
+description: >
+  SALARY belongs on EMPLOYEE, the specific class, not on the PERSON ancestor
+  every employee also has.
+inputs:
+  classes:
+    - {id: c-emp, name: EMPLOYEE, description: "A person employed by an organization"}
+    - {id: c-per, name: PERSON, description: "A human individual"}
+  property_name: SALARY
+expected:
+  placed_on: [[EMPLOYEE]]

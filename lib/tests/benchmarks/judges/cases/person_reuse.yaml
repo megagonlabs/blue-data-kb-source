@@ -1,0 +1,11 @@
+id: person_reuse
+judge: class_name
+description: Lowercase natural-language operand should reuse the PERSON class.
+inputs:
+  operand_name: "a person named Alice"
+  triple_text: "Alice WORKED_AT IBM"
+  existing_classes:
+    - {name: PERSON, description: "A human individual"}
+    - {name: COMPANY, description: "A business organization"}
+expected:
+  reuse: PERSON

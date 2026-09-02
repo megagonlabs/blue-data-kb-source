@@ -1,0 +1,13 @@
+id: spaceship_is_new
+judge: class_name
+description: >
+  Nothing existing means spaceship; the judge must coin a new
+  convention-conforming name rather than force a bad reuse.
+inputs:
+  operand_name: "the starship Enterprise"
+  triple_text: "Enterprise DOCKED_AT Starbase_1"
+  existing_classes:
+    - {name: PERSON, description: "A human individual"}
+    - {name: COMPANY, description: "A business organization"}
+expected:
+  new: true

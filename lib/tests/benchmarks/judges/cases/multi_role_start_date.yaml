@@ -1,0 +1,14 @@
+id: multi_role_start_date
+judge: placement
+description: >
+  Genuine multi-placement: the entity is both EMPLOYEE and BOARD_MEMBER, and
+  START_DATE is meaningful for each role separately; placing it once, or on
+  the PERSON ancestor, both lose information.
+inputs:
+  classes:
+    - {id: c-emp, name: EMPLOYEE, description: "A person employed by an organization"}
+    - {id: c-brd, name: BOARD_MEMBER, description: "A person serving on an organization's board"}
+    - {id: c-per, name: PERSON, description: "A human individual"}
+  property_name: START_DATE
+expected:
+  placed_on: [[EMPLOYEE, BOARD_MEMBER]]

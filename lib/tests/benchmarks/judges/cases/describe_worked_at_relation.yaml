@@ -1,0 +1,6 @@
+id: describe_worked_at_relation
+judge: description
+description: Plain one-sentence description for a relation; guards + eyeball.
+inputs:
+  name: WORKED_AT
+  context: "a relation from EMPLOYEE to COMPANY created while asserting: Alice WORKED_AT IBM"
