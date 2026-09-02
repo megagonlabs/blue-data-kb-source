@@ -315,6 +315,12 @@ class KBSource(GraphSource, ABC):
             max_turns=max_turns,
         )
 
+    async def add_relation_domain(self, database: str, relation_id: str, class_id: str) -> None:
+        await self._schema.add_relation_domain(database, relation_id, class_id)
+
+    async def add_relation_range(self, database: str, relation_id: str, class_id: str) -> None:
+        await self._schema.add_relation_range(database, relation_id, class_id)
+
     async def get_class_ancestors(
         self,
         database: str,

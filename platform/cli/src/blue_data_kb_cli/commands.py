@@ -1425,6 +1425,149 @@ def schema_relation_child_list(
         console.print(t)
 
 
+# ------------------------------------------------------------------ #
+# kb schema relation domain / range                                    #
+# ------------------------------------------------------------------ #
+
+
+@schema_relation_group.group("domain")
+def schema_relation_domain_group() -> None:
+    """Relation domain management (add and list only — domains are add-only by design)."""
+
+
+@schema_relation_domain_group.command("add")
+@click.option("--relation",    "relation_name", default=None, required=False, help="Relation name.")
+@click.option("--relation-id",                  default=None, required=False, help="Relation node ID.")
+@click.option("--class",       "class_name",    default=None, required=False, help="Class name to add.")
+@click.option("--class-id",                     default=None, required=False, help="Class node ID to add.")
+@click.pass_obj
+def schema_relation_domain_add(
+    obj: dict, relation_name: str | None, relation_id: str | None,
+    class_name: str | None, class_id: str | None,
+) -> None:
+    """Add a class to the relation's domain (deduplicated; no remove counterpart by design)."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    resolved_rel   = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
+    resolved_class = _resolve_node(kb, db, CLASS,    class_name,    class_id,    "class")
+    try:
+        _run(kb.add_relation_domain(db, resolved_rel, resolved_class))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(
+        f"[bold]{class_name or class_id}[/bold] added to domain of "
+        f"[bold]{relation_name or relation_id}[/bold]"
+    )
+
+
+@schema_relation_domain_group.command("list")
+@click.option("--relation",    "relation_name", default=None, required=False, help="Relation name.")
+@click.option("--relation-id",                  default=None, required=False, help="Relation node ID.")
+@click.option(
+    "--format", "fmt",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    show_default=True,
+)
+@click.pass_obj
+def schema_relation_domain_list(
+    obj: dict, relation_name: str | None, relation_id: str | None, fmt: str,
+) -> None:
+    """List the relation's domain classes."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    resolved_id = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
+    try:
+        dr = _run(kb.get_relation_domain_range(db, resolved_id))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    nodes = dr["domain"]
+    if fmt == "json":
+        console.print_json(json.dumps([
+            {"name": n.get("properties", {}).get("name", n["id"]), "id": n["id"]}
+            for n in nodes
+        ]))
+    else:
+        if not nodes:
+            console.print("[dim](no domain classes)[/dim]")
+            return
+        t = Table(show_header=True, header_style="bold")
+        t.add_column("Name", style="bold", min_width=14)
+        t.add_column("ID",   style="dim")
+        for n in nodes:
+            t.add_row(n.get("properties", {}).get("name", n["id"]), n["id"])
+        console.print(t)
+
+
+@schema_relation_group.group("range")
+def schema_relation_range_group() -> None:
+    """Relation range management (add and list only — ranges are add-only by design)."""
+
+
+@schema_relation_range_group.command("add")
+@click.option("--relation",    "relation_name", default=None, required=False, help="Relation name.")
+@click.option("--relation-id",                  default=None, required=False, help="Relation node ID.")
+@click.option("--class",       "class_name",    default=None, required=False, help="Class name to add.")
+@click.option("--class-id",                     default=None, required=False, help="Class node ID to add.")
+@click.pass_obj
+def schema_relation_range_add(
+    obj: dict, relation_name: str | None, relation_id: str | None,
+    class_name: str | None, class_id: str | None,
+) -> None:
+    """Add a class to the relation's range (deduplicated; no remove counterpart by design)."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    resolved_rel   = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
+    resolved_class = _resolve_node(kb, db, CLASS,    class_name,    class_id,    "class")
+    try:
+        _run(kb.add_relation_range(db, resolved_rel, resolved_class))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(
+        f"[bold]{class_name or class_id}[/bold] added to range of "
+        f"[bold]{relation_name or relation_id}[/bold]"
+    )
+
+
+@schema_relation_range_group.command("list")
+@click.option("--relation",    "relation_name", default=None, required=False, help="Relation name.")
+@click.option("--relation-id",                  default=None, required=False, help="Relation node ID.")
+@click.option(
+    "--format", "fmt",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    show_default=True,
+)
+@click.pass_obj
+def schema_relation_range_list(
+    obj: dict, relation_name: str | None, relation_id: str | None, fmt: str,
+) -> None:
+    """List the relation's range classes."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    resolved_id = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
+    try:
+        dr = _run(kb.get_relation_domain_range(db, resolved_id))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    nodes = dr["range"]
+    if fmt == "json":
+        console.print_json(json.dumps([
+            {"name": n.get("properties", {}).get("name", n["id"]), "id": n["id"]}
+            for n in nodes
+        ]))
+    else:
+        if not nodes:
+            console.print("[dim](no range classes)[/dim]")
+            return
+        t = Table(show_header=True, header_style="bold")
+        t.add_column("Name", style="bold", min_width=14)
+        t.add_column("ID",   style="dim")
+        for n in nodes:
+            t.add_row(n.get("properties", {}).get("name", n["id"]), n["id"])
+        console.print(t)
+
+
 @schema_relation_group.group("property")
 def schema_relation_property_group() -> None:
     """Relation property management."""

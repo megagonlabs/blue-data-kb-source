@@ -418,6 +418,48 @@ class SchemaManager:
             "parent_name": parent_node.get("properties", {}).get("name"),
         })
 
+    async def add_relation_domain(self, database: str, relation_id: str, class_id: str) -> None:
+        rel_node = require_node_type(
+            self._source, database, relation_id, RELATION, "relation_id", SchemaError
+        )
+        class_node = require_node_type(
+            self._source, database, class_id, CLASS, "class_id", SchemaError
+        )
+        nbs = self._source.get_neighbors(database, relation_id, edge_type=DOMAIN, direction="out")
+        if any(nb["node"]["id"] == class_id for nb in nbs):
+            return
+        self._source.add_edge(database, relation_id, DOMAIN, class_id, properties=edge_stamped())
+        self._fire({
+            "type": "relation_domain_added",
+            "database": database,
+            "id": relation_id,
+            "relation_id":   relation_id,
+            "relation_name": rel_node.get("properties",   {}).get("name"),
+            "class_id":      class_id,
+            "class_name":    class_node.get("properties", {}).get("name"),
+        })
+
+    async def add_relation_range(self, database: str, relation_id: str, class_id: str) -> None:
+        rel_node = require_node_type(
+            self._source, database, relation_id, RELATION, "relation_id", SchemaError
+        )
+        class_node = require_node_type(
+            self._source, database, class_id, CLASS, "class_id", SchemaError
+        )
+        nbs = self._source.get_neighbors(database, relation_id, edge_type=RANGE, direction="out")
+        if any(nb["node"]["id"] == class_id for nb in nbs):
+            return
+        self._source.add_edge(database, relation_id, RANGE, class_id, properties=edge_stamped())
+        self._fire({
+            "type": "relation_range_added",
+            "database": database,
+            "id": relation_id,
+            "relation_id":   relation_id,
+            "relation_name": rel_node.get("properties",   {}).get("name"),
+            "class_id":      class_id,
+            "class_name":    class_node.get("properties", {}).get("name"),
+        })
+
     # ------------------------------------------------------------------ #
     # Expansion                                                            #
     # ------------------------------------------------------------------ #

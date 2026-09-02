@@ -69,6 +69,47 @@ def test_relation_property_add_and_list(runner):
     assert rows == [{"relation": "WORKED_AT", "property": "START_DATE", "description": "Start of employment"}]
 
 
+def test_relation_domain_add_and_list(runner):
+    invoke(runner, DB + ["schema", "class", "add", "EMPLOYEE", "An employed person"])
+    invoke(runner, DB + ["schema", "class", "add", "COMPANY", "A business organization"])
+    invoke(runner, DB + ["schema", "class", "add", "CONTRACTOR", "An independent contractor"])
+    invoke(runner, DB + [
+        "schema", "relation", "add", "WORKED_AT", "Employment",
+        "--domain", "EMPLOYEE", "--range", "COMPANY",
+    ])
+    invoke(runner, DB + [
+        "schema", "relation", "domain", "add", "--relation", "WORKED_AT", "--class", "CONTRACTOR",
+    ])
+    rows = invoke_json(runner, DB + [
+        "schema", "relation", "domain", "list", "--relation", "WORKED_AT", "--format", "json",
+    ])
+    assert {r["name"] for r in rows} == {"EMPLOYEE", "CONTRACTOR"}
+    result = invoke(runner, DB + [
+        "schema", "relation", "domain", "list", "--relation", "WORKED_AT",
+    ])
+    assert "CONTRACTOR" in result.output
+
+
+def test_relation_range_add_and_dedupe(runner):
+    invoke(runner, DB + ["schema", "class", "add", "EMPLOYEE", "An employed person"])
+    invoke(runner, DB + ["schema", "class", "add", "COMPANY", "A business organization"])
+    invoke(runner, DB + ["schema", "class", "add", "UNIVERSITY", "An academic institution"])
+    invoke(runner, DB + [
+        "schema", "relation", "add", "WORKED_AT", "Employment",
+        "--domain", "EMPLOYEE", "--range", "COMPANY",
+    ])
+    invoke(runner, DB + [
+        "schema", "relation", "range", "add", "--relation", "WORKED_AT", "--class", "UNIVERSITY",
+    ])
+    invoke(runner, DB + [
+        "schema", "relation", "range", "add", "--relation", "WORKED_AT", "--class", "COMPANY",
+    ])
+    rows = invoke_json(runner, DB + [
+        "schema", "relation", "range", "list", "--relation", "WORKED_AT", "--format", "json",
+    ])
+    assert sorted(r["name"] for r in rows) == ["COMPANY", "UNIVERSITY"]
+
+
 def test_schema_search_keyword_mode(runner):
     invoke(runner, DB + ["schema", "class", "add", "EMPLOYEE", "A person employed by an organization"])
     invoke(runner, DB + ["schema", "class", "add", "COMPANY", "A business organization"])
