@@ -6,6 +6,7 @@ from blue_data.source.graph.graph_source import GraphSource
 
 from blue_data_kb_source._constants import ENTITY, EXTRACTED_FROM, EXTRACTION, FACT, LITERAL, SOURCE
 from blue_data_kb_source.checks import require_node_type, require_node_type_one_of
+from blue_data_kb_source.knowledge.helpers import recompute_fact_confidence
 from blue_data_kb_source.timestamps import edge_stamped, stamped, touched
 from blue_data_kb_source.types import ProvenanceError
 
@@ -14,7 +15,11 @@ if TYPE_CHECKING:
 
 
 class ProvenanceTracker:
-    """Creates and wires SOURCE and EXTRACTION provenance nodes."""
+    """Creates and wires SOURCE and EXTRACTION provenance nodes.
+
+    Wiring an item-to-EXTRACTION edge also refreshes that item's derived `confidence`
+    when the item is a FACT.
+    """
 
     def __init__(self, source: GraphSource, notifier: ChangeNotifier | None = None) -> None:
         self._source = source
@@ -72,9 +77,7 @@ class ProvenanceTracker:
         if source_id is not None:
             self._source.add_edge(database, n, EXTRACTED_FROM, source_id, properties=edge_stamped())
         if element_id is not None:
-            self._source.add_edge(
-                database, element_id, EXTRACTED_FROM, n, properties=edge_stamped()
-            )
+            await self.add_extracted_from(database, element_id, n)
         return n
 
     async def add_extracted_from(
@@ -84,6 +87,7 @@ class ProvenanceTracker:
         extraction_id: str,
     ) -> None:
         self._source.add_edge(database, element_id, EXTRACTED_FROM, extraction_id, properties=edge_stamped())
+        recompute_fact_confidence(self._source, database, element_id)
 
     async def attach_extraction(
         self, database: str, element_id: str, extraction_id: str

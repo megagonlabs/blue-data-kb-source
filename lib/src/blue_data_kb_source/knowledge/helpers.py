@@ -1,8 +1,10 @@
-"""Shared lookup and metadata helpers for ENTITY/FACT/LITERAL nodes.
+"""Shared lookup, metadata, and derived-value helpers for ENTITY/FACT/LITERAL nodes.
 
-Used by both `KnowledgeManager` (compact data listing, `get_metadata`, the exact-name
-`find_entity`/`find_fact` lookups behind the extraction agent's tools) and `QueryEngine`
-(the `get_metadata` LLM tool) so the per-type lookup logic lives in exactly one place.
+Used by `KnowledgeManager` (compact data listing, `get_metadata`, the exact-name
+`find_entity`/`find_fact` lookups behind the extraction agent's tools), `QueryEngine`
+(the `get_metadata` LLM tool), and `ProvenanceTracker` (`recompute_fact_confidence`,
+which must run wherever an EXTRACTED_FROM edge is written) so the per-type logic lives
+in exactly one place.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from blue_data_kb_source._constants import (
     REPRESENTS,
     TAIL,
 )
+from blue_data_kb_source.timestamps import touched
 
 
 def node_name(node: dict) -> str:
@@ -165,3 +168,23 @@ def fetch_node_metadata(source: GraphSource, database: str, node_id: str) -> dic
         **detail_attrs(node),
         **provenance_detail(source, database, node_id),
     }
+
+
+def recompute_fact_confidence(source: GraphSource, database: str, fact_id: str) -> None:
+    """Refresh a FACT's derived `confidence` from its supporting EXTRACTION nodes.
+
+    The highest confidence among them, ignoring those that state none, and `None`
+    when none do. A no-op for non-FACT nodes; writes nothing when unchanged.
+    """
+    node = source.get_node(database, fact_id)
+    if node is None or node.get("label") != FACT:
+        return
+    scores: list[float] = []
+    for nb in source.get_neighbors(database, fact_id, edge_type=EXTRACTED_FROM, direction="out"):
+        score = nb["node"].get("properties", {}).get("confidence")
+        if score is not None:
+            scores.append(score)
+    recomputed = max(scores) if scores else None
+    if node.get("properties", {}).get("confidence") == recomputed:
+        return
+    source.update_node(database, fact_id, touched({"confidence": recomputed}))

@@ -144,15 +144,17 @@ A concrete instance of a RELATION, connecting two ENTITY nodes.
 | `id` | string | |
 | `name` | string \| null | Label for the fact. If not supplied, `add_fact` auto-synthesizes one as `{head_name}_{relation_name}_{tail_name}` — in practice a FACT's `name` is essentially never `null` |
 | `description` | string \| null | |
+| `confidence` | number \| null | Derived score in `[0.0, 1.0]`: the highest `confidence` among this fact's supporting EXTRACTION nodes, ignoring any whose confidence is `null`. `null` when no supporting extraction states one. Recomputed whenever an `EXTRACTED_FROM` edge is added to the fact; not set directly. A recomputation that changes the value refreshes `modified`; one that does not changes nothing |
 | `created` / `modified` | string (ISO-8601) | See §2 above |
 
 **Example:**
 ```
-label:    FACT
-id:       "fact-001"
-name:     "Alice_WORKED_AT_IBM"
-created:  "2026-06-01T09:00:00+00:00"
-modified: "2026-06-01T09:00:00+00:00"
+label:      FACT
+id:         "fact-001"
+name:       "Alice_WORKED_AT_IBM"
+confidence: 0.9
+created:    "2026-06-01T09:00:00+00:00"
+modified:   "2026-06-01T09:00:00+00:00"
 ```
 
 ---

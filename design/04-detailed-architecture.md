@@ -257,6 +257,7 @@ When an instance is created with a `text` argument:
 1. Create an EXTRACTION node with the assertion `text`, its `extraction_type`, and `confidence` (`None` = unstated)
 2. If `source_id` is provided: wire an EXTRACTED_FROM edge from the EXTRACTION to the SOURCE
 3. Wire an EXTRACTED_FROM edge from the instance to the EXTRACTION
+4. If the instance is a FACT: recompute its derived `confidence` (the highest score among its extractions that state one). This runs wherever an item-to-EXTRACTION edge is written, so `attach_extraction` refreshes it too
 
 One EXTRACTION node is created per item, giving per-item granularity. Multiple items can point to the same SOURCE but have distinct EXTRACTION nodes even when drawn from the same passage.
 

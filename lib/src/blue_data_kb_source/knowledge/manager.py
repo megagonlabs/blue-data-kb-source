@@ -197,7 +197,10 @@ class KnowledgeManager:
             rel_name = self._node_name(database, relation_id) or "?"
             name = f"{head_name}_{rel_name}_{tail_name}"
         node_id = self._source.add_node(
-            database, FACT, stamped({"name": name, "description": description}), node_id=fact_id
+            database,
+            FACT,
+            stamped({"name": name, "description": description, "confidence": None}),
+            node_id=fact_id,
         )
         if head_entity_id is not None:
             self._source.add_edge(database, node_id, HEAD, head_entity_id, properties=edge_stamped())

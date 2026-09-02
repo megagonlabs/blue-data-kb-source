@@ -493,6 +493,78 @@ async def test_creator_confidence_range_is_validated(kb):
 
 
 # ------------------------------------------------------------------ #
+# FACT confidence derivation                                           #
+# ------------------------------------------------------------------ #
+
+async def _fact(kb, text=None, confidence=None):
+    """A fact between two entities, optionally created with scored evidence."""
+    alice = await kb.add_entity("test", "Alice")
+    ibm   = await kb.add_entity("test", "IBM")
+    return await kb.add_fact(
+        "test", head_entity_id=alice, tail_entity_id=ibm, text=text, confidence=confidence
+    )
+
+
+async def test_fact_confidence_is_the_max_of_its_extractions(kb):
+    fact_id = await _fact(kb, text="Alice joined IBM.", confidence=0.6)
+    assert kb.get_node("test", fact_id)["properties"]["confidence"] == 0.6
+    await kb.add_fact_extraction("test", fact_id, text="A surer source.", confidence=0.9)
+    assert kb.get_node("test", fact_id)["properties"]["confidence"] == 0.9
+    await kb.add_fact_extraction("test", fact_id, text="A shakier source.", confidence=0.2)
+    assert kb.get_node("test", fact_id)["properties"]["confidence"] == 0.9
+
+
+async def test_fact_confidence_ignores_extractions_that_state_none(kb):
+    fact_id = await _fact(kb, text="Alice joined IBM.", confidence=0.6)
+    await kb.add_fact_extraction("test", fact_id, text="No score stated.")
+    assert kb.get_node("test", fact_id)["properties"]["confidence"] == 0.6
+
+
+async def test_fact_confidence_is_none_when_no_extraction_states_one(kb):
+    fact_id = await _fact(kb)
+    assert kb.get_node("test", fact_id)["properties"]["confidence"] is None
+    await kb.add_fact_extraction("test", fact_id, text="Evidence with no score.")
+    assert kb.get_node("test", fact_id)["properties"]["confidence"] is None
+
+
+async def test_fact_confidence_of_zero_is_kept_not_treated_as_unstated(kb):
+    fact_id = await _fact(kb, text="A source that denies it.", confidence=0.0)
+    assert kb.get_node("test", fact_id)["properties"]["confidence"] == 0.0
+
+
+async def test_fact_confidence_recomputes_on_the_facade_extraction_path(kb):
+    fact_id = await _fact(kb)
+    await kb.add_extraction("test", text="Attached directly.", element_id=fact_id, confidence=0.75)
+    assert kb.get_node("test", fact_id)["properties"]["confidence"] == 0.75
+
+
+async def test_recompute_leaves_non_fact_owners_alone(kb):
+    entity_id = await kb.add_entity("test", "Bob", text="Bob exists.", confidence=0.5)
+    assert "confidence" not in kb.get_node("test", entity_id)["properties"]
+
+
+async def test_recompute_tolerates_an_element_that_does_not_exist(kb):
+    await kb.add_extraction("test", text="Attached to nothing.", element_id="no-such-id",
+                            confidence=0.5)
+    assert kb.get_node("test", "no-such-id") is None
+
+
+async def test_fact_confidence_change_refreshes_modified(kb):
+    fact_id = await _fact(kb)
+    before = kb.get_node("test", fact_id)["properties"]["modified"]
+    await kb.add_fact_extraction("test", fact_id, text="A scored source.", confidence=0.4)
+    assert kb.get_node("test", fact_id)["properties"]["modified"] > before
+
+
+async def test_unchanged_confidence_writes_nothing(kb):
+    fact_id = await _fact(kb, text="Alice joined IBM.", confidence=0.6)
+    before = kb.get_node("test", fact_id)["properties"]["modified"]
+    await kb.add_fact_extraction("test", fact_id, text="A shakier source.", confidence=0.2)
+    assert kb.get_node("test", fact_id)["properties"]["confidence"] == 0.6
+    assert kb.get_node("test", fact_id)["properties"]["modified"] == before
+
+
+# ------------------------------------------------------------------ #
 # fetch_database_data                                                  #
 # ------------------------------------------------------------------ #
 

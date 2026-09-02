@@ -174,7 +174,7 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `delete_source(database, source_id)` | `None` | Delete a SOURCE node |
 | `add_extraction(database, text, name?, description?, node_id?, source_id?, confidence?, extraction_type?, element_id?)` | `str` | Create an EXTRACTION node; `source_id` wires EXTRACTED_FROM from it to that SOURCE, `element_id` wires EXTRACTED_FROM from that existing entity/fact/literal to it — each link independently, only when its id is given |
 
-`add_extracted_from` is **not** a public `KBSource` method; it is a private `ProvenanceTracker` helper that `attach_extraction` calls. To link an extraction to an item, pass `element_id` to `add_extraction` when creating it, or call `attach_extraction` for an extraction that already exists.
+`add_extracted_from` is **not** a public `KBSource` method; it is a private `ProvenanceTracker` helper that `add_extraction(element_id=...)` and `attach_extraction` both call, and where a FACT's derived `confidence` is refreshed. To link an extraction to an item, pass `element_id` to `add_extraction` when creating it, or call `attach_extraction` for an extraction that already exists.
 | `attach_extraction(database, element_id, extraction_id)` | `None` | Wire EXTRACTED_FROM from an ENTITY / FACT / LITERAL to an EXTRACTION that already exists — for an extraction created up front by `add_extraction` without an `element_id`, or re-wired on snapshot restore. Deduplicated and add-only. Not a way to share evidence: each item keeps its own EXTRACTION node (`10-data-model.md` §2.3) |
 
 #### Change hook operations (delegate to `ChangeNotifier`)
@@ -317,7 +317,7 @@ Creates an ENTITY node.
 
 1. Create ENTITY node with `name`, `description`, optional `entity_id`
 2. If `class_id` provided: wire IS_INSTANCE_OF edge to the CLASS node
-3. If `text` provided: call `ProvenanceTracker.add_extraction(database, text, source_id=source_id, element_id=entity_id, confidence=confidence, extraction_type=extraction_type)`
+3. If `text` provided: call `ProvenanceTracker.add_extraction(database, text, source_id=source_id, element_id=entity_id, confidence=confidence, extraction_type=extraction_type)` — which, for a FACT, also refreshes the fact's derived `confidence`
 4. Call `ChangeNotifier.fire({"type": "entity_added", ...})`
 5. Return entity ID
 
@@ -428,7 +428,7 @@ Output (partial):
 
 ## ProvenanceTracker
 
-Records the origin of each piece of knowledge by creating and wiring EXTRACTION and SOURCE nodes.
+Records the origin of each piece of knowledge by creating and wiring EXTRACTION and SOURCE nodes, and keeps a FACT's derived `confidence` current whenever an item-to-EXTRACTION edge is written.
 
 ### Constructor
 
@@ -457,11 +457,11 @@ Deletes a SOURCE node.
 
 #### `add_extraction(database, text, name=None, description=None, node_id=None, source_id=None, confidence=None, extraction_type="text_span", element_id=None)`
 
-Creates an EXTRACTION node for `text` and, optionally, links it in the same call — the create-and-link counterpart of `attach_extraction` below. Both links are independent and each is wired only when its id is given: `source_id` adds an EXTRACTED_FROM edge from the new EXTRACTION to that SOURCE; `element_id` adds an EXTRACTED_FROM edge from that existing entity/fact/literal to the new EXTRACTION. With neither, the node is created detached, for `attach_extraction` to wire later. Returns the EXTRACTION node ID. `confidence` scores the assertion in `[0.0, 1.0]` (`None` = unstated, which is not the same as `0.0`) — a value outside the range raises `ProvenanceError`. `extraction_type` (`"text_span"` default \| `"external_record"` \| `"assertion"`) records the form of the evidence. One node per call: `KnowledgeManager` routes every `text=` shortcut and the `add_*_extraction` family through it, so repeated calls for the same element accumulate EXTRACTED_FROM edges rather than replacing the earlier one, and an item can carry evidence from several sources at once.
+Creates an EXTRACTION node for `text` and, optionally, links it in the same call — the create-and-link counterpart of `attach_extraction` below. Both links are independent and each is wired only when its id is given: `source_id` adds an EXTRACTED_FROM edge from the new EXTRACTION to that SOURCE; `element_id` adds an EXTRACTED_FROM edge from that existing entity/fact/literal to the new EXTRACTION. With neither, the node is created detached, for `attach_extraction` to wire later. Returns the EXTRACTION node ID. `confidence` scores the assertion in `[0.0, 1.0]` (`None` = unstated, which is not the same as `0.0`) — a value outside the range raises `ProvenanceError`. `extraction_type` (`"text_span"` default \| `"external_record"` \| `"assertion"`) records the form of the evidence. When `element_id` names a FACT, its derived `confidence` is recomputed as part of the call. One node per call: `KnowledgeManager` routes every `text=` shortcut and the `add_*_extraction` family through it, so repeated calls for the same element accumulate EXTRACTED_FROM edges rather than replacing the earlier one, and an item can carry evidence from several sources at once.
 
 #### `attach_extraction(database, element_id, extraction_id)`
 
-Wires an `EXTRACTED_FROM` edge from an existing ENTITY, FACT, or LITERAL (`element_id`) to an existing EXTRACTION (`extraction_id`). Idempotent — calling it again with the same pair is a no-op, not a duplicate edge. Raises `ProvenanceError` if `element_id` isn't an ENTITY/FACT/LITERAL or `extraction_id` isn't an EXTRACTION. Exists so an extraction created up front — by `add_extraction` without an `element_id`, or rebuilt when a snapshot is restored — can be wired to its item afterwards; it does not pool evidence across items, since each item still gets its own EXTRACTION node.
+Wires an `EXTRACTED_FROM` edge from an existing ENTITY, FACT, or LITERAL (`element_id`) to an existing EXTRACTION (`extraction_id`). Idempotent — calling it again with the same pair is a no-op, not a duplicate edge. Raises `ProvenanceError` if `element_id` isn't an ENTITY/FACT/LITERAL or `extraction_id` isn't an EXTRACTION. Exists so an extraction created up front — by `add_extraction` without an `element_id`, or rebuilt when a snapshot is restored — can be wired to its item afterwards; it does not pool evidence across items, since each item still gets its own EXTRACTION node. When `element_id` names a FACT, its derived `confidence` is recomputed as part of the call: this method and `add_extraction(element_id=…)` both wire the edge through the private `add_extracted_from`, which calls `recompute_fact_confidence`, so a FACT's derived `confidence` refreshes no matter which path attached the evidence.
 
 ---
 
