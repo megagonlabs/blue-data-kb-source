@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from blue_data.source.graph.graph_source import GraphSource
 
@@ -50,18 +50,23 @@ class ProvenanceTracker:
         description: str | None = None,
         node_id: str | None = None,
         source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: Literal["text_span", "external_record", "assertion"] = "text_span",
         element_id: str | None = None,
     ) -> str:
         """Create an EXTRACTION node for `text`, wired to its SOURCE and/or to the item it
         supports when those ids are given. One node per call: repeated calls for the same
         element_id accumulate EXTRACTED_FROM edges rather than replacing the earlier one.
         """
+        if confidence is not None and not 0.0 <= confidence <= 1.0:
+            raise ProvenanceError(f"confidence must be within [0.0, 1.0], got {confidence!r}.")
         if name is None:
             name = text
         n = self._source.add_node(
             database,
             EXTRACTION,
-            stamped({"name": name, "description": description, "text": text}),
+            stamped({"name": name, "description": description, "text": text,
+                     "confidence": confidence, "extraction_type": extraction_type}),
             node_id=node_id,
         )
         if source_id is not None:

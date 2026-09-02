@@ -181,3 +181,27 @@ async def test_attaching_a_property_reindexes_its_new_owner():
     before = _indexed_text(kb, "test", worked)
     await kb.attach_property("test", worked, start)
     assert _indexed_text(kb, "test", worked) == before + " START_DATE: Start of employment"
+
+
+# ------------------------------------------------------------------ #
+# execute_query — KB.ADD_EXTRACTION forwarding                         #
+# ------------------------------------------------------------------ #
+
+def test_execute_query_add_extraction_forwards_confidence_and_type(kb):
+    extraction_id = kb.execute_query(
+        {"op": "KB.ADD_EXTRACTION", "text": "Alice joined IBM.",
+          "confidence": 0.8, "extraction_type": "assertion"},
+        database="test",
+    )
+    props = kb.get_node("test", extraction_id)["properties"]
+    assert props["confidence"] == 0.8
+    assert props["extraction_type"] == "assertion"
+
+
+def test_execute_query_add_extraction_defaults_match_the_method(kb):
+    extraction_id = kb.execute_query(
+        {"op": "KB.ADD_EXTRACTION", "text": "Alice joined IBM."}, database="test"
+    )
+    props = kb.get_node("test", extraction_id)["properties"]
+    assert props["confidence"] is None
+    assert props["extraction_type"] == "text_span"

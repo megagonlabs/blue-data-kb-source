@@ -313,3 +313,16 @@ Architectural decisions are recorded here as they are made, throughout the desig
 **Rationale:** The data model always allowed several `IS_INSTANCE_OF`, `DEFINE_PROPERTY`, `DOMAIN`, and `EXTRACTED_FROM` edges per node, but every public write created a node with its first link or nothing, so a second link was reachable only by writing the edge directly — which the ingest path did, bypassing the change hooks and leaving the search index stale. Naming by host keeps each attach readable beside its creating sibling and keeps `add_` meaning "create a node" outside the two peer-edge cases that predate the rule.
 
 **Consequences:** Extends ADR-007 and ADR-023 rather than superseding them. `ProvenanceTracker` gains an optional notifier for `attach_extraction`'s event; its creating writes stay silent, a follow-up. No `detach_*` exists, so every attach is permanent; whether unlinking becomes a counterpart or confidence on the edge is left open.
+
+---
+
+## ADR-025 — Assertion-Level Confidence
+
+**Date:** 2026-09-02
+**Status:** Accepted
+
+**Decision:** Confidence is a property of the assertion, not the fact: `add_extraction` takes `confidence` (`[0.0, 1.0]`, `null` = unstated, distinct from `0.0`) and `extraction_type` (`text_span` default | `external_record` | `assertion`; `inference` reserved), both stamped on the EXTRACTION node. `text` is required: every EXTRACTION records the assertion it stands for, serialized when the input is not prose, so `confidence` always has something to describe. An out-of-range value raises `ProvenanceError`, as does `confidence` without `text` on the instance creators. A FACT's `confidence` is derived, never set directly — the `max` over its supporting extractions, ignoring `null`s, recomputed on each new `EXTRACTED_FROM` edge.
+
+**Rationale:** ADR-008 already reifies every assertion as a per-item EXTRACTION node, the natural home for its strength. Storing it on the FACT would conflate independent evidence: two sources asserting the same triple at 0.6 and 0.9 are two assertions, not one number. `max` makes repeated ingestion converge — re-processing a source attaches another extraction and recomputes, never lowering a fact — and is monotone like the add-only widening of ADR-023. The same scale absorbs negation without a second shape: a source that denies a triple records low or zero confidence on the positive one, so the graph never needs a negated-fact form.
+
+**Consequences:** Extends ADR-008 rather than superseding it: EXTRACTION nodes now carry strength and evidence form alongside the span, and existing nodes need no migration since absent fields read as `null` / `text_span`. `FACT.confidence` is a write-time cache — only a new `EXTRACTED_FROM` edge triggers recomputation, so `delete_source` can leave a stale value. Negation costs a distinction: nothing separates "the source says this is false" from "the source is unsure", and under `max` a refutation cannot pull down a fact another source supports, while one overconfident source sets the value alone. Conflicts accumulate rather than resolve: arbitration happens at read time in `answer` and `validate`, which weigh supporting against counter evidence per call and persist nothing, so every query redoes it. Age is the obvious next lever: EXTRACTION already carries `created`, so decay needs no new field.

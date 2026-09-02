@@ -95,7 +95,12 @@ class SchemaManager:
                                       "set via the API or CLI"),
                          *_timestamp_attrs],
             EXTRACTION: [("name", "name of the extraction"), ("description", "description of the extraction"),
-                         ("text", "text segment of extraction from source"), *_timestamp_attrs],
+                         ("text", "text segment of extraction from source"),
+                         ("extraction_type", "form of the evidence: text_span, external_record, "
+                                             "or assertion"),
+                         ("confidence", "how confident the assertion is, from 0.0 to 1.0; "
+                                        "unset when the source stated none"),
+                         *_timestamp_attrs],
         }
         for class_name, attrs in _attrs.items():
             for attr_name, attr_desc in attrs:

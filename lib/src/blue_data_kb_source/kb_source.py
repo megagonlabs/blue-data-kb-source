@@ -702,16 +702,19 @@ class KBSource(GraphSource, ABC):
         description: str | None = None,
         node_id: str | None = None,
         source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: Literal["text_span", "external_record", "assertion"] = "text_span",
         element_id: str | None = None,
     ) -> str:
-        """Add an EXTRACTION node for *text*.
+        """Add an EXTRACTION node.
 
         Optionally wires EXTRACTED_FROM to a SOURCE (source_id) and/or to an
         existing entity/fact/literal (element_id), so a single call can both
         create the extraction and link it in place.
         """
         return await self._provenance.add_extraction(
-            database, text, name, description, node_id, source_id, element_id
+            database, text, name, description, node_id, source_id, confidence,
+            extraction_type, element_id
         )
 
     async def attach_extraction(
@@ -897,7 +900,7 @@ class KBSource(GraphSource, ABC):
 
             Provenance:
                 "KB.ADD_SOURCE"                source, name (opt), description (opt), node_id (opt), original (opt)
-                "KB.ADD_EXTRACTION"            text, name (opt), description (opt), source_id (opt), node_id (opt), element_id (opt)
+                "KB.ADD_EXTRACTION"            text, name (opt), description (opt), source_id (opt), node_id (opt), confidence (opt), extraction_type (opt), element_id (opt)
                 "KB.UPDATE_SOURCE"             source_id, name (opt), description (opt), original (opt)
                 "KB.DELETE_SOURCE"             source_id
 
@@ -1163,6 +1166,8 @@ class KBSource(GraphSource, ABC):
                 description=query.get("description"),
                 node_id=query.get("node_id"),
                 source_id=query.get("source_id"),
+                confidence=query.get("confidence"),
+                extraction_type=query.get("extraction_type", "text_span"),
                 element_id=query.get("element_id"),
             ))
 
