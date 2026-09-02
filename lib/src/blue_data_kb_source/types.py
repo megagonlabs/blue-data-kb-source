@@ -24,6 +24,18 @@ class ProvenanceError(KBError):
     """Raised for provenance-tracking failures."""
 
 
+class IngestionError(KBError):
+    """Raised when an assert's resolve phase fails; nothing has been written.
+
+    `candidates` carries what an ambiguous name was ambiguous between (empty
+    for non-ambiguity failures such as judge errors).
+    """
+
+    def __init__(self, message: str, candidates: list[ResolutionCandidate] | None = None) -> None:
+        super().__init__(message)
+        self.candidates = candidates or []
+
+
 @dataclass
 class SchemaSearchResult:
     id: str
@@ -58,6 +70,25 @@ class ResolutionCandidate:
     label: str                     # ENTITY | CLASS | RELATION | PROPERTY
     match_type: MatchType
     score: float | None = None     # populated for match_type="search" under a semantic index
+
+
+@dataclass
+class NodeRef:
+    node_id: str
+    label: str
+    name: str
+    extraction_id: str | None = None    # provenance for this node
+
+
+@dataclass
+class AssertResult:
+    node_id: str                        # the thing you asserted
+    created: bool
+    match_type: str | None = None       # MatchType; "structural" on a fact-dedupe hit;
+                                        # None when created, and always on edge asserts
+    extraction_id: str | None = None
+    created_nodes: list[NodeRef] = field(default_factory=list)
+    widened_relations: list[NodeRef] = field(default_factory=list)
 
 
 @dataclass
