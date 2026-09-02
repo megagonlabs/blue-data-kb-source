@@ -109,6 +109,21 @@ class KnowledgeManager:
         texts = [nb["node"].get("properties", {}).get("text") for nb in nbs]
         return " | ".join(t for t in texts if t) or None
 
+    def _require_text_for_confidence(self, text: str | None, confidence: float | None) -> None:
+        """Reject a confidence with no text to attach it to.
+
+        `text` records the assertion the score describes, and with no text no
+        EXTRACTION node is created, so the score would be silently dropped.
+        """
+        if confidence is not None and text is None:
+            raise KnowledgeError(
+                "confidence requires text. `text` records the assertion the score "
+                "describes: the verbatim span for extracted prose, or the statement "
+                "as submitted for external or human-supplied input. Without it no "
+                "EXTRACTION node is created, so pass the source's original wording "
+                "as `text`."
+            )
+
     # ------------------------------------------------------------------ #
     # Instance node builders                                               #
     # ------------------------------------------------------------------ #
@@ -122,7 +137,10 @@ class KnowledgeManager:
         class_id: str | None = None,
         text: str | None = None,
         source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: Literal["text_span", "external_record", "assertion"] = "text_span",
     ) -> str:
+        self._require_text_for_confidence(text, confidence)
         if class_id is not None:
             require_node_type(self._source, database, class_id, CLASS, "class_id", KnowledgeError)
         if source_id is not None:
@@ -137,7 +155,8 @@ class KnowledgeManager:
             self._source.add_edge(database, node_id, IS_INSTANCE_OF, class_id, properties=edge_stamped())
         if text is not None:
             await self._provenance.add_extraction(
-                database, text, source_id=source_id, element_id=node_id
+                database, text, source_id=source_id, element_id=node_id,
+                confidence=confidence, extraction_type=extraction_type
             )
         self._notifier.fire({
             "type": "entity_added",
@@ -160,7 +179,10 @@ class KnowledgeManager:
         relation_id: str | None = None,
         text: str | None = None,
         source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: Literal["text_span", "external_record", "assertion"] = "text_span",
     ) -> str:
+        self._require_text_for_confidence(text, confidence)
         if head_entity_id is not None:
             require_node_type(self._source, database, head_entity_id, ENTITY, "head_entity_id", KnowledgeError)
         if tail_entity_id is not None:
@@ -185,7 +207,8 @@ class KnowledgeManager:
             self._source.add_edge(database, node_id, REPRESENTS, relation_id, properties=edge_stamped())
         if text is not None:
             await self._provenance.add_extraction(
-                database, text, source_id=source_id, element_id=node_id
+                database, text, source_id=source_id, element_id=node_id,
+                confidence=confidence, extraction_type=extraction_type
             )
         self._notifier.fire({
             "type": "fact_added",
@@ -244,7 +267,10 @@ class KnowledgeManager:
         property_id: str | None = None,
         text: str | None = None,
         source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: Literal["text_span", "external_record", "assertion"] = "text_span",
     ) -> str:
+        self._require_text_for_confidence(text, confidence)
         if entity_id is not None:
             require_node_type(self._source, database, entity_id, ENTITY, "entity_id", KnowledgeError)
         if source_id is not None:
@@ -257,7 +283,8 @@ class KnowledgeManager:
             self._source.add_edge(database, entity_id, HAS_PROPERTY, literal_id, properties=edge_stamped())
         if text is not None:
             await self._provenance.add_extraction(
-                database, text, source_id=source_id, element_id=literal_id
+                database, text, source_id=source_id, element_id=literal_id,
+                confidence=confidence, extraction_type=extraction_type
             )
         self._notifier.fire({
             "type": "entity_property_added",
@@ -282,7 +309,10 @@ class KnowledgeManager:
         property_id: str | None = None,
         text: str | None = None,
         source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: Literal["text_span", "external_record", "assertion"] = "text_span",
     ) -> str:
+        self._require_text_for_confidence(text, confidence)
         if fact_id is not None:
             require_node_type(self._source, database, fact_id, FACT, "fact_id", KnowledgeError)
         if source_id is not None:
@@ -295,7 +325,8 @@ class KnowledgeManager:
             self._source.add_edge(database, fact_id, HAS_PROPERTY, literal_id, properties=edge_stamped())
         if text is not None:
             await self._provenance.add_extraction(
-                database, text, source_id=source_id, element_id=literal_id
+                database, text, source_id=source_id, element_id=literal_id,
+                confidence=confidence, extraction_type=extraction_type
             )
         self._notifier.fire({
             "type": "fact_property_added",
@@ -315,6 +346,8 @@ class KnowledgeManager:
         entity_id: str,
         text: str,
         source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: Literal["text_span", "external_record", "assertion"] = "text_span",
     ) -> str:
         """Link a new EXTRACTION built from *text* to an existing entity.
 
@@ -327,7 +360,8 @@ class KnowledgeManager:
         if source_id is not None:
             require_node_type(self._source, database, source_id, SOURCE, "source_id", KnowledgeError)
         return await self._provenance.add_extraction(
-            database, text, source_id=source_id, element_id=entity_id
+            database, text, source_id=source_id, element_id=entity_id,
+            confidence=confidence, extraction_type=extraction_type
         )
 
     async def add_fact_extraction(
@@ -336,6 +370,8 @@ class KnowledgeManager:
         fact_id: str,
         text: str,
         source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: Literal["text_span", "external_record", "assertion"] = "text_span",
     ) -> str:
         """Link a new EXTRACTION built from *text* to an existing fact.
 
@@ -348,7 +384,8 @@ class KnowledgeManager:
         if source_id is not None:
             require_node_type(self._source, database, source_id, SOURCE, "source_id", KnowledgeError)
         return await self._provenance.add_extraction(
-            database, text, source_id=source_id, element_id=fact_id
+            database, text, source_id=source_id, element_id=fact_id,
+            confidence=confidence, extraction_type=extraction_type
         )
 
     async def add_entity_property_value_extraction(
@@ -358,6 +395,8 @@ class KnowledgeManager:
         property_id: str,
         text: str,
         source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: Literal["text_span", "external_record", "assertion"] = "text_span",
     ) -> str:
         """Link a new EXTRACTION built from *text* to an entity's existing property value."""
         require_node_type(self._source, database, entity_id, ENTITY, "entity_id", KnowledgeError)
@@ -368,7 +407,8 @@ class KnowledgeManager:
         if lit_id is None:
             raise KnowledgeError("No property value found for the given entity and property.")
         return await self._provenance.add_extraction(
-            database, text, source_id=source_id, element_id=lit_id
+            database, text, source_id=source_id, element_id=lit_id,
+            confidence=confidence, extraction_type=extraction_type
         )
 
     async def add_fact_property_value_extraction(
@@ -378,6 +418,8 @@ class KnowledgeManager:
         property_id: str,
         text: str,
         source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: Literal["text_span", "external_record", "assertion"] = "text_span",
     ) -> str:
         """Link a new EXTRACTION built from *text* to a fact's existing property value."""
         require_node_type(self._source, database, fact_id, FACT, "fact_id", KnowledgeError)
@@ -388,7 +430,8 @@ class KnowledgeManager:
         if lit_id is None:
             raise KnowledgeError("No property value found for the given fact and property.")
         return await self._provenance.add_extraction(
-            database, text, source_id=source_id, element_id=lit_id
+            database, text, source_id=source_id, element_id=lit_id,
+            confidence=confidence, extraction_type=extraction_type
         )
 
     # ------------------------------------------------------------------ #

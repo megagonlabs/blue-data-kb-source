@@ -122,10 +122,10 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `add_entity(database, name, description?, entity_id?, class_id?, text?, source_id?)` | `str` | Create an ENTITY node; never idempotent — always creates a new node |
-| `add_fact(database, name?, description?, fact_id?, head_entity_id?, tail_entity_id?, relation_id?, text?, source_id?)` | `str` | Create a FACT node; `name` auto-synthesizes as `{head}_{relation}_{tail}` if omitted |
-| `add_entity_property_value(database, value, name?, description?, literal_type?, entity_id?, property_id?, text?, source_id?)` | `str` | Create a LITERAL and wire it to an entity |
-| `add_fact_property_value(database, value, name?, description?, literal_type?, fact_id?, property_id?, text?, source_id?)` | `str` | Create a LITERAL and wire it to a fact |
+| `add_entity(database, name, description?, entity_id?, class_id?, text?, source_id?, confidence?, extraction_type?)` | `str` | Create an ENTITY node; never idempotent — always creates a new node |
+| `add_fact(database, name?, description?, fact_id?, head_entity_id?, tail_entity_id?, relation_id?, text?, source_id?, confidence?, extraction_type?)` | `str` | Create a FACT node; `name` auto-synthesizes as `{head}_{relation}_{tail}` if omitted |
+| `add_entity_property_value(database, value, name?, description?, literal_type?, entity_id?, property_id?, text?, source_id?, confidence?, extraction_type?)` | `str` | Create a LITERAL and wire it to an entity |
+| `add_fact_property_value(database, value, name?, description?, literal_type?, fact_id?, property_id?, text?, source_id?, confidence?, extraction_type?)` | `str` | Create a LITERAL and wire it to a fact |
 | `update_entity(database, entity_id, name?, description?)` | `None` | Update an ENTITY node |
 | `update_fact(database, fact_id, name?, description?)` | `None` | Update a FACT node |
 | `update_entity_property_value(database, entity_id, property_id, value?, name?, description?)` | `None` | Update a LITERAL owned by an entity |
@@ -134,10 +134,10 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `delete_fact(database, fact_id)` | `None` | Delete a fact |
 | `delete_entity_property_value(database, entity_id, property_id)` | `None` | Delete a LITERAL owned by an entity |
 | `delete_fact_property_value(database, fact_id, property_id)` | `None` | Delete a LITERAL owned by a fact |
-| `add_entity_extraction(database, entity_id, text, source_id?)` | `str` | Attach *additional* evidence to an existing entity — doesn't touch name/description, doesn't create a duplicate; multiple calls accumulate multiple EXTRACTED_FROM edges |
-| `add_fact_extraction(database, fact_id, text, source_id?)` | `str` | Same, for an existing fact |
-| `add_entity_property_value_extraction(database, entity_id, property_id, text, source_id?)` | `str` | Same, for an existing entity's property value |
-| `add_fact_property_value_extraction(database, fact_id, property_id, text, source_id?)` | `str` | Same, for an existing fact's property value |
+| `add_entity_extraction(database, entity_id, text, source_id?, confidence?, extraction_type?)` | `str` | Attach *additional* evidence to an existing entity — doesn't touch name/description, doesn't create a duplicate; multiple calls accumulate multiple EXTRACTED_FROM edges |
+| `add_fact_extraction(database, fact_id, text, source_id?, confidence?, extraction_type?)` | `str` | Same, for an existing fact |
+| `add_entity_property_value_extraction(database, entity_id, property_id, text, source_id?, confidence?, extraction_type?)` | `str` | Same, for an existing entity's property value |
+| `add_fact_property_value_extraction(database, fact_id, property_id, text, source_id?, confidence?, extraction_type?)` | `str` | Same, for an existing fact's property value |
 | `attach_entity_class(database, entity_id, class_id)` | `None` | Attach an existing CLASS to an existing ENTITY via IS_INSTANCE_OF; deduplicated, and add-only — no detach counterpart. Supplies an entity's *additional* class; `add_entity(class_id=…)` wires the first at creation |
 | `fetch_database_data(database, include_provenance?, compact?, detailed?)` | `dict \| list` | Fetch all instance data in the database |
 | `export_database_data(database, include_provenance?)` | `dict` | Portable, `ref`-keyed JSON export of entities/facts/property values (schema not included — export/import schema separately first) |
@@ -317,11 +317,11 @@ Creates an ENTITY node.
 
 1. Create ENTITY node with `name`, `description`, optional `entity_id`
 2. If `class_id` provided: wire IS_INSTANCE_OF edge to the CLASS node
-3. If `text` provided: call `ProvenanceTracker.add_extraction(database, text, source_id=source_id, element_id=entity_id)`
+3. If `text` provided: call `ProvenanceTracker.add_extraction(database, text, source_id=source_id, element_id=entity_id, confidence=confidence, extraction_type=extraction_type)`
 4. Call `ChangeNotifier.fire({"type": "entity_added", ...})`
 5. Return entity ID
 
-`add_fact`/`add_entity_property_value`/`add_fact_property_value` follow the same shape. Attaching more evidence to an entity/fact/literal that already exists (without recreating it) goes through `add_entity_extraction`/`add_fact_extraction`/`add_entity_property_value_extraction`/`add_fact_property_value_extraction` instead — each just calls `ProvenanceTracker.add_extraction(element_id=…)` again against the existing id, requiring the target to already exist.
+`add_fact`/`add_entity_property_value`/`add_fact_property_value` follow the same shape. On all four, `confidence` and `extraction_type` are recorded on the EXTRACTION that `text` creates, so passing `confidence` without `text` raises `KnowledgeError` rather than dropping the score silently. Attaching more evidence to an entity/fact/literal that already exists (without recreating it) goes through `add_entity_extraction`/`add_fact_extraction`/`add_entity_property_value_extraction`/`add_fact_property_value_extraction` instead — each just calls `ProvenanceTracker.add_extraction(element_id=…)` again against the existing id, requiring the target to already exist.
 
 #### `find_data(database, query, type_filter=None)`
 

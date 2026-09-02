@@ -454,9 +454,12 @@ class KBSource(GraphSource, ABC):
         class_id: str | None = None,
         text: str | None = None,
         source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: Literal["text_span", "external_record", "assertion"] = "text_span",
     ) -> str:
         return await self._knowledge.add_entity(
-            database, name, description, entity_id, class_id, text, source_id
+            database, name, description, entity_id, class_id, text, source_id,
+            confidence, extraction_type,
         )
 
     async def add_fact(
@@ -470,10 +473,13 @@ class KBSource(GraphSource, ABC):
         relation_id: str | None = None,
         text: str | None = None,
         source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: Literal["text_span", "external_record", "assertion"] = "text_span",
     ) -> str:
         return await self._knowledge.add_fact(
             database, name, description, fact_id,
             head_entity_id, tail_entity_id, relation_id, text, source_id,
+            confidence, extraction_type,
         )
 
     async def add_entity_property_value(
@@ -487,9 +493,12 @@ class KBSource(GraphSource, ABC):
         property_id: str | None = None,
         text: str | None = None,
         source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: Literal["text_span", "external_record", "assertion"] = "text_span",
     ) -> str:
         return await self._knowledge.add_entity_property_value(
             database, value, name, description, literal_type, entity_id, property_id, text, source_id,
+            confidence, extraction_type,
         )
 
     async def add_fact_property_value(
@@ -503,9 +512,12 @@ class KBSource(GraphSource, ABC):
         property_id: str | None = None,
         text: str | None = None,
         source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: Literal["text_span", "external_record", "assertion"] = "text_span",
     ) -> str:
         return await self._knowledge.add_fact_property_value(
             database, value, name, description, literal_type, fact_id, property_id, text, source_id,
+            confidence, extraction_type,
         )
 
     async def update_entity(
@@ -723,14 +735,30 @@ class KBSource(GraphSource, ABC):
         await self._provenance.attach_extraction(database, element_id, extraction_id)
 
     async def add_entity_extraction(
-        self, database: str, entity_id: str, text: str, source_id: str | None = None
+        self,
+        database: str,
+        entity_id: str,
+        text: str,
+        source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: Literal["text_span", "external_record", "assertion"] = "text_span",
     ) -> str:
-        return await self._knowledge.add_entity_extraction(database, entity_id, text, source_id)
+        return await self._knowledge.add_entity_extraction(
+            database, entity_id, text, source_id, confidence, extraction_type
+        )
 
     async def add_fact_extraction(
-        self, database: str, fact_id: str, text: str, source_id: str | None = None
+        self,
+        database: str,
+        fact_id: str,
+        text: str,
+        source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: Literal["text_span", "external_record", "assertion"] = "text_span",
     ) -> str:
-        return await self._knowledge.add_fact_extraction(database, fact_id, text, source_id)
+        return await self._knowledge.add_fact_extraction(
+            database, fact_id, text, source_id, confidence, extraction_type
+        )
 
     async def add_entity_property_value_extraction(
         self,
@@ -739,9 +767,11 @@ class KBSource(GraphSource, ABC):
         property_id: str,
         text: str,
         source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: Literal["text_span", "external_record", "assertion"] = "text_span",
     ) -> str:
         return await self._knowledge.add_entity_property_value_extraction(
-            database, entity_id, property_id, text, source_id
+            database, entity_id, property_id, text, source_id, confidence, extraction_type
         )
 
     async def add_fact_property_value_extraction(
@@ -751,9 +781,11 @@ class KBSource(GraphSource, ABC):
         property_id: str,
         text: str,
         source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: Literal["text_span", "external_record", "assertion"] = "text_span",
     ) -> str:
         return await self._knowledge.add_fact_property_value_extraction(
-            database, fact_id, property_id, text, source_id
+            database, fact_id, property_id, text, source_id, confidence, extraction_type
         )
 
     async def update_source(
@@ -880,10 +912,10 @@ class KBSource(GraphSource, ABC):
                 "KB.SEARCH_SCHEMA"             query
 
             Knowledge:
-                "KB.ADD_ENTITY"                name, class_id (opt), description (opt), entity_id (opt), text (opt), source_id (opt)
-                "KB.ADD_FACT"                  head_entity_id (opt), relation_id (opt), tail_entity_id (opt), name (opt), description (opt), fact_id (opt), text (opt), source_id (opt)
-                "KB.ADD_ENTITY_PROPERTY"       entity_id, property_id, value, literal_type (opt), name (opt), description (opt), text (opt), source_id (opt)
-                "KB.ADD_FACT_PROPERTY"         fact_id, property_id, value, literal_type (opt), name (opt), description (opt), text (opt), source_id (opt)
+                "KB.ADD_ENTITY"                name, class_id (opt), description (opt), entity_id (opt), text (opt), source_id (opt), confidence (opt), extraction_type (opt)
+                "KB.ADD_FACT"                  head_entity_id (opt), relation_id (opt), tail_entity_id (opt), name (opt), description (opt), fact_id (opt), text (opt), source_id (opt), confidence (opt), extraction_type (opt)
+                "KB.ADD_ENTITY_PROPERTY"       entity_id, property_id, value, literal_type (opt), name (opt), description (opt), text (opt), source_id (opt), confidence (opt), extraction_type (opt)
+                "KB.ADD_FACT_PROPERTY"         fact_id, property_id, value, literal_type (opt), name (opt), description (opt), text (opt), source_id (opt), confidence (opt), extraction_type (opt)
                 "KB.UPDATE_ENTITY"             entity_id, name (opt), description (opt)
                 "KB.UPDATE_FACT"               fact_id, name (opt), description (opt)
                 "KB.UPDATE_ENTITY_PROPERTY"    entity_id, property_id, value (opt), name (opt), description (opt)
@@ -893,10 +925,10 @@ class KBSource(GraphSource, ABC):
                 "KB.DELETE_ENTITY_PROPERTY"    entity_id, property_id
                 "KB.DELETE_FACT_PROPERTY"      fact_id, property_id
                 "KB.GET_DATA"                  include_provenance (opt), compact (opt), detailed (opt)
-                "KB.ADD_ENTITY_EXTRACTION"          entity_id, text, source_id (opt)
-                "KB.ADD_FACT_EXTRACTION"            fact_id, text, source_id (opt)
-                "KB.ADD_ENTITY_PROPERTY_EXTRACTION" entity_id, property_id, text, source_id (opt)
-                "KB.ADD_FACT_PROPERTY_EXTRACTION"   fact_id, property_id, text, source_id (opt)
+                "KB.ADD_ENTITY_EXTRACTION"          entity_id, text, source_id (opt), confidence (opt), extraction_type (opt)
+                "KB.ADD_FACT_EXTRACTION"            fact_id, text, source_id (opt), confidence (opt), extraction_type (opt)
+                "KB.ADD_ENTITY_PROPERTY_EXTRACTION" entity_id, property_id, text, source_id (opt), confidence (opt), extraction_type (opt)
+                "KB.ADD_FACT_PROPERTY_EXTRACTION"   fact_id, property_id, text, source_id (opt), confidence (opt), extraction_type (opt)
 
             Provenance:
                 "KB.ADD_SOURCE"                source, name (opt), description (opt), node_id (opt), original (opt)
@@ -1017,6 +1049,8 @@ class KBSource(GraphSource, ABC):
                 class_id=query.get("class_id"),
                 text=query.get("text"),
                 source_id=query.get("source_id"),
+                confidence=query.get("confidence"),
+                extraction_type=query.get("extraction_type", "text_span"),
             ))
 
         if op == "KB.ADD_FACT":
@@ -1030,6 +1064,8 @@ class KBSource(GraphSource, ABC):
                 relation_id=query.get("relation_id"),
                 text=query.get("text"),
                 source_id=query.get("source_id"),
+                confidence=query.get("confidence"),
+                extraction_type=query.get("extraction_type", "text_span"),
             ))
 
         if op == "KB.ADD_ENTITY_PROPERTY":
@@ -1043,6 +1079,8 @@ class KBSource(GraphSource, ABC):
                 property_id=query.get("property_id"),
                 text=query.get("text"),
                 source_id=query.get("source_id"),
+                confidence=query.get("confidence"),
+                extraction_type=query.get("extraction_type", "text_span"),
             ))
 
         if op == "KB.ADD_FACT_PROPERTY":
@@ -1056,6 +1094,8 @@ class KBSource(GraphSource, ABC):
                 property_id=query.get("property_id"),
                 text=query.get("text"),
                 source_id=query.get("source_id"),
+                confidence=query.get("confidence"),
+                extraction_type=query.get("extraction_type", "text_span"),
             ))
 
         if op == "KB.UPDATE_ENTITY":
@@ -1118,6 +1158,8 @@ class KBSource(GraphSource, ABC):
                 entity_id=query["entity_id"],
                 text=query["text"],
                 source_id=query.get("source_id"),
+                confidence=query.get("confidence"),
+                extraction_type=query.get("extraction_type", "text_span"),
             ))
 
         if op == "KB.ADD_FACT_EXTRACTION":
@@ -1126,6 +1168,8 @@ class KBSource(GraphSource, ABC):
                 fact_id=query["fact_id"],
                 text=query["text"],
                 source_id=query.get("source_id"),
+                confidence=query.get("confidence"),
+                extraction_type=query.get("extraction_type", "text_span"),
             ))
 
         if op == "KB.ADD_ENTITY_PROPERTY_EXTRACTION":
@@ -1135,6 +1179,8 @@ class KBSource(GraphSource, ABC):
                 property_id=query["property_id"],
                 text=query["text"],
                 source_id=query.get("source_id"),
+                confidence=query.get("confidence"),
+                extraction_type=query.get("extraction_type", "text_span"),
             ))
 
         if op == "KB.ADD_FACT_PROPERTY_EXTRACTION":
@@ -1144,6 +1190,8 @@ class KBSource(GraphSource, ABC):
                 property_id=query["property_id"],
                 text=query["text"],
                 source_id=query.get("source_id"),
+                confidence=query.get("confidence"),
+                extraction_type=query.get("extraction_type", "text_span"),
             ))
 
         # -- Provenance ----------------------------------------------------

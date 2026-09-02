@@ -383,6 +383,116 @@ async def test_add_fact_property_value_extraction_raises_when_no_value_set(kb):
 
 
 # ------------------------------------------------------------------ #
+# confidence / extraction_type threading                               #
+# ------------------------------------------------------------------ #
+
+def _extraction_props(kb, node_id: str) -> dict:
+    """Properties of the single EXTRACTION attached to node_id."""
+    nbs = kb.get_neighbors("test", node_id, edge_type="EXTRACTED_FROM", direction="out")
+    assert len(nbs) == 1
+    return nbs[0]["node"]["properties"]
+
+
+async def test_add_entity_threads_confidence_and_type(kb):
+    entity_id = await kb.add_entity(
+        "test", "Alice", text="Alice joined IBM.", confidence=0.9, extraction_type="assertion"
+    )
+    props = _extraction_props(kb, entity_id)
+    assert props["confidence"] == 0.9
+    assert props["extraction_type"] == "assertion"
+
+
+async def test_add_fact_threads_confidence_and_type(kb):
+    alice = await kb.add_entity("test", "Alice")
+    ibm   = await kb.add_entity("test", "IBM")
+    fact_id = await kb.add_fact(
+        "test", head_entity_id=alice, tail_entity_id=ibm,
+        text="Alice joined IBM.", confidence=0.8, extraction_type="external_record",
+    )
+    props = _extraction_props(kb, fact_id)
+    assert props["confidence"] == 0.8
+    assert props["extraction_type"] == "external_record"
+
+
+async def test_add_entity_property_value_threads_confidence_and_type(kb):
+    entity_id = await kb.add_entity("test", "Alice")
+    lit_id    = await kb.add_entity_property_value(
+        "test", "28", entity_id=entity_id, text="Alice is 28.",
+        confidence=0.6, extraction_type="external_record",
+    )
+    props = _extraction_props(kb, lit_id)
+    assert props["confidence"] == 0.6
+    assert props["extraction_type"] == "external_record"
+
+
+async def test_add_fact_property_value_threads_confidence_and_type(kb):
+    rel_id  = await _declare_worked_at(kb)
+    prop_id = await kb.declare_relation_property("test", "START_DATE", "", relation_id=rel_id)
+    fact_id = await kb.add_fact("test", relation_id=rel_id)
+    lit_id  = await kb.add_fact_property_value(
+        "test", "1998-06-01", fact_id=fact_id, property_id=prop_id,
+        text="Alice joined IBM in June 1998.", confidence=0.5, extraction_type="assertion",
+    )
+    props = _extraction_props(kb, lit_id)
+    assert props["confidence"] == 0.5
+    assert props["extraction_type"] == "assertion"
+
+
+async def test_extraction_adders_thread_confidence_and_type(kb):
+    entity_id = await kb.add_entity("test", "Alice")
+    fact_id   = await kb.add_fact("test", head_entity_id=entity_id)
+    ext_a = await kb.add_entity_extraction(
+        "test", entity_id, text="Alice is a software engineer.", confidence=0.7
+    )
+    ext_f = await kb.add_fact_extraction(
+        "test", fact_id, text="Alice joined IBM.", confidence=0.4, extraction_type="assertion"
+    )
+    assert kb.get_node("test", ext_a)["properties"]["confidence"] == 0.7
+    assert kb.get_node("test", ext_a)["properties"]["extraction_type"] == "text_span"
+    assert kb.get_node("test", ext_f)["properties"]["confidence"] == 0.4
+    assert kb.get_node("test", ext_f)["properties"]["extraction_type"] == "assertion"
+
+
+async def test_property_value_extraction_adders_thread_confidence_and_type(kb):
+    entity_id = await kb.add_entity("test", "Alice")
+    age_id    = await kb.declare_class_property("test", "AGE", "")
+    await kb.add_entity_property_value("test", "28", entity_id=entity_id, property_id=age_id)
+    ext_e = await kb.add_entity_property_value_extraction(
+        "test", entity_id, age_id, text="Alice is 28.",
+        confidence=0.3, extraction_type="external_record",
+    )
+    rel_id  = await _declare_worked_at(kb)
+    start   = await kb.declare_relation_property("test", "START_DATE", "", relation_id=rel_id)
+    fact_id = await kb.add_fact("test", relation_id=rel_id)
+    await kb.add_fact_property_value("test", "1998-06-01", fact_id=fact_id, property_id=start)
+    ext_f = await kb.add_fact_property_value_extraction(
+        "test", fact_id, start, text="Alice joined IBM in June 1998.", confidence=0.2
+    )
+    assert kb.get_node("test", ext_e)["properties"]["confidence"] == 0.3
+    assert kb.get_node("test", ext_e)["properties"]["extraction_type"] == "external_record"
+    assert kb.get_node("test", ext_f)["properties"]["confidence"] == 0.2
+    assert kb.get_node("test", ext_f)["properties"]["extraction_type"] == "text_span"
+
+
+async def test_creators_reject_confidence_without_text(kb):
+    entity_id = await kb.add_entity("test", "Alice")
+    fact_id   = await kb.add_fact("test", head_entity_id=entity_id)
+    with pytest.raises(KBError, match="confidence requires text"):
+        await kb.add_entity("test", "Bob", confidence=0.9)
+    with pytest.raises(KBError, match="confidence requires text"):
+        await kb.add_fact("test", head_entity_id=entity_id, confidence=0.9)
+    with pytest.raises(KBError, match="confidence requires text"):
+        await kb.add_entity_property_value("test", "28", entity_id=entity_id, confidence=0.9)
+    with pytest.raises(KBError, match="confidence requires text"):
+        await kb.add_fact_property_value("test", "1998", fact_id=fact_id, confidence=0.9)
+
+
+async def test_creator_confidence_range_is_validated(kb):
+    with pytest.raises(KBError, match=r"\[0\.0, 1\.0\]"):
+        await kb.add_entity("test", "Alice", text="Alice joined IBM.", confidence=1.5)
+
+
+# ------------------------------------------------------------------ #
 # fetch_database_data                                                  #
 # ------------------------------------------------------------------ #
 
