@@ -142,7 +142,7 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `fetch_database_data(database, include_provenance?, compact?, detailed?)` | `dict \| list` | Fetch all instance data in the database |
 | `export_database_data(database, include_provenance?)` | `dict` | Portable, `ref`-keyed JSON export of entities/facts/property values (schema not included — export/import schema separately first) |
 | `import_database_data(database, data)` | `None` | Import from `export_database_data`'s format; resolves CLASS/RELATION/PROPERTY **by name** against the target's current schema. **Not idempotent** — re-importing the same export duplicates every entity/fact/property value, unlike schema import |
-| `get_metadata(database, node_id)` | `dict` | Created/modified timestamps, extraction text, and source name/original date for one entity, fact, or property-value id; raises `KnowledgeError` for any other node type |
+| `get_metadata(database, node_id)` | `dict` | Created/modified timestamps, extraction text, and source name/original date for one entity, fact, or property-value id, plus `confidence` (a FACT's derived score) and `evidence`, one record per EXTRACTION with its own score, date, and source; raises `KnowledgeError` for any other node type |
 | `get_entity_classes(database, entity_id)` | `list[dict]` | CLASS nodes the entity is an instance of, via IS_INSTANCE_OF |
 | `get_fact_parts(database, fact_id)` | `dict` | The fact's first HEAD / RELATION / TAIL nodes, as `{"head": ..., "relation": ..., "tail": ...}` with `None` for unwired parts |
 | `get_property_values(database, owner_id)` | `list[dict]` | LITERAL values on an ENTITY or FACT with each value's PROPERTY, as `[{"literal": ..., "property": ...}]` |

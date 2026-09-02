@@ -565,8 +565,87 @@ async def test_unchanged_confidence_writes_nothing(kb):
 
 
 # ------------------------------------------------------------------ #
+# get_metadata                                                         #
+# ------------------------------------------------------------------ #
+
+async def _fact_with_evidence(kb):
+    src = await kb.add_source("test", source="resume.pdf", name="Alice's resume",
+                              original="1998-06-01")
+    fact_id = await _fact(kb, text="Alice joined IBM.", confidence=0.9)
+    await kb.add_fact_extraction("test", fact_id, text="Per LinkedIn.", confidence=0.6,
+                                 source_id=src)
+    await kb.add_fact_extraction("test", fact_id, text="Unscored note.")
+    return fact_id
+
+
+async def test_metadata_carries_the_facts_derived_confidence(kb):
+    fact_id = await _fact_with_evidence(kb)
+    assert (await kb.get_metadata("test", fact_id))["confidence"] == 0.9
+
+
+async def test_metadata_evidence_lists_each_extraction_with_its_own_score(kb):
+    fact_id = await _fact_with_evidence(kb)
+    evidence = (await kb.get_metadata("test", fact_id))["evidence"]
+    assert [e["text"] for e in evidence] == [
+        "Alice joined IBM.", "Per LinkedIn.", "Unscored note."
+    ]
+    assert [e["confidence"] for e in evidence] == [0.9, 0.6, None]
+
+
+async def test_metadata_evidence_carries_each_extractions_own_source_and_date(kb):
+    fact_id = await _fact_with_evidence(kb)
+    evidence = (await kb.get_metadata("test", fact_id))["evidence"]
+    assert [e["source"] for e in evidence] == [None, "Alice's resume", None]
+    assert all(e["created"] for e in evidence)
+    assert evidence[1]["source_original"] == "1998-06-01"
+
+
+async def test_metadata_evidence_order_matches_the_joined_field(kb):
+    fact_id = await _fact_with_evidence(kb)
+    meta = await kb.get_metadata("test", fact_id)
+    assert meta["extraction"] == " | ".join(e["text"] for e in meta["evidence"])
+
+
+async def test_joined_source_deduplicates_while_evidence_repeats_it(kb):
+    src = await kb.add_source("test", source="resume.pdf", name="Alice's resume")
+    fact_id = await _fact(kb)
+    await kb.add_fact_extraction("test", fact_id, text="First span.", source_id=src)
+    await kb.add_fact_extraction("test", fact_id, text="Second span.", source_id=src)
+    meta = await kb.get_metadata("test", fact_id)
+    assert meta["source"] == "Alice's resume"
+    assert [e["source"] for e in meta["evidence"]] == ["Alice's resume", "Alice's resume"]
+
+
+async def test_metadata_without_evidence_is_empty_list_not_none(kb):
+    entity_id = await kb.add_entity("test", "Alice")
+    meta = await kb.get_metadata("test", entity_id)
+    assert meta["evidence"] == []
+    assert meta["confidence"] is None
+    assert meta["extraction"] is None
+
+
+async def test_metadata_evidence_keeps_what_the_joined_text_drops(kb):
+    entity_id = await kb.add_entity("test", "Alice")
+    await kb.add_extraction("test", text="", element_id=entity_id, confidence=0.5)
+    meta = await kb.get_metadata("test", entity_id)
+    assert meta["extraction"] is None
+    assert len(meta["evidence"]) == 1
+    assert meta["evidence"][0]["text"] == ""
+    assert meta["evidence"][0]["confidence"] == 0.5
+
+
+# ------------------------------------------------------------------ #
 # fetch_database_data                                                  #
 # ------------------------------------------------------------------ #
+
+async def test_detailed_rows_carry_the_facts_derived_confidence(kb):
+    fact_id = await _fact(kb, text="Alice joined IBM.", confidence=0.9)
+    rows = await kb.fetch_database_data("test", compact=True, detailed=True)
+    fact_rows = [r for r in rows if r.get("relation_type") == "REPRESENTS"]
+    assert fact_rows and all("confidence" in r for r in fact_rows)
+    assert fact_rows[0]["confidence"] == 0.9
+    assert kb.get_node("test", fact_id)["properties"]["confidence"] == 0.9
+
 
 async def test_fetch_database_data_returns_nodes_and_edges(populated_kb):
     data = await populated_kb.fetch_database_data("test")

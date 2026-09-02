@@ -31,12 +31,13 @@ def node_name(node: dict) -> str:
 
 
 def detail_attrs(node: dict) -> dict:
-    """description/created/modified for a node's own properties."""
+    """description/created/modified/confidence for a node's own properties."""
     props = node.get("properties", {})
     return {
         "description": props.get("description"),
         "created": props.get("created"),
         "modified": props.get("modified"),
+        "confidence": props.get("confidence"),
     }
 
 
@@ -93,33 +94,45 @@ def property_values(source: GraphSource, database: str, owner_id: str) -> list[d
 
 
 def provenance_detail(source: GraphSource, database: str, node_id: str) -> dict:
-    """Extraction text and linked source name/original for node_id's EXTRACTED_FROM chain."""
+    """Joined extraction/source fields plus per-extraction `evidence` for node_id."""
     ext_nbs = source.get_neighbors(database, node_id, edge_type=EXTRACTED_FROM, direction="out")
     texts: list[str] = []
     source_names: list[str] = []
     source_originals: list[str] = []
+    evidence: list[dict] = []
     seen_sources: set[str] = set()
     for nb in ext_nbs:
         extraction_node = nb["node"]
-        text = extraction_node.get("properties", {}).get("text")
+        eprops = extraction_node.get("properties", {})
+        text = eprops.get("text")
         if text:
             texts.append(text)
-        for src_nb in source.get_neighbors(
+        src_nbs = source.get_neighbors(
             database, extraction_node["id"], edge_type=EXTRACTED_FROM, direction="out"
-        ):
+        )
+        own_source = src_nbs[0]["node"].get("properties", {}) if src_nbs else {}
+        for src_nb in src_nbs:
             source_node = src_nb["node"]
+            sprops = source_node.get("properties", {})
             if source_node["id"] in seen_sources:
                 continue
             seen_sources.add(source_node["id"])
-            sprops = source_node.get("properties", {})
             if sprops.get("name"):
                 source_names.append(sprops["name"])
             if sprops.get("original"):
                 source_originals.append(sprops["original"])
+        evidence.append({
+            "text": text,
+            "confidence": eprops.get("confidence"),
+            "created": eprops.get("created"),
+            "source": own_source.get("name"),
+            "source_original": own_source.get("original"),
+        })
     return {
         "extraction": " | ".join(texts) or None,
         "source": " | ".join(source_names) or None,
         "source_original": " | ".join(source_originals) or None,
+        "evidence": evidence,
     }
 
 

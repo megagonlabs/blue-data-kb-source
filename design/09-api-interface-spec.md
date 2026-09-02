@@ -154,9 +154,18 @@ Notes:
     #   FACT:    "name", "head_name", "relation_name", "tail_name"
     #   LITERAL: "property_name", "value", "owner_label", "owner_name"
     "description": "...", "created": "...", "modified": "...",     # the node's own attributes
+    "confidence": 0.9,                                              # a FACT's derived score; None for other labels
     "extraction": "...", "source": "...", "source_original": "...",  # via its EXTRACTED_FROM chain, if any
+    "evidence": [                                                   # one record per EXTRACTION, [] when there is none
+        {"text": "...", "confidence": 0.9, "created": "...",        # `created` is the extraction's own timestamp;
+         "source": "...", "source_original": "..."}, ...            # `source_original` the linked source's own date
+    ],
 }
 ```
+
+`evidence` is the field to build on. It is a strict superset of the joined
+`extraction`/`source`/`source_original`, which flatten every extraction together and are
+expected to retire once their consumers move.
 
 The `answer`/`validate` LLM agents can also call this as a tool (`get_metadata(id)`) when `include_metadata=True` — the engine harvests every such tool call into the `metadata` dict returned alongside the result, independent of whether the LLM references the id in its own structured output.
 
