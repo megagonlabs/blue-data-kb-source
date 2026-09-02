@@ -294,6 +294,10 @@ Deleted database: main
 | `kb schema relation parent remove [--relation NAME\|--relation-id ID] [--parent NAME\|--parent-id ID]` | Remove IS_SUBCLASS_OF edge between relations |
 | `kb schema relation parent list [--relation NAME\|--relation-id ID] [--recursive] [--format table\|json\|tree]` | List parent relations (direct or all ancestors) |
 | `kb schema relation child list [--relation NAME\|--relation-id ID] [--recursive] [--format table\|json\|tree]` | List child relations (direct sub-relations or all descendants) |
+| `kb schema relation domain add [--relation NAME\|--relation-id ID] [--class NAME\|--class-id ID]` | Add a class to the relation's domain (deduplicated; add-only by design — no remove counterpart) |
+| `kb schema relation domain list [--relation NAME\|--relation-id ID] [--format table\|json]` | List the relation's domain classes |
+| `kb schema relation range add [--relation NAME\|--relation-id ID] [--class NAME\|--class-id ID]` | Add a class to the relation's range (deduplicated; add-only by design — no remove counterpart) |
+| `kb schema relation range list [--relation NAME\|--relation-id ID] [--format table\|json]` | List the relation's range classes |
 | `kb schema relation property add NAME DESC [--relation NAME\|--relation-id ID]` | Declare a property on a relation |
 | `kb schema relation property attach [--property NAME\|--property-id ID] [--relation NAME\|--relation-id ID]` | Attach an existing property to a relation (idempotent) — reuse it instead of declaring a same-meaning duplicate |
 | `kb schema relation property list [--relation NAME\|--relation-id ID] [--format table\|json]` | List relation properties (optionally filtered by relation) |
