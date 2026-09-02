@@ -374,6 +374,15 @@ class KBSource(GraphSource, ABC):
             database, head_class_id, tail_class_id, expand, max_hops
         )
 
+    async def find_class(self, database: str, name: str) -> dict | None:
+        return await self._schema.find_class(database, name)
+
+    async def find_relation_type(self, database: str, name: str) -> dict | None:
+        return await self._schema.find_relation_type(database, name)
+
+    async def find_property(self, database: str, name: str) -> dict | None:
+        return await self._schema.find_property(database, name)
+
     async def fetch_database_schema(self, database: str) -> DataSchema:
         return await self._schema.fetch_database_schema(database)
 
@@ -570,6 +579,20 @@ class KBSource(GraphSource, ABC):
 
     async def get_metadata(self, database: str, node_id: str) -> dict:
         return await self._knowledge.get_metadata(database, node_id)
+
+    async def find_entity(self, database: str, name: str) -> dict | None:
+        return await self._knowledge.find_entity(database, name)
+
+    async def find_fact(
+        self,
+        database: str,
+        head_entity_id: str,
+        relation_id: str,
+        tail_entity_id: str,
+    ) -> dict | None:
+        return await self._knowledge.find_fact(
+            database, head_entity_id, relation_id, tail_entity_id
+        )
 
     async def answer(
         self,

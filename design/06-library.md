@@ -104,6 +104,9 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `get_class_entities(database, class_id, limit?)` | `list[dict]` | ENTITY instances of a class via IS_INSTANCE_OF; `limit` defaults to 10, `None` = unbounded |
 | `get_relation_domain_range(database, relation_id)` | `dict` | The relation's DOMAIN and RANGE CLASS nodes, as `{"domain": [...], "range": [...]}` |
 | `get_allowed_relations_between_classes(database, head_class_id, tail_class_id, expand?, max_hops?)` | `list[dict]` | RELATION nodes whose domain/range accept the two classes; `expand` defaults to true and lets an ancestor class satisfy the constraint |
+| `find_class(database, name)` | `dict \| None` | CLASS node by exact, case-sensitive name |
+| `find_relation_type(database, name)` | `dict \| None` | RELATION node by exact name |
+| `find_property(database, name)` | `dict \| None` | PROPERTY node by exact name |
 | `fetch_database_schema(database)` | `DataSchema` | Assemble a `DataSchema` object from the current graph |
 | `export_database_schema(database)` | `dict` | `fetch_database_schema(database).to_json()` — portable JSON form |
 | `fetch_meta_schema()` | `DataSchema` | Return the fixed KBDB meta-schema |
@@ -137,6 +140,8 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `export_database_data(database, include_provenance?)` | `dict` | Portable, `ref`-keyed JSON export of entities/facts/property values (schema not included — export/import schema separately first) |
 | `import_database_data(database, data)` | `None` | Import from `export_database_data`'s format; resolves CLASS/RELATION/PROPERTY **by name** against the target's current schema. **Not idempotent** — re-importing the same export duplicates every entity/fact/property value, unlike schema import |
 | `get_metadata(database, node_id)` | `dict` | Created/modified timestamps, extraction text, and source name/original date for one entity, fact, or property-value id; raises `KnowledgeError` for any other node type |
+| `find_entity(database, name)` | `dict \| None` | First ENTITY with exactly this name — entity names are not unique, so this is a convenience, not identity resolution |
+| `find_fact(database, head_entity_id, relation_id, tail_entity_id)` | `dict \| None` | First FACT matching the exact directed triple |
 | `answer(database, question, model?, natural_language?, include_metadata?, on_tool_call?, on_tool_result?)` | `list[dict] \| str \| tuple[list[dict] \| str, dict]` | Answer a natural language question using an LLM agent over the instance graph; each dict is a flat `{entity, relation, value, provenance}`-shaped row (keys vary by question); returns prose when `natural_language=True`; returns a `(result, metadata)` tuple when `include_metadata=True` |
 | `validate(database, statement, model?, natural_language?, include_metadata?, on_tool_call?, on_tool_result?)` | `ValidationResult \| str \| tuple[ValidationResult \| str, dict]` | Return supporting and counter evidence for a statement using an LLM agent; same `natural_language`/`include_metadata` variance as `answer` |
 | `enrich(database, query, depth?, model?, on_tool_call?, on_tool_result?)` | `list[EnrichmentResult]` | Return related knowledge bearing on a query using an LLM agent; no `natural_language`/`include_metadata` variance |

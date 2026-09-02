@@ -126,6 +126,18 @@ async def test_declare_relation_type_raises_on_missing_range_arg(kb):
         await kb.declare_relation_type("test", "WORKS_AT", "", domain="PERSON", range=None)
 
 
+async def test_declare_relation_type_raises_on_unknown_domain_class(kb):
+    await kb.declare_class("test", "COMPANY", "")
+    with pytest.raises(SchemaError, match="domain class 'GHOST'"):
+        await kb.declare_relation_type("test", "WORKS_AT", "", domain="GHOST", range="COMPANY")
+
+
+async def test_declare_relation_type_raises_on_unknown_range_class(kb):
+    await kb.declare_class("test", "PERSON", "")
+    with pytest.raises(SchemaError, match="range class 'GHOST'"):
+        await kb.declare_relation_type("test", "WORKS_AT", "", domain="PERSON", range="GHOST")
+
+
 async def test_declare_relation_type_is_idempotent(kb):
     await kb.declare_class("test", "PERSON", "")
     await kb.declare_class("test", "COMPANY", "")
@@ -174,6 +186,12 @@ async def test_declare_class_property_without_class_id(kb):
     prop_id = await kb.declare_class_property("test", "NAME", "A name property")
     node = kb.get_node("test", prop_id)
     assert node["label"] == "PROPERTY"
+
+
+async def test_declare_class_property_without_class_id_is_idempotent(kb):
+    id1 = await kb.declare_class_property("test", "NAME", "A name property")
+    id2 = await kb.declare_class_property("test", "NAME", "A name property")
+    assert id1 == id2
 
 
 # ------------------------------------------------------------------ #
@@ -618,3 +636,28 @@ async def test_domain_range_reads_reject_bad_ids(kb):
         await kb.get_allowed_relations_between_classes("test", person, "no-such-id")
     with pytest.raises(SchemaError):
         await kb.get_allowed_relations_between_classes("test", "no-such-id", person)
+
+
+# ------------------------------------------------------------------ #
+# Exact-name lookups                                                   #
+# ------------------------------------------------------------------ #
+
+async def test_find_class_by_exact_name(kb):
+    person = await kb.declare_class("test", "PERSON", "A human")
+    node = await kb.find_class("test", "PERSON")
+    assert node is not None and node["id"] == person
+    assert await kb.find_class("test", "person") is None
+    assert await kb.find_class("test", "MISSING") is None
+
+
+async def test_find_relation_type_and_property_by_name(kb):
+    await kb.declare_class("test", "PERSON", "")
+    await kb.declare_class("test", "COMPANY", "")
+    rel = await kb.declare_relation_type("test", "WORKED_AT", "", domain="PERSON", range="COMPANY")
+    prop = await kb.declare_relation_property("test", "START_DATE", "", relation_id=rel)
+    found_rel = await kb.find_relation_type("test", "WORKED_AT")
+    found_prop = await kb.find_property("test", "START_DATE")
+    assert found_rel is not None and found_rel["id"] == rel
+    assert found_prop is not None and found_prop["id"] == prop
+    assert await kb.find_relation_type("test", "MISSING") is None
+    assert await kb.find_property("test", "MISSING") is None

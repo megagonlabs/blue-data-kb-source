@@ -163,3 +163,73 @@ async def test_import_text_skips_expand_schema_when_disabled(kb):
         with patch("openai.AsyncOpenAI", responses):
             await kb.import_text("test", "Some text.", expand_schema=False)
     mock_expand.assert_not_awaited()
+
+
+# ------------------------------------------------------------------ #
+# find_* tool dispatch (result contract)                              #
+# ------------------------------------------------------------------ #
+
+async def test_find_entity_tool_returns_id_name_description(kb):
+    alice = await kb.add_entity("test", "Alice", description="An engineer")
+    factory = _mock_openai_sequence(
+        _tool_call_response("find_entity", {"name": "Alice"}),
+        _text_response("done"),
+    )
+    results = []
+    with patch("openai.AsyncOpenAI", factory):
+        await kb.import_text(
+            "test", "irrelevant",
+            expand_schema=False,
+            on_tool_result=lambda name, args, res: results.append((name, res)),
+        )
+    assert ("find_entity", {"id": alice, "name": "Alice", "description": "An engineer"}) in results
+
+
+async def test_find_fact_tool_miss_returns_null_id(kb):
+    factory = _mock_openai_sequence(
+        _tool_call_response(
+            "find_fact",
+            {"head_entity_id": "x", "relation_id": "y", "tail_entity_id": "z"},
+        ),
+        _text_response("done"),
+    )
+    results = []
+    with patch("openai.AsyncOpenAI", factory):
+        await kb.import_text(
+            "test", "irrelevant",
+            expand_schema=False,
+            on_tool_result=lambda name, args, res: results.append((name, res)),
+        )
+    assert ("find_fact", {"id": None}) in results
+
+
+async def test_all_find_tools_honor_result_contract(kb):
+    person = await kb.declare_class("test", "PERSON", "")
+    await kb.declare_class("test", "COMPANY", "")
+    worked = await kb.declare_relation_type(
+        "test", "WORKED_AT", "", domain="PERSON", range="COMPANY"
+    )
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    ibm   = await kb.add_entity("test", "IBM")
+    fact  = await kb.add_fact("test", head_entity_id=alice, tail_entity_id=ibm, relation_id=worked)
+    factory = _mock_openai_sequence(
+        _tool_call_response("find_class", {"name": "PERSON"}),
+        _tool_call_response("find_relation_type", {"name": "MISSING"}),
+        _tool_call_response(
+            "find_fact",
+            {"head_entity_id": alice, "relation_id": worked, "tail_entity_id": ibm},
+        ),
+        _tool_call_response("find_entity", {"name": "Nobody"}),
+        _text_response("done"),
+    )
+    results = []
+    with patch("openai.AsyncOpenAI", factory):
+        await kb.import_text(
+            "test", "irrelevant",
+            expand_schema=False,
+            on_tool_result=lambda name, args, res: results.append((name, res)),
+        )
+    assert ("find_class", {"id": person, "name": "PERSON", "description": ""}) in results
+    assert ("find_relation_type", {"id": None}) in results
+    assert ("find_fact", {"id": fact, "name": "Alice_WORKED_AT_IBM"}) in results
+    assert ("find_entity", {"id": None}) in results

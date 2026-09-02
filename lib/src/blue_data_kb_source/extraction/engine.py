@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from blue_data.source.graph.graph_source import GraphSource
 
-from blue_data_kb_source._constants import CLASS, ENTITY, HEAD, RELATION, REPRESENTS, TAIL
 from blue_data_kb_source.types import ExtractionError
 
 if TYPE_CHECKING:
@@ -382,38 +381,32 @@ class ExtractionEngine:
             ]}
 
         if fn == "find_class":
-            nodes = self._source.match_nodes(database, label=CLASS, properties={"name": args["name"]})
-            if nodes:
-                p = nodes[0].get("properties", {})
-                return {"id": nodes[0]["id"], "name": p.get("name"), "description": p.get("description")}
+            node = await self._schema.find_class(database, args["name"])
+            if node:
+                p = node.get("properties", {})
+                return {"id": node["id"], "name": p.get("name"), "description": p.get("description")}
             return {"id": None}
 
         if fn == "find_relation_type":
-            nodes = self._source.match_nodes(database, label=RELATION, properties={"name": args["name"]})
-            if nodes:
-                p = nodes[0].get("properties", {})
-                return {"id": nodes[0]["id"], "name": p.get("name"), "description": p.get("description")}
+            node = await self._schema.find_relation_type(database, args["name"])
+            if node:
+                p = node.get("properties", {})
+                return {"id": node["id"], "name": p.get("name"), "description": p.get("description")}
             return {"id": None}
 
         if fn == "find_entity":
-            nodes = self._source.match_nodes(database, label=ENTITY, properties={"name": args["name"]})
-            if nodes:
-                p = nodes[0].get("properties", {})
-                return {"id": nodes[0]["id"], "name": p.get("name"), "description": p.get("description")}
+            node = await self._knowledge.find_entity(database, args["name"])
+            if node:
+                p = node.get("properties", {})
+                return {"id": node["id"], "name": p.get("name"), "description": p.get("description")}
             return {"id": None}
 
         if fn == "find_fact":
-            head_id = args["head_entity_id"]
-            tail_id = args["tail_entity_id"]
-            relation_id = args["relation_id"]
-            for nb in self._source.get_neighbors(database, head_id, edge_type=HEAD, direction="in"):
-                fact_node = nb["node"]
-                fact_id = fact_node["id"]
-                tail_nbs = self._source.get_neighbors(database, fact_id, edge_type=TAIL, direction="out")
-                rel_nbs = self._source.get_neighbors(database, fact_id, edge_type=REPRESENTS, direction="out")
-                if (any(t["node"]["id"] == tail_id for t in tail_nbs)
-                        and any(r["node"]["id"] == relation_id for r in rel_nbs)):
-                    return {"id": fact_id, "name": fact_node.get("properties", {}).get("name")}
+            node = await self._knowledge.find_fact(
+                database, args["head_entity_id"], args["relation_id"], args["tail_entity_id"]
+            )
+            if node:
+                return {"id": node["id"], "name": node.get("properties", {}).get("name")}
             return {"id": None}
 
         if fn == "add_entity":

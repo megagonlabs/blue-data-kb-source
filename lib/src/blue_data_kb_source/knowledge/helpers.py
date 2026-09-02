@@ -1,6 +1,7 @@
-"""Shared created/modified/provenance metadata helpers for ENTITY/FACT/LITERAL nodes.
+"""Shared lookup and metadata helpers for ENTITY/FACT/LITERAL nodes.
 
-Used by both `KnowledgeManager` (compact data listing, `get_metadata`) and `QueryEngine`
+Used by both `KnowledgeManager` (compact data listing, `get_metadata`, the exact-name
+`find_entity`/`find_fact` lookups behind the extraction agent's tools) and `QueryEngine`
 (the `get_metadata` LLM tool) so the per-type lookup logic lives in exactly one place.
 """
 
@@ -34,6 +35,31 @@ def detail_attrs(node: dict) -> dict:
         "created": props.get("created"),
         "modified": props.get("modified"),
     }
+
+
+def find_entity(source: GraphSource, database: str, name: str) -> dict | None:
+    """First ENTITY node with exactly *name*, or None — entity names are not unique."""
+    nodes = source.match_nodes(database, label=ENTITY, properties={"name": name})
+    return nodes[0] if nodes else None
+
+
+def find_fact(
+    source: GraphSource,
+    database: str,
+    head_entity_id: str,
+    relation_id: str,
+    tail_entity_id: str,
+) -> dict | None:
+    """First FACT matching the exact directed (head, relation, tail) triple, or None."""
+    for nb in source.get_neighbors(database, head_entity_id, edge_type=HEAD, direction="in"):
+        fact_node = nb["node"]
+        fact_id = fact_node["id"]
+        tail_nbs = source.get_neighbors(database, fact_id, edge_type=TAIL, direction="out")
+        rel_nbs = source.get_neighbors(database, fact_id, edge_type=REPRESENTS, direction="out")
+        if (any(t["node"]["id"] == tail_entity_id for t in tail_nbs)
+                and any(r["node"]["id"] == relation_id for r in rel_nbs)):
+            return fact_node
+    return None
 
 
 def provenance_detail(source: GraphSource, database: str, node_id: str) -> dict:

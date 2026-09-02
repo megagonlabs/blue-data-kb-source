@@ -26,6 +26,8 @@ from blue_data_kb_source.knowledge.engine import QueryEngine
 from blue_data_kb_source.knowledge.helpers import (
     detail_attrs,
     fetch_node_metadata,
+    find_entity,
+    find_fact,
     node_name,
     provenance_detail,
 )
@@ -58,6 +60,7 @@ class KnowledgeManager:
         self._source = source
         self._provenance = provenance_tracker
         self._notifier = change_notifier
+        self._schema = schema_manager
         self._query = QueryEngine(source, schema_manager, search_indexer)
 
     # ------------------------------------------------------------------ #
@@ -780,13 +783,26 @@ class KnowledgeManager:
             "fact_properties": fact_properties,
         }
 
-    def _resolve_schema_ref(self, database: str, label: str, name: str | None, what: str) -> str | None:
+    async def _resolve_schema_ref(
+        self,
+        database: str,
+        label: str,
+        name: str | None,
+        what: str,
+    ) -> str | None:
         if not name:
             return None
-        nodes = self._source.match_nodes(database, label=label, properties={"name": name})
-        if not nodes:
-            raise KnowledgeError(f"import_database_data: {what} {name!r} not found in database {database!r}")
-        return nodes[0]["id"]
+        if label == CLASS:
+            node = await self._schema.find_class(database, name)
+        elif label == RELATION:
+            node = await self._schema.find_relation_type(database, name)
+        else:
+            node = await self._schema.find_property(database, name)
+        if node is None:
+            raise KnowledgeError(
+                f"import_database_data: {what} {name!r} not found in database {database!r}"
+            )
+        return node["id"]
 
     def _resolve_data_ref(self, ref_to_id: dict[str, str], ref: str | None, what: str) -> str | None:
         if ref is None:
@@ -806,7 +822,7 @@ class KnowledgeManager:
         ref_to_id: dict[str, str] = {}
 
         for ent in data.get("entities", []):
-            class_id = self._resolve_schema_ref(database, CLASS, ent.get("class"), "class")
+            class_id = await self._resolve_schema_ref(database, CLASS, ent.get("class"), "class")
             new_id = await self.add_entity(
                 database, ent.get("name"), description=ent.get("description"),
                 class_id=class_id, text=ent.get("extraction"),
@@ -815,7 +831,9 @@ class KnowledgeManager:
                 ref_to_id[ent["ref"]] = new_id
 
         for fact in data.get("facts", []):
-            relation_id = self._resolve_schema_ref(database, RELATION, fact.get("relation"), "relation")
+            relation_id = await self._resolve_schema_ref(
+                database, RELATION, fact.get("relation"), "relation"
+            )
             head_id = self._resolve_data_ref(ref_to_id, fact.get("head_ref"), "fact head_ref")
             tail_id = self._resolve_data_ref(ref_to_id, fact.get("tail_ref"), "fact tail_ref")
             new_id = await self.add_fact(
@@ -828,7 +846,9 @@ class KnowledgeManager:
 
         for prop in data.get("entity_properties", []):
             owner_id = self._resolve_data_ref(ref_to_id, prop.get("owner_ref"), "entity property owner_ref")
-            property_id = self._resolve_schema_ref(database, PROPERTY, prop.get("name"), "property")
+            property_id = await self._resolve_schema_ref(
+                database, PROPERTY, prop.get("name"), "property"
+            )
             await self.add_entity_property_value(
                 database, prop.get("value"), literal_type=prop.get("literal_type"),
                 entity_id=owner_id, property_id=property_id, text=prop.get("extraction"),
@@ -836,7 +856,9 @@ class KnowledgeManager:
 
         for prop in data.get("fact_properties", []):
             owner_id = self._resolve_data_ref(ref_to_id, prop.get("owner_ref"), "fact property owner_ref")
-            property_id = self._resolve_schema_ref(database, PROPERTY, prop.get("name"), "property")
+            property_id = await self._resolve_schema_ref(
+                database, PROPERTY, prop.get("name"), "property"
+            )
             await self.add_fact_property_value(
                 database, prop.get("value"), literal_type=prop.get("literal_type"),
                 fact_id=owner_id, property_id=property_id, text=prop.get("extraction"),
@@ -850,6 +872,24 @@ class KnowledgeManager:
         """created/modified/extraction/source metadata for an entity, fact, or property value id."""
         require_node_type_one_of(self._source, database, node_id, (ENTITY, FACT, LITERAL), "node_id", KnowledgeError)
         return fetch_node_metadata(self._source, database, node_id)
+
+    # ------------------------------------------------------------------ #
+    # Exact-name lookups                                                   #
+    # ------------------------------------------------------------------ #
+
+    async def find_entity(self, database: str, name: str) -> dict | None:
+        """First ENTITY node with exactly *name*, or None — entity names are not unique."""
+        return find_entity(self._source, database, name)
+
+    async def find_fact(
+        self,
+        database: str,
+        head_entity_id: str,
+        relation_id: str,
+        tail_entity_id: str,
+    ) -> dict | None:
+        """First FACT matching the exact directed (head, relation, tail) triple, or None."""
+        return find_fact(self._source, database, head_entity_id, relation_id, tail_entity_id)
 
     # ------------------------------------------------------------------ #
     # Find (substring scan)                                                #

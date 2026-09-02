@@ -649,3 +649,76 @@ async def test_validate_default_returns_structured(populated_kb):
     with patch("openai.AsyncOpenAI", _mock_openai(_VALIDATE_PAYLOAD)):
         result = await populated_kb.validate("test", "Alice worked at IBM")
     assert hasattr(result, "supporting")
+
+
+# ------------------------------------------------------------------ #
+# find_entity / find_fact                                              #
+# ------------------------------------------------------------------ #
+
+async def test_find_entity_exact_name(kb):
+    alice = await kb.add_entity("test", "Alice")
+    await kb.add_entity("test", "Alicia")
+    node = await kb.find_entity("test", "Alice")
+    assert node is not None and node["id"] == alice
+    assert await kb.find_entity("test", "alice") is None
+    assert await kb.find_entity("test", "Missing") is None
+
+
+async def test_find_entity_duplicate_names_returns_one(kb):
+    await kb.add_entity("test", "IBM")
+    await kb.add_entity("test", "IBM")
+    node = await kb.find_entity("test", "IBM")
+    assert node is not None and node["properties"]["name"] == "IBM"
+
+
+async def test_find_fact_matches_exact_triple(kb):
+    person  = await kb.declare_class("test", "PERSON", "")
+    company = await kb.declare_class("test", "COMPANY", "")
+    worked = await kb.declare_relation_type(
+        "test", "WORKED_AT", "", domain="PERSON", range="COMPANY"
+    )
+    hired  = await kb.declare_relation_type(
+        "test", "HIRED_BY", "", domain="PERSON", range="COMPANY"
+    )
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    ibm   = await kb.add_entity("test", "IBM", class_id=company)
+    fact  = await kb.add_fact("test", head_entity_id=alice, tail_entity_id=ibm, relation_id=worked)
+    hit = await kb.find_fact("test", alice, worked, ibm)
+    assert hit is not None and hit["id"] == fact
+    assert await kb.find_fact("test", ibm, worked, alice) is None
+    assert await kb.find_fact("test", alice, hired, ibm) is None
+
+
+# ------------------------------------------------------------------ #
+# import_database_data (schema-ref resolution)                         #
+# ------------------------------------------------------------------ #
+
+async def test_import_database_data_round_trip(kb):
+    person = await kb.declare_class("test", "PERSON", "")
+    await kb.declare_class("test", "COMPANY", "")
+    worked = await kb.declare_relation_type(
+        "test", "WORKED_AT", "", domain="PERSON", range="COMPANY"
+    )
+    age   = await kb.declare_class_property("test", "AGE", "", class_id=person)
+    start = await kb.declare_relation_property("test", "START_DATE", "", relation_id=worked)
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    ibm   = await kb.add_entity("test", "IBM")
+    fact  = await kb.add_fact("test", head_entity_id=alice, tail_entity_id=ibm, relation_id=worked)
+    await kb.add_entity_property_value("test", 30, entity_id=alice, property_id=age)
+    await kb.add_fact_property_value("test", "1998-06-01", fact_id=fact, property_id=start)
+    data = await kb.export_database_data("test")
+
+    kb.create_database("copy")
+    await kb.import_database_schema("copy", await kb.export_database_schema("test"))
+    await kb.import_database_data("copy", data)
+    ents = {n["properties"]["name"] for n in kb.match_nodes("copy", label="ENTITY")}
+    assert ents == {"Alice", "IBM"}
+    assert len(kb.match_nodes("copy", label="FACT")) == 1
+    assert len(kb.match_nodes("copy", label="LITERAL")) == 2
+
+
+async def test_import_database_data_missing_class_raises(kb):
+    data = {"entities": [{"ref": "e1", "name": "Alice", "class": "GHOST"}]}
+    with pytest.raises(KBError) as exc:
+        await kb.import_database_data("test", data)
+    assert "GHOST" in str(exc.value)

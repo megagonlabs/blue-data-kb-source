@@ -155,9 +155,9 @@ class SchemaManager:
         description: str,
         class_id: str | None = None,
     ) -> str:
-        existing = self._source.match_nodes(database, label=CLASS, properties={"name": name})
-        if existing:
-            return existing[0]["id"]
+        node = await self.find_class(database, name)
+        if node:
+            return node["id"]
         node_id = self._source.add_node(
             database,
             CLASS,
@@ -191,25 +191,25 @@ class SchemaManager:
                 "range is required when declaring a relation type: pass the name of at least one "
                 "existing CLASS (or a list of names). A relation cannot be declared without a range."
             )
-        existing = self._source.match_nodes(database, label=RELATION, properties={"name": name})
-        if existing:
-            return existing[0]["id"]
+        node = await self.find_relation_type(database, name)
+        if node:
+            return node["id"]
         # Resolve every domain/range class *before* creating the RELATION node, so a
         # missing class raises without leaving a half-wired (domain-less) node behind —
         # a later retry with a valid domain would otherwise hit the idempotency check
         # above and silently reuse that broken node instead of wiring it.
         domain_ids: list[str] = []
         for class_name in domain_names:
-            classes = self._source.match_nodes(database, label=CLASS, properties={"name": class_name})
-            if not classes:
+            cls = await self.find_class(database, class_name)
+            if cls is None:
                 raise SchemaError(f"domain class '{class_name}' not found in '{database}'")
-            domain_ids.append(classes[0]["id"])
+            domain_ids.append(cls["id"])
         range_ids: list[str] = []
         for class_name in range_names:
-            classes = self._source.match_nodes(database, label=CLASS, properties={"name": class_name})
-            if not classes:
+            cls = await self.find_class(database, class_name)
+            if cls is None:
                 raise SchemaError(f"range class '{class_name}' not found in '{database}'")
-            range_ids.append(classes[0]["id"])
+            range_ids.append(cls["id"])
         rid = self._source.add_node(
             database,
             RELATION,
@@ -239,9 +239,9 @@ class SchemaManager:
                 if nb["node"].get("properties", {}).get("name") == name:
                     return nb["node"]["id"]
         else:
-            existing = self._source.match_nodes(database, label=PROPERTY, properties={"name": name})
-            if existing:
-                return existing[0]["id"]
+            node = await self.find_property(database, name)
+            if node:
+                return node["id"]
         node_id = self._source.add_node(
             database,
             PROPERTY,
@@ -273,9 +273,9 @@ class SchemaManager:
                 if nb["node"].get("properties", {}).get("name") == name:
                     return nb["node"]["id"]
         else:
-            existing = self._source.match_nodes(database, label=PROPERTY, properties={"name": name})
-            if existing:
-                return existing[0]["id"]
+            node = await self.find_property(database, name)
+            if node:
+                return node["id"]
         node_id = self._source.add_node(
             database,
             PROPERTY,
@@ -601,6 +601,25 @@ class SchemaManager:
             if dom & head_ok and rng & tail_ok:
                 allowed.append(rel)
         return allowed
+
+    # ------------------------------------------------------------------ #
+    # Exact-name lookups                                                   #
+    # ------------------------------------------------------------------ #
+
+    async def find_class(self, database: str, name: str) -> dict | None:
+        """CLASS node with exactly *name*, or None."""
+        nodes = self._source.match_nodes(database, label=CLASS, properties={"name": name})
+        return nodes[0] if nodes else None
+
+    async def find_relation_type(self, database: str, name: str) -> dict | None:
+        """RELATION node with exactly *name*, or None."""
+        nodes = self._source.match_nodes(database, label=RELATION, properties={"name": name})
+        return nodes[0] if nodes else None
+
+    async def find_property(self, database: str, name: str) -> dict | None:
+        """PROPERTY node with exactly *name*, or None."""
+        nodes = self._source.match_nodes(database, label=PROPERTY, properties={"name": name})
+        return nodes[0] if nodes else None
 
     # ------------------------------------------------------------------ #
     # Schema export / import                                               #
