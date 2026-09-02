@@ -100,6 +100,11 @@ def _humanize_date(iso_str: str | None) -> str:
         return iso_str
 
 
+def _render_confidence(value: float | None) -> str:
+    """Format a derived FACT confidence for table display; blank when unstated."""
+    return "" if value is None else str(value)
+
+
 def _metadata_display_name(meta: dict) -> str:
     """Human-readable identity string for a get_metadata entry, type-dependent."""
     if meta.get("type") == "LITERAL":
@@ -2066,6 +2071,15 @@ def entity_group() -> None:
 @click.option("--text",                        default=None, help="Source text span (creates provenance).")
 @click.option("--source",      "source_name",  default=None, help="Source name.")
 @click.option("--source-id",                   default=None, help="Source node ID (overrides --source).")
+@click.option("--confidence",      type=float, default=None,
+              help="Confidence in [0.0, 1.0] for the recorded assertion; requires --text.")
+@click.option(
+    "--extraction-type", "extraction_type",
+    type=click.Choice(["text_span", "external_record", "assertion"]),
+    default="text_span",
+    show_default=True,
+    help="Form of the evidence recorded for --text.",
+)
 @click.pass_obj
 def entity_add(
     obj: dict,
@@ -2076,6 +2090,8 @@ def entity_add(
     text: str | None,
     source_name: str | None,
     source_id: str | None,
+    confidence: float | None,
+    extraction_type: str,
 ) -> None:
     """Add an entity instance.
 
@@ -2093,6 +2109,7 @@ def entity_add(
         entity_id = _run(kb.add_entity(
             db, name, description=description,
             class_id=resolved_class_id, text=text, source_id=resolved_source_id,
+            confidence=confidence, extraction_type=extraction_type,
         ))
     except KBError as exc:
         raise click.ClickException(str(exc))
@@ -2293,11 +2310,22 @@ def entity_extraction_group() -> None:
 @click.option("--text",        required=True, help="New source text span.")
 @click.option("--source",      "source_name", default=None, help="Source name.")
 @click.option("--source-id",                  default=None, help="Source node ID (overrides --source).")
+@click.option("--confidence",     type=float, default=None,
+              help="Confidence in [0.0, 1.0] for the recorded assertion.")
+@click.option(
+    "--extraction-type", "extraction_type",
+    type=click.Choice(["text_span", "external_record", "assertion"]),
+    default="text_span",
+    show_default=True,
+    help="Form of the evidence recorded for --text.",
+)
 @click.pass_obj
 def entity_extraction_add(
     obj: dict,
     entity_name: str | None, entity_id: str | None,
     text: str, source_name: str | None, source_id: str | None,
+    confidence: float | None,
+    extraction_type: str,
 ) -> None:
     """Link additional source text to an existing entity.
 
@@ -2312,7 +2340,10 @@ def entity_extraction_add(
     if source_name or source_id:
         resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
     try:
-        extraction_id = _run(kb.add_entity_extraction(db, eid, text, source_id=resolved_source_id))
+        extraction_id = _run(kb.add_entity_extraction(
+            db, eid, text, source_id=resolved_source_id,
+            confidence=confidence, extraction_type=extraction_type,
+        ))
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(f"Added extraction (id: {extraction_id})")
@@ -2344,6 +2375,15 @@ def entity_property_group() -> None:
 @click.option("--text",                          default=None, help="Source text span (creates provenance).")
 @click.option("--source",       "source_name",   default=None, help="Source name.")
 @click.option("--source-id",                     default=None, help="Source node ID (overrides --source).")
+@click.option("--confidence",        type=float, default=None,
+              help="Confidence in [0.0, 1.0] for the recorded assertion; requires --text.")
+@click.option(
+    "--extraction-type", "extraction_type",
+    type=click.Choice(["text_span", "external_record", "assertion"]),
+    default="text_span",
+    show_default=True,
+    help="Form of the evidence recorded for --text.",
+)
 @click.pass_obj
 def entity_property_set(
     obj: dict,
@@ -2358,6 +2398,8 @@ def entity_property_set(
     text: str | None,
     source_name: str | None,
     source_id: str | None,
+    confidence: float | None,
+    extraction_type: str,
 ) -> None:
     """Set a property value on an entity.
 
@@ -2382,6 +2424,7 @@ def entity_property_set(
             name=name, description=description,
             entity_id=eid, property_id=pid, literal_type=literal_type,
             text=text, source_id=resolved_source_id,
+            confidence=confidence, extraction_type=extraction_type,
         ))
     except KBError as exc:
         raise click.ClickException(str(exc))
@@ -2521,12 +2564,23 @@ def entity_property_extraction_group() -> None:
 @click.option("--text",                          required=True, help="New source text span.")
 @click.option("--source",       "source_name",   default=None, help="Source name.")
 @click.option("--source-id",                     default=None, help="Source node ID (overrides --source).")
+@click.option("--confidence",        type=float, default=None,
+              help="Confidence in [0.0, 1.0] for the recorded assertion.")
+@click.option(
+    "--extraction-type", "extraction_type",
+    type=click.Choice(["text_span", "external_record", "assertion"]),
+    default="text_span",
+    show_default=True,
+    help="Form of the evidence recorded for --text.",
+)
 @click.pass_obj
 def entity_property_extraction_add(
     obj: dict,
     entity_name: str | None, entity_id: str | None,
     property_name: str | None, property_id: str | None,
     text: str, source_name: str | None, source_id: str | None,
+    confidence: float | None,
+    extraction_type: str,
 ) -> None:
     """Link additional source text to an entity's existing property value."""
     kb: FileKBSource = obj["kb"]
@@ -2538,7 +2592,10 @@ def entity_property_extraction_add(
         resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
     try:
         extraction_id = _run(
-            kb.add_entity_property_value_extraction(db, eid, pid, text, source_id=resolved_source_id)
+            kb.add_entity_property_value_extraction(
+                db, eid, pid, text, source_id=resolved_source_id,
+                confidence=confidence, extraction_type=extraction_type,
+            )
         )
     except KBError as exc:
         raise click.ClickException(str(exc))
@@ -2566,6 +2623,15 @@ def fact_group() -> None:
 @click.option("--text",                         default=None, help="Source text span (creates provenance).")
 @click.option("--source",      "source_name",   default=None, help="Source name.")
 @click.option("--source-id",                    default=None, help="Source node ID (overrides --source).")
+@click.option("--confidence",       type=float, default=None,
+              help="Confidence in [0.0, 1.0] for the recorded assertion; requires --text.")
+@click.option(
+    "--extraction-type", "extraction_type",
+    type=click.Choice(["text_span", "external_record", "assertion"]),
+    default="text_span",
+    show_default=True,
+    help="Form of the evidence recorded for --text.",
+)
 @click.pass_obj
 def fact_add(
     obj: dict,
@@ -2580,6 +2646,8 @@ def fact_add(
     text: str | None,
     source_name: str | None,
     source_id: str | None,
+    confidence: float | None,
+    extraction_type: str,
 ) -> None:
     """Add a fact (relation instance) between two entities.
 
@@ -2611,6 +2679,7 @@ def fact_add(
             tail_entity_id=tail_entity_id,
             relation_id=resolved_relation_id,
             text=text, source_id=resolved_source_id,
+            confidence=confidence, extraction_type=extraction_type,
         ))
     except KBError as exc:
         raise click.ClickException(str(exc))
@@ -2652,6 +2721,7 @@ def fact_list(obj: dict, show_provenance: bool, fmt: str) -> None:
             "head":     _name(head_id),
             "relation": _name(rel_id),
             "tail":     _name(tail_id),
+            "confidence": node.get("properties", {}).get("confidence"),
         }
         if show_provenance:
             prov = _provenance_detail(kb, db, nid)
@@ -2665,14 +2735,15 @@ def fact_list(obj: dict, show_provenance: bool, fmt: str) -> None:
             console.print("[dim](no facts)[/dim]")
             return
         t = Table(show_header=True, header_style="bold")
-        t.add_column("Head",     style="bold")
-        t.add_column("Relation", style="dim")
-        t.add_column("Tail",     style="bold")
+        t.add_column("Head",       style="bold")
+        t.add_column("Relation",   style="dim")
+        t.add_column("Tail",       style="bold")
+        t.add_column("Conf.", style="dim")
         if show_provenance:
             t.add_column("Provenance", style="dim")
             t.add_column("Source",     style="dim")
         for r in sorted(rows, key=lambda x: (x["relation"], x["head"])):
-            row_cells = [r["head"], r["relation"], r["tail"]]
+            row_cells = [r["head"], r["relation"], r["tail"], _render_confidence(r["confidence"])]
             if show_provenance:
                 row_cells.append(r.get("provenance", ""))
                 row_cells.append(r.get("source", ""))
@@ -2736,16 +2807,27 @@ def fact_extraction_group() -> None:
 
 
 @fact_extraction_group.command("add")
-@click.option("--fact",        "fact_name", default=None, help="Fact name.")
-@click.option("--fact-id",                  default=None, help="Fact node ID (overrides --fact).")
+@click.option("--fact",        "fact_name",   default=None, help="Fact name.")
+@click.option("--fact-id",                    default=None, help="Fact node ID (overrides --fact).")
 @click.option("--text",        required=True, help="New source text span.")
 @click.option("--source",      "source_name", default=None, help="Source name.")
 @click.option("--source-id",                  default=None, help="Source node ID (overrides --source).")
+@click.option("--confidence",     type=float, default=None,
+              help="Confidence in [0.0, 1.0] for the recorded assertion.")
+@click.option(
+    "--extraction-type", "extraction_type",
+    type=click.Choice(["text_span", "external_record", "assertion"]),
+    default="text_span",
+    show_default=True,
+    help="Form of the evidence recorded for --text.",
+)
 @click.pass_obj
 def fact_extraction_add(
     obj: dict,
     fact_name: str | None, fact_id: str | None,
     text: str, source_name: str | None, source_id: str | None,
+    confidence: float | None,
+    extraction_type: str,
 ) -> None:
     """Link additional source text to an existing fact.
 
@@ -2760,7 +2842,10 @@ def fact_extraction_add(
     if source_name or source_id:
         resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
     try:
-        extraction_id = _run(kb.add_fact_extraction(db, fid, text, source_id=resolved_source_id))
+        extraction_id = _run(kb.add_fact_extraction(
+            db, fid, text, source_id=resolved_source_id,
+            confidence=confidence, extraction_type=extraction_type,
+        ))
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(f"Added extraction (id: {extraction_id})")
@@ -2791,6 +2876,15 @@ def fact_property_group() -> None:
 @click.option("--text",                       default=None, help="Source text span (creates provenance).")
 @click.option("--source",    "source_name",   default=None, help="Source name.")
 @click.option("--source-id",                  default=None, help="Source node ID (overrides --source).")
+@click.option("--confidence",     type=float, default=None,
+              help="Confidence in [0.0, 1.0] for the recorded assertion; requires --text.")
+@click.option(
+    "--extraction-type", "extraction_type",
+    type=click.Choice(["text_span", "external_record", "assertion"]),
+    default="text_span",
+    show_default=True,
+    help="Form of the evidence recorded for --text.",
+)
 @click.pass_obj
 def fact_property_set(
     obj: dict,
@@ -2804,6 +2898,8 @@ def fact_property_set(
     text: str | None,
     source_name: str | None,
     source_id: str | None,
+    confidence: float | None,
+    extraction_type: str,
 ) -> None:
     """Set a property value on a fact.
 
@@ -2826,6 +2922,7 @@ def fact_property_set(
             name=name, description=description,
             fact_id=fact_id, property_id=pid, literal_type=literal_type,
             text=text, source_id=resolved_source_id,
+            confidence=confidence, extraction_type=extraction_type,
         ))
     except KBError as exc:
         raise click.ClickException(str(exc))
@@ -2961,12 +3058,23 @@ def fact_property_extraction_group() -> None:
 @click.option("--text",                          required=True, help="New source text span.")
 @click.option("--source",       "source_name",   default=None, help="Source name.")
 @click.option("--source-id",                     default=None, help="Source node ID (overrides --source).")
+@click.option("--confidence",        type=float, default=None,
+              help="Confidence in [0.0, 1.0] for the recorded assertion.")
+@click.option(
+    "--extraction-type", "extraction_type",
+    type=click.Choice(["text_span", "external_record", "assertion"]),
+    default="text_span",
+    show_default=True,
+    help="Form of the evidence recorded for --text.",
+)
 @click.pass_obj
 def fact_property_extraction_add(
     obj: dict,
     fact_name: str | None, fact_id: str | None,
     property_name: str | None, property_id: str | None,
     text: str, source_name: str | None, source_id: str | None,
+    confidence: float | None,
+    extraction_type: str,
 ) -> None:
     """Link additional source text to a fact's existing property value."""
     kb: FileKBSource = obj["kb"]
@@ -2978,7 +3086,10 @@ def fact_property_extraction_add(
         resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
     try:
         extraction_id = _run(
-            kb.add_fact_property_value_extraction(db, fid, pid, text, source_id=resolved_source_id)
+            kb.add_fact_property_value_extraction(
+                db, fid, pid, text, source_id=resolved_source_id,
+                confidence=confidence, extraction_type=extraction_type,
+            )
         )
     except KBError as exc:
         raise click.ClickException(str(exc))
@@ -2992,7 +3103,8 @@ def fact_property_extraction_add(
 @data_group.command("list")
 @click.option("--show-provenance", "show_provenance", is_flag=True, help="Include provenance text.")
 @click.option("--show-detailed", "show_detailed", is_flag=True,
-              help="Include each row's node attributes: description, created, modified.")
+              help="Include each row's node attributes: description, created, modified, "
+                   "and confidence on fact rows.")
 @click.option(
     "--format", "fmt",
     type=click.Choice(["table", "json"]),
@@ -3091,6 +3203,7 @@ def list_cmd(obj: dict, show_provenance: bool, show_detailed: bool, fmt: str) ->
         t.add_column("Relation", style="dim")
         t.add_column("Tail",     style="bold")
         if show_detailed:
+            t.add_column("Conf.", style="dim")
             _detail_columns(t)
         if show_provenance:
             _provenance_columns(t)
@@ -3099,6 +3212,7 @@ def list_cmd(obj: dict, show_provenance: bool, show_detailed: bool, fmt: str) ->
         for r in sorted(facts, key=lambda x: (x.get("relation_name") or "", x.get("source_name") or "")):
             row = [r.get("source_name") or "", r.get("relation_name") or "", r.get("target_name") or ""]
             if show_detailed:
+                row += [_render_confidence(r.get("confidence"))]
                 row += _detail_row(r)
             if show_provenance:
                 row += _provenance_row(r)

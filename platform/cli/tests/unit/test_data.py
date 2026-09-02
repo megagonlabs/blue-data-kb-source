@@ -1,6 +1,7 @@
 import re
 
 from blue_data_kb_cli.commands import cli
+from blue_data_kb_cli.config import _make_kb
 
 from .conftest import invoke, invoke_json
 
@@ -164,7 +165,8 @@ def test_fact_add_list_property_and_delete(runner):
     fact_id = _extract_id(result.output)
 
     rows = invoke_json(runner, DB + ["data", "fact", "list", "--format", "json"])
-    assert rows == [{"id": fact_id, "head": "Alice", "relation": "WORKED_AT", "tail": "IBM"}]
+    assert rows == [{"id": fact_id, "head": "Alice", "relation": "WORKED_AT", "tail": "IBM",
+                     "confidence": None}]
 
     invoke(runner, DB + [
         "data", "fact", "property", "set", "1998-06-01",
@@ -276,3 +278,136 @@ def test_entity_class_attach_by_ids(runner):
         "data", "entity", "class", "list", "--entity-id", entity_id, "--format", "json",
     ])
     assert {r["name"] for r in rows} == {"PERSON", "EMPLOYEE"}
+
+
+def test_fact_add_confidence_shows_in_list(runner):
+    _seed_schema_and_entities(runner)
+    invoke(runner, DB + [
+        "data", "fact", "add", "--head", "Alice", "--relation", "WORKED_AT", "--tail", "IBM",
+        "--text", "Alice joined IBM in June 1998.", "--confidence", "0.9",
+    ])
+    rows = invoke_json(runner, DB + ["data", "fact", "list", "--format", "json"])
+    assert [r["confidence"] for r in rows] == [0.9]
+    result = invoke(runner, DB + ["data", "fact", "list"])
+    assert "Conf." in result.output
+    assert "0.9" in result.output
+
+
+def test_fact_confidence_rises_with_stronger_evidence(runner):
+    _seed_schema_and_entities(runner)
+    invoke(runner, DB + [
+        "data", "fact", "add", "--head", "Alice", "--relation", "WORKED_AT", "--tail", "IBM",
+        "--text", "Alice joined IBM.", "--confidence", "0.4",
+    ])
+    invoke(runner, DB + [
+        "data", "fact", "extraction", "add", "--fact", "Alice_WORKED_AT_IBM",
+        "--text", "Confirmed by the resume.", "--confidence", "0.9",
+        "--extraction-type", "external_record",
+    ])
+    rows = invoke_json(runner, DB + ["data", "fact", "list", "--format", "json"])
+    assert [r["confidence"] for r in rows] == [0.9]
+
+
+def test_confidence_without_text_is_rejected(runner):
+    _seed_schema_and_entities(runner)
+    result = runner.invoke(cli, DB + [
+        "data", "fact", "add", "--head", "Alice", "--relation", "WORKED_AT", "--tail", "IBM",
+        "--confidence", "0.9",
+    ])
+    assert result.exit_code != 0
+    assert "confidence requires text" in result.output
+
+
+def test_confidence_out_of_range_is_rejected(runner):
+    _seed_schema_and_entities(runner)
+    result = runner.invoke(cli, DB + [
+        "data", "entity", "add", "--name", "Carol", "--class", "EMPLOYEE",
+        "--text", "Carol exists.", "--confidence", "1.5",
+    ])
+    assert result.exit_code != 0
+    assert "[0.0, 1.0]" in result.output
+
+
+def test_extraction_type_reaches_the_stored_extraction(runner):
+    _seed_schema_and_entities(runner)
+    invoke(runner, DB + [
+        "data", "entity", "extraction", "add", "--entity", "Alice",
+        "--text", "Q42 occupation engineer", "--extraction-type", "external_record",
+    ])
+    kb = _make_kb("main")
+    types = {
+        n["properties"].get("extraction_type")
+        for n in kb.match_nodes("main", label="EXTRACTION")
+    }
+    assert "external_record" in types
+
+
+def test_unknown_extraction_type_is_rejected(runner):
+    _seed_schema_and_entities(runner)
+    result = runner.invoke(cli, DB + [
+        "data", "entity", "extraction", "add", "--entity", "Alice",
+        "--text", "More evidence.", "--extraction-type", "text-span",
+    ])
+    assert result.exit_code != 0
+    assert "text_span" in result.output
+
+
+def test_detailed_list_shows_fact_confidence(runner):
+    _seed_schema_and_entities(runner)
+    invoke(runner, DB + [
+        "data", "fact", "add", "--head", "Alice", "--relation", "WORKED_AT", "--tail", "IBM",
+        "--text", "Alice joined IBM.", "--confidence", "0.7",
+    ])
+    result = invoke(runner, DB + ["data", "list", "--show-detailed"])
+    assert "Conf." in result.output
+    assert "0.7" in result.output
+
+
+def test_property_commands_thread_confidence_and_type(runner):
+    _seed_schema_and_entities(runner)
+    invoke(runner, DB + [
+        "schema", "class", "property", "add", "AGE", "Age of a person", "--class", "EMPLOYEE",
+    ])
+    invoke(runner, DB + [
+        "data", "entity", "property", "set", "30", "--entity", "Alice", "--property", "AGE",
+        "--type", "NUMBER", "--text", "Alice is 30.", "--confidence", "0.8",
+        "--extraction-type", "external_record",
+    ])
+    result = invoke(runner, DB + [
+        "data", "fact", "add", "--head", "Alice", "--relation", "WORKED_AT", "--tail", "IBM",
+    ])
+    fact_id = _extract_id(result.output)
+    invoke(runner, DB + [
+        "data", "fact", "property", "set", "1998-06-01", "--fact-id", fact_id,
+        "--property", "START_DATE", "--text", "Joined in June 1998.", "--confidence", "0.5",
+    ])
+    invoke(runner, DB + [
+        "data", "fact", "property", "extraction", "add", "--fact-id", fact_id,
+        "--property", "START_DATE", "--text", "The resume says June 1998.",
+        "--confidence", "0.7", "--extraction-type", "assertion",
+    ])
+    invoke(runner, DB + [
+        "data", "entity", "property", "extraction", "add", "--entity", "Alice",
+        "--property", "AGE", "--text", "Her profile lists 30.",
+        "--confidence", "0.6", "--extraction-type", "external_record",
+    ])
+    kb = _make_kb("main")
+    scored = {
+        (n["properties"].get("confidence"), n["properties"].get("extraction_type"))
+        for n in kb.match_nodes("main", label="EXTRACTION")
+    }
+    assert (0.8, "external_record") in scored   # entity property set
+    assert (0.5, "text_span") in scored         # fact property set
+    assert (0.7, "assertion") in scored         # fact property extraction add
+    assert (0.6, "external_record") in scored   # entity property extraction add
+
+
+def test_unscored_fact_renders_a_blank_cell(runner):
+    _seed_schema_and_entities(runner)
+    invoke(runner, DB + [
+        "data", "fact", "add", "--head", "Alice", "--relation", "WORKED_AT", "--tail", "IBM",
+        "--text", "No score stated.",
+    ])
+    result = invoke(runner, DB + ["data", "fact", "list"])
+    assert "Conf." in result.output
+    assert "None" not in result.output
