@@ -695,8 +695,8 @@ async def test_fetch_database_data_compact_shows_all_evidence(populated_kb):
         if e["relation_type"] == "IS_INSTANCE_OF" and e["entity_name"] == "Alice"
     ]
     assert len(entries) == 1
-    assert "Alice is a software engineer." in entries[0]["extraction"]
-    assert "Alice was later promoted to team lead." in entries[0]["extraction"]
+    texts = [e["text"] for e in entries[0]["evidence"]]
+    assert texts == ["Alice is a software engineer.", "Alice was later promoted to team lead."]
 
 
 # ------------------------------------------------------------------ #

@@ -94,8 +94,11 @@ await kb.add_entity_extraction("main", entity_id=ibm, text="...also mentioned IB
 ```python
 meta = await kb.get_metadata("main", alice)
 # {"id": ..., "type": "ENTITY", "name": "Alice", "class_name": "EMPLOYEE",
-#  "created": "...", "modified": "...", "extraction": "Alice is a software engineer.",
-#  "source": "Alice's résumé", "source_original": "2020-01-15"}
+#  "created": "...", "modified": "...", "confidence": None,   # facts only; None here
+#  "evidence": [{"text": "Alice is a software engineer.", "confidence": 0.9,
+#                "created": "...", "source": "Alice's résumé",
+#                "source_original": "2020-01-15"}],
+#  "extraction": "...", "source": "...", "source_original": "..."}   # flattened, retiring
 ```
 
 ---
@@ -245,7 +248,7 @@ text = await kb.answer("main", "Where did Alice work?", natural_language=True)
 
 ```python
 results, metadata = await kb.answer("main", "Where did Alice work?", include_metadata=True)
-# metadata: dict[node_id, {created, modified, extraction, source, source_original, ...}]
+# metadata: dict[node_id, {created, modified, confidence, evidence, ...}]
 ```
 
 The agent calls `get_metadata` for each entity/fact/property it cites; the engine harvests every such call into `metadata`, regardless of whether the agent's own structured answer references the id. With `natural_language=True` as well, `results` is prose with a provenance section appended after the main answer, and `metadata` is still the raw dict.

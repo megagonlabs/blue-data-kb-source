@@ -151,7 +151,9 @@ The agent loop is invisible to the caller — only the final structured result i
 ```python
 answers, metadata = await kb.answer("main", "Where has Alice worked?", include_metadata=True)
 # answers is the same list[dict] as above; metadata might look like:
-# {"fact-abc123": {"source": "Alice's résumé", "source_original": "2020-01-15", "created": "...", ...}, ...}
+# {"fact-abc123": {"confidence": 0.9, "created": "...",
+#                   "evidence": [{"text": "...", "confidence": 0.9, "source": "Alice's résumé",
+#                                 "source_original": "2020-01-15", "created": "..."}], ...}, ...}
 ```
 
 Both `answer` and `validate` also take `natural_language=True`, returning prose instead of the structured result (composed with `include_metadata=True`, the prose gets a metadata section appended, and `metadata` is still returned alongside it). `enrich` has neither `include_metadata` nor `natural_language` — it always returns structured `EnrichmentResult` objects.

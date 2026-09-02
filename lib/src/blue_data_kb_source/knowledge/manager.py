@@ -697,6 +697,11 @@ class KnowledgeManager:
         return {"nodes": nodes, "edges": edges}
 
     def _fetch_compact(self, database: str, include_provenance: bool, detailed: bool = False) -> list[dict]:
+        """Flat denormalized rows for listings: entity/class, property/value, fact parts.
+
+        `include_provenance` adds each row's `evidence`; `detailed` adds the node's own
+        description/created/modified, and a FACT's derived confidence.
+        """
         results: list[dict] = []
         _name = node_name
         _detail_attrs = detail_attrs
@@ -712,14 +717,10 @@ class KnowledgeManager:
                     "entity_name": _name(entity_node),
                     "class_name": _name(cls),
                 }
-                prov = _provenance_detail(nid) if (include_provenance or detailed) else None
                 if detailed:
                     entry.update(_detail_attrs(entity_node))
                 if include_provenance:
-                    entry["extraction"] = prov["extraction"]
-                    entry["source"] = prov["source"]
-                    if detailed:
-                        entry["source_original"] = prov["source_original"]
+                    entry["evidence"] = _provenance_detail(nid)["evidence"]
                 results.append(entry)
 
         for literal_node in self._source.match_nodes(database, label=LITERAL):
@@ -741,7 +742,6 @@ class KnowledgeManager:
                     "property_value": _name(literal_node),
                     "property_name":  _name(nb["node"]),
                 }
-                prov = _provenance_detail(nid) if (include_provenance or detailed) else None
                 if detailed:
                     entry.update(_detail_attrs(literal_node))
                 if owner_label == FACT and owner_id:
@@ -753,10 +753,7 @@ class KnowledgeManager:
                     if parts["relation"]:
                         entry["relation_name"] = _name(parts["relation"])
                 if include_provenance:
-                    entry["extraction"] = prov["extraction"]
-                    entry["source"] = prov["source"]
-                    if detailed:
-                        entry["source_original"] = prov["source_original"]
+                    entry["evidence"] = _provenance_detail(nid)["evidence"]
                 results.append(entry)
 
         for fact_node in self._source.match_nodes(database, label=FACT):
@@ -772,14 +769,10 @@ class KnowledgeManager:
                 "target_name": tail_name,
                 "relation_name": relation_name,
             }
-            prov = _provenance_detail(nid) if (include_provenance or detailed) else None
             if detailed:
                 entry.update(_detail_attrs(fact_node))
             if include_provenance:
-                entry["extraction"] = prov["extraction"]
-                entry["source"] = prov["source"]
-                if detailed:
-                    entry["source_original"] = prov["source_original"]
+                entry["evidence"] = _provenance_detail(nid)["evidence"]
             results.append(entry)
 
         return results

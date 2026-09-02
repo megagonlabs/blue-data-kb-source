@@ -105,7 +105,7 @@ Note: `declare_relation_type` wires the initial `DOMAIN`/`RANGE` edges inline (`
 
 | Method | Returns | Description |
 |---|---|---|
-| `await fetch_database_data(database, include_provenance?, compact?, detailed?)` | `dict \| list` | `compact=False` (default): raw `{nodes, edges}` graph form. `compact=True`: flat denormalized rows. `include_provenance=True` adds each row's `extraction` text and linked `source` name. `detailed=True` adds each row's own `description`/`created`/`modified`; together with `include_provenance` also adds `source_original` |
+| `await fetch_database_data(database, include_provenance?, compact?, detailed?)` | `dict \| list` | `compact=False` (default): raw `{nodes, edges}` graph form. `compact=True`: flat denormalized rows. `include_provenance=True` adds each row's `evidence`, one record per EXTRACTION with its own text, confidence, date, and source. `detailed=True` adds each row's own `description`/`created`/`modified`, plus confidence on fact rows |
 | `await export_database_data(database, include_provenance?)` | `dict` | Portable, ref-based export of entities/facts/property values; symmetric with `import_database_data` |
 | `await import_database_data(database, data)` | `None` | Populate *database* from an `export_database_data` dict; resolves classes/relations/properties **by name** against the target's current schema |
 | `await get_metadata(database, node_id)` | `dict` | `created`/`modified`/extraction/source metadata for a single entity, fact, or property-value (`LITERAL`) id — raises `KnowledgeError` for any other node type |
