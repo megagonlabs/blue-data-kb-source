@@ -66,7 +66,7 @@ Four interface adapters sit in front of KBDB and delegate to the core library. T
 
 **Python Library** — Native Python API (`KBSource` and related classes). Used to embed KBDB directly in Python applications and agentic pipelines.
 
-**MCP Server** — Exposes schema declaration, schema expansion, instance ingestion, and query operations as MCP tools, enabling LLM agents to interact with KBDB within an agentic context. A separate, standalone WordNet MCP server (`platform/wordnet-mcp`) can optionally be connected by the Schema Expansion Engine below to ground new names and hierarchy placement — it is not part of this server.
+**MCP Server** — Exposes schema declaration, instance writes, text extraction with its schema expansion pass, and query operations as MCP tools, enabling LLM agents to interact with KBDB within an agentic context. A separate, standalone WordNet MCP server (`platform/wordnet-mcp`) can optionally be connected by the Schema Expansion Engine below to ground new names and hierarchy placement — it is not part of this server.
 
 **CLI** — Command-line interface (Click + Rich). Used for interactive development, debugging, scripting, and schema inspection.
 

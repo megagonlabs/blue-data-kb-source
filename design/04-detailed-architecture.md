@@ -17,7 +17,7 @@ All four interfaces are thin adapters over the Python library. They each ultimat
 
 ### MCP Server
 
-Exposes schema declaration, schema expansion, instance ingestion, text extraction, and query operations as MCP tools. Enables LLM agents to build and query a knowledge base directly within an agentic context. A separate, standalone `platform/wordnet-mcp` server exposes read-only WordNet lookups, which the schema expansion agent (below) can optionally connect to as a peer MCP server, not through this server itself.
+Exposes schema declaration, instance writes, text extraction with its schema expansion pass, and query operations as MCP tools. Enables LLM agents to build and query a knowledge base directly within an agentic context. A separate, standalone `platform/wordnet-mcp` server exposes read-only WordNet lookups, which the schema expansion agent (below) can optionally connect to as a peer MCP server, not through this server itself.
 
 ### REST API — planned, not yet implemented
 
@@ -27,11 +27,17 @@ HTTP interface built with FastAPI. Endpoints map to the core schema and knowledg
 
 ### CLI
 
-Command-line interface built with Click and Rich. Thin wrapper over the Python library for interactive development, schema inspection, ingestion runs, and scripting.
+Command-line interface built with Click and Rich. Thin wrapper over the Python library for interactive development, schema inspection, expansion runs, and scripting.
 
 ---
 
 ## Information Flow Overview
+
+The Write Path and the Extraction Path are the KB's expansion paths — the flows that add
+schema and instance knowledge (a third, the Ingest Path, is planned); the Schema Expansion
+Pass is the Extraction Path's schema-growing half, run first by `import_text` or on its own.
+The Answer, Validate, and Enrich Paths are the usage paths, which read the KB without
+expanding it, and the Schema Path declares and manages schema by explicit call.
 
 ### Schema Path
 
@@ -41,7 +47,7 @@ Command-line interface built with Click and Rich. Thin wrapper over the Python l
 4. If consolidation: Schema Manager merges or splits the affected elements, then traverses and rewires all instances that reference them
 5. If search: Schema Manager filters schema elements against the query and returns matching names, descriptions, and IDs
 
-### Ingest Path
+### Write Path
 
 1. Caller requests an instance operation (add entity, fact, or property value)
 2. Knowledge Manager creates the instance node and wires its typed schema edges (class membership, relation, property)
@@ -49,7 +55,7 @@ Command-line interface built with Click and Rich. Thin wrapper over the Python l
 4. Change Notifier fires all registered hooks for the database with an enriched event describing the change
 5. The new instance ID is returned to the caller
 
-### Schema Expansion Path
+### Schema Expansion Pass
 
 1. Caller invokes `expand_schema` with free text, and optionally `depth`, `reference`, `mcp_servers`, `dedup_mode`
 2. Schema Expansion Engine reads the current schema from the Schema Manager and passes it to its own LLM Agent as context, along with `depth` and (if `reference="mcp"`) a note that MCP tools are available
@@ -62,10 +68,10 @@ Command-line interface built with Click and Rich. Thin wrapper over the Python l
 ### Extraction Path
 
 1. Caller invokes `import_text` with free text, guiding queries, and an optional SOURCE node ID
-2. With `expand_schema=True` (the default), `KBSource.import_text` first runs the full Schema Expansion Path above — grounded by `text`/`queries` per `schema_expansion_target` — so the schema already reflects the text before extraction starts; pass `expand_schema=False` to skip this and extract only against whatever schema already exists
+2. With `expand_schema=True` (the default), `KBSource.import_text` first runs the full Schema Expansion Pass above — grounded by `text`/`queries` per `schema_expansion_target` — so the schema already reflects the text before extraction starts; pass `expand_schema=False` to skip this and extract only against whatever schema already exists
 3. Extraction Engine reads the (possibly just-expanded) schema from the Schema Manager and passes it to its own LLM Agent as context
 4. LLM Agent reads the text and, guided by the queries, identifies entities, facts, and property values, resolving each to an existing CLASS/RELATION/PROPERTY via `find_entity`/`find_fact`/`search_schema` — **the Extraction Engine's LLM Agent never declares new schema itself**; a mention with no matching schema element is simply skipped
-5. For each identified item, the LLM Agent calls Knowledge Manager tools, passing the verbatim text span — triggering the full Ingest Path including provenance and change notification
+5. For each identified item, the LLM Agent calls Knowledge Manager tools, passing the verbatim text span — triggering the full Write Path including provenance and change notification
 6. The loop continues until the LLM Agent reports no further items to extract, or `max_turns` is reached
 
 All three paths below take a common set of cross-cutting parameters not repeated in each numbered list: `model` (default `"gpt-4o"`), and `on_tool_call`/`on_tool_result` observability callbacks invoked synchronously during the agent loop. `answer` and `validate` additionally take `natural_language: bool = False` and `include_metadata: bool = False` (`enrich` has neither). `include_metadata=True` adds a `get_metadata` tool to the agent's tool set (see Query Engine Tool Set below); every call the agent makes to it is harvested into a `metadata: dict[node_id, dict]` returned alongside the result as a `(result, metadata)` tuple, regardless of whether the LLM's own structured output references that id. `natural_language=True` (on `answer`/`validate` only) additionally asks the LLM to compose prose from the structured result instead of returning it raw — with `include_metadata=True` also set, the prose has a metadata section appended and `metadata` is still returned as the second tuple element. This composition happens one layer up, in `KnowledgeManager`, not inside `QueryEngine` itself — `QueryEngine.answer`/`validate` take `include_metadata` but have no `natural_language` parameter of their own.

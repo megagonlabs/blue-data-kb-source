@@ -143,7 +143,7 @@ A standalone MCP server, unrelated to `KBSource` — it has no dependency on `bl
 | Output formatting | Rich (`>=13.0`) |
 | Date parsing | `arrow` (`>=1.3`) |
 
-Click handles command routing and argument parsing. Rich provides formatted terminal output (tables, progress indicators) for schema inspection and interactive ingestion. `arrow` is used for date handling in CLI-facing date arguments/output.
+Click handles command routing and argument parsing. Rich provides formatted terminal output (tables, progress indicators) for schema inspection and interactive expansion. `arrow` is used for date handling in CLI-facing date arguments/output.
 
 ---
 

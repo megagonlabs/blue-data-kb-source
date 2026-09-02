@@ -162,7 +162,7 @@ All core business logic lives under `lib/src/`. This is the only artifact publis
 | `provenance/tracker.py` | `ProvenanceTracker` — Knowledge Layer |
 | `notification/notifier.py` | `ChangeNotifier` — Knowledge Layer |
 | `search/indexer.py` | `KBSearchIndexer` — Search Indexer; BM25 and semantic search over schema and data, optional per database |
-| `extraction/engine.py` | `ExtractionEngine` — Extraction Engine; LLM agent for ingestion |
+| `extraction/engine.py` | `ExtractionEngine` — Extraction Engine; LLM agent for text extraction |
 | `types.py` | Shared result types: `AnswerResult`, `ValidationResult`, `EnrichmentResult`, `SchemaSearchResult`, `DataSearchResult` |
 
 ### `types.py`
