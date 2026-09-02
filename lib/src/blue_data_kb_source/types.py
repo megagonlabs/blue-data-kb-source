@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal
 
 
 class KBError(Exception):
@@ -43,6 +44,20 @@ class DataSearchResult:
     relation_name: str | None = None
     tail_name: str | None = None
     score: float | None = None     # populated for mode="semantic"
+
+
+MatchType = Literal["exact", "normalized", "alias", "search", "structural"]
+# ResolutionCandidate emits only the name-based values: "structural" appears only on
+# fact-dedupe results, and "alias" is reserved for the future alias layer.
+
+
+@dataclass
+class ResolutionCandidate:
+    node_id: str
+    name: str
+    label: str                     # ENTITY | CLASS | RELATION | PROPERTY
+    match_type: MatchType
+    score: float | None = None     # populated for match_type="search" under a semantic index
 
 
 @dataclass
