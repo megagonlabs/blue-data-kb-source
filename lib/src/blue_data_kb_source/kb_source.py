@@ -580,6 +580,15 @@ class KBSource(GraphSource, ABC):
     async def get_metadata(self, database: str, node_id: str) -> dict:
         return await self._knowledge.get_metadata(database, node_id)
 
+    async def get_entity_classes(self, database: str, entity_id: str) -> list[dict]:
+        return await self._knowledge.get_entity_classes(database, entity_id)
+
+    async def get_fact_parts(self, database: str, fact_id: str) -> dict:
+        return await self._knowledge.get_fact_parts(database, fact_id)
+
+    async def get_property_values(self, database: str, owner_id: str) -> list[dict]:
+        return await self._knowledge.get_property_values(database, owner_id)
+
     async def find_entity(self, database: str, name: str) -> dict | None:
         return await self._knowledge.find_entity(database, name)
 

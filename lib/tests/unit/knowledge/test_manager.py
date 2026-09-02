@@ -722,3 +722,102 @@ async def test_import_database_data_missing_class_raises(kb):
     with pytest.raises(KBError) as exc:
         await kb.import_database_data("test", data)
     assert "GHOST" in str(exc.value)
+
+
+# ------------------------------------------------------------------ #
+# Instance walks                                                       #
+# ------------------------------------------------------------------ #
+
+async def test_get_entity_classes_returns_all_classes(kb):
+    person   = await kb.declare_class("test", "PERSON", "")
+    employee = await kb.declare_class("test", "EMPLOYEE", "")
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    kb.add_edge("test", alice, "IS_INSTANCE_OF", employee)
+    names = {c["properties"]["name"] for c in await kb.get_entity_classes("test", alice)}
+    assert names == {"PERSON", "EMPLOYEE"}
+
+
+async def test_get_fact_parts_returns_nodes_and_none_when_unwired(kb):
+    person  = await kb.declare_class("test", "PERSON", "")
+    company = await kb.declare_class("test", "COMPANY", "")
+    worked = await kb.declare_relation_type(
+        "test", "WORKED_AT", "", domain="PERSON", range="COMPANY"
+    )
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    ibm   = await kb.add_entity("test", "IBM", class_id=company)
+    fact  = await kb.add_fact("test", head_entity_id=alice, tail_entity_id=ibm, relation_id=worked)
+    parts = await kb.get_fact_parts("test", fact)
+    assert parts["head"]["id"] == alice
+    assert parts["relation"]["id"] == worked
+    assert parts["tail"]["id"] == ibm
+    bare = await kb.add_fact("test")
+    assert await kb.get_fact_parts("test", bare) == {"head": None, "relation": None, "tail": None}
+
+
+async def test_get_property_values_lists_literals_with_properties(kb):
+    person = await kb.declare_class("test", "PERSON", "")
+    age = await kb.declare_class_property("test", "AGE", "", class_id=person)
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    await kb.add_entity_property_value("test", 30, entity_id=alice, property_id=age)
+    await kb.add_entity_property_value("test", "note", entity_id=alice)
+    got = {}
+    for v in await kb.get_property_values("test", alice):
+        key = v["property"]["properties"]["name"] if v["property"] else None
+        got[key] = v["literal"]["properties"]["value"]
+    assert got == {"AGE": 30, None: "note"}
+
+
+async def test_get_property_values_on_fact_owner(kb):
+    person  = await kb.declare_class("test", "PERSON", "")
+    company = await kb.declare_class("test", "COMPANY", "")
+    worked = await kb.declare_relation_type(
+        "test", "WORKED_AT", "", domain="PERSON", range="COMPANY"
+    )
+    start = await kb.declare_relation_property("test", "START_DATE", "", relation_id=worked)
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    ibm   = await kb.add_entity("test", "IBM", class_id=company)
+    fact  = await kb.add_fact("test", head_entity_id=alice, tail_entity_id=ibm, relation_id=worked)
+    await kb.add_fact_property_value("test", "1998-06-01", fact_id=fact, property_id=start)
+    vals = await kb.get_property_values("test", fact)
+    assert len(vals) == 1
+    assert vals[0]["property"]["properties"]["name"] == "START_DATE"
+    assert vals[0]["literal"]["properties"]["value"] == "1998-06-01"
+
+
+async def test_instance_walk_guards_reject_wrong_labels(kb):
+    person = await kb.declare_class("test", "PERSON", "")
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    fact = await kb.add_fact("test")
+    with pytest.raises(KBError):
+        await kb.get_entity_classes("test", fact)
+    with pytest.raises(KBError):
+        await kb.get_fact_parts("test", alice)
+    with pytest.raises(KBError):
+        await kb.get_property_values("test", person)
+    with pytest.raises(KBError):
+        await kb.get_property_values("test", "no-such-id")
+
+
+# ------------------------------------------------------------------ #
+# search_data fallback (find_data)                                     #
+# ------------------------------------------------------------------ #
+
+async def test_search_data_fallback_returns_fact_with_parts(kb):
+    person  = await kb.declare_class("test", "PERSON", "")
+    company = await kb.declare_class("test", "COMPANY", "")
+    worked = await kb.declare_relation_type(
+        "test", "WORKED_AT", "", domain="PERSON", range="COMPANY"
+    )
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    ibm   = await kb.add_entity("test", "IBM", class_id=company)
+    await kb.add_fact("test", head_entity_id=alice, tail_entity_id=ibm, relation_id=worked)
+    hits = await kb.search_data("test", "IBM", mode="keyword")
+    by_type = {}
+    for h in hits:
+        by_type.setdefault(h.type, h)
+    assert by_type["ENTITY"].name == "IBM"
+    assert by_type["ENTITY"].class_name == "COMPANY"
+    fact_hit = by_type["FACT"]
+    assert fact_hit.head_name == "Alice"
+    assert fact_hit.relation_name == "WORKED_AT"
+    assert fact_hit.tail_name == "IBM"

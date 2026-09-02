@@ -62,6 +62,33 @@ def find_fact(
     return None
 
 
+def entity_classes(source: GraphSource, database: str, entity_id: str) -> list[dict]:
+    """CLASS nodes *entity_id* is an instance of, via IS_INSTANCE_OF."""
+    nbs = source.get_neighbors(database, entity_id, edge_type=IS_INSTANCE_OF, direction="out")
+    return [nb["node"] for nb in nbs]
+
+
+def fact_parts(source: GraphSource, database: str, fact_id: str) -> dict:
+    """First HEAD / RELATION / TAIL nodes of *fact_id*, as {"head", "relation", "tail"}."""
+    def _first(edge_type: str) -> dict | None:
+        nbs = source.get_neighbors(database, fact_id, edge_type=edge_type, direction="out")
+        return nbs[0]["node"] if nbs else None
+
+    return {"head": _first(HEAD), "relation": _first(REPRESENTS), "tail": _first(TAIL)}
+
+
+def property_values(source: GraphSource, database: str, owner_id: str) -> list[dict]:
+    """LITERAL values with their PROPERTY nodes for an ENTITY or FACT owner."""
+    results: list[dict] = []
+    for nb in source.get_neighbors(database, owner_id, edge_type=HAS_PROPERTY, direction="out"):
+        literal = nb["node"]
+        prop_nbs = source.get_neighbors(
+            database, literal["id"], edge_type=IS_VALUE_OF, direction="out"
+        )
+        results.append({"literal": literal, "property": prop_nbs[0]["node"] if prop_nbs else None})
+    return results
+
+
 def provenance_detail(source: GraphSource, database: str, node_id: str) -> dict:
     """Extraction text and linked source name/original for node_id's EXTRACTED_FROM chain."""
     ext_nbs = source.get_neighbors(database, node_id, edge_type=EXTRACTED_FROM, direction="out")
@@ -107,20 +134,18 @@ def fetch_node_metadata(source: GraphSource, database: str, node_id: str) -> dic
 
     identity: dict = {}
     if label == ENTITY:
-        cls_nbs = source.get_neighbors(database, node_id, edge_type=IS_INSTANCE_OF, direction="out")
+        classes = entity_classes(source, database, node_id)
         identity = {
             "name": node_name(node),
-            "class_name": node_name(cls_nbs[0]["node"]) if cls_nbs else None,
+            "class_name": node_name(classes[0]) if classes else None,
         }
     elif label == FACT:
-        rel_nbs  = source.get_neighbors(database, node_id, edge_type=REPRESENTS, direction="out")
-        head_nbs = source.get_neighbors(database, node_id, edge_type=HEAD,       direction="out")
-        tail_nbs = source.get_neighbors(database, node_id, edge_type=TAIL,       direction="out")
+        parts = fact_parts(source, database, node_id)
         identity = {
             "name": node_name(node),
-            "relation_name": node_name(rel_nbs[0]["node"]) if rel_nbs else None,
-            "head_name": node_name(head_nbs[0]["node"]) if head_nbs else None,
-            "tail_name": node_name(tail_nbs[0]["node"]) if tail_nbs else None,
+            "relation_name": node_name(parts["relation"]) if parts["relation"] else None,
+            "head_name": node_name(parts["head"]) if parts["head"] else None,
+            "tail_name": node_name(parts["tail"]) if parts["tail"] else None,
         }
     else:  # LITERAL
         prop_nbs = source.get_neighbors(database, node_id, edge_type=IS_VALUE_OF, direction="out")

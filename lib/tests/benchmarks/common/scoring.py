@@ -17,7 +17,8 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from blue_data_kb_source._constants import DOMAIN, EXTRACTED_FROM, IS_INSTANCE_OF, RANGE
+from blue_data_kb_source._constants import DOMAIN, EXTRACTED_FROM, RANGE
+from blue_data_kb_source.knowledge.helpers import entity_classes
 
 from .cases import Case, SchemaReuseSpec
 from .capture import CreationCollector, ToolCallRecord
@@ -260,8 +261,7 @@ class ComplianceResult:
 
 def _class_names(kb: Any, database: str, entity_id: str) -> set[str]:
     return {
-        nb["node"].get("properties", {}).get("name", "")
-        for nb in kb.get_neighbors(database, entity_id, edge_type=IS_INSTANCE_OF, direction="out")
+        c.get("properties", {}).get("name", "") for c in entity_classes(kb, database, entity_id)
     }
 
 

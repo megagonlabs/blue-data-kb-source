@@ -25,10 +25,13 @@ from blue_data_kb_source.checks import require_node_type, require_node_type_one_
 from blue_data_kb_source.knowledge.engine import QueryEngine
 from blue_data_kb_source.knowledge.helpers import (
     detail_attrs,
+    entity_classes,
+    fact_parts,
     fetch_node_metadata,
     find_entity,
     find_fact,
     node_name,
+    property_values,
     provenance_detail,
 )
 from blue_data_kb_source.timestamps import edge_stamped, stamped, touched
@@ -75,12 +78,6 @@ class KnowledgeManager:
             return None
         return node.get("properties", {}).get("name")
 
-    def _first_neighbor(
-        self, database: str, node_id: str, edge_type: str, direction: str = "out"
-    ) -> str | None:
-        nbs = self._source.get_neighbors(database, node_id, edge_type=edge_type, direction=direction)
-        return nbs[0]["node"]["id"] if nbs else None
-
     def _fact_context(self, database: str, fact_id: str | None) -> dict:
         if fact_id is None:
             return {
@@ -90,17 +87,20 @@ class KnowledgeManager:
                 "relation_id": None,   "relation_name": None,
             }
         fact_node = self._source.get_node(database, fact_id)
-        head_id = self._first_neighbor(database, fact_id, HEAD)
-        tail_id = self._first_neighbor(database, fact_id, TAIL)
-        rel_id  = self._first_neighbor(database, fact_id, REPRESENTS)
+        parts = fact_parts(self._source, database, fact_id)
+        head, tail, rel = parts["head"], parts["tail"], parts["relation"]
+
+        def _name(node: dict | None) -> str | None:
+            return node.get("properties", {}).get("name") if node else None
+
         return {
             "fact_name":       (fact_node or {}).get("properties", {}).get("name"),
-            "head_entity_id":  head_id,
-            "head_entity_name": self._node_name(database, head_id),
-            "tail_entity_id":  tail_id,
-            "tail_entity_name": self._node_name(database, tail_id),
-            "relation_id":     rel_id,
-            "relation_name":   self._node_name(database, rel_id),
+            "head_entity_id":  head["id"] if head else None,
+            "head_entity_name": _name(head),
+            "tail_entity_id":  tail["id"] if tail else None,
+            "tail_entity_name": _name(tail),
+            "relation_id":     rel["id"] if rel else None,
+            "relation_name":   _name(rel),
         }
 
     def _provenance_text(self, database: str, node_id: str) -> str | None:
@@ -407,11 +407,10 @@ class KnowledgeManager:
         self._notifier.fire({"type": "fact_updated", "database": database, "id": fact_id})
 
     def _find_literal(self, database: str, owner_id: str, property_id: str) -> str | None:
-        for lit_nb in self._source.get_neighbors(database, owner_id, edge_type=HAS_PROPERTY, direction="out"):
-            lit_id = lit_nb["node"]["id"]
-            for prop_nb in self._source.get_neighbors(database, lit_id, edge_type=IS_VALUE_OF, direction="out"):
-                if prop_nb["node"]["id"] == property_id:
-                    return lit_id
+        for pv in property_values(self._source, database, owner_id):
+            prop = pv["property"]
+            if prop is not None and prop["id"] == property_id:
+                return pv["literal"]["id"]
         return None
 
     async def update_entity_property_value(
@@ -609,11 +608,11 @@ class KnowledgeManager:
 
         for entity_node in self._source.match_nodes(database, label=ENTITY):
             nid = entity_node["id"]
-            for nb in self._source.get_neighbors(database, nid, edge_type=IS_INSTANCE_OF, direction="out"):
+            for cls in entity_classes(self._source, database, nid):
                 entry: dict = {
                     "relation_type": IS_INSTANCE_OF,
                     "entity_name": _name(entity_node),
-                    "class_name": _name(nb["node"]),
+                    "class_name": _name(cls),
                 }
                 prov = _provenance_detail(nid) if (include_provenance or detailed) else None
                 if detailed:
@@ -648,15 +647,13 @@ class KnowledgeManager:
                 if detailed:
                     entry.update(_detail_attrs(literal_node))
                 if owner_label == FACT and owner_id:
-                    for h in self._source.get_neighbors(database, owner_id, edge_type=HEAD, direction="out"):
-                        entry["head_name"] = _name(h["node"])
-                        break
-                    for t in self._source.get_neighbors(database, owner_id, edge_type=TAIL, direction="out"):
-                        entry["tail_name"] = _name(t["node"])
-                        break
-                    for r in self._source.get_neighbors(database, owner_id, edge_type=REPRESENTS, direction="out"):
-                        entry["relation_name"] = _name(r["node"])
-                        break
+                    parts = fact_parts(self._source, database, owner_id)
+                    if parts["head"]:
+                        entry["head_name"] = _name(parts["head"])
+                    if parts["tail"]:
+                        entry["tail_name"] = _name(parts["tail"])
+                    if parts["relation"]:
+                        entry["relation_name"] = _name(parts["relation"])
                 if include_provenance:
                     entry["extraction"] = prov["extraction"]
                     entry["source"] = prov["source"]
@@ -666,18 +663,10 @@ class KnowledgeManager:
 
         for fact_node in self._source.match_nodes(database, label=FACT):
             nid = fact_node["id"]
-            relation_name: str | None = None
-            head_name: str | None = None
-            tail_name: str | None = None
-            for nb in self._source.get_neighbors(database, nid, edge_type=REPRESENTS, direction="out"):
-                relation_name = _name(nb["node"])
-                break
-            for nb in self._source.get_neighbors(database, nid, edge_type=HEAD, direction="out"):
-                head_name = _name(nb["node"])
-                break
-            for nb in self._source.get_neighbors(database, nid, edge_type=TAIL, direction="out"):
-                tail_name = _name(nb["node"])
-                break
+            parts = fact_parts(self._source, database, nid)
+            relation_name = _name(parts["relation"]) if parts["relation"] else None
+            head_name = _name(parts["head"]) if parts["head"] else None
+            tail_name = _name(parts["tail"]) if parts["tail"] else None
             entry = {
                 "relation_type": REPRESENTS,
                 "entity_name": _name(fact_node),
@@ -725,7 +714,8 @@ class KnowledgeManager:
         for node in self._source.match_nodes(database, label=ENTITY):
             nid = node["id"]
             props = node.get("properties", {})
-            cls = _first(self._source.get_neighbors(database, nid, edge_type=IS_INSTANCE_OF, direction="out"))
+            classes = entity_classes(self._source, database, nid)
+            cls = classes[0] if classes else None
             entry = {
                 "ref": nid,
                 "name": props.get("name"),
@@ -740,9 +730,8 @@ class KnowledgeManager:
         for node in self._source.match_nodes(database, label=FACT):
             nid = node["id"]
             props = node.get("properties", {})
-            rel  = _first(self._source.get_neighbors(database, nid, edge_type=REPRESENTS, direction="out"))
-            head = _first(self._source.get_neighbors(database, nid, edge_type=HEAD, direction="out"))
-            tail = _first(self._source.get_neighbors(database, nid, edge_type=TAIL, direction="out"))
+            parts = fact_parts(self._source, database, nid)
+            rel, head, tail = parts["relation"], parts["head"], parts["tail"]
             entry = {
                 "ref": nid,
                 "name": props.get("name"),
@@ -874,6 +863,27 @@ class KnowledgeManager:
         return fetch_node_metadata(self._source, database, node_id)
 
     # ------------------------------------------------------------------ #
+    # Instance walks                                                       #
+    # ------------------------------------------------------------------ #
+
+    async def get_entity_classes(self, database: str, entity_id: str) -> list[dict]:
+        """CLASS nodes *entity_id* is an instance of, via IS_INSTANCE_OF."""
+        require_node_type(self._source, database, entity_id, ENTITY, "entity_id", KnowledgeError)
+        return entity_classes(self._source, database, entity_id)
+
+    async def get_fact_parts(self, database: str, fact_id: str) -> dict:
+        """First HEAD / RELATION / TAIL nodes of *fact_id*, as {"head", "relation", "tail"}."""
+        require_node_type(self._source, database, fact_id, FACT, "fact_id", KnowledgeError)
+        return fact_parts(self._source, database, fact_id)
+
+    async def get_property_values(self, database: str, owner_id: str) -> list[dict]:
+        """LITERAL values with their PROPERTY nodes for an ENTITY or FACT owner."""
+        require_node_type_one_of(
+            self._source, database, owner_id, (ENTITY, FACT), "owner_id", KnowledgeError
+        )
+        return property_values(self._source, database, owner_id)
+
+    # ------------------------------------------------------------------ #
     # Exact-name lookups                                                   #
     # ------------------------------------------------------------------ #
 
@@ -917,8 +927,8 @@ class KnowledgeManager:
                 name = props.get("name", "")
                 desc = props.get("description", "") or ""
                 if q in name.lower() or q in desc.lower():
-                    cls_nbs = self._source.get_neighbors(database, node["id"], edge_type=IS_INSTANCE_OF, direction="out")
-                    class_name = cls_nbs[0]["node"].get("properties", {}).get("name") if cls_nbs else None
+                    classes = entity_classes(self._source, database, node["id"])
+                    class_name = classes[0].get("properties", {}).get("name") if classes else None
                     results.append(DataSearchResult(
                         id=node["id"], type=ENTITY, name=name, description=desc or None,
                         class_name=class_name,
@@ -929,12 +939,14 @@ class KnowledgeManager:
                 props = node.get("properties", {})
                 name = props.get("name", "")
                 desc = props.get("description", "") or ""
-                rel_nbs  = self._source.get_neighbors(database, node["id"], edge_type=REPRESENTS, direction="out")
-                head_nbs = self._source.get_neighbors(database, node["id"], edge_type=HEAD, direction="out")
-                tail_nbs = self._source.get_neighbors(database, node["id"], edge_type=TAIL, direction="out")
-                head_name = head_nbs[0]["node"].get("properties", {}).get("name") if head_nbs else None
-                rel_name  = rel_nbs[0]["node"].get("properties", {}).get("name") if rel_nbs else None
-                tail_name = tail_nbs[0]["node"].get("properties", {}).get("name") if tail_nbs else None
+                parts = fact_parts(self._source, database, node["id"])
+
+                def _name(n: dict | None) -> str | None:
+                    return n.get("properties", {}).get("name") if n else None
+
+                head_name = _name(parts["head"])
+                rel_name  = _name(parts["relation"])
+                tail_name = _name(parts["tail"])
                 searchable = " ".join(s for s in [name, desc, head_name, rel_name, tail_name] if s).lower()
                 if q in searchable:
                     results.append(DataSearchResult(
