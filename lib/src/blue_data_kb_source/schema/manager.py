@@ -532,6 +532,77 @@ class SchemaManager:
         return self._hierarchy_walk(database, relation_id, "in", max_hops)
 
     # ------------------------------------------------------------------ #
+    # Domain / range and membership reads                                  #
+    # ------------------------------------------------------------------ #
+
+    async def get_class_entities(
+        self,
+        database: str,
+        class_id: str,
+        limit: int | None = 10,
+    ) -> list[dict]:
+        """ENTITY instances of *class_id* via IS_INSTANCE_OF, up to *limit* (None = unbounded)."""
+        require_node_type(self._source, database, class_id, CLASS, "class_id", SchemaError)
+        neighbors = self._source.get_neighbors(
+            database, class_id, edge_type=IS_INSTANCE_OF, direction="in"
+        )
+        nodes = [nb["node"] for nb in neighbors]
+        return nodes if limit is None else nodes[:limit]
+
+    async def get_relation_domain_range(
+        self,
+        database: str,
+        relation_id: str,
+    ) -> dict[str, list[dict]]:
+        """DOMAIN and RANGE CLASS nodes of *relation_id* as {"domain": [...], "range": [...]}."""
+        require_node_type(
+            self._source, database, relation_id, RELATION, "relation_id", SchemaError
+        )
+        dom_nbs = self._source.get_neighbors(
+            database, relation_id, edge_type=DOMAIN, direction="out"
+        )
+        rng_nbs = self._source.get_neighbors(
+            database, relation_id, edge_type=RANGE, direction="out"
+        )
+        return {
+            "domain": [nb["node"] for nb in dom_nbs],
+            "range": [nb["node"] for nb in rng_nbs],
+        }
+
+    async def get_allowed_relations_between_classes(
+        self,
+        database: str,
+        head_class_id: str,
+        tail_class_id: str,
+        expand: bool = True,
+        max_hops: int | None = 5,
+    ) -> list[dict]:
+        """RELATION nodes accepting the head/tail classes; *expand* lets ancestors satisfy."""
+        require_node_type(
+            self._source, database, head_class_id, CLASS, "head_class_id", SchemaError
+        )
+        require_node_type(
+            self._source, database, tail_class_id, CLASS, "tail_class_id", SchemaError
+        )
+        head_ok = {head_class_id}
+        tail_ok = {tail_class_id}
+        if expand:
+            head_anc = await self.get_class_ancestors(database, head_class_id, max_hops)
+            tail_anc = await self.get_class_ancestors(database, tail_class_id, max_hops)
+            head_ok |= {n["id"] for n in head_anc}
+            tail_ok |= {n["id"] for n in tail_anc}
+        allowed: list[dict] = []
+        for rel in self._source.match_nodes(database, label=RELATION):
+            rid = rel["id"]
+            dom_nbs = self._source.get_neighbors(database, rid, edge_type=DOMAIN, direction="out")
+            rng_nbs = self._source.get_neighbors(database, rid, edge_type=RANGE, direction="out")
+            dom = {nb["node"]["id"] for nb in dom_nbs}
+            rng = {nb["node"]["id"] for nb in rng_nbs}
+            if dom & head_ok and rng & tail_ok:
+                allowed.append(rel)
+        return allowed
+
+    # ------------------------------------------------------------------ #
     # Schema export / import                                               #
     # ------------------------------------------------------------------ #
 

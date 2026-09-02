@@ -101,6 +101,9 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `get_class_descendants(database, class_id, max_hops?)` | `list[dict]` | Descendant CLASS nodes, same walk in the other direction |
 | `get_relation_ancestors(database, relation_id, max_hops?)` | `list[dict]` | Ancestor RELATION nodes — RELATION also carries IS_SUBCLASS_OF |
 | `get_relation_descendants(database, relation_id, max_hops?)` | `list[dict]` | Descendant RELATION nodes |
+| `get_class_entities(database, class_id, limit?)` | `list[dict]` | ENTITY instances of a class via IS_INSTANCE_OF; `limit` defaults to 10, `None` = unbounded |
+| `get_relation_domain_range(database, relation_id)` | `dict` | The relation's DOMAIN and RANGE CLASS nodes, as `{"domain": [...], "range": [...]}` |
+| `get_allowed_relations_between_classes(database, head_class_id, tail_class_id, expand?, max_hops?)` | `list[dict]` | RELATION nodes whose domain/range accept the two classes; `expand` defaults to true and lets an ancestor class satisfy the constraint |
 | `fetch_database_schema(database)` | `DataSchema` | Assemble a `DataSchema` object from the current graph |
 | `export_database_schema(database)` | `dict` | `fetch_database_schema(database).to_json()` — portable JSON form |
 | `fetch_meta_schema()` | `DataSchema` | Return the fixed KBDB meta-schema |

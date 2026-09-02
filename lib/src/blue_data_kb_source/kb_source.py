@@ -347,6 +347,33 @@ class KBSource(GraphSource, ABC):
     ) -> list[dict]:
         return await self._schema.get_relation_descendants(database, relation_id, max_hops)
 
+    async def get_class_entities(
+        self,
+        database: str,
+        class_id: str,
+        limit: int | None = 10,
+    ) -> list[dict]:
+        return await self._schema.get_class_entities(database, class_id, limit)
+
+    async def get_relation_domain_range(
+        self,
+        database: str,
+        relation_id: str,
+    ) -> dict[str, list[dict]]:
+        return await self._schema.get_relation_domain_range(database, relation_id)
+
+    async def get_allowed_relations_between_classes(
+        self,
+        database: str,
+        head_class_id: str,
+        tail_class_id: str,
+        expand: bool = True,
+        max_hops: int | None = 5,
+    ) -> list[dict]:
+        return await self._schema.get_allowed_relations_between_classes(
+            database, head_class_id, tail_class_id, expand, max_hops
+        )
+
     async def fetch_database_schema(self, database: str) -> DataSchema:
         return await self._schema.fetch_database_schema(database)
 
