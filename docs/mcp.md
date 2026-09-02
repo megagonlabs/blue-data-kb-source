@@ -254,15 +254,13 @@ of matching entities/facts.
 `database`, `compact` (default `True` — flat readable rows; `False` — raw
 `{nodes, edges}` graph form), `include_provenance`, `detailed`. With
 `include_provenance`, each row carries an `evidence` list, one record per
-EXTRACTION with its own text, confidence, date, and source. Returns rows or the
-raw graph.
+EXTRACTION. Returns rows or the raw graph.
 
 #### `get_metadata`
 
 `node_id` (an entity, fact, or property-value id), `database`. Returns
 `created`/`modified` timestamps, a FACT's derived `confidence`, and an
-`evidence` list carrying one record per EXTRACTION with its own text,
-confidence, date, and source.
+`evidence` list carrying one record per EXTRACTION.
 
 ---
 

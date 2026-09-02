@@ -3415,7 +3415,7 @@ def extract_cmd(
 )
 @click.option("--model", default="gpt-4o", show_default=True, help="OpenAI model.")
 @click.option("--include-metadata", "include_metadata", is_flag=True, default=False,
-              help="Also collect created/modified/extraction/source metadata for cited entities/facts/properties.")
+              help="Also collect created/modified/confidence/evidence metadata for cited entities/facts/properties.")
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Show tool call arguments in the status line.")
 @click.option("--log", "-l", is_flag=True, default=False, help="Also log each tool call and its result on its own line (in addition to the status line).")
 @click.option("--log-limit", type=int, default=80, show_default=True, help="Max characters to show per truncated verbose/log line.")
@@ -3466,7 +3466,7 @@ def answer_cmd(
               help="Return a prose assessment instead of supporting/counter lists.")
 @click.option("--model", default="gpt-4o", show_default=True, help="OpenAI model.")
 @click.option("--include-metadata", "include_metadata", is_flag=True, default=False,
-              help="Also collect created/modified/extraction/source metadata for cited entities/facts/properties.")
+              help="Also collect created/modified/confidence/evidence metadata for cited entities/facts/properties.")
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Show tool call arguments in the status line.")
 @click.option("--log", "-l", is_flag=True, default=False, help="Also log each tool call and its result on its own line (in addition to the status line).")
 @click.option("--log-limit", type=int, default=80, show_default=True, help="Max characters to show per truncated verbose/log line.")

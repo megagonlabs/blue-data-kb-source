@@ -179,7 +179,7 @@ The Knowledge Layer populates the knowledge base with instance data and answers 
 - Create entity, fact, and literal nodes; wire their typed schema edges
 - Attach a further class to an existing entity (`attach_entity_class`); `add_entity(class_id=…)` wires the first class at creation. Deduplicated and add-only
 - Update or delete entity, fact, and literal nodes (`update_entity`/`update_fact`/`update_entity_property_value`/`update_fact_property_value`, `delete_entity`/`delete_fact`/`delete_entity_property_value`/`delete_fact_property_value`) — `delete_entity` takes a `cascade` flag that also deletes facts referencing the entity
-- Look up per-item metadata (`get_metadata`) — created/modified timestamps, extraction text, and source name/original date for a single entity, fact, or property value
+- Look up per-item metadata (`get_metadata`) — created/modified timestamps, a FACT's derived confidence, and per-extraction evidence for a single entity, fact, or property value
 - Export instance data to a portable, `ref`-keyed JSON representation and import it into any database whose schema already has the referenced classes/relations/properties declared (`export_database_data`/`import_database_data`) — data import is **not** idempotent: re-importing the same export creates duplicate entities/facts, unlike schema import
 - Delegate answer, validate, and enrich queries to the Query Engine
 - Delegate provenance creation to the Provenance Tracker
@@ -224,7 +224,7 @@ The LLM agent has access to the following read-only tools during each query:
 | `get_entity_properties` | Return all property values attached to an entity |
 | `get_fact_properties` | Return all property values attached to a fact |
 | `get_neighbors` | BFS from an entity through facts up to a given depth |
-| `get_metadata` | Return created/modified timestamps, extraction text, and source name/original date for one entity, fact, or property value — only offered when the caller passed `include_metadata=True` |
+| `get_metadata` | Return created/modified timestamps, a FACT's derived confidence, and per-extraction evidence for one entity, fact, or property value — only offered when the caller passed `include_metadata=True` |
 | `return_result` | Terminal tool — delivers the final structured payload and ends the loop |
 
 Every `get_metadata` call the agent makes is harvested into the `metadata` dict returned alongside the result when `include_metadata=True` — the engine doesn't wait for the agent to reference an id in `return_result`'s own payload.

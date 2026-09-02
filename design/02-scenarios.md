@@ -146,14 +146,15 @@ context = await kb.enrich("main", "Alice's career", depth=2)
 
 The agent loop is invisible to the caller — only the final structured result is returned. A custom model can be chosen by passing `model=` to any of the three methods.
 
-`answer` and `validate` additionally take `include_metadata=True`, which returns a `(result, metadata)` tuple instead of the bare result — `metadata` is a dict keyed by node id, giving each cited item's `created`/`modified` timestamps, extraction text, and source name/`original` date:
+`answer` and `validate` additionally take `include_metadata=True`, which returns a `(result, metadata)` tuple instead of the bare result — `metadata` is a dict keyed by node id, giving each cited item's `created`/`modified` timestamps, a FACT's derived `confidence`, and its `evidence` records:
 
 ```python
 answers, metadata = await kb.answer("main", "Where has Alice worked?", include_metadata=True)
 # answers is the same list[dict] as above; metadata might look like:
 # {"fact-abc123": {"confidence": 0.9, "created": "...",
-#                   "evidence": [{"text": "...", "confidence": 0.9, "source": "Alice's résumé",
-#                                 "source_original": "2020-01-15", "created": "..."}], ...}, ...}
+#                  "evidence": [{"text": "...", "confidence": 0.9, "created": "...",
+#                                "source": "Alice's résumé",
+#                                "source_original": "2020-01-15"}], ...}, ...}
 ```
 
 Both `answer` and `validate` also take `natural_language=True`, returning prose instead of the structured result (composed with `include_metadata=True`, the prose gets a metadata section appended, and `metadata` is still returned alongside it). `enrich` has neither `include_metadata` nor `natural_language` — it always returns structured `EnrichmentResult` objects.

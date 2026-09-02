@@ -569,7 +569,7 @@ async def answer(
         question:          The question to answer.
         model:             OpenAI model (default: server's configured default model).
         natural_language:  Return a prose answer instead of structured rows.
-        include_metadata:  Also collect created/modified/extraction/source metadata
+        include_metadata:  Also collect created/modified/confidence/evidence metadata
                            for cited entities/facts/properties; with natural_language,
                            folds a provenance section into the prose.
         database:          Target database (default 'default').
@@ -600,7 +600,7 @@ async def validate(
         statement:         The statement to check.
         model:             OpenAI model (default: server's configured default model).
         natural_language:  Return a prose assessment instead of supporting/counter lists.
-        include_metadata:  Also collect created/modified/extraction/source metadata
+        include_metadata:  Also collect created/modified/confidence/evidence metadata
                            for cited facts; with natural_language, folds a provenance
                            section into the prose.
         database:          Target database (default 'default').

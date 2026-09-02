@@ -94,7 +94,7 @@ class KBSource(GraphSource, ABC):
     async def import_database_data(self, database: str, data: dict) -> None: ...                          # resolves CLASS/RELATION/PROPERTY by name
 
     # Knowledge — metadata lookup
-    async def get_metadata(self, database: str, node_id: str) -> dict: ...   # created/modified/extraction/source for one entity, fact, or property-value (literal) id; raises KnowledgeError for any other node type
+    async def get_metadata(self, database: str, node_id: str) -> dict: ...   # created/modified/confidence/evidence for one entity, fact, or property-value (literal) id; raises KnowledgeError for any other node type
 
     # Knowledge — instance walks
     async def get_entity_classes(self, database: str, entity_id: str) -> list[dict]: ...
@@ -155,17 +155,12 @@ Notes:
     #   LITERAL: "property_name", "value", "owner_label", "owner_name"
     "description": "...", "created": "...", "modified": "...",     # the node's own attributes
     "confidence": 0.9,                                              # a FACT's derived score; None for other labels
-    "extraction": "...", "source": "...", "source_original": "...",  # via its EXTRACTED_FROM chain, if any
     "evidence": [                                                   # one record per EXTRACTION, [] when there is none
         {"text": "...", "confidence": 0.9, "created": "...",        # `created` is the extraction's own timestamp;
          "source": "...", "source_original": "..."}, ...            # `source_original` the linked source's own date
     ],
 }
 ```
-
-`evidence` is the field to build on. It is a strict superset of the joined
-`extraction`/`source`/`source_original`, which flatten every extraction together and are
-expected to retire once their consumers move.
 
 The `answer`/`validate` LLM agents can also call this as a tool (`get_metadata(id)`) when `include_metadata=True` — the engine harvests every such tool call into the `metadata` dict returned alongside the result, independent of whether the LLM references the id in its own structured output.
 
@@ -413,6 +408,8 @@ Grow the schema (`CLASS`/`RELATION`/`PROPERTY` only — never entities/facts/pro
 
 ### Knowledge — write
 
+All four write bodies also accept `confidence` (`[0.0, 1.0]`, scoring the assertion; requires `text`) and `extraction_type` (`text_span` | `external_record` | `assertion`).
+
 #### `POST /databases/{database}/entities`
 
 Add an entity instance.
@@ -423,7 +420,9 @@ Add an entity instance.
   "name": "Alice",
   "class_id": "<class-id>",
   "text": "Alice is a software engineer.",
-  "source_id": "<source-id>"
+  "source_id": "<source-id>",
+  "confidence": 0.9,
+  "extraction_type": "text_span"
 }
 ```
 
@@ -445,7 +444,9 @@ Add a fact (relation instance).
   "head_entity_id": "<entity-id>",
   "tail_entity_id": "<entity-id>",
   "text": "Alice joined IBM in June 1998.",
-  "source_id": "<source-id>"
+  "source_id": "<source-id>",
+  "confidence": 0.9,
+  "extraction_type": "text_span"
 }
 ```
 
@@ -467,7 +468,9 @@ Add a property value to an entity.
   "value": "Alice",
   "literal_type": "STRING",
   "text": "Alice is a software engineer.",
-  "source_id": "<source-id>"
+  "source_id": "<source-id>",
+  "confidence": 0.9,
+  "extraction_type": "text_span"
 }
 ```
 
@@ -489,7 +492,9 @@ Add a property value to a fact.
   "value": "1998-06-01",
   "literal_type": "DATE",
   "text": "Alice joined IBM in June 1998.",
-  "source_id": "<source-id>"
+  "source_id": "<source-id>",
+  "confidence": 0.9,
+  "extraction_type": "text_span"
 }
 ```
 
@@ -851,7 +856,7 @@ kb data search QUERY [--type entity|fact]... [--mode keyword|semantic] [--top-k 
 kb data reindex
 ```
 
-`data list` prints entities, entity property values, facts, and fact property values. `--show-provenance` adds each row's extraction text and linked source name (via its `EXTRACTED_FROM` chain, if any). `--show-detailed` adds each row's own `description`/`created`/`modified`; combined with `--show-provenance` it additionally shows the linked source's `original` date, after the Source column. `--format table` renders `created`/`modified` as human-readable local dates (via `arrow`, e.g. "Aug 7, 2026 5:48 PM"); `--format json` keeps raw ISO-8601 timestamps. `data export`/`data import` round-trip instance data (entities, facts, property values) as portable, ref-based JSON — schema isn't included (export/import that separately via `kb schema export`/`kb schema import` first, so `data import` has classes/relations/properties to resolve names against). `data reindex` rebuilds the BM25/vector index from the current graph contents; it errors if the database wasn't registered with `--search bm25`/`semantic`.
+`data list` prints entities, entity property values, facts, and fact property values. `--show-provenance` expands each row into one row per piece of evidence, with its own score, text, and source (via its `EXTRACTED_FROM` chain). `--show-detailed` adds each row's own `description`/`created`/`modified`, and a FACT's derived confidence; combined with `--show-provenance` it additionally shows the linked source's `original` date, after the Source column. `--format table` renders `created`/`modified` as human-readable local dates (via `arrow`, e.g. "Aug 7, 2026 5:48 PM"); `--format json` keeps raw ISO-8601 timestamps. `data export`/`data import` round-trip instance data (entities, facts, property values) as portable, ref-based JSON — schema isn't included (export/import that separately via `kb schema export`/`kb schema import` first, so `data import` has classes/relations/properties to resolve names against). `data reindex` rebuilds the BM25/vector index from the current graph contents; it errors if the database wasn't registered with `--search bm25`/`semantic`.
 
 ---
 
@@ -955,7 +960,7 @@ kb data validate STATEMENT [--natural-language] [--model MODEL] [--include-metad
 
 All three require `OPENAI_API_KEY` (and the `openai` extra installed). `-v/--verbose` shows tool call arguments in the status line; `-l/--log` also prints each tool call and its result on its own persistent line; `--log-limit` sets the truncation length for verbose/log output (default 80). `extract` never declares new schema itself — it only resolves mentions against the schema as it currently stands, skipping anything with no match. `--expand-schema` (default: on) runs `kb schema expand` first, grounded by `--schema-expansion-target` (any combination of `text`/`queries`, default both); `--schema-expansion-depth`/`--schema-expansion-mode`/`--schema-expansion-mcp-server`/`--schema-expansion-dedup-mode` mirror `kb schema expand`'s `--depth`/`--reference`/`--mcp-server`/`--dedup-mode` one-to-one. Use `--no-expand-schema` to extract only, against a schema already expanded once via `kb schema expand`.
 
-`--include-metadata` (on `answer`/`validate`) has the agent additionally call `get_metadata` for each entity/fact/property value it cites, and surfaces created/modified/extraction/source info alongside the result: a second "Metadata" table (`--format table`, or unadorned `answer`/`validate` output), a `metadata` key alongside `result` (`--format json`), or folded into the prose as a follow-up section after the main answer (`--format nl` / `--natural-language`).
+`--include-metadata` (on `answer`/`validate`) has the agent additionally call `get_metadata` for each entity/fact/property value it cites, and surfaces created/modified/confidence/evidence info alongside the result: a second "Metadata" table (`--format table`, or unadorned `answer`/`validate` output), a `metadata` key alongside `result` (`--format json`), or folded into the prose as a follow-up section after the main answer (`--format nl` / `--natural-language`).
 
 **Example**
 ```

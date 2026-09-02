@@ -287,8 +287,9 @@ async def test_get_metadata_entity(kb):
     result = json.loads(await get_metadata(kb._test_ids["alice"], database=DB))
     assert result["type"] == "ENTITY"
     assert result["name"] == "Alice"
-    assert result["source"] == "Alice's résumé"
-    assert result["source_original"] == "2020-01-15"
+    record = result["evidence"][0]
+    assert record["source"] == "Alice's résumé"
+    assert record["source_original"] == "2020-01-15"
 
 
 async def test_get_metadata_wrong_type_returns_error(kb):
@@ -327,7 +328,7 @@ async def test_answer_include_metadata(kb):
     with patch("openai.AsyncOpenAI", factory):
         result = json.loads(await answer("Where did Alice work?", include_metadata=True, database=DB))
     assert alice_id in result["metadata"]
-    assert result["metadata"][alice_id]["source"] == "Alice's résumé"
+    assert result["metadata"][alice_id]["evidence"][0]["source"] == "Alice's résumé"
 
 
 async def test_validate_returns_supporting():

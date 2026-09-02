@@ -33,7 +33,7 @@ from blue_data_kb_source.knowledge.helpers import (
     find_fact,
     node_name,
     property_values,
-    provenance_detail,
+    evidence_records,
 )
 from blue_data_kb_source.timestamps import edge_stamped, stamped, touched
 from blue_data_kb_source.types import (
@@ -706,8 +706,8 @@ class KnowledgeManager:
         _name = node_name
         _detail_attrs = detail_attrs
 
-        def _provenance_detail(node_id: str) -> dict:
-            return provenance_detail(self._source, database, node_id)
+        def _evidence(node_id: str) -> list[dict]:
+            return evidence_records(self._source, database, node_id)
 
         for entity_node in self._source.match_nodes(database, label=ENTITY):
             nid = entity_node["id"]
@@ -720,7 +720,7 @@ class KnowledgeManager:
                 if detailed:
                     entry.update(_detail_attrs(entity_node))
                 if include_provenance:
-                    entry["evidence"] = _provenance_detail(nid)["evidence"]
+                    entry["evidence"] = _evidence(nid)
                 results.append(entry)
 
         for literal_node in self._source.match_nodes(database, label=LITERAL):
@@ -753,7 +753,7 @@ class KnowledgeManager:
                     if parts["relation"]:
                         entry["relation_name"] = _name(parts["relation"])
                 if include_provenance:
-                    entry["evidence"] = _provenance_detail(nid)["evidence"]
+                    entry["evidence"] = _evidence(nid)
                 results.append(entry)
 
         for fact_node in self._source.match_nodes(database, label=FACT):
@@ -772,7 +772,7 @@ class KnowledgeManager:
             if detailed:
                 entry.update(_detail_attrs(fact_node))
             if include_provenance:
-                entry["evidence"] = _provenance_detail(nid)["evidence"]
+                entry["evidence"] = _evidence(nid)
             results.append(entry)
 
         return results
@@ -949,7 +949,7 @@ class KnowledgeManager:
     # ------------------------------------------------------------------ #
 
     async def get_metadata(self, database: str, node_id: str) -> dict:
-        """created/modified/extraction/source metadata for an entity, fact, or property value id."""
+        """created/modified, confidence, and evidence for an entity, fact, or property value id."""
         require_node_type_one_of(self._source, database, node_id, (ENTITY, FACT, LITERAL), "node_id", KnowledgeError)
         return fetch_node_metadata(self._source, database, node_id)
 

@@ -59,14 +59,14 @@ await kb.attach_property("main", target_id=company, property_id=person_name)  # 
 
 ## Adding data, with provenance
 
-Register a source, then add entities and facts referencing it via `text`/`source_id` — this creates a per-item `EXTRACTION` node capturing the verbatim span, distinct from a document-level note.
+Register a source, then add entities and facts referencing it via `text`/`source_id` — this creates a per-item `EXTRACTION` node capturing the verbatim span, distinct from a document-level note. `confidence` (optional, `[0.0, 1.0]`) scores the assertion and is stored on that `EXTRACTION`; it requires `text`.
 
 ```python
 src = await kb.add_source("main", source="resume_alice", name="Alice's résumé", original="2020-01-15")
 
 alice = await kb.add_entity(
     "main", name="Alice", class_id=employee,
-    text="Alice is a software engineer.", source_id=src,
+    text="Alice is a software engineer.", source_id=src, confidence=0.9,
 )
 ibm = await kb.add_entity("main", name="IBM", class_id=company)
 
@@ -97,8 +97,7 @@ meta = await kb.get_metadata("main", alice)
 #  "created": "...", "modified": "...", "confidence": None,   # facts only; None here
 #  "evidence": [{"text": "Alice is a software engineer.", "confidence": 0.9,
 #                "created": "...", "source": "Alice's résumé",
-#                "source_original": "2020-01-15"}],
-#  "extraction": "...", "source": "...", "source_original": "..."}   # flattened, retiring
+#                "source_original": "2020-01-15"}]}
 ```
 
 ---

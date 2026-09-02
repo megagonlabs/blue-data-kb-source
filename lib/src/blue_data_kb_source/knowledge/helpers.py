@@ -1,10 +1,10 @@
 """Shared lookup, metadata, and derived-value helpers for ENTITY/FACT/LITERAL nodes.
 
-Used by `KnowledgeManager` (compact data listing, `get_metadata`, the exact-name
-`find_entity`/`find_fact` lookups behind the extraction agent's tools), `QueryEngine`
-(the `get_metadata` LLM tool), and `ProvenanceTracker` (`recompute_fact_confidence`,
-which must run wherever an EXTRACTED_FROM edge is written) so the per-type logic lives
-in exactly one place.
+Used by `KnowledgeManager` (compact data listing, `get_metadata`, `evidence_records`,
+the exact-name `find_entity`/`find_fact` lookups behind the extraction agent's tools),
+`QueryEngine` (the `get_metadata` LLM tool), and `ProvenanceTracker`
+(`recompute_fact_confidence`, which must run wherever an EXTRACTED_FROM edge is written)
+so the per-type logic lives in exactly one place.
 """
 
 from __future__ import annotations
@@ -93,51 +93,28 @@ def property_values(source: GraphSource, database: str, owner_id: str) -> list[d
     return results
 
 
-def provenance_detail(source: GraphSource, database: str, node_id: str) -> dict:
-    """Joined extraction/source fields plus per-extraction `evidence` for node_id."""
-    ext_nbs = source.get_neighbors(database, node_id, edge_type=EXTRACTED_FROM, direction="out")
-    texts: list[str] = []
-    source_names: list[str] = []
-    source_originals: list[str] = []
-    evidence: list[dict] = []
-    seen_sources: set[str] = set()
-    for nb in ext_nbs:
+def evidence_records(source: GraphSource, database: str, node_id: str) -> list[dict]:
+    """One record per EXTRACTION on node_id, each with its own score, date, and source."""
+    records: list[dict] = []
+    for nb in source.get_neighbors(database, node_id, edge_type=EXTRACTED_FROM, direction="out"):
         extraction_node = nb["node"]
         eprops = extraction_node.get("properties", {})
-        text = eprops.get("text")
-        if text:
-            texts.append(text)
         src_nbs = source.get_neighbors(
             database, extraction_node["id"], edge_type=EXTRACTED_FROM, direction="out"
         )
         own_source = src_nbs[0]["node"].get("properties", {}) if src_nbs else {}
-        for src_nb in src_nbs:
-            source_node = src_nb["node"]
-            sprops = source_node.get("properties", {})
-            if source_node["id"] in seen_sources:
-                continue
-            seen_sources.add(source_node["id"])
-            if sprops.get("name"):
-                source_names.append(sprops["name"])
-            if sprops.get("original"):
-                source_originals.append(sprops["original"])
-        evidence.append({
-            "text": text,
+        records.append({
+            "text": eprops.get("text"),
             "confidence": eprops.get("confidence"),
             "created": eprops.get("created"),
             "source": own_source.get("name"),
             "source_original": own_source.get("original"),
         })
-    return {
-        "extraction": " | ".join(texts) or None,
-        "source": " | ".join(source_names) or None,
-        "source_original": " | ".join(source_originals) or None,
-        "evidence": evidence,
-    }
+    return records
 
 
 def fetch_node_metadata(source: GraphSource, database: str, node_id: str) -> dict:
-    """created/modified/extraction/source metadata for an ENTITY, FACT, or LITERAL (property value) node.
+    """created/modified, derived confidence, and `evidence` records for an ENTITY, FACT, or LITERAL (property value) node.
 
     Raises KeyError if node_id doesn't exist or isn't one of those three types.
     """
@@ -179,7 +156,7 @@ def fetch_node_metadata(source: GraphSource, database: str, node_id: str) -> dic
         "type": label,
         **identity,
         **detail_attrs(node),
-        **provenance_detail(source, database, node_id),
+        "evidence": evidence_records(source, database, node_id),
     }
 
 
