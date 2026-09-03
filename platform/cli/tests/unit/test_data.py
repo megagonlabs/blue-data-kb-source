@@ -1,3 +1,4 @@
+import json
 import re
 
 from blue_data_kb_cli.commands import _print_metadata_table, cli, console
@@ -540,3 +541,133 @@ def test_every_listing_expands_its_table_not_just_its_json(runner):
         "data", "fact", "property", "list", "--fact-id", fact_id, "--show-provenance",
     ])
     assert "Delta" in fact_props.output and "0.5" in fact_props.output
+
+
+# ------------------------------------------------------------------ #
+# Data asserts and bulk ingest                                         #
+# ------------------------------------------------------------------ #
+
+NONE_MODE = ["--schema-creation-mode", "none"]
+
+
+def test_entity_assert_creates_with_everything_then_reuses(runner):
+    first = invoke(runner, DB + ["data", "entity", "assert", "Zorbo"] + NONE_MODE)
+    assert "created" in first.output
+    assert "EVERYTHING" in first.output
+    again = invoke(runner, DB + ["data", "entity", "assert", "Zorbo"] + NONE_MODE)
+    assert "reused, exact match" in again.output
+
+
+def test_fact_assert_then_dedupes(runner):
+    args = DB + ["data", "fact", "assert", "--head", "Zorbo", "--relation", "KNOWS",
+                 "--tail", "Blarp"] + NONE_MODE
+    first = invoke(runner, args)
+    assert "created" in first.output
+    again = invoke(runner, args)
+    assert "deduped, evidence attached" in again.output
+
+
+def test_entity_property_assert_then_dedupes(runner):
+    invoke(runner, DB + ["schema", "class", "add", "PERSON", "A human"])
+    invoke(runner, DB + ["data", "entity", "add", "--name", "Zorbo", "--class", "PERSON"])
+    args = DB + ["data", "entity", "property", "assert", "--entity", "Zorbo",
+                 "--property", "AGE", "--value", "30"] + NONE_MODE
+    first = invoke(runner, args)
+    assert "created" in first.output
+    again = invoke(runner, args)
+    assert "deduped, evidence attached" in again.output
+
+
+def test_fact_property_assert_on_the_triple(runner):
+    invoke(runner, DB + ["data", "fact", "assert", "--head", "Zorbo", "--relation", "KNOWS",
+                         "--tail", "Blarp"] + NONE_MODE)
+    result = invoke(runner, DB + ["data", "fact", "property", "assert",
+                                  "--head", "Zorbo", "--relation", "KNOWS", "--tail", "Blarp",
+                                  "--property", "SINCE", "--value", "1998"] + NONE_MODE)
+    assert "created" in result.output
+
+
+def test_ambiguous_assert_fails_with_candidates_in_the_message(runner):
+    invoke(runner, DB + ["schema", "class", "add", "ALPHA_THING", "carries the beta token"])
+    invoke(runner, DB + ["schema", "class", "add", "GAMMA_THING", "also the beta token"])
+    result = runner.invoke(cli, DB + ["schema", "class", "assert", "beta"] + NONE_MODE)
+    assert result.exit_code != 0
+    assert "ambiguous between" in result.output
+    assert "ALPHA_THING" in result.output
+
+
+def test_ingest_file_report_and_json_format(runner, tmp_path):
+    payload = {
+        "classes": [{"name": "PERSON"}],
+        "entities": [{"name": "Zorbo", "class_name": "PERSON"}],
+        "entity_properties": [{"entity": "Zorbo", "property": "AGE", "value": "30"}],
+    }
+    path = tmp_path / "payload.json"
+    path.write_text(json.dumps(payload))
+    result = invoke(runner, DB + ["data", "ingest", str(path)] + NONE_MODE)
+    assert "Ingested 3 rows" in result.output
+    assert "written 3" in result.output
+    assert "created:" in result.output
+    # Re-ingest from stdin with --format json: converged counts, machine-readable.
+    again = runner.invoke(cli, DB + ["data", "ingest", "-", "--format", "json"] + NONE_MODE,
+                          input=json.dumps(payload))
+    assert again.exit_code == 0, again.output
+    report = json.loads(again.output)
+    assert (report["written"], report["deduped"], report["skipped"]) == (0, 1, 2)
+
+
+def test_ingest_failures_render_as_a_table(runner, tmp_path):
+    payload = {"classes": [{"name": "SOLID"}, {"name": "BROKEN", "bogus": 1}]}
+    path = tmp_path / "payload.json"
+    path.write_text(json.dumps(payload))
+    result = invoke(runner, DB + ["data", "ingest", str(path)] + NONE_MODE)
+    assert "written 1" in result.output
+    assert "failed 1" in result.output
+    assert "Failures" in result.output
+    assert "classes" in result.output
+
+
+def test_assert_source_and_confidence_reach_the_listing(runner):
+    invoke(runner, DB + ["data", "source", "add", "wikidata", "--name", "Wikidata"])
+    invoke(runner, DB + ["data", "fact", "assert", "--head", "Zorbo", "--relation", "KNOWS",
+                         "--tail", "Blarp", "--source", "Wikidata", "--confidence", "0.9"]
+           + NONE_MODE)
+    result = invoke(runner, DB + ["data", "fact", "list", "--show-provenance"])
+    assert "0.9" in result.output
+    assert "Wikidata" in result.output
+
+
+def test_assert_records_assertion_typed_evidence_by_default(runner):
+    invoke(runner, DB + ["schema", "class", "assert", "PERSON"] + NONE_MODE)
+    kb = _make_kb("main")
+    types = [n["properties"].get("extraction_type")
+             for n in kb.match_nodes("main", label="EXTRACTION")]
+    assert types == ["assertion"]
+
+
+def test_property_assert_coerces_typed_values(runner):
+    invoke(runner, DB + ["schema", "class", "add", "PERSON", "A human"])
+    invoke(runner, DB + ["data", "entity", "add", "--name", "Zorbo", "--class", "PERSON"])
+    invoke(runner, DB + ["data", "entity", "property", "assert", "--entity", "Zorbo",
+                         "--property", "AGE", "--value", "30", "--type", "NUMBER"] + NONE_MODE)
+    kb = _make_kb("main")
+    literals = list(kb.match_nodes("main", label="LITERAL"))
+    # The literal's `name` is always str(value), but `value` keeps the coerced
+    # type: an uncoerced pass-through would store the string "30" here.
+    assert [n["properties"]["value"] for n in literals] == [30]
+    assert [n["properties"]["type"] for n in literals] == ["NUMBER"]
+
+
+def test_ingest_reports_widened_relations(runner, tmp_path):
+    invoke(runner, DB + ["schema", "class", "add", "PERSON", "A human"])
+    invoke(runner, DB + ["schema", "class", "add", "COMPANY", "A business"])
+    invoke(runner, DB + ["schema", "class", "add", "AGENCY", "A public body"])
+    invoke(runner, DB + ["schema", "relation", "add", "WORKED_AT", "Employment",
+                         "--domain", "PERSON", "--range", "COMPANY"])
+    invoke(runner, DB + ["data", "entity", "add", "--name", "Bob", "--class", "AGENCY"])
+    invoke(runner, DB + ["data", "entity", "add", "--name", "IBM", "--class", "COMPANY"])
+    payload = {"facts": [{"head": "Bob", "relation": "WORKED_AT", "tail": "IBM"}]}
+    path = tmp_path / "widen.json"
+    path.write_text(json.dumps(payload))
+    result = invoke(runner, DB + ["data", "ingest", str(path)] + NONE_MODE)
+    assert "widened: WORKED_AT" in result.output

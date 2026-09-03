@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -234,6 +235,67 @@ def _resolve_owned_property(
     if not nodes:
         raise click.ClickException(f"Property '{property_name}' not found in database '{db}'")
     return nodes[0]["id"]
+
+
+def _assert_kwargs(kb: FileKBSource, db: str, source_name, source_id,
+                   confidence, extraction_type, schema_creation_mode, model) -> dict:
+    """Resolve --source/--source-id and collect the shared assert options."""
+    resolved_source_id = None
+    if source_name or source_id:
+        resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
+    return {
+        "source_id": resolved_source_id, "confidence": confidence,
+        "extraction_type": extraction_type, "schema_creation_mode": schema_creation_mode,
+        "model": model,
+    }
+
+
+def _print_assert_result(result, kind: str, label: str) -> None:
+    if result.created:
+        outcome = "created"
+    elif result.match_type == "structural":
+        outcome = "deduped, evidence attached"
+    else:
+        outcome = f"reused, {result.match_type} match" if result.match_type else "already present"
+    console.print(f"Asserted {kind}: [bold]{label}[/bold] ({outcome}, id: {result.node_id})")
+    if result.created_nodes:
+        parts = ", ".join(f"{r.name} ({r.label})" for r in result.created_nodes)
+        console.print(f"  created: {parts}")
+    if result.widened_relations:
+        console.print(f"  widened: {', '.join(r.name for r in result.widened_relations)}")
+
+
+_ASSERT_OPTIONS = [
+    click.option("--description", default=None,
+                 help="Optional description (judge-generated when omitted under "
+                      "--schema-creation-mode llm)."),
+    click.option("--source", "source_name", default=None, help="Source name."),
+    click.option("--source-id", default=None, help="Source node ID (overrides --source)."),
+    click.option("--confidence", type=float, default=None,
+                 help="Confidence in [0.0, 1.0] for the recorded assertion."),
+    click.option("--extraction-type", "extraction_type",
+                 type=click.Choice(["text_span", "external_record", "assertion"]),
+                 default="assertion", show_default=True,
+                 help="Form of the evidence recorded for the assertion."),
+    click.option("--schema-creation-mode", "schema_creation_mode",
+                 type=click.Choice(["llm", "none"]), default="llm", show_default=True,
+                 help="How new schema elements are named and described."),
+    click.option("--model", default="gpt-4o", show_default=True, help="OpenAI model for judges."),
+]
+
+
+def _with_assert_options(command):
+    for option in reversed(_ASSERT_OPTIONS):
+        command = option(command)
+    return command
+
+
+def _run_assert(coro, kind: str, label: str) -> None:
+    try:
+        result = _run(coro)
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    _print_assert_result(result, kind, label)
 
 
 def _coerce_value(raw: str, literal_type: str | None) -> str | int | float | bool:
@@ -779,6 +841,20 @@ def schema_class_add(obj: dict, name: str, description: str) -> None:
     console.print(f"Added class: [bold]{name}[/bold] (id: {class_id})")
 
 
+@schema_class_group.command("assert")
+@click.argument("name")
+@_with_assert_options
+@click.pass_obj
+def schema_class_assert(obj, name, description, source_name, source_id,
+                        confidence, extraction_type, schema_creation_mode, model):
+    """Assert a class: reuse it when one resolves, create it otherwise."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    kwargs = _assert_kwargs(kb, db, source_name, source_id, confidence,
+                            extraction_type, schema_creation_mode, model)
+    _run_assert(kb.assert_class(db, name, description, **kwargs), "class", name)
+
+
 @schema_class_group.command("list")
 @click.option(
     "--format", "fmt",
@@ -891,6 +967,22 @@ def schema_class_parent_add(
     child_label  = class_name  or class_id
     parent_label = parent_name or parent_id
     console.print(f"[bold]{child_label}[/bold] is now a subclass of [bold]{parent_label}[/bold]")
+
+
+@schema_class_parent_group.command("assert")
+@click.argument("child")
+@click.argument("parent")
+@_with_assert_options
+@click.pass_obj
+def schema_class_parent_assert(obj, child, parent, description, source_name, source_id,
+                               confidence, extraction_type, schema_creation_mode, model):
+    """Assert CHILD IS_SUBCLASS_OF PARENT; missing classes are created."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    kwargs = _assert_kwargs(kb, db, source_name, source_id, confidence,
+                            extraction_type, schema_creation_mode, model)
+    _run_assert(kb.assert_subclass(db, child, parent, **kwargs),
+                "subclass", f"{child} -> {parent}")
 
 
 @schema_class_parent_group.command("remove")
@@ -1062,6 +1154,22 @@ def schema_class_property_attach(
     console.print(f"Attached property [bold]{prop_label}[/bold] to class [bold]{class_label}[/bold]")
 
 
+@schema_class_property_group.command("assert")
+@click.argument("name")
+@click.option("--class", "class_name", required=True, help="Owning class name.")
+@_with_assert_options
+@click.pass_obj
+def schema_class_property_assert(obj, name, class_name, description, source_name, source_id,
+                                 confidence, extraction_type, schema_creation_mode, model):
+    """Assert a class property; the owning class is created when missing."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    kwargs = _assert_kwargs(kb, db, source_name, source_id, confidence,
+                            extraction_type, schema_creation_mode, model)
+    _run_assert(kb.assert_class_property(db, name, class_name, description, **kwargs),
+                "property", name)
+
+
 @schema_class_property_group.command("list")
 @click.option("--class",    "class_name", default=None, help="Filter by class name.")
 @click.option("--class-id",              default=None, help="Filter by class node ID.")
@@ -1222,6 +1330,25 @@ def schema_relation_add(
     console.print(f"Added relation: [bold]{name}[/bold] (id: {rel_id})")
 
 
+@schema_relation_group.command("assert")
+@click.argument("name")
+@click.option("--domain", multiple=True, required=True, help="Domain class name (repeatable).")
+@click.option("--range", "range_", multiple=True, required=True,
+              help="Range class name (repeatable).")
+@click.option("--is-symmetric", is_flag=True, default=False, help="Mark the relation symmetric.")
+@_with_assert_options
+@click.pass_obj
+def schema_relation_assert(obj, name, domain, range_, is_symmetric, description, source_name,
+                           source_id, confidence, extraction_type, schema_creation_mode, model):
+    """Assert a relation type; missing domain/range classes are created, existing ones widened."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    kwargs = _assert_kwargs(kb, db, source_name, source_id, confidence,
+                            extraction_type, schema_creation_mode, model)
+    _run_assert(kb.assert_relation_type(db, name, list(domain), list(range_), description,
+                                        is_symmetric, **kwargs), "relation", name)
+
+
 @schema_relation_group.command("list")
 @click.option(
     "--format", "fmt",
@@ -1341,6 +1468,22 @@ def schema_relation_parent_add(
         f"[bold]{relation_name or relation_id}[/bold] is now a sub-relation of "
         f"[bold]{parent_name or parent_id}[/bold]"
     )
+
+
+@schema_relation_parent_group.command("assert")
+@click.argument("child")
+@click.argument("parent")
+@_with_assert_options
+@click.pass_obj
+def schema_relation_parent_assert(obj, child, parent, description, source_name, source_id,
+                                  confidence, extraction_type, schema_creation_mode, model):
+    """Assert CHILD IS_SUBCLASS_OF PARENT for relations; both must already exist."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    kwargs = _assert_kwargs(kb, db, source_name, source_id, confidence,
+                            extraction_type, schema_creation_mode, model)
+    _run_assert(kb.assert_subrelation(db, child, parent, **kwargs),
+                "subrelation", f"{child} -> {parent}")
 
 
 @schema_relation_parent_group.command("remove")
@@ -1656,6 +1799,23 @@ def schema_relation_property_attach(
     console.print(f"Attached property [bold]{prop_label}[/bold] to relation [bold]{relation_label}[/bold]")
 
 
+@schema_relation_property_group.command("assert")
+@click.argument("name")
+@click.option("--relation", "relation_name", required=True, help="Owning relation name.")
+@_with_assert_options
+@click.pass_obj
+def schema_relation_property_assert(obj, name, relation_name, description, source_name,
+                                    source_id, confidence, extraction_type,
+                                    schema_creation_mode, model):
+    """Assert a relation property; the relation must already exist."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    kwargs = _assert_kwargs(kb, db, source_name, source_id, confidence,
+                            extraction_type, schema_creation_mode, model)
+    _run_assert(kb.assert_relation_property(db, name, relation_name, description, **kwargs),
+                "property", name)
+
+
 @schema_relation_property_group.command("list")
 @click.option("--relation",    "relation_name", default=None, help="Filter by relation name.")
 @click.option("--relation-id",                  default=None, help="Filter by relation node ID.")
@@ -1959,6 +2119,66 @@ def data_reindex(obj: dict) -> None:
 # kb data source                                                       #
 # ------------------------------------------------------------------ #
 
+@data_group.command("ingest")
+@click.argument("input_file", type=click.File("r"))
+@click.option("--source", "source_name", default=None, help="Source name.")
+@click.option("--source-id", default=None, help="Source node ID (overrides --source).")
+@click.option("--confidence", type=float, default=None,
+              help="Run-level confidence default; rows may override.")
+@click.option("--extraction-type", "extraction_type",
+              type=click.Choice(["text_span", "external_record", "assertion"]),
+              default="assertion", show_default=True,
+              help="Run-level evidence form; rows may override.")
+@click.option("--schema-creation-mode", "schema_creation_mode",
+              type=click.Choice(["llm", "none"]), default="llm", show_default=True,
+              help="How new schema elements are named and described.")
+@click.option("--model", default="gpt-4o", show_default=True, help="OpenAI model for judges.")
+@click.option("--format", "fmt", type=click.Choice(["table", "json"]), default="table",
+              show_default=True, help="Report format.")
+@click.pass_obj
+def data_ingest(obj, input_file, source_name, source_id, confidence, extraction_type,
+                schema_creation_mode, model, fmt):
+    """Bulk-ingest a ten-arm JSON payload (same ergonomics as `kb data import`; `-` reads
+    stdin). Rows run through the per-item asserts in file order; failures collect into
+    the report instead of stopping the run."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    try:
+        payload = json.load(input_file)
+    except json.JSONDecodeError as exc:
+        raise click.ClickException(f"Invalid JSON in {input_file.name}: {exc}")
+    resolved_source_id = None
+    if source_name or source_id:
+        resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
+    try:
+        report = _run(kb.ingest(
+            db, payload, source_id=resolved_source_id, confidence=confidence,
+            extraction_type=extraction_type, schema_creation_mode=schema_creation_mode,
+            model=model,
+        ))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    if fmt == "json":
+        click.echo(json.dumps(asdict(report), indent=2))
+        return
+    total = report.written + report.deduped + report.skipped + len(report.failures)
+    console.print(f"Ingested {total} rows into database: [bold]{db}[/bold]")
+    console.print(f"  written {report.written}   deduped {report.deduped}   "
+                  f"skipped {report.skipped}   failed {len(report.failures)}")
+    if report.created:
+        parts = ", ".join(f"{label} {count}" for label, count in sorted(report.created.items()))
+        console.print(f"  created: {parts}")
+    if report.widened:
+        console.print(f"  widened: {', '.join(dict.fromkeys(report.widened))}")
+    if report.failures:
+        t = Table(title="Failures")
+        for col in ("arm", "row", "reason"):
+            t.add_column(col)
+        for f in report.failures:
+            t.add_row(f.arm, str(f.index), f.reason)
+        console.print(t)
+
+
 @data_group.group("source")
 def source_group() -> None:
     """Provenance source management."""
@@ -2146,6 +2366,21 @@ def entity_add(
         raise click.ClickException(str(exc))
     label = f"[bold]{name}[/bold]" if name else ""
     console.print(f"Added entity{': ' + label if label else ''} (id: {entity_id})")
+
+
+@entity_group.command("assert")
+@click.argument("name")
+@click.option("--class", "class_name", default=None, help="Class name (resolved or created).")
+@_with_assert_options
+@click.pass_obj
+def entity_assert(obj, name, class_name, description, source_name, source_id,
+                  confidence, extraction_type, schema_creation_mode, model):
+    """Assert an entity by name: resolve it, or create it with a judged class."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    kwargs = _assert_kwargs(kb, db, source_name, source_id, confidence,
+                            extraction_type, schema_creation_mode, model)
+    _run_assert(kb.assert_entity(db, name, class_name, description, **kwargs), "entity", name)
 
 
 @entity_group.command("list")
@@ -2460,6 +2695,26 @@ def entity_property_set(
     console.print(f"Set entity property (literal id: {lit_id})")
 
 
+@entity_property_group.command("assert")
+@click.option("--entity", required=True, help="Entity name.")
+@click.option("--property", "property_name", required=True, help="Property name.")
+@click.option("--value", required=True, help="Property value.")
+@click.option("--type", "literal_type", default=None, help="Literal type (STRING, NUMBER, ...).")
+@_with_assert_options
+@click.pass_obj
+def entity_property_assert(obj, entity, property_name, value, literal_type, description,
+                           source_name, source_id, confidence, extraction_type,
+                           schema_creation_mode, model):
+    """Assert a property value on an entity; equal values dedupe, property placement judged."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    kwargs = _assert_kwargs(kb, db, source_name, source_id, confidence,
+                            extraction_type, schema_creation_mode, model)
+    coerced = _coerce_value(value, literal_type)
+    _run_assert(kb.assert_entity_property(db, entity, property_name, coerced, literal_type,
+                                          **kwargs), "property value", f"{entity} {property_name}")
+
+
 @entity_property_group.command("list")
 @click.option("--entity",          "entity_name",    default=None, help="Entity name.")
 @click.option("--entity-id",                         default=None, help="Entity node ID (overrides --entity).")
@@ -2713,6 +2968,24 @@ def fact_add(
     console.print(f"Added fact (id: {fact_id})")
 
 
+@fact_group.command("assert")
+@click.option("--head", required=True, help="Head entity name.")
+@click.option("--relation", required=True, help="Relation name.")
+@click.option("--tail", required=True, help="Tail entity name.")
+@click.option("--name", default=None, help="Optional fact name.")
+@_with_assert_options
+@click.pass_obj
+def fact_assert(obj, head, relation, tail, name, description, source_name, source_id,
+                confidence, extraction_type, schema_creation_mode, model):
+    """Assert a fact by names; operands are resolved or created, duplicates deduped."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    kwargs = _assert_kwargs(kb, db, source_name, source_id, confidence,
+                            extraction_type, schema_creation_mode, model)
+    _run_assert(kb.assert_fact(db, head, relation, tail, name, description, **kwargs),
+                "fact", f"{head} {relation} {tail}")
+
+
 @fact_group.command("list")
 @click.option("--show-provenance", "show_provenance", is_flag=True, help="Include provenance text.")
 @click.option(
@@ -2952,6 +3225,29 @@ def fact_property_set(
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(f"Set fact property (literal id: {lit_id})")
+
+
+@fact_property_group.command("assert")
+@click.option("--head", required=True, help="Head entity name.")
+@click.option("--relation", required=True, help="Relation name.")
+@click.option("--tail", required=True, help="Tail entity name.")
+@click.option("--property", "property_name", required=True, help="Property name.")
+@click.option("--value", required=True, help="Property value.")
+@click.option("--type", "literal_type", default=None, help="Literal type (STRING, NUMBER, ...).")
+@_with_assert_options
+@click.pass_obj
+def fact_property_assert(obj, head, relation, tail, property_name, value, literal_type,
+                         description, source_name, source_id, confidence, extraction_type,
+                         schema_creation_mode, model):
+    """Assert a property value on the fact identified by its (head, relation, tail) triple."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    kwargs = _assert_kwargs(kb, db, source_name, source_id, confidence,
+                            extraction_type, schema_creation_mode, model)
+    coerced = _coerce_value(value, literal_type)
+    _run_assert(kb.assert_fact_property(db, head, relation, tail, property_name, coerced,
+                                        literal_type, **kwargs),
+                "property value", f"{head} {relation} {tail} {property_name}")
 
 
 @fact_property_group.command("list")

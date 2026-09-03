@@ -142,3 +142,77 @@ def test_class_not_found_error(runner):
     result = runner.invoke(cli, DB + ["schema", "class", "update", "--class", "GHOST", "--description", "x"])
     assert result.exit_code != 0
     assert "not found" in result.output
+
+
+# ------------------------------------------------------------------ #
+# Schema asserts                                                       #
+# ------------------------------------------------------------------ #
+
+NONE_MODE = ["--schema-creation-mode", "none"]
+
+
+def test_class_assert_creates_then_reuses(runner):
+    first = invoke(runner, DB + ["schema", "class", "assert", "PERSON"] + NONE_MODE)
+    assert "created" in first.output
+    again = invoke(runner, DB + ["schema", "class", "assert", "PERSON"] + NONE_MODE)
+    assert "reused, exact match" in again.output
+
+
+def test_relation_assert_reports_its_cascade(runner):
+    result = invoke(runner, DB + [
+        "schema", "relation", "assert", "WORKED_AT",
+        "--domain", "PERSON", "--range", "COMPANY",
+    ] + NONE_MODE)
+    assert "created:" in result.output
+    for token in ("PERSON", "COMPANY", "WORKED_AT"):
+        assert token in result.output
+
+
+def test_relation_assert_widens_an_existing_relation(runner):
+    invoke(runner, DB + ["schema", "class", "add", "PERSON", "A human"])
+    invoke(runner, DB + ["schema", "class", "add", "COMPANY", "A business"])
+    invoke(runner, DB + ["schema", "class", "add", "AGENCY", "A public body"])
+    invoke(runner, DB + ["schema", "relation", "add", "WORKED_AT", "Employment",
+                         "--domain", "PERSON", "--range", "COMPANY"])
+    result = invoke(runner, DB + [
+        "schema", "relation", "assert", "WORKED_AT",
+        "--domain", "AGENCY", "--range", "COMPANY",
+    ] + NONE_MODE)
+    assert "widened: WORKED_AT" in result.output
+
+
+def test_class_property_assert_creates_then_reuses(runner):
+    invoke(runner, DB + ["schema", "class", "add", "PERSON", "A human"])
+    first = invoke(runner, DB + ["schema", "class", "property", "assert", "AGE",
+                                 "--class", "PERSON"] + NONE_MODE)
+    assert "created" in first.output
+    again = invoke(runner, DB + ["schema", "class", "property", "assert", "AGE",
+                                 "--class", "PERSON"] + NONE_MODE)
+    assert "reused, exact match" in again.output
+
+
+def test_relation_property_assert_requires_the_relation(runner):
+    result = runner.invoke(cli, DB + ["schema", "relation", "property", "assert", "SINCE",
+                                      "--relation", "MISSING"] + NONE_MODE)
+    assert result.exit_code != 0
+    assert "assert" in result.output
+
+
+def test_class_parent_assert_wires_then_holds(runner):
+    first = invoke(runner, DB + ["schema", "class", "parent", "assert",
+                                 "EMPLOYEE", "PERSON"] + NONE_MODE)
+    assert "created" in first.output
+    again = invoke(runner, DB + ["schema", "class", "parent", "assert",
+                                 "EMPLOYEE", "PERSON"] + NONE_MODE)
+    assert "already present" in again.output
+
+
+def test_relation_parent_assert_needs_both_relations(runner):
+    invoke(runner, DB + ["schema", "class", "add", "PERSON", "A human"])
+    invoke(runner, DB + ["schema", "class", "add", "COMPANY", "A business"])
+    for rel in ("WORKED_AT", "AFFILIATED_WITH"):
+        invoke(runner, DB + ["schema", "relation", "add", rel, "Some relation",
+                             "--domain", "PERSON", "--range", "COMPANY"])
+    result = invoke(runner, DB + ["schema", "relation", "parent", "assert",
+                                  "WORKED_AT", "AFFILIATED_WITH"] + NONE_MODE)
+    assert "created" in result.output
