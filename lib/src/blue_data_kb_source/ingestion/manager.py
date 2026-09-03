@@ -1,4 +1,4 @@
-"""IngestionManager: the ingest path's assert operations (schema half).
+"""IngestionManager: the ingest path's assert operations.
 
 Every assert runs in two phases (decision 26): phase 1 resolves every operand
 read-only and runs any needed judges, so any failure — ambiguity, a judge
@@ -7,7 +7,8 @@ crash, a missing API key — raises `IngestionError` (or the judge's own
 write path (`declare_*` and the provenance tracker), so change notification
 and search indexing fire exactly as for direct writes.
 
-The pick-or-raise resolution policy lives on `_pick`; the two edge asserts
+The pick-or-raise resolution policy lives on `_pick` and `_pick_entity` (which
+adds the class-expectation rule); the two edge asserts
 (`assert_subclass`, `assert_subrelation`) report `match_type=None` always,
 with `created` describing the edge.
 """
@@ -21,11 +22,24 @@ from blue_data.source.graph.graph_source import GraphSource
 from blue_data_kb_source._constants import (
     CLASS,
     DEFINE_PROPERTY,
+    ENTITY,
+    FACT,
     IS_SUBCLASS_OF,
+    LITERAL,
     PROPERTY,
     RELATION,
 )
-from blue_data_kb_source.ingestion.judges import judge_description
+from blue_data_kb_source.ingestion.judges import (
+    judge_class_name,
+    judge_description,
+    judge_property_placement,
+)
+from blue_data_kb_source.knowledge.helpers import (
+    entity_classes,
+    fact_parts,
+    find_fact,
+    find_literal,
+)
 from blue_data_kb_source.knowledge.manager import KnowledgeManager
 from blue_data_kb_source.provenance.tracker import ProvenanceTracker
 from blue_data_kb_source.resolution.resolver import NodeResolver
@@ -41,6 +55,7 @@ from blue_data_kb_source.types import (
 _IDENTITY_CERTAIN = ("exact", "alias", "structural")
 _ExtractionType = Literal["text_span", "external_record", "assertion"]
 _SchemaCreationMode = Literal["llm", "none"]
+_EVERYTHING_DESC = "Catch-all class for entities created without a type"
 
 
 class IngestionManager:
@@ -294,6 +309,283 @@ class IngestionManager:
         return await self._assert_edge(database, ids[child], ids[parent], [])
 
     # ------------------------------------------------------------------ #
+    # Instance asserts                                                     #
+    # ------------------------------------------------------------------ #
+
+    async def assert_entity(
+        self,
+        database: str,
+        name: str,
+        class_name: str | None = None,
+        description: str | None = None,
+        *,
+        source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: _ExtractionType = "assertion",
+        schema_creation_mode: _SchemaCreationMode = "llm",
+        model: str = "gpt-4o",
+    ) -> AssertResult:
+        text = f"{name} is_a {class_name}" if class_name else name
+        expected: set[str] = set()
+        class_hit = None
+        if class_name is not None:
+            class_hit = self._pick(await self._resolver.resolve_class(database, class_name),
+                                   f"class {class_name!r}")
+            if class_hit is not None:
+                expected = {class_hit.node_id}
+        hit = await self._pick_entity(await self._resolver.resolve_entity(database, name),
+                                f"entity {name!r}", database, expected)
+        created: list[NodeRef] = []
+        if hit is not None:
+            # Decision 29: an entity an assert touches ends with at least one class.
+            have = {c["id"] for c in entity_classes(self._source, database, hit.node_id)}
+            attach_id: str | None = None
+            overlap = ((await self._class_closure(database, have)) & expected
+                       if expected else None)
+            if class_name is not None and not overlap:
+                attach_id, refs = await self._ensure_class(
+                    database, class_name, text, source_id, confidence, extraction_type,
+                    schema_creation_mode, model, class_hit,
+                )
+                created.extend(refs)
+            elif not have:
+                attach_id, refs = await self._membership_class(
+                    database, name, text, source_id, confidence, extraction_type,
+                    schema_creation_mode, model,
+                )
+                created.extend(refs)
+            if attach_id is not None and attach_id not in have:
+                await self._knowledge.attach_entity_class(database, hit.node_id, attach_id)
+            return AssertResult(node_id=hit.node_id, created=False, match_type=hit.match_type,
+                                created_nodes=created)
+        if class_name is not None:
+            class_id, refs = await self._ensure_class(
+                database, class_name, text, source_id, confidence, extraction_type,
+                schema_creation_mode, model, class_hit,
+            )
+        else:
+            class_id, refs = await self._membership_class(
+                database, name, text, source_id, confidence, extraction_type,
+                schema_creation_mode, model,
+            )
+        created.extend(refs)
+        entity_id = await self._knowledge.add_entity(
+            database, name, description=description, class_id=class_id
+        )
+        ref = await self._evidence(
+            database, entity_id, ENTITY, name, text, source_id, confidence, extraction_type
+        )
+        created.append(ref)
+        return AssertResult(node_id=entity_id, created=True,
+                            extraction_id=ref.extraction_id, created_nodes=created)
+
+    async def assert_fact(
+        self,
+        database: str,
+        head: str,
+        relation: str,
+        tail: str,
+        name: str | None = None,
+        description: str | None = None,
+        *,
+        source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: _ExtractionType = "assertion",
+        schema_creation_mode: _SchemaCreationMode = "llm",
+        model: str = "gpt-4o",
+    ) -> AssertResult:
+        text = f"{head} {relation} {tail}"
+        rel_hit = self._pick(await self._resolver.resolve_relation(database, relation),
+                             f"relation {relation!r}")
+        expectations: dict[str, set[str]] = {"head": set(), "tail": set()}
+        if rel_hit is not None:
+            dr = await self._schema.get_relation_domain_range(database, rel_hit.node_id)
+            expectations["head"] = {c["id"] for c in dr["domain"]}
+            expectations["tail"] = {c["id"] for c in dr["range"]}
+        ops: dict[str, dict] = {}
+        for role, ename in (("head", head), ("tail", tail)):
+            ehit = await self._pick_entity(await self._resolver.resolve_entity(database, ename),
+                                     f"entity {ename!r}", database, expectations[role])
+            ops[role] = {"name": ename, "hit": ehit}
+
+        # Structural dedupe (decision 14): only checkable when all operands pre-exist.
+        if rel_hit is not None and all(o["hit"] is not None for o in ops.values()):
+            fact = find_fact(self._source, database, ops["head"]["hit"].node_id,
+                             rel_hit.node_id, ops["tail"]["hit"].node_id)
+            if fact is not None:
+                ref = await self._evidence(database, fact["id"], FACT, text, text,
+                                           source_id, confidence, extraction_type)
+                return AssertResult(node_id=fact["id"], created=False, match_type="structural",
+                                    extraction_id=ref.extraction_id)
+
+        created: list[NodeRef] = []
+        widened: list[NodeRef] = []
+        entity_ids: dict[str, str] = {}
+        role_class: dict[str, str] = {}
+        for role in ("head", "tail"):
+            ehit = ops[role]["hit"]
+            ename = ops[role]["name"]
+            if ehit is not None:
+                entity_ids[role] = ehit.node_id
+                classes = entity_classes(self._source, database, ehit.node_id)
+                if classes:
+                    role_class[role] = classes[0].get("properties", {}).get("name", "")
+                else:
+                    cid, refs = await self._membership_class(
+                        database, ename, text, source_id, confidence, extraction_type,
+                        schema_creation_mode, model,
+                    )
+                    created.extend(refs)
+                    await self._knowledge.attach_entity_class(database, ehit.node_id, cid)
+                    role_class[role] = self._name_of(database, cid)
+            else:
+                cid, refs = await self._membership_class(
+                    database, ename, text, source_id, confidence, extraction_type,
+                    schema_creation_mode, model,
+                )
+                created.extend(refs)
+                eid = await self._knowledge.add_entity(database, ename, class_id=cid)
+                eref = await self._evidence(database, eid, ENTITY, ename, text,
+                                            source_id, confidence, extraction_type)
+                created.append(eref)
+                entity_ids[role] = eid
+                role_class[role] = self._name_of(database, cid)
+
+        if rel_hit is None:
+            rel_desc = await self._describe("relation", relation, text, None,
+                                            schema_creation_mode, model)
+            rel_id = await self._schema.declare_relation_type(
+                database, relation, rel_desc, domain=role_class["head"], range=role_class["tail"]
+            )
+            created.append(await self._evidence(database, rel_id, RELATION, relation, text,
+                                                source_id, confidence, extraction_type))
+        else:
+            rel_id = rel_hit.node_id
+            allowed = await self._knowledge.is_fact_allowed(
+                database, entity_ids["head"], rel_id, entity_ids["tail"]
+            )
+            if not allowed["ok"]:
+                if not allowed["details"].get("head_in_domain", False):
+                    await self._widen(database, rel_id, "domain", role_class["head"], widened)
+                if not allowed["details"].get("tail_in_range", False):
+                    await self._widen(database, rel_id, "range", role_class["tail"], widened)
+        fact_id = await self._knowledge.add_fact(
+            database, name=name, description=description, head_entity_id=entity_ids["head"],
+            tail_entity_id=entity_ids["tail"], relation_id=rel_id,
+        )
+        ref = await self._evidence(database, fact_id, FACT, text, text,
+                                   source_id, confidence, extraction_type)
+        created.append(ref)
+        return AssertResult(node_id=fact_id, created=True, extraction_id=ref.extraction_id,
+                            created_nodes=created, widened_relations=widened)
+
+    async def assert_entity_property(
+        self,
+        database: str,
+        entity: str,
+        property: str,
+        value: str | int | float | bool,
+        literal_type: str | None = None,
+        *,
+        source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: _ExtractionType = "assertion",
+        schema_creation_mode: _SchemaCreationMode = "llm",
+        model: str = "gpt-4o",
+    ) -> AssertResult:
+        text = f"{entity} {property} {value}"
+        entity_result = await self.assert_entity(
+            database, entity, source_id=source_id, confidence=confidence,
+            extraction_type=extraction_type, schema_creation_mode=schema_creation_mode,
+            model=model,
+        )
+        entity_id = entity_result.node_id
+        created = list(entity_result.created_nodes)
+        prop_id = await self._owned_property_of_entity(database, entity_id, property)
+        if prop_id is not None:
+            existing = find_literal(self._source, database, entity_id, prop_id)
+            if existing is not None:
+                node = self._source.get_node(database, existing)
+                if node is not None and str(node.get("properties", {}).get("name")) == str(value):
+                    ref = await self._evidence(database, existing, LITERAL, str(value), text,
+                                               source_id, confidence, extraction_type)
+                    return AssertResult(node_id=existing, created=False, match_type="structural",
+                                        extraction_id=ref.extraction_id, created_nodes=created)
+        else:
+            prop_desc = await self._describe("property", property, text, None,
+                                             schema_creation_mode, model)
+            owner_classes = await self._placement_classes(
+                database, entity_id, property, schema_creation_mode, model
+            )
+            prop_id = await self._schema.declare_class_property(
+                database, property, prop_desc, class_id=owner_classes[0]
+            )
+            for class_id in owner_classes[1:]:
+                await self._schema.attach_property(database, class_id, prop_id)
+            created.append(await self._evidence(database, prop_id, PROPERTY, property, text,
+                                                source_id, confidence, extraction_type))
+        literal_id = await self._knowledge.add_entity_property_value(
+            database, value, literal_type=literal_type, entity_id=entity_id, property_id=prop_id
+        )
+        ref = await self._evidence(database, literal_id, LITERAL, str(value), text,
+                                   source_id, confidence, extraction_type)
+        created.append(ref)
+        return AssertResult(node_id=literal_id, created=True, extraction_id=ref.extraction_id,
+                            created_nodes=created)
+
+    async def assert_fact_property(
+        self,
+        database: str,
+        head: str,
+        relation: str,
+        tail: str,
+        property: str,
+        value: str | int | float | bool,
+        literal_type: str | None = None,
+        *,
+        source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: _ExtractionType = "assertion",
+        schema_creation_mode: _SchemaCreationMode = "llm",
+        model: str = "gpt-4o",
+    ) -> AssertResult:
+        text = f"{head} {relation} {tail}: {property} {value}"
+        fact_result = await self.assert_fact(
+            database, head, relation, tail, source_id=source_id, confidence=confidence,
+            extraction_type=extraction_type, schema_creation_mode=schema_creation_mode,
+            model=model,
+        )
+        fact_id = fact_result.node_id
+        created = list(fact_result.created_nodes)
+        rel_id = self._fact_relation_id(database, fact_id)
+        prop_id = self._own_property(database, rel_id, property) if rel_id else None
+        if prop_id is not None:
+            existing = find_literal(self._source, database, fact_id, prop_id)
+            if existing is not None:
+                node = self._source.get_node(database, existing)
+                if node is not None and str(node.get("properties", {}).get("name")) == str(value):
+                    ref = await self._evidence(database, existing, LITERAL, str(value), text,
+                                               source_id, confidence, extraction_type)
+                    return AssertResult(node_id=existing, created=False, match_type="structural",
+                                        extraction_id=ref.extraction_id, created_nodes=created)
+        else:
+            prop_desc = await self._describe("property", property, text, None,
+                                             schema_creation_mode, model)
+            prop_id = await self._schema.declare_relation_property(
+                database, property, prop_desc, relation_id=rel_id
+            )
+            created.append(await self._evidence(database, prop_id, PROPERTY, property, text,
+                                                source_id, confidence, extraction_type))
+        literal_id = await self._knowledge.add_fact_property_value(
+            database, value, literal_type=literal_type, fact_id=fact_id, property_id=prop_id
+        )
+        ref = await self._evidence(database, literal_id, LITERAL, str(value), text,
+                                   source_id, confidence, extraction_type)
+        created.append(ref)
+        return AssertResult(node_id=literal_id, created=True, extraction_id=ref.extraction_id,
+                            created_nodes=created)
+
+    # ------------------------------------------------------------------ #
     # Internals                                                            #
     # ------------------------------------------------------------------ #
 
@@ -313,6 +605,47 @@ class IngestionManager:
                 candidates=group,
             )
         return None
+
+    async def _pick_entity(
+        self,
+        candidates: list[ResolutionCandidate],
+        what: str,
+        database: str,
+        expected: set[str],
+    ) -> ResolutionCandidate | None:
+        """`_pick`, plus decision 2's class-expectation rule: an identity-uncertain
+        hit whose class closure misses every expected class raises instead of
+        auto-resolving; identity-certain hits resolve regardless (decision 20 then
+        widens membership rather than rejecting)."""
+        certain = [c for c in candidates if c.match_type in _IDENTITY_CERTAIN]
+        group = certain if certain else candidates
+        if len(group) >= 2:
+            listing = ", ".join(f"{c.name} ({c.match_type})" for c in group)
+            raise IngestionError(
+                f"{what} is ambiguous between: {listing}. Nothing was written.",
+                candidates=group,
+            )
+        if not group:
+            return None
+        hit = group[0]
+        if not certain and expected:
+            have = {c["id"] for c in entity_classes(self._source, database, hit.node_id)}
+            if have and not ((await self._class_closure(database, have)) & expected):
+                raise IngestionError(
+                    f"{what} matched {hit.name!r} only uncertainly ({hit.match_type}) and its "
+                    "classes conflict with the expected class. Nothing was written.",
+                    candidates=[hit],
+                )
+        return hit
+
+    async def _class_closure(self, database: str, class_ids: set[str]) -> set[str]:
+        """The classes plus their ancestors by id, via SchemaManager's walker
+        (max_hops=5, matching the conformance checks)."""
+        out = set(class_ids)
+        for cid in class_ids:
+            for a in await self._schema.get_class_ancestors(database, cid, max_hops=5):
+                out.add(a["id"])
+        return out
 
     async def _describe(
         self,
@@ -374,6 +707,103 @@ class IngestionManager:
             database, class_id, CLASS, name, text, source_id, confidence, extraction_type
         )
 
+    async def _ensure_class(
+        self,
+        database: str,
+        class_name: str,
+        text: str,
+        source_id: str | None,
+        confidence: float | None,
+        extraction_type: _ExtractionType,
+        schema_creation_mode: _SchemaCreationMode,
+        model: str,
+        class_hit: ResolutionCandidate | None,
+    ) -> tuple[str, list[NodeRef]]:
+        """Resolved class id, creating the class (judge-3 description) when missing."""
+        if class_hit is not None:
+            return class_hit.node_id, []
+        desc = await self._describe("class", class_name, text, None, schema_creation_mode, model)
+        ids: dict[str, str] = {}
+        ref = await self._create_class(database, class_name, desc, text,
+                                       source_id, confidence, extraction_type, ids)
+        return ref.node_id, [ref]
+
+    async def _membership_class(
+        self,
+        database: str,
+        entity_name: str,
+        text: str,
+        source_id: str | None,
+        confidence: float | None,
+        extraction_type: _ExtractionType,
+        schema_creation_mode: _SchemaCreationMode,
+        model: str,
+    ) -> tuple[str, list[NodeRef]]:
+        """A class for an untyped entity (decision 29): judge 2 under "llm",
+        the EVERYTHING catch-all under "none" (decision 19)."""
+        if schema_creation_mode != "llm":
+            existing = await self._schema.find_class(database, "EVERYTHING")
+            if existing is not None:
+                return existing["id"], []
+            ids: dict[str, str] = {}
+            ref = await self._create_class(database, "EVERYTHING", _EVERYTHING_DESC, text,
+                                           source_id, confidence, extraction_type, ids)
+            return ref.node_id, [ref]
+        listing = [
+            {"name": n.get("properties", {}).get("name", ""),
+             "description": n.get("properties", {}).get("description") or ""}
+            for n in self._source.match_nodes(database, label=CLASS)
+        ]
+        try:
+            chosen = await judge_class_name(entity_name, text, listing, model=model)
+        except KBError:
+            raise
+        except Exception as exc:
+            raise IngestionError(
+                f"judge_class_name failed for entity {entity_name!r}: {exc!r}. "
+                "Nothing was written."
+            ) from exc
+        hit = self._pick(await self._resolver.resolve_class(database, chosen),
+                         f"class {chosen!r}")
+        return await self._ensure_class(database, chosen, text, source_id, confidence,
+                                        extraction_type, schema_creation_mode, model, hit)
+
+    async def _placement_classes(
+        self,
+        database: str,
+        entity_id: str,
+        property_name: str,
+        schema_creation_mode: _SchemaCreationMode,
+        model: str,
+    ) -> list[str]:
+        """Class ids that should declare a new property (decision 15): judge 1 picks
+        from the entity's classes and ancestors under "llm"; under "none" the
+        entity's direct classes (deterministic fallback, plan row 39d)."""
+        direct = entity_classes(self._source, database, entity_id)
+        direct_ids = [c["id"] for c in direct]
+        if schema_creation_mode != "llm":
+            return direct_ids
+        offered = {c["id"]: c for c in direct}
+        for cid in (await self._class_closure(database, set(direct_ids))) - set(direct_ids):
+            node = self._source.get_node(database, cid)
+            if node is not None:
+                offered[cid] = node
+        classes = [
+            {"id": cid, "name": n.get("properties", {}).get("name", ""),
+             "description": n.get("properties", {}).get("description") or ""}
+            for cid, n in offered.items()
+        ]
+        try:
+            chosen = await judge_property_placement(classes, property_name, model=model)
+        except KBError:
+            raise
+        except Exception as exc:
+            raise IngestionError(
+                f"judge_property_placement failed for property {property_name!r}: {exc!r}. "
+                "Nothing was written."
+            ) from exc
+        return chosen or direct_ids
+
     def _own_property(self, database: str, owner_id: str, name: str) -> str | None:
         """Exact-name PROPERTY already declared on this owner, or None."""
         for nb in self._source.get_neighbors(
@@ -382,6 +812,40 @@ class IngestionManager:
             if nb["node"].get("properties", {}).get("name") == name:
                 return nb["node"]["id"]
         return None
+
+    async def _owned_property_of_entity(
+        self, database: str, entity_id: str, name: str
+    ) -> str | None:
+        """A PROPERTY named *name* defined on any of the entity's classes or ancestors."""
+        for cid in await self._class_closure(
+            database, {c["id"] for c in entity_classes(self._source, database, entity_id)}
+        ):
+            found = self._own_property(database, cid, name)
+            if found is not None:
+                return found
+        return None
+
+    async def _widen(
+        self, database: str, rel_id: str, side: str, class_name: str, widened: list[NodeRef]
+    ) -> None:
+        node = await self._schema.find_class(database, class_name)
+        if node is None:
+            return
+        if side == "domain":
+            await self._schema.attach_relation_domain(database, rel_id, node["id"])
+        else:
+            await self._schema.attach_relation_range(database, rel_id, node["id"])
+        if not widened:
+            widened.append(NodeRef(node_id=rel_id, label=RELATION,
+                                   name=self._name_of(database, rel_id)))
+
+    def _name_of(self, database: str, node_id: str) -> str:
+        node = self._source.get_node(database, node_id)
+        return (node or {}).get("properties", {}).get("name", "")
+
+    def _fact_relation_id(self, database: str, fact_id: str) -> str | None:
+        rel = fact_parts(self._source, database, fact_id)["relation"]
+        return rel["id"] if rel is not None else None
 
     async def _assert_edge(
         self, database: str, child_id: str, parent_id: str, created: list[NodeRef]

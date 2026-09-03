@@ -2,7 +2,16 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from blue_data_kb_source import IngestionError, KBError
-from blue_data_kb_source._constants import CLASS, EXTRACTED_FROM, PROPERTY, RELATION
+from blue_data_kb_source._constants import (
+    CLASS,
+    DEFINE_PROPERTY,
+    ENTITY,
+    EXTRACTED_FROM,
+    FACT,
+    LITERAL,
+    PROPERTY,
+    RELATION,
+)
 
 
 def _classes(kb):
@@ -322,3 +331,285 @@ async def test_extraction_type_can_mark_external_records(kb):
     result = await kb.assert_class("test", "PERSON", extraction_type="external_record",
                                    schema_creation_mode="none")
     assert [p["extraction_type"] for p in _evidence_of(kb, result.node_id)] == ["external_record"]
+
+
+# ------------------------------------------------------------------ #
+# assert_entity                                                        #
+# ------------------------------------------------------------------ #
+
+async def test_assert_entity_untyped_gets_everything_under_none(kb):
+    result = await kb.assert_entity("test", "Alice", schema_creation_mode="none")
+    assert result.created is True
+    assert sorted((r.label, r.name) for r in result.created_nodes) == [
+        (CLASS, "EVERYTHING"), (ENTITY, "Alice"),
+    ]
+    classes = await kb.get_entity_classes("test", result.node_id)
+    assert [c["properties"]["name"] for c in classes] == ["EVERYTHING"]
+    assert [p["text"] for p in _evidence_of(kb, result.node_id)] == ["Alice"]
+
+
+async def test_assert_entity_with_class_serializes_is_a(kb):
+    result = await kb.assert_entity("test", "Alice", class_name="PERSON",
+                                    schema_creation_mode="none")
+    assert [p["text"] for p in _evidence_of(kb, result.node_id)] == ["Alice is_a PERSON"]
+
+
+async def test_assert_entity_reuses_and_attaches_second_class(kb):
+    person = await kb.declare_class("test", "PERSON", "A human")
+    entity_id = await kb.add_entity("test", "Alice", class_id=person)
+    result = await kb.assert_entity("test", "Alice", class_name="EMPLOYEE",
+                                    schema_creation_mode="none")
+    # Decision 20: a certain match with a class mismatch widens membership.
+    assert (result.node_id, result.created) == (entity_id, False)
+    names = sorted(c["properties"]["name"]
+                   for c in await kb.get_entity_classes("test", entity_id))
+    assert names == ["EMPLOYEE", "PERSON"]
+
+
+async def test_classless_existing_entity_gets_a_class_on_resolve(kb):
+    entity_id = await kb.add_entity("test", "Alice")
+    result = await kb.assert_entity("test", "Alice", schema_creation_mode="none")
+    assert (result.node_id, result.created) == (entity_id, False)
+    classes = await kb.get_entity_classes("test", entity_id)
+    assert [c["properties"]["name"] for c in classes] == ["EVERYTHING"]
+
+
+async def test_classless_fact_operand_gets_a_membership_class(kb):
+    alice = await kb.add_entity("test", "Alice")
+    await kb.assert_fact("test", "Alice", "WORKED_AT", "IBM", schema_creation_mode="none")
+    classes = await kb.get_entity_classes("test", alice)
+    assert [c["properties"]["name"] for c in classes] == ["EVERYTHING"]
+
+
+async def test_uncertain_entity_hit_with_class_conflict_raises(kb):
+    await kb.declare_class("test", "PERSON", "A human")
+    company = await kb.declare_class("test", "COMPANY", "A business")
+    await kb.add_entity("test", "Alice Smith", class_id=company)
+    with pytest.raises(IngestionError, match="conflict"):
+        await kb.assert_entity("test", "Alice", class_name="PERSON",
+                               schema_creation_mode="none")
+
+
+async def test_judge_2_reuses_an_existing_class(kb):
+    await kb.declare_class("test", "PERSON", "A human")
+    judge = AsyncMock(return_value="PERSON")
+    with patch("blue_data_kb_source.ingestion.manager.judge_class_name", judge), \
+         patch("blue_data_kb_source.ingestion.manager.judge_description",
+               AsyncMock(return_value="d")):
+        result = await kb.assert_entity("test", "Alice")
+    classes = await kb.get_entity_classes("test", result.node_id)
+    assert [c["properties"]["name"] for c in classes] == ["PERSON"]
+    # The existing class list is load-bearing judge input.
+    assert any(c["name"] == "PERSON" for c in judge.call_args.args[2])
+
+
+async def test_judge_2_can_coin_a_new_class(kb):
+    judge = AsyncMock(return_value="ROBOT")
+    with patch("blue_data_kb_source.ingestion.manager.judge_class_name", judge), \
+         patch("blue_data_kb_source.ingestion.manager.judge_description",
+               AsyncMock(return_value="A machine.")):
+        result = await kb.assert_entity("test", "R2D2")
+    classes = await kb.get_entity_classes("test", result.node_id)
+    assert [c["properties"]["name"] for c in classes] == ["ROBOT"]
+
+
+async def test_judge_2_crash_becomes_ingestion_error_and_writes_nothing(kb):
+    judge = AsyncMock(side_effect=ValueError("garbage"))
+    with patch("blue_data_kb_source.ingestion.manager.judge_class_name", judge):
+        with pytest.raises(IngestionError, match="judge_class_name"):
+            await kb.assert_entity("test", "Alice")
+    assert list(kb.match_nodes("test", label=ENTITY)) == []
+
+
+
+# ------------------------------------------------------------------ #
+# assert_fact                                                          #
+# ------------------------------------------------------------------ #
+
+async def test_assert_fact_full_cascade_under_none(kb):
+    result = await kb.assert_fact("test", "Alice", "WORKED_AT", "IBM",
+                                  schema_creation_mode="none")
+    assert result.created is True
+    labels = sorted(r.label for r in result.created_nodes)
+    assert labels == [CLASS, ENTITY, ENTITY, FACT, RELATION]
+    fact_evidence = _evidence_of(kb, result.node_id)
+    assert [p["text"] for p in fact_evidence] == ["Alice WORKED_AT IBM"]
+
+
+async def test_assert_fact_dedupes_structurally_and_recomputes(kb):
+    first = await kb.assert_fact("test", "Alice", "WORKED_AT", "IBM",
+                                 schema_creation_mode="none")
+    result = await kb.assert_fact("test", "Alice", "WORKED_AT", "IBM",
+                                  confidence=0.9, schema_creation_mode="none")
+    assert (result.node_id, result.created, result.match_type) == (
+        first.node_id, False, "structural"
+    )
+    assert result.extraction_id is not None
+    # Decision 14: the new evidence recomputes the fact's derived confidence.
+    meta = await kb.get_metadata("test", first.node_id)
+    assert meta["confidence"] == 0.9
+
+
+async def test_assert_fact_widens_on_domain_mismatch(kb):
+    await kb.declare_class("test", "PERSON", "A human")
+    await kb.declare_class("test", "COMPANY", "A business")
+    agency = await kb.declare_class("test", "AGENCY", "A public body")
+    rel_id = await kb.declare_relation_type("test", "WORKED_AT", "Employment",
+                                            domain="PERSON", range="COMPANY")
+    await kb.add_entity("test", "Bob", class_id=agency)
+    company = await kb.declare_class("test", "COMPANY", "A business")
+    await kb.add_entity("test", "IBM", class_id=company)
+    result = await kb.assert_fact("test", "Bob", "WORKED_AT", "IBM",
+                                  schema_creation_mode="none")
+    assert [w.node_id for w in result.widened_relations] == [rel_id]
+    dr = await kb.get_relation_domain_range("test", rel_id)
+    assert sorted(n["properties"]["name"] for n in dr["domain"]) == ["AGENCY", "PERSON"]
+
+
+# ------------------------------------------------------------------ #
+# Property-value asserts                                               #
+# ------------------------------------------------------------------ #
+
+async def test_assert_entity_property_creates_value_with_evidence(kb):
+    person = await kb.declare_class("test", "PERSON", "A human")
+    await kb.add_entity("test", "Alice", class_id=person)
+    result = await kb.assert_entity_property("test", "Alice", "AGE", "30",
+                                             schema_creation_mode="none")
+    assert result.created is True
+    assert [p["text"] for p in _evidence_of(kb, result.node_id)] == ["Alice AGE 30"]
+
+
+async def test_assert_entity_property_dedupes_equal_value(kb):
+    person = await kb.declare_class("test", "PERSON", "A human")
+    await kb.add_entity("test", "Alice", class_id=person)
+    first = await kb.assert_entity_property("test", "Alice", "AGE", "30",
+                                            schema_creation_mode="none")
+    result = await kb.assert_entity_property("test", "Alice", "AGE", "30",
+                                             schema_creation_mode="none")
+    assert (result.node_id, result.created, result.match_type) == (
+        first.node_id, False, "structural"
+    )
+    assert len(_evidence_of(kb, first.node_id)) == 2
+
+
+async def test_dedupe_matches_the_right_property_among_several(kb):
+    person = await kb.declare_class("test", "PERSON", "A human")
+    await kb.add_entity("test", "Alice", class_id=person)
+    # NICKNAME first, so its literal is the owner's first value; the AGE dedupe
+    # must still find the AGE literal, not the first one.
+    await kb.assert_entity_property("test", "Alice", "NICKNAME", "Al",
+                                    schema_creation_mode="none")
+    first = await kb.assert_entity_property("test", "Alice", "AGE", "30",
+                                            schema_creation_mode="none")
+    result = await kb.assert_entity_property("test", "Alice", "AGE", "30",
+                                             schema_creation_mode="none")
+    assert (result.node_id, result.created, result.match_type) == (
+        first.node_id, False, "structural"
+    )
+
+
+async def test_assert_entity_property_new_value_is_a_new_literal(kb):
+    person = await kb.declare_class("test", "PERSON", "A human")
+    await kb.add_entity("test", "Alice", class_id=person)
+    first = await kb.assert_entity_property("test", "Alice", "AGE", "30",
+                                            schema_creation_mode="none")
+    result = await kb.assert_entity_property("test", "Alice", "AGE", "31",
+                                             schema_creation_mode="none")
+    assert result.created is True
+    assert result.node_id != first.node_id
+
+
+async def test_inherited_property_is_reused_not_redeclared(kb):
+    person = await kb.declare_class("test", "PERSON", "A human")
+    employee = await kb.declare_class("test", "EMPLOYEE", "A staff member")
+    await kb.add_is_subclass_of("test", employee, person)
+    prop_id = await kb.declare_class_property("test", "FULL_NAME", "Name", class_id=person)
+    await kb.add_entity("test", "Alice", class_id=employee)
+    result = await kb.assert_entity_property("test", "Alice", "FULL_NAME", "Alice S",
+                                             schema_creation_mode="none")
+    props = list(kb.match_nodes("test", label=PROPERTY))
+    assert [n["id"] for n in props] == [prop_id]
+    assert result.created is True
+
+
+async def test_judge_1_places_the_property_on_the_chosen_ancestor(kb):
+    person = await kb.declare_class("test", "PERSON", "A human")
+    employee = await kb.declare_class("test", "EMPLOYEE", "A staff member")
+    await kb.add_is_subclass_of("test", employee, person)
+    await kb.add_entity("test", "Alice", class_id=employee)
+    placement = AsyncMock(return_value=[person])
+    with patch("blue_data_kb_source.ingestion.manager.judge_property_placement", placement), \
+         patch("blue_data_kb_source.ingestion.manager.judge_description",
+               AsyncMock(return_value="d")):
+        await kb.assert_entity_property("test", "Alice", "FULL_NAME", "Alice S")
+    nbs = kb.get_neighbors("test", person, edge_type=DEFINE_PROPERTY, direction="out")
+    assert [nb["node"]["properties"]["name"] for nb in nbs] == ["FULL_NAME"]
+
+
+async def test_placement_on_several_classes_shares_one_property_node(kb):
+    person = await kb.declare_class("test", "PERSON", "A human")
+    employee = await kb.declare_class("test", "EMPLOYEE", "A staff member")
+    await kb.add_is_subclass_of("test", employee, person)
+    await kb.add_entity("test", "Alice", class_id=employee)
+    placement = AsyncMock(return_value=[person, employee])
+    with patch("blue_data_kb_source.ingestion.manager.judge_property_placement", placement), \
+         patch("blue_data_kb_source.ingestion.manager.judge_description",
+               AsyncMock(return_value="d")):
+        await kb.assert_entity_property("test", "Alice", "FULL_NAME", "Alice S")
+    owners = [
+        [nb["node"]["id"] for nb in kb.get_neighbors("test", cid, edge_type=DEFINE_PROPERTY,
+                                                     direction="out")]
+        for cid in (person, employee)
+    ]
+    assert owners[0] == owners[1] and len(owners[0]) == 1
+    assert len(list(kb.match_nodes("test", label=PROPERTY))) == 1
+
+
+async def test_assert_fact_property_creates_on_the_relation(kb):
+    await kb.assert_fact("test", "Alice", "WORKED_AT", "IBM", schema_creation_mode="none")
+    result = await kb.assert_fact_property("test", "Alice", "WORKED_AT", "IBM",
+                                           "SINCE", "1998", schema_creation_mode="none")
+    assert result.created is True
+    assert [p["text"] for p in _evidence_of(kb, result.node_id)] == [
+        "Alice WORKED_AT IBM: SINCE 1998"
+    ]
+
+
+async def test_assert_fact_property_cascades_a_missing_fact(kb):
+    result = await kb.assert_fact_property("test", "Alice", "WORKED_AT", "IBM",
+                                           "SINCE", "1998", schema_creation_mode="none")
+    assert result.created is True
+    labels = sorted(r.label for r in result.created_nodes)
+    assert labels == [CLASS, ENTITY, ENTITY, FACT, LITERAL, PROPERTY, RELATION]
+
+
+async def test_empty_placement_pick_falls_back_to_direct_classes(kb):
+    person = await kb.declare_class("test", "PERSON", "A human")
+    await kb.add_entity("test", "Alice", class_id=person)
+    placement = AsyncMock(return_value=[])
+    with patch("blue_data_kb_source.ingestion.manager.judge_property_placement", placement), \
+         patch("blue_data_kb_source.ingestion.manager.judge_description",
+               AsyncMock(return_value="d")):
+        result = await kb.assert_entity_property("test", "Alice", "AGE", "30")
+    assert result.created is True
+    nbs = kb.get_neighbors("test", person, edge_type=DEFINE_PROPERTY, direction="out")
+    assert [nb["node"]["properties"]["name"] for nb in nbs] == ["AGE"]
+
+
+async def test_assert_fact_property_dedupes_equal_value(kb):
+    first = await kb.assert_fact_property("test", "Alice", "WORKED_AT", "IBM",
+                                          "SINCE", "1998", schema_creation_mode="none")
+    result = await kb.assert_fact_property("test", "Alice", "WORKED_AT", "IBM",
+                                           "SINCE", "1998", schema_creation_mode="none")
+    assert (result.node_id, result.created, result.match_type) == (
+        first.node_id, False, "structural"
+    )
+
+
+async def test_assert_fact_property_new_value_is_a_new_literal(kb):
+    first = await kb.assert_fact_property("test", "Alice", "WORKED_AT", "IBM",
+                                          "SINCE", "1998", schema_creation_mode="none")
+    result = await kb.assert_fact_property("test", "Alice", "WORKED_AT", "IBM",
+                                           "SINCE", "2001", schema_creation_mode="none")
+    assert result.created is True
+    assert result.node_id != first.node_id

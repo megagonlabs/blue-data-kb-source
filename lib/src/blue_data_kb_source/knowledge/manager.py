@@ -31,6 +31,7 @@ from blue_data_kb_source.knowledge.helpers import (
     fetch_node_metadata,
     find_entity,
     find_fact,
+    find_literal,
     node_name,
     property_values,
     evidence_records,
@@ -505,11 +506,7 @@ class KnowledgeManager:
         self._notifier.fire({"type": "fact_updated", "database": database, "id": fact_id})
 
     def _find_literal(self, database: str, owner_id: str, property_id: str) -> str | None:
-        for pv in property_values(self._source, database, owner_id):
-            prop = pv["property"]
-            if prop is not None and prop["id"] == property_id:
-                return pv["literal"]["id"]
-        return None
+        return find_literal(self._source, database, owner_id, property_id)
 
     async def update_entity_property_value(
         self,
