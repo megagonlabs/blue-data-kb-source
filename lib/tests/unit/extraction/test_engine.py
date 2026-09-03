@@ -37,8 +37,7 @@ def _text_response(text=None):
 
 def _mock_openai_sequence(*responses):
     """Patch openai.AsyncOpenAI so every AsyncOpenAI() call shares one client
-    whose chat.completions.create returns *responses* in order across all calls
-    (the outer extraction agent and any nested judge call share this queue)."""
+    whose chat.completions.create returns *responses* in order."""
     mock_client = MagicMock()
     mock_client.chat.completions.create = AsyncMock(side_effect=list(responses))
     return MagicMock(return_value=mock_client)
@@ -65,25 +64,25 @@ async def _seed_worked_at_with_start_date(kb):
 
 
 # ------------------------------------------------------------------ #
-# schema_discovery_mode controls tool availability                    #
+# extraction is extraction-only: no schema-declaration tools          #
 # ------------------------------------------------------------------ #
 
-async def test_none_mode_omits_search_schema_tool(kb):
-    factory = _mock_openai_sequence(_text_response("done"))
-    with patch("openai.AsyncOpenAI", factory):
-        await kb.import_text("test", "Some text.", schema_discovery_mode="none")
-    call_kwargs = factory.return_value.chat.completions.create.call_args.kwargs
-    tool_names = {t["function"]["name"] for t in call_kwargs["tools"]}
-    assert "search_schema" not in tool_names
+def test_extraction_tools_have_no_schema_declaration():
+    from blue_data_kb_source.extraction.engine import _TOOLS
 
-
-async def test_default_mode_includes_search_schema_tool(kb):
-    factory = _mock_openai_sequence(_text_response("done"))
-    with patch("openai.AsyncOpenAI", factory):
-        await kb.import_text("test", "Some text.")
-    call_kwargs = factory.return_value.chat.completions.create.call_args.kwargs
-    tool_names = {t["function"]["name"] for t in call_kwargs["tools"]}
+    tool_names = {t["function"]["name"] for t in _TOOLS}
+    assert tool_names.isdisjoint({
+        "declare_class", "declare_class_property",
+        "declare_relation_type", "declare_relation_property",
+    })
+    # search_schema stays — extraction still resolves mentions against existing schema
     assert "search_schema" in tool_names
+
+
+def test_system_prompt_instructs_skipping_unmatched_items():
+    from blue_data_kb_source.extraction.engine import _SYSTEM_PROMPT_TEMPLATE
+
+    assert "skip" in _SYSTEM_PROMPT_TEMPLATE.lower()
 
 
 # ------------------------------------------------------------------ #
@@ -94,15 +93,15 @@ async def test_import_text_stops_after_max_turns(kb):
     response = _tool_call_response("get_schema", {})
     factory, mock_client = _mock_openai_endless(response)
     with patch("openai.AsyncOpenAI", factory):
-        await kb.import_text("test", "Some text.", max_turns=3)
+        await kb.import_text("test", "Some text.", expand_schema=False, max_turns=3)
     assert mock_client.chat.completions.create.call_count == 3
 
 
 # ------------------------------------------------------------------ #
-# schema_discovery_mode="search"                                       #
+# search_schema resolves existing schema for extraction                #
 # ------------------------------------------------------------------ #
 
-async def test_search_mode_finds_similar_property_by_description(kb):
+async def test_search_schema_finds_existing_property_by_description(kb):
     _, prop_id = await _seed_worked_at_with_start_date(kb)
 
     calls = []
@@ -113,7 +112,7 @@ async def test_search_mode_finds_similar_property_by_description(kb):
     with patch("openai.AsyncOpenAI", responses):
         await kb.import_text(
             "test", "Alice joined IBM in 1998.",
-            schema_discovery_mode="search",
+            expand_schema=False,
             on_tool_result=lambda name, args, result: calls.append((name, result)),
         )
 
@@ -124,7 +123,7 @@ async def test_search_mode_finds_similar_property_by_description(kb):
     assert prop_id in ids
 
 
-async def test_search_mode_no_match_returns_empty(kb):
+async def test_search_schema_no_match_returns_empty(kb):
     await _seed_worked_at_with_start_date(kb)
 
     calls = []
@@ -135,7 +134,7 @@ async def test_search_mode_no_match_returns_empty(kb):
     with patch("openai.AsyncOpenAI", responses):
         await kb.import_text(
             "test", "Some text.",
-            schema_discovery_mode="search",
+            expand_schema=False,
             on_tool_result=lambda name, args, result: calls.append((name, result)),
         )
 
@@ -143,46 +142,24 @@ async def test_search_mode_no_match_returns_empty(kb):
 
 
 # ------------------------------------------------------------------ #
-# schema_discovery_mode="llm"                                          #
+# import_text(expand_schema=True) also runs SchemaManager.expand_schema #
 # ------------------------------------------------------------------ #
 
-async def test_llm_mode_finds_synonym_property(kb):
-    _, prop_id = await _seed_worked_at_with_start_date(kb)
-
+async def test_import_text_runs_expand_schema_by_default(kb):
     calls = []
-    responses = _mock_openai_sequence(
-        _tool_call_response("search_schema", {"query": "date the person joined the company", "type": "property"}),
-        _tool_call_response("return_matches", {"matching_ids": [prop_id]}),
-        _text_response("done"),
-    )
-    with patch("openai.AsyncOpenAI", responses):
-        await kb.import_text(
-            "test", "Alice joined IBM in 1998.",
-            schema_discovery_mode="llm",
-            on_tool_result=lambda name, args, result: calls.append((name, result)),
-        )
-
-    assert len(calls) == 1
-    name, result = calls[0]
-    assert name == "search_schema"
-    ids = {el["id"] for el in result["schema_elements"]}
-    assert ids == {prop_id}
+    with patch.object(kb._schema, "expand_schema", AsyncMock()) as mock_expand:
+        responses = _mock_openai_sequence(_text_response("done"))
+        with patch("openai.AsyncOpenAI", responses):
+            await kb.import_text(
+                "test", "Some text.",
+                on_tool_result=lambda name, args, result: calls.append((name, result)),
+            )
+    mock_expand.assert_awaited_once()
 
 
-async def test_llm_mode_no_match_returns_empty(kb):
-    await _seed_worked_at_with_start_date(kb)
-
-    calls = []
-    responses = _mock_openai_sequence(
-        _tool_call_response("search_schema", {"query": "favorite color", "type": "property"}),
-        _tool_call_response("return_matches", {"matching_ids": []}),
-        _text_response("done"),
-    )
-    with patch("openai.AsyncOpenAI", responses):
-        await kb.import_text(
-            "test", "Some text.",
-            schema_discovery_mode="llm",
-            on_tool_result=lambda name, args, result: calls.append((name, result)),
-        )
-
-    assert calls[0][1]["schema_elements"] == []
+async def test_import_text_skips_expand_schema_when_disabled(kb):
+    with patch.object(kb._schema, "expand_schema", AsyncMock()) as mock_expand:
+        responses = _mock_openai_sequence(_text_response("done"))
+        with patch("openai.AsyncOpenAI", responses):
+            await kb.import_text("test", "Some text.", expand_schema=False)
+    mock_expand.assert_not_awaited()

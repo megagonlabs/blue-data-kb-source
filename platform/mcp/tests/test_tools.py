@@ -27,6 +27,7 @@ from blue_data_kb_mcp.server import (
     declare_relation,
     declare_relation_property,
     enrich,
+    expand_schema,
     fetch_data,
     fetch_meta_schema,
     fetch_schema,
@@ -345,14 +346,41 @@ async def test_enrich_returns_list():
 
 
 # ---------------------------------------------------------------------------
+# Schema expansion (mocked OpenAI)
+# ---------------------------------------------------------------------------
+
+async def test_expand_schema_declares_class():
+    factory = _mock_openai_sequence(
+        _tool_call_response("declare_class", {"name": "PERSON", "description": "A human individual"}),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", factory):
+        result = json.loads(await expand_schema("Alice is a person.", dedup_mode="none", database=DB))
+    assert result["status"] == "ok"
+    schema = json.loads(await fetch_schema(database=DB))
+    assert any(e["name"] == "PERSON" for e in schema["entities"].values())
+
+
+# ---------------------------------------------------------------------------
 # Extraction (mocked OpenAI)
 # ---------------------------------------------------------------------------
 
 async def test_import_text_completes_with_no_tool_calls():
     factory = _mock_openai_sequence(_text_response("done"))
     with patch("openai.AsyncOpenAI", factory):
+        result = json.loads(await import_text("Some text.", expand_schema=False, database=DB))
+    assert result["status"] == "ok"
+
+
+async def test_import_text_default_also_runs_schema_expansion():
+    # expand_schema=True (default) means the mocked client is called twice —
+    # once for expand_schema, once for extraction — both ending immediately
+    # with no tool calls.
+    factory = _mock_openai_sequence(_text_response("done"), _text_response("done"))
+    with patch("openai.AsyncOpenAI", factory):
         result = json.loads(await import_text("Some text.", database=DB))
     assert result["status"] == "ok"
+    assert factory.return_value.chat.completions.create.call_count == 2
 
 
 # ---------------------------------------------------------------------------

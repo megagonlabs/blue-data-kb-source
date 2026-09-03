@@ -25,21 +25,29 @@ from blue_data_kb_source._constants import (
     TAIL,
 )
 from blue_data_kb_source.checks import require_node_type, require_node_type_one_of
+from blue_data_kb_source.schema.expansion import SchemaExpansionEngine
 from blue_data_kb_source.timestamps import edge_stamped, stamped, touched
 from blue_data_kb_source.types import SchemaError, SchemaSearchResult
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Literal
 
 if TYPE_CHECKING:
     from blue_data_kb_source.notification.notifier import ChangeNotifier
+    from blue_data_kb_source.search.indexer import KBSearchIndexer
 
 
 class SchemaManager:
     """Manages schema-level nodes (CLASS, RELATION, PROPERTY) and schema-level edges."""
 
-    def __init__(self, source: GraphSource, notifier: "ChangeNotifier | None" = None) -> None:
+    def __init__(
+        self,
+        source: GraphSource,
+        notifier: "ChangeNotifier | None" = None,
+        search_indexer: "KBSearchIndexer | None" = None,
+    ) -> None:
         self._source = source
         self._notifier = notifier
+        self._expansion = SchemaExpansionEngine(source, self, search_indexer)
 
     def _fire(self, event: dict) -> None:
         if self._notifier is not None:
@@ -380,6 +388,43 @@ class SchemaManager:
             "parent_id":  parent_id,
             "parent_name": parent_node.get("properties", {}).get("name"),
         })
+
+    # ------------------------------------------------------------------ #
+    # Expansion                                                            #
+    # ------------------------------------------------------------------ #
+
+    async def expand_schema(
+        self,
+        database: str,
+        text: str,
+        *,
+        depth: int = 1,
+        reference: Literal["llm", "mcp"] = "llm",
+        mcp_servers: list[dict[str, Any]] | None = None,
+        dedup_mode: Literal["search", "llm", "none"] = "search",
+        model: str = "gpt-4o",
+        on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
+        on_tool_result: Callable[[str, dict[str, Any], Any], None] | None = None,
+        max_turns: int = 25,
+    ) -> None:
+        """Grow the schema (classes, relations, properties) grounded by *text*.
+
+        Never touches entities, facts, or property values — run `import_text`
+        (extraction) afterward against the schema this produces. See
+        SchemaExpansionEngine for parameter details.
+        """
+        await self._expansion.expand_schema(
+            database,
+            text,
+            depth=depth,
+            reference=reference,
+            mcp_servers=mcp_servers,
+            dedup_mode=dedup_mode,
+            model=model,
+            on_tool_call=on_tool_call,
+            on_tool_result=on_tool_result,
+            max_turns=max_turns,
+        )
 
     # ------------------------------------------------------------------ #
     # Schema export / import                                               #

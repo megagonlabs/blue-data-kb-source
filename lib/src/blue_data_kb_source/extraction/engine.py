@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Callable
 
 from blue_data.source.graph.graph_source import GraphSource
 
-from blue_data_kb_source._constants import CLASS, ENTITY, HEAD, PROPERTY, RELATION, REPRESENTS, TAIL
-from blue_data_kb_source.types import ExtractionError, SchemaSearchResult
+from blue_data_kb_source._constants import CLASS, ENTITY, HEAD, RELATION, REPRESENTS, TAIL
+from blue_data_kb_source.types import ExtractionError
 
 if TYPE_CHECKING:
     from blue_data_kb_source.knowledge.manager import KnowledgeManager
@@ -84,10 +84,8 @@ _TOOLS: list[dict[str, Any]] = [
             "name": "search_schema",
             "description": (
                 "Search existing schema elements (classes, relations, properties) for one that "
-                "already covers a given concept — even under a different name. Call this before "
-                "declare_class, declare_relation_type, declare_class_property, or "
-                "declare_relation_property to avoid declaring a near-duplicate (e.g. a JOIN_DATE "
-                "property when a START_DATE property already means the same thing). Returns "
+                "matches a given concept — even under a different name. Use this to find the "
+                "CLASS/RELATION/PROPERTY that a mention in the text corresponds to. Returns "
                 "{schema_elements: [{id, type, name, description}]}."
             ),
             "parameters": {
@@ -98,74 +96,6 @@ _TOOLS: list[dict[str, Any]] = [
                     "type":  {"type": "string", "enum": ["class", "relation", "property"], "description": "Restrict to a schema element type (optional)"},
                 },
                 "required": ["query"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "declare_class",
-            "description": "Declare a CLASS in the schema (idempotent). Returns {id}.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string", "description": "Class name e.g. PERSON"},
-                    "description": {"type": "string"},
-                },
-                "required": ["name", "description"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "declare_class_property",
-            "description": "Declare a PROPERTY on a CLASS (idempotent). Returns {id}.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "class_id": {"type": "string"},
-                    "name": {"type": "string", "description": "Property name e.g. AGE"},
-                    "description": {"type": "string"},
-                },
-                "required": ["class_id", "name", "description"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "declare_relation_type",
-            "description": (
-                "Declare a RELATION type in the schema (idempotent). Every relation must have a "
-                "domain and range CLASS — find or declare both classes first. Returns {id}."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string", "description": "Relation name e.g. WORKED_AT"},
-                    "description": {"type": "string"},
-                    "is_symmetric": {"type": "boolean"},
-                    "domain": {"type": "string", "description": "Name of the domain (head) CLASS, e.g. PERSON"},
-                    "range": {"type": "string", "description": "Name of the range (tail) CLASS, e.g. COMPANY"},
-                },
-                "required": ["name", "description", "domain", "range"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "declare_relation_property",
-            "description": "Declare a PROPERTY on a RELATION (idempotent). Returns {id}.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "relation_id": {"type": "string"},
-                    "name": {"type": "string", "description": "Property name e.g. START_DATE"},
-                    "description": {"type": "string"},
-                },
-                "required": ["relation_id", "name", "description"],
             },
         },
     },
@@ -281,26 +211,26 @@ The KB stores:
   FACT      — a specific relation between two entities
   LITERAL   — a concrete property value (e.g. "28", "1998-06-01")
 
+This pass only extracts against the schema as it currently stands — it never
+declares new CLASSes, RELATIONs, or PROPERTIES. If nothing in the current schema
+covers something in the text (use search_schema to check), skip that item rather
+than inventing a schema element for it.
+
 Workflow:
 1. For each entity in the text: call find_entity first. If it already exists, call
    link_extraction with its id and the new text span instead of add_entity. Otherwise
-   find or declare its CLASS, then call add_entity.
+   find its CLASS via search_schema — if no matching CLASS exists, skip this entity —
+   then call add_entity.
 2. For each relationship: resolve both entities (including their CLASSes) first, then
-   find or declare the RELATION type — declare_relation_type requires the domain (head
-   entity's CLASS name) and range (tail entity's CLASS name), so both classes must
-   already be found or declared before this call. Then call find_fact. If the fact
-   already exists, call link_extraction with its id and the new text span instead of
-   add_fact. Otherwise call add_fact.
-3. For each attribute value: find or declare the PROPERTY on its class/relation,
-   then call add_entity_property_value or add_fact_property_value.
-4. Prefer existing schema elements; only declare new ones when nothing fits. Before
-   calling declare_class, declare_relation_type, declare_class_property, or
-   declare_relation_property, call search_schema with a short description of the
-   concept. If an existing element already covers the same meaning — even under a
-   different name — reuse its id instead of declaring a near-duplicate.
-5. Use names exactly as they appear in the text for entities.
-   Use UPPER_SNAKE_CASE for CLASS, RELATION, and PROPERTY names.
-6. When calling add_entity, add_fact, add_entity_property_value,
+   find the RELATION type via search_schema. If no matching RELATION exists, skip this
+   relationship. Otherwise call find_fact. If the fact already exists, call
+   link_extraction with its id and the new text span instead of add_fact. Otherwise
+   call add_fact.
+3. For each attribute value: find the PROPERTY on its class/relation via search_schema.
+   If no matching PROPERTY exists, skip this value. Otherwise call
+   add_entity_property_value or add_fact_property_value.
+4. Use names exactly as they appear in the text for entities.
+5. When calling add_entity, add_fact, add_entity_property_value,
    add_fact_property_value, or link_extraction, always pass the verbatim sentence
    or phrase from the source text that the item was extracted from as the
    `text` argument. Reusing an existing entity/fact via link_extraction records
@@ -354,7 +284,6 @@ class ExtractionEngine:
         queries: list[str] | None = None,
         model: str = "gpt-4o",
         source_id: str | None = None,
-        schema_discovery_mode: Literal["search", "llm", "none"] = "search",
         on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
         on_tool_result: Callable[[str, dict[str, Any], Any], None] | None = None,
         max_turns: int = 25,
@@ -376,11 +305,6 @@ class ExtractionEngine:
         source_str = _describe_source(source_node)
         system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(schema=schema_str, queries=queries_str, source=source_str)
 
-        tools = (
-            _TOOLS if schema_discovery_mode != "none"
-            else [t for t in _TOOLS if t["function"]["name"] != "search_schema"]
-        )
-
         client = openai.AsyncOpenAI()
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": system_prompt},
@@ -395,7 +319,7 @@ class ExtractionEngine:
             response = await client.chat.completions.create(
                 model=model,
                 messages=messages,  # type: ignore[arg-type]
-                tools=tools,  # type: ignore[arg-type]
+                tools=_TOOLS,  # type: ignore[arg-type]
                 tool_choice="auto",
             )
             msg = response.choices[0].message
@@ -419,9 +343,7 @@ class ExtractionEngine:
                 if on_tool_call:
                     on_tool_call(tc.function.name, args)
                 try:
-                    result = await self._dispatch_tool(
-                        database, tc.function.name, args, source_id, schema_discovery_mode, model
-                    )
+                    result = await self._dispatch_tool(database, tc.function.name, args, source_id)
                 except Exception as exc:
                     result = {"error": str(exc)}
                 if on_tool_result:
@@ -438,8 +360,6 @@ class ExtractionEngine:
         fn: str,
         args: dict[str, Any],
         source_id: str | None,
-        schema_discovery_mode: Literal["search", "llm", "none"],
-        model: str,
     ) -> dict[str, Any]:
         if fn == "get_schema":
             schema = await self._schema.fetch_database_schema(database)
@@ -449,16 +369,13 @@ class ExtractionEngine:
             type_filter = args.get("type")
             if type_filter:
                 type_filter = type_filter.upper()
-            if schema_discovery_mode == "llm":
-                results = await self._judge_similar_schema(database, args["query"], type_filter, model)
+            mode = args.get("mode", "keyword")
+            if self._search_indexer is not None:
+                results = self._search_indexer.search_schema(
+                    database, args["query"], k=20, mode=mode, type_filter=type_filter
+                )
             else:
-                mode = args.get("mode", "keyword")
-                if self._search_indexer is not None:
-                    results = self._search_indexer.search_schema(
-                        database, args["query"], k=20, mode=mode, type_filter=type_filter
-                    )
-                else:
-                    results = await self._schema.find_schema(database, args["query"], type_filter=type_filter)
+                results = await self._schema.find_schema(database, args["query"], type_filter=type_filter)
             return {"schema_elements": [
                 {"id": r.id, "type": r.type, "name": r.name, "description": r.description}
                 for r in results
@@ -498,36 +415,6 @@ class ExtractionEngine:
                         and any(r["node"]["id"] == relation_id for r in rel_nbs)):
                     return {"id": fact_id, "name": fact_node.get("properties", {}).get("name")}
             return {"id": None}
-
-        if fn == "declare_class":
-            cid = await self._schema.declare_class(database, name=args["name"], description=args["description"])
-            return {"id": cid}
-
-        if fn == "declare_class_property":
-            pid = await self._schema.declare_class_property(
-                database, name=args["name"], description=args["description"], class_id=args["class_id"]
-            )
-            return {"id": pid}
-
-        if fn == "declare_relation_type":
-            rid = await self._schema.declare_relation_type(
-                database,
-                name=args["name"],
-                description=args["description"],
-                is_symmetric=args.get("is_symmetric", False),
-                domain=args["domain"],
-                range=args["range"],
-            )
-            return {"id": rid}
-
-        if fn == "declare_relation_property":
-            pid = await self._schema.declare_relation_property(
-                database,
-                name=args["name"],
-                description=args["description"],
-                relation_id=args["relation_id"],
-            )
-            return {"id": pid}
 
         if fn == "add_entity":
             eid = await self._knowledge.add_entity(
@@ -586,74 +473,3 @@ class ExtractionEngine:
             return {"id": extraction_id}
 
         return {"error": f"unknown tool: {fn}"}
-
-    async def _judge_similar_schema(
-        self,
-        database: str,
-        query: str,
-        type_filter: str | None,
-        model: str,
-    ) -> list[SchemaSearchResult]:
-        """Ask the LLM whether *query* means the same thing as an existing schema element.
-
-        Used in place of keyword/semantic search_schema when accuracy on
-        differently-worded synonyms (e.g. JOIN_DATE vs START_DATE) matters more
-        than the cost of an extra model call.
-        """
-        import openai
-
-        labels = [type_filter] if type_filter else [CLASS, RELATION, PROPERTY]
-        candidates: list[SchemaSearchResult] = []
-        for label in labels:
-            for node in self._source.match_nodes(database, label=label):
-                props = node.get("properties", {})
-                candidates.append(SchemaSearchResult(
-                    id=node["id"], type=label,
-                    name=props.get("name", ""), description=props.get("description") or "",
-                ))
-        if not candidates:
-            return []
-
-        candidates_str = "\n".join(f"- {c.id}: [{c.type}] {c.name} — {c.description}" for c in candidates)
-        judge_tool = {
-            "type": "function",
-            "function": {
-                "name": "return_matches",
-                "description": "Return the ids of existing schema elements that mean the same thing as the proposed one.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "matching_ids": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "ids of existing elements representing the same concept as the query; empty if none match",
-                        },
-                    },
-                    "required": ["matching_ids"],
-                },
-            },
-        }
-        client = openai.AsyncOpenAI()
-        response = await client.chat.completions.create(
-            model=model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You judge whether a proposed KB schema element duplicates an existing one "
-                        "by meaning, not by exact wording (e.g. JOIN_DATE and START_DATE can mean the "
-                        "same thing: the date employment began). Be conservative: only flag a match "
-                        "when they clearly represent the same concept."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": f"Proposed element: \"{query}\"\n\nExisting elements:\n{candidates_str}",
-                },
-            ],
-            tools=[judge_tool],  # type: ignore[arg-type]
-            tool_choice={"type": "function", "function": {"name": "return_matches"}},  # type: ignore[arg-type]
-        )
-        tc = response.choices[0].message.tool_calls[0]
-        matching_ids = set(json.loads(tc.function.arguments).get("matching_ids", []))
-        return [c for c in candidates if c.id in matching_ids]

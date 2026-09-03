@@ -69,6 +69,20 @@ def _run(coro: Any) -> Any:
     return asyncio.run(coro)
 
 
+def _parse_mcp_servers(raw: tuple[str, ...]) -> list[dict] | None:
+    """Parse repeated --*mcp-server JSON strings, e.g.
+    '{"transport":"stdio","command":"blue-data-wordnet-mcp"}', into a list of dicts."""
+    if not raw:
+        return None
+    servers = []
+    for entry in raw:
+        try:
+            servers.append(json.loads(entry))
+        except json.JSONDecodeError as exc:
+            raise click.ClickException(f"invalid JSON in --mcp-server: {exc}")
+    return servers
+
+
 def _truncate(text: str, limit: int = 80) -> str:
     return text if len(text) <= limit else text[: limit - 3] + "..."
 
@@ -1670,6 +1684,88 @@ def schema_search(obj: dict, query: str, types: tuple[str, ...], mode: str, top_
         console.print(t)
 
 
+@schema_group.command("expand")
+@click.argument("text")
+@click.option(
+    "--depth", type=int, default=1, show_default=True,
+    help="Hierarchy levels beyond what's directly evidenced in TEXT to also propose.",
+)
+@click.option(
+    "--reference",
+    type=click.Choice(["llm", "mcp"]),
+    default="llm",
+    show_default=True,
+    help=(
+        "'llm' proposes schema freely from TEXT; 'mcp' additionally gives the model "
+        "tools from --mcp-server (e.g. WordNet hypernyms/synonyms) to ground names and "
+        "hierarchy placement before declaring."
+    ),
+)
+@click.option(
+    "--mcp-server", "mcp_servers_raw",
+    multiple=True,
+    help=(
+        "MCP server to connect (repeatable), as a JSON object — e.g. "
+        '\'{"transport":"stdio","command":"blue-data-wordnet-mcp"}\' or '
+        '\'{"transport":"sse","url":"https://..."}\'. Required when --reference mcp.'
+    ),
+)
+@click.option(
+    "--dedup-mode",
+    type=click.Choice(["search", "llm", "none"]),
+    default="search",
+    show_default=True,
+    help=(
+        "How to check for an existing schema element before declaring a new one: "
+        "'search' uses the database's configured search backend; 'llm' asks the model "
+        "to judge synonyms (e.g. JOIN_DATE vs START_DATE); 'none' disables the check."
+    ),
+)
+@click.option("--model", default="gpt-4o", show_default=True, help="OpenAI model.")
+@click.option("--verbose", "-v", is_flag=True, default=False, help="Show tool call arguments in the status line.")
+@click.option("--log", "-l", is_flag=True, default=False, help="Also log each tool call and its result on its own line (in addition to the status line).")
+@click.option("--log-limit", type=int, default=80, show_default=True, help="Max characters to show per truncated verbose/log line.")
+@click.pass_obj
+def schema_expand(
+    obj: dict,
+    text: str,
+    depth: int,
+    reference: str,
+    mcp_servers_raw: tuple[str, ...],
+    dedup_mode: str,
+    model: str,
+    verbose: bool,
+    log: bool,
+    log_limit: int,
+) -> None:
+    """Grow the schema (classes, relations, properties) grounded by TEXT — without
+    extracting any data. Run separately from `kb data extract`, so the same
+    expanded schema can be reused across many extraction calls.
+
+    Requires the openai extra: pip install 'blue-data-kb-source[openai]'
+    and OPENAI_API_KEY in the environment.
+    """
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    mcp_servers = _parse_mcp_servers(mcp_servers_raw)
+    try:
+        with console.status("Expanding schema…") as status:
+            on_call, on_result = _status_tool_callbacks(status, "Expanding", verbose, log, log_limit)
+            _run(kb.expand_schema(
+                db, text,
+                depth=depth,
+                reference=reference,
+                mcp_servers=mcp_servers,
+                dedup_mode=dedup_mode,
+                model=model,
+                on_tool_call=on_call,
+                on_tool_result=on_result,
+            ))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print("Schema expansion complete.")
+
+
 # ------------------------------------------------------------------ #
 # kb data                                                              #
 # ------------------------------------------------------------------ #
@@ -2899,12 +2995,41 @@ def data_import(obj: dict, input_file) -> None:
 @click.option("--source-id",               default=None,  help="Source node ID (overrides --source).")
 @click.option("--model",                   default="gpt-4o", show_default=True, help="OpenAI model.")
 @click.option(
-    "--schema-discovery-mode",
+    "--expand-schema/--no-expand-schema", "expand_schema_flag", default=True, show_default=True,
+    help="Run schema expansion (SchemaManager.expand_schema) before extracting. "
+         "Use --no-expand-schema to extract only against the schema as it stands.",
+)
+@click.option(
+    "--schema-expansion-target", "schema_expansion_target",
+    type=click.Choice(["text", "queries"]), multiple=True,
+    help="What to ground schema expansion in (repeatable). Default: both TEXT and --query.",
+)
+@click.option(
+    "--schema-expansion-depth", type=int, default=1, show_default=True,
+    help="Hierarchy levels beyond what's directly evidenced to also propose during expansion.",
+)
+@click.option(
+    "--schema-expansion-mode",
+    type=click.Choice(["llm", "mcp"]),
+    default="llm",
+    show_default=True,
+    help="'mcp' additionally gives schema expansion tools from --schema-expansion-mcp-server "
+         "(e.g. WordNet) to ground names and hierarchy placement.",
+)
+@click.option(
+    "--schema-expansion-mcp-server", "schema_expansion_mcp_servers_raw",
+    multiple=True,
+    help='MCP server for schema expansion (repeatable), as a JSON object — e.g. '
+         '\'{"transport":"stdio","command":"blue-data-wordnet-mcp"}\'. '
+         "Required when --schema-expansion-mode mcp.",
+)
+@click.option(
+    "--schema-expansion-dedup-mode",
     type=click.Choice(["search", "llm", "none"]),
     default="search",
     show_default=True,
     help=(
-        "How the agent checks for existing schema elements before declaring new ones: "
+        "How schema expansion checks for existing schema elements before declaring new ones: "
         "'search' uses the database's configured search backend (keyword/semantic); "
         "'llm' asks the model to judge synonyms (e.g. JOIN_DATE vs START_DATE), at the cost "
         "of an extra call per check; 'none' disables the check."
@@ -2921,12 +3046,18 @@ def extract_cmd(
     source_name: str | None,
     source_id: str | None,
     model: str,
-    schema_discovery_mode: str,
+    expand_schema_flag: bool,
+    schema_expansion_target: tuple[str, ...],
+    schema_expansion_depth: int,
+    schema_expansion_mode: str,
+    schema_expansion_mcp_servers_raw: tuple[str, ...],
+    schema_expansion_dedup_mode: str,
     verbose: bool,
     log: bool,
     log_limit: int,
 ) -> None:
-    """Extract entities, facts, and property values from free text.
+    """Extract entities, facts, and property values from free text. By default this
+    also expands the schema first (see --no-expand-schema and `kb schema expand`).
 
     Requires the openai extra: pip install 'blue-data-kb-source[openai]'
     and OPENAI_API_KEY in the environment.
@@ -2936,6 +3067,7 @@ def extract_cmd(
     resolved_source_id: str | None = None
     if source_name or source_id:
         resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
+    schema_expansion_mcp_servers = _parse_mcp_servers(schema_expansion_mcp_servers_raw)
     try:
         with console.status("Extracting…") as status:
             on_call, on_result = _status_tool_callbacks(status, "Extracting", verbose, log, log_limit)
@@ -2943,7 +3075,12 @@ def extract_cmd(
                                 queries=list(queries) or None,
                                 model=model,
                                 source_id=resolved_source_id,
-                                schema_discovery_mode=schema_discovery_mode,
+                                expand_schema=expand_schema_flag,
+                                schema_expansion_target=list(schema_expansion_target) or None,
+                                schema_expansion_depth=schema_expansion_depth,
+                                schema_expansion_mode=schema_expansion_mode,
+                                schema_expansion_mcp_servers=schema_expansion_mcp_servers,
+                                schema_expansion_dedup_mode=schema_expansion_dedup_mode,
                                 on_tool_call=on_call,
                                 on_tool_result=on_result))
     except KBError as exc:

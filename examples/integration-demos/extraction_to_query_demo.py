@@ -60,7 +60,6 @@ async def main():
         TEXT,
         queries=["Extract every person, organization, and employment or acquisition relationship."],
         source_id=source_id,
-        schema_discovery_mode="search",
         on_tool_call=on_tool_call,
     )
 

@@ -10,12 +10,16 @@ Tool groups
 Schema (write)     — declare_class, declare_relation, declare_class_property,
                       declare_relation_property, add_is_subclass_of
 Schema (read)      — search_schema, fetch_schema, fetch_meta_schema
+Schema expansion   — expand_schema (LLM-grown schema, optionally grounded by
+                      connected MCP servers, e.g. platform/wordnet-mcp — run
+                      before import_text, or let import_text run it inline)
 Knowledge (write)  — add_entity, add_fact, add_entity_property, add_fact_property,
                       add_entity_extraction, add_fact_extraction,
                       add_entity_property_extraction, add_fact_property_extraction
 Knowledge (read)   — search_data, fetch_data, get_metadata
 Query              — answer, validate, enrich
-Extraction         — import_text
+Extraction         — import_text (extraction only — schema mutation lives in
+                      expand_schema)
 Provenance         — add_source
 
 Quick start
@@ -620,6 +624,56 @@ async def enrich(
 
 
 # ---------------------------------------------------------------------------
+# Schema expansion
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+async def expand_schema(
+    text: str,
+    depth: int = 1,
+    reference: str = "llm",
+    mcp_servers: Optional[list[dict]] = None,
+    dedup_mode: str = "search",
+    model: Optional[str] = None,
+    database: str = "default",
+) -> str:
+    """Grow the schema (classes, relations, properties) grounded by *text* —
+    without extracting any data. Run once, then import_text (with
+    expand_schema=False) can extract many documents against the schema this
+    produces.
+
+    Args:
+        text:        Passage to ground schema proposals in.
+        depth:       Hierarchy levels beyond what's directly evidenced in *text*
+                     to also propose (default 1 = immediate parent/child category).
+        reference:   'llm' (default) proposes schema freely; 'mcp' additionally
+                     gives the model tools from *mcp_servers* (e.g. WordNet
+                     hypernyms/synonyms) to ground names and hierarchy placement.
+        mcp_servers: MCP servers to connect when reference='mcp' — each
+                     {"transport": "stdio", "command": ..., "args": [...], "env": {...}}
+                     or {"transport": "sse"|"streamable_http", "url": ..., "headers": {...}}.
+        dedup_mode:  How to check for an existing schema element before declaring a
+                     new one: 'search' (default, uses the configured search backend),
+                     'llm' (asks the model to judge synonyms), or 'none' (disables
+                     the check).
+        model:       OpenAI model (default: server's configured default model).
+        database:    Target database (default 'default').
+    """
+    try:
+        await get_kb().expand_schema(
+            database, text,
+            depth=depth,
+            reference=reference,
+            mcp_servers=mcp_servers,
+            dedup_mode=dedup_mode,
+            model=model or default_model(),
+        )
+        return _ok({"status": "ok"})
+    except Exception as e:
+        return _err(e)
+
+
+# ---------------------------------------------------------------------------
 # Extraction
 # ---------------------------------------------------------------------------
 
@@ -629,26 +683,47 @@ async def import_text(
     queries: Optional[list[str]] = None,
     model: Optional[str] = None,
     source_id: Optional[str] = None,
-    schema_discovery_mode: str = "search",
+    expand_schema: bool = True,
+    schema_expansion_target: Optional[list[str]] = None,
+    schema_expansion_depth: int = 1,
+    schema_expansion_mode: str = "llm",
+    schema_expansion_mcp_servers: Optional[list[dict]] = None,
+    schema_expansion_dedup_mode: str = "search",
     database: str = "default",
 ) -> str:
     """Extract entities, facts, and property values from free text into the
-    knowledge base using an LLM agent. Extends the schema as needed.
+    knowledge base using an LLM agent. By default this also expands the schema
+    first (see expand_schema for its own params, mirrored here with a
+    schema_expansion_ prefix) — pass expand_schema=False to only extract
+    against the schema as it currently stands.
 
     Args:
-        text:                    Free-text passage to extract from.
-        queries:                 Guiding questions to focus extraction (optional).
-        model:                   OpenAI model (default: server's configured default model).
-        source_id:               Id of an existing source node for provenance (optional).
-        schema_discovery_mode:   How the agent checks for existing schema elements before
-                                 declaring new ones: 'search' (default, uses the configured
-                                 search backend), 'llm' (asks the model to judge synonyms),
-                                 or 'none' (disables the check).
-        database:                Target database (default 'default').
+        text:                          Free-text passage to extract from.
+        queries:                       Guiding questions to focus extraction (optional).
+        model:                         OpenAI model (default: server's configured default model).
+        source_id:                     Id of an existing source node for provenance (optional).
+        expand_schema:                 Run schema expansion before extracting (default True).
+        schema_expansion_target:       What to ground expansion in: any combination of
+                                       'text'/'queries' (default: both) — only used when
+                                       expand_schema=True.
+        schema_expansion_depth:        See expand_schema's depth.
+        schema_expansion_mode:         See expand_schema's reference ('llm' or 'mcp').
+        schema_expansion_mcp_servers:  See expand_schema's mcp_servers.
+        schema_expansion_dedup_mode:   See expand_schema's dedup_mode.
+        database:                      Target database (default 'default').
     """
     try:
         await get_kb().import_text(
-            database, text, queries, model or default_model(), source_id, schema_discovery_mode
+            database, text,
+            queries=queries,
+            model=model or default_model(),
+            source_id=source_id,
+            expand_schema=expand_schema,
+            schema_expansion_target=schema_expansion_target,
+            schema_expansion_depth=schema_expansion_depth,
+            schema_expansion_mode=schema_expansion_mode,
+            schema_expansion_mcp_servers=schema_expansion_mcp_servers,
+            schema_expansion_dedup_mode=schema_expansion_dedup_mode,
         )
         return _ok({"status": "ok"})
     except Exception as e:

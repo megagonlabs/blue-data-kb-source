@@ -145,7 +145,6 @@ class KBSource(GraphSource, ABC):
         super().__init__(name, properties=properties)
         self._notifier = ChangeNotifier()
         self._provenance = ProvenanceTracker(self)
-        self._schema = SchemaManager(self, self._notifier)
 
         # Search/vector/embedding config lives entirely under properties["search"] —
         # matching DataSource.__init__(name, properties=None): no extra constructor
@@ -180,6 +179,11 @@ class KBSource(GraphSource, ABC):
                 corpus_dir=search_cfg.get("bm25_index_dir"),
             )
             self._notifier.add_global_hook(self._search_indexer.on_change)
+
+        # SchemaManager is built after the search indexer so its expansion engine
+        # (SchemaExpansionEngine) can use it for search-mode dedup, same as
+        # KnowledgeManager/ExtractionEngine below.
+        self._schema = SchemaManager(self, self._notifier, self._search_indexer)
 
         self._knowledge = KnowledgeManager(
             self, self._provenance, self._notifier, self._schema, self._search_indexer
@@ -281,6 +285,32 @@ class KBSource(GraphSource, ABC):
 
     async def add_is_subclass_of(self, database: str, child_id: str, parent_id: str) -> None:
         await self._schema.add_is_subclass_of(database, child_id, parent_id)
+
+    async def expand_schema(
+        self,
+        database: str,
+        text: str,
+        depth: int = 1,
+        reference: Literal["llm", "mcp"] = "llm",
+        mcp_servers: list[dict[str, Any]] | None = None,
+        dedup_mode: Literal["search", "llm", "none"] = "search",
+        model: str = "gpt-4o",
+        on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
+        on_tool_result: Callable[[str, dict[str, Any], Any], None] | None = None,
+        max_turns: int = 25,
+    ) -> None:
+        await self._schema.expand_schema(
+            database,
+            text,
+            depth=depth,
+            reference=reference,
+            mcp_servers=mcp_servers,
+            dedup_mode=dedup_mode,
+            model=model,
+            on_tool_call=on_tool_call,
+            on_tool_result=on_tool_result,
+            max_turns=max_turns,
+        )
 
     async def fetch_database_schema(self, database: str) -> DataSchema:
         return await self._schema.fetch_database_schema(database)
@@ -652,13 +682,38 @@ class KBSource(GraphSource, ABC):
         queries: list[str] | None = None,
         model: str = "gpt-4o",
         source_id: str | None = None,
-        schema_discovery_mode: Literal["search", "llm", "none"] = "search",
+        expand_schema: bool = True,
+        schema_expansion_target: list[Literal["text", "queries"]] | None = None,
+        schema_expansion_depth: int = 1,
+        schema_expansion_mode: Literal["llm", "mcp"] = "llm",
+        schema_expansion_mcp_servers: list[dict[str, Any]] | None = None,
+        schema_expansion_dedup_mode: Literal["search", "llm", "none"] = "search",
         on_tool_call: Callable[[str, dict], None] | None = None,
         on_tool_result: Callable[[str, dict, Any], None] | None = None,
         max_turns: int = 25,
     ) -> None:
+        if expand_schema:
+            target = set(schema_expansion_target) if schema_expansion_target else {"text", "queries"}
+            parts = []
+            if "text" in target:
+                parts.append(text)
+            if "queries" in target and queries:
+                parts.append("\n".join(queries))
+            expansion_context = "\n\n".join(parts)
+            await self._schema.expand_schema(
+                database,
+                expansion_context,
+                depth=schema_expansion_depth,
+                reference=schema_expansion_mode,
+                mcp_servers=schema_expansion_mcp_servers,
+                dedup_mode=schema_expansion_dedup_mode,
+                model=model,
+                on_tool_call=on_tool_call,
+                on_tool_result=on_tool_result,
+                max_turns=max_turns,
+            )
         await self._extraction.import_text(
-            database, text, queries, model, source_id, schema_discovery_mode,
+            database, text, queries, model, source_id,
             on_tool_call, on_tool_result, max_turns=max_turns,
         )
 

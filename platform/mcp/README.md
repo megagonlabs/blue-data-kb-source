@@ -50,7 +50,7 @@ BLUE_DATA_KB_SOURCE_SEARCH=semantic OPENAI_API_KEY=sk-... \
     blue-data-kb-mcp
 ```
 
-`OPENAI_API_KEY` is required for the `answer`/`validate`/`enrich`/`import_text`
+`OPENAI_API_KEY` is required for the `answer`/`validate`/`enrich`/`expand_schema`/`import_text`
 tools (each runs its own LLM agent loop) and for `BLUE_DATA_KB_SOURCE_SEARCH=semantic`
 (embeddings).
 
@@ -121,7 +121,7 @@ All configuration is via environment variables — there is no config file.
 
 | Variable | Default | Description |
 |---|---|---|
-| `BLUE_DATA_KB_SOURCE_DEFAULT_MODEL` | `gpt-4o` | Default model for `answer`/`validate`/`enrich`/`import_text` when a call omits `model`. |
+| `BLUE_DATA_KB_SOURCE_DEFAULT_MODEL` | `gpt-4o` | Default model for `answer`/`validate`/`enrich`/`expand_schema`/`import_text` when a call omits `model`. |
 
 ---
 
@@ -184,6 +184,23 @@ domain/range, hierarchy) as JSON (`DataSchema.to_json()` shape).
 
 No arguments — returns the fixed schema describing the KB's own node/edge
 taxonomy (CLASS, RELATION, PROPERTY, ENTITY, FACT, LITERAL, SOURCE, EXTRACTION).
+
+---
+
+### Schema expansion
+
+#### `expand_schema`
+
+`text`, `depth` (default `1` — hierarchy levels beyond what's directly evidenced
+in `text` to also propose), `reference` (`llm` default / `mcp`), `mcp_servers`
+(list of `{"transport": "stdio", "command", "args", "env"}` or
+`{"transport": "sse"|"streamable_http", "url", "headers"}` — required when
+`reference="mcp"`; each server's tools are additionally offered to the model,
+e.g. WordNet hypernyms/synonyms via `platform/wordnet-mcp`), `dedup_mode`
+(`search` default / `llm` / `none` — how it checks for an existing schema
+element before declaring a new one), `model`, `database`. Runs an LLM agent
+that grows the schema (CLASS/RELATION/PROPERTY) — never touches entities,
+facts, or property values. Returns `{"status": "ok"}`.
 
 ---
 
@@ -267,9 +284,17 @@ Returns `{"supporting": [...], "counter": [...]}` (plus `metadata` with
 #### `import_text`
 
 `text`, `queries` (guiding questions, optional), `model`, `source_id`,
-`schema_discovery_mode` (`search` default / `llm` / `none`), `database`. Runs
-an LLM agent that extracts entities/facts/property values from `text`,
-extending the schema as needed. Returns `{"status": "ok"}`.
+`expand_schema` (default `True` — runs `expand_schema` first),
+`schema_expansion_target` (any combination of `"text"`/`"queries"`, default
+both — only used when `expand_schema=True`), `schema_expansion_depth`,
+`schema_expansion_mode`, `schema_expansion_mcp_servers`,
+`schema_expansion_dedup_mode` (these five mirror `expand_schema`'s own
+`depth`/`reference`/`mcp_servers`/`dedup_mode` one-to-one), `database`. Runs an
+LLM agent that extracts entities/facts/property values from `text` against the
+schema as it currently stands — never declares new schema itself (a mention
+with no matching element is skipped); pass `expand_schema=False` to extract
+only, e.g. against a schema already grown by a prior `expand_schema` call.
+Returns `{"status": "ok"}`.
 
 ---
 
@@ -298,9 +323,13 @@ add_entity("IBM", class_id="<company-id>")
 add_fact(head_entity_id="<alice-id>", relation_id="<worked_at-id>", tail_entity_id="<ibm-id>",
          text="Alice joined IBM in June 1998.", source_id="<source-id>")
 
-# 3. Or let an LLM agent do the extraction
+# 3. Or let an LLM agent expand the schema and do the extraction (both by default)
 import_text("Alice joined IBM as a software engineer in June 1998.",
             queries=["Where did Alice work?"])
+
+# 3b. Or split it: expand once, then extract many documents against it
+expand_schema("Alice joined IBM as a software engineer in June 1998.")
+import_text("Alice later joined Google as a senior engineer in May 2002.", expand_schema=False)
 
 # 4. Query
 search_data("Alice")
@@ -355,5 +384,5 @@ python3 -m pytest tests/ -v
 ```
 
 Tests inject an in-memory `KBSource` directly — no file I/O, no network, no
-`OPENAI_API_KEY` required, except the `answer`/`validate`/`enrich`/`import_text`
+`OPENAI_API_KEY` required, except the `answer`/`validate`/`enrich`/`expand_schema`/`import_text`
 tests, which mock `openai.AsyncOpenAI`.

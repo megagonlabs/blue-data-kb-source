@@ -135,9 +135,25 @@ async def query(kb):
                                 target_name="EMPLOYEE")
 ```
 
-### Extracting knowledge from text (LLM)
+### Growing the schema and extracting knowledge from text (LLM)
 
-`import_text` runs an OpenAI agent that reads a text passage, expands the schema as needed, and populates entities, facts, and property values. Each created node is automatically wired to its own `:EXTRACTION` node containing the verbatim text span the LLM identified. If an entity or fact is found to already exist (via `find_entity`/`find_fact`), the agent attaches the new text as additional evidence instead of creating a duplicate, so an item can end up with multiple `EXTRACTED_FROM` edges as more evidence is discovered across extraction runs. Pass `on_tool_call(name, args)` to observe each tool call as it happens (e.g. to drive a progress indicator).
+Two separate LLM passes, both OpenAI agents:
+
+- **`expand_schema`** — grows the schema (`CLASS`/`RELATION`/`PROPERTY`), grounded by a text
+  passage. Never touches entities, facts, or property values.
+- **`import_text`** — extracts entities, facts, and property values *against the schema as it
+  currently stands*. Never declares new schema; a mention with no matching schema element is
+  skipped. By default `import_text` runs `expand_schema` first (`expand_schema=True`), so a single
+  call still does both — pass `expand_schema=False` to extract only, e.g. when reusing a schema
+  already expanded once across many documents.
+
+Each node `import_text` creates is automatically wired to its own `:EXTRACTION` node containing the
+verbatim text span the LLM identified. If an entity or fact is found to already exist (via
+`find_entity`/`find_fact`), the agent attaches the new text as additional evidence instead of
+creating a duplicate, so an item can end up with multiple `EXTRACTED_FROM` edges as more evidence is
+discovered across extraction runs. Pass `on_tool_call(name, args)` to observe each tool call as it
+happens (e.g. to drive a progress indicator) — it fires for both the expansion and extraction pass
+when both run.
 
 ```python
 import os
@@ -153,26 +169,60 @@ async def extract(kb):
         queries=["Where did Alice work?", "When did she start?"],
         source_id=src,   # id of an existing :SOURCE node (optional)
         model="gpt-4o",  # default
+        # expand_schema=True by default — set False to extract only, against schema
+        # already grown by a prior expand_schema() call.
     )
 ```
 
-The agent will:
+`import_text`'s extraction pass will:
 1. Inspect the current schema (classes and relations already declared).
-2. Before declaring a new `CLASS`, `RELATION`, or `PROPERTY`, call `search_schema` to check whether an existing element already covers the same meaning under a different name (e.g. a `JOIN_DATE` property when `START_DATE` already exists) — see `schema_discovery_mode` below.
-3. Declare any missing `CLASS`, `RELATION`, or `PROPERTY` nodes.
-4. Call `add_entity`, `add_fact`, `add_entity_property_value`, etc. to populate the KB.
-5. For each item, pass the verbatim source span as `text` so that individual `:EXTRACTION` nodes are created and linked via `EXTRACTED_FROM`.
-6. When an entity or fact already exists, call `link_extraction` instead of re-creating it, adding a new `EXTRACTED_FROM` edge alongside any existing ones.
+2. For each entity/relationship/attribute in the text, call `search_schema` to resolve it to an
+   existing `CLASS`/`RELATION`/`PROPERTY` — if nothing matches, skip that item.
+3. Call `add_entity`, `add_fact`, `add_entity_property_value`, etc. to populate the KB.
+4. For each item, pass the verbatim source span as `text` so that individual `:EXTRACTION` nodes are
+   created and linked via `EXTRACTED_FROM`.
+5. When an entity or fact already exists, call `link_extraction` instead of re-creating it, adding a
+   new `EXTRACTED_FROM` edge alongside any existing ones.
 
-`schema_discovery_mode` controls how the agent's `search_schema` tool call (step 2) is answered:
-- `"search"` (default) — uses the database's configured search backend (keyword substring match, or semantic/embedding search if the database was registered with `--search semantic`).
-- `"llm"` — asks the same model to judge whether any existing schema element means the same thing as the proposed one, even under different wording. More reliable for synonyms than keyword/semantic search over short names, at the cost of one extra model call per check.
-- `"none"` — the `search_schema` tool isn't offered to the agent at all (pre-existing behavior).
+`expand_schema` (called directly, or implicitly by `import_text`) takes:
+- **`depth`** (default `1`) — how many hierarchy levels beyond what's directly evidenced in the text
+  to also propose (e.g. a mentioned "poodle" also suggesting a `DOG` parent `CLASS`).
+- **`reference`** — `"llm"` (default) proposes schema freely; `"mcp"` additionally connects the
+  servers in `mcp_servers` and gives the model their tools too, to ground new names and hierarchy
+  placement (e.g. WordNet hypernyms/synonyms via `platform/wordnet-mcp`) — `mcp_servers` entries are
+  `{"transport": "stdio", "command": ..., "args": [...], "env": {...}}` or
+  `{"transport": "sse"|"streamable_http", "url": ..., "headers": {...}}`.
+- **`dedup_mode`** — how it checks for an existing schema element before declaring a new one:
+  - `"search"` (default) — the database's configured search backend (keyword substring match, or
+    semantic/embedding search if registered with `--search semantic`).
+  - `"llm"` — asks the same model to judge whether any existing element means the same thing as the
+    proposed one, even under different wording (e.g. `JOIN_DATE` vs `START_DATE`). More reliable for
+    synonyms than keyword/semantic search over short names, at the cost of one extra model call per
+    check.
+  - `"none"` — the `search_schema` tool isn't offered at all.
 
-Install the optional OpenAI extra first:
+```python
+await kb.expand_schema(
+    "main",
+    "Alice joined IBM as a software engineer in June 1998.",
+    depth=1,
+    reference="mcp",
+    mcp_servers=[{"transport": "stdio", "command": "blue-data-wordnet-mcp"}],
+)
+await kb.import_text("main", text="...", expand_schema=False)  # reuse the schema above
+```
+
+`import_text`'s own schema-expansion params (`schema_expansion_target`, `schema_expansion_depth`,
+`schema_expansion_mode`, `schema_expansion_mcp_servers`, `schema_expansion_dedup_mode`) mirror
+`expand_schema`'s `text`/`depth`/`reference`/`mcp_servers`/`dedup_mode` one-to-one —
+`schema_expansion_target` (any combination of `"text"`/`"queries"`, default both) selects what gets
+concatenated into the `text` passed to the underlying `expand_schema` call.
+
+Install the optional OpenAI extra first (add `mcp` too for `reference="mcp"`):
 
 ```bash
 pip install "blue-data-kb-source[openai]"
+pip install "blue-data-kb-source[openai,mcp]"  # for reference="mcp"
 ```
 
 ### Change hooks
@@ -324,6 +374,7 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | `await import_database_schema(database, schema_json)` | `None` | Populate *database* from a `DataSchema.to_json()`/`export_database_schema` dict; declares classes, properties, relations, and domain/range edges |
 | `await search_schema(database, query)` | `list[SchemaSearchResult]` | Return CLASS/RELATION/PROPERTY nodes whose name or description contains *query* (case-insensitive) |
 | `await consolidate_schema(database, operation, source_names, target_name, predicate?)` | `None` | Merge or split schema elements and rewire instances; `operation="merge"` supported |
+| `await expand_schema(database, text, depth?, reference?, mcp_servers?, dedup_mode?, model?, on_tool_call?, max_turns?)` | `None` | OpenAI LLM agent that grows the schema (CLASS/RELATION/PROPERTY) grounded by *text*; never touches entities/facts/property values. `depth` (default `1`) — hierarchy levels beyond what's directly evidenced to also propose. `reference` — `"llm"` (default) or `"mcp"` (also gives the model tools from connected `mcp_servers`, e.g. WordNet). `dedup_mode` (`"search"` default, `"llm"`, or `"none"`) controls how it checks for existing schema elements before declaring near-duplicates. Requires `openai` (and `mcp` for `reference="mcp"`). |
 
 ---
 
@@ -371,7 +422,7 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 
 | Method | Returns | Description |
 |---|---|---|
-| `await import_text(database, text, queries?, model?, source_id?, schema_discovery_mode?, on_tool_call?, max_turns?)` | `None` | Use an OpenAI LLM to extract entities, facts, and properties from *text* into *database*; expands the schema as needed; each created node gets its own `:EXTRACTION` wired to `source_id`. When `source_id` resolves to an existing `:SOURCE` node, its `name`/`description` are included in the agent's system prompt as context (e.g. "Alice's résumé — submitted for her job application"), not just used for provenance wiring. `schema_discovery_mode` (`"search"` default, `"llm"`, or `"none"`) controls how the agent checks for existing schema elements before declaring near-duplicates. `on_tool_call(name, args)`, if given, is invoked synchronously before each tool dispatch. `max_turns` (default `25`) caps agent turns; hitting the limit stops the loop silently, keeping whatever was extracted before the cutoff. Requires `openai`. |
+| `await import_text(database, text, queries?, model?, source_id?, expand_schema?, schema_expansion_target?, schema_expansion_depth?, schema_expansion_mode?, schema_expansion_mcp_servers?, schema_expansion_dedup_mode?, on_tool_call?, max_turns?)` | `None` | Use an OpenAI LLM to extract entities, facts, and properties from *text* into *database*, against the schema as it currently stands (never declares new schema — a mention with no matching element is skipped); each created node gets its own `:EXTRACTION` wired to `source_id`. When `source_id` resolves to an existing `:SOURCE` node, its `name`/`description` are included in the agent's system prompt as context (e.g. "Alice's résumé — submitted for her job application"), not just used for provenance wiring. `expand_schema` (default `True`) runs `expand_schema()` first — its `schema_expansion_*` params mirror `expand_schema`'s `text`/`depth`/`reference`/`mcp_servers`/`dedup_mode` one-to-one, with `schema_expansion_target` (any combination of `"text"`/`"queries"`, default both) selecting what gets concatenated into that call's `text`. `on_tool_call(name, args)`, if given, is invoked synchronously before each tool dispatch, for both passes. `max_turns` (default `25`) caps agent turns per pass; hitting the limit stops that pass's loop silently. Requires `openai`. |
 
 ---
 
@@ -414,6 +465,12 @@ pytest
 ```
 
 ### Extraction benchmark suite
+
+> **Known broken:** this suite is keyed on `import_text(..., schema_discovery_mode=...)`, which no
+> longer exists now that schema expansion is a separate pass (`expand_schema`) from extraction
+> (`import_text`) — see "Growing the schema and extracting knowledge from text" above. It needs a
+> rework to score the two passes separately and isn't part of this change; treat everything below as
+> describing the suite's intended shape, not its current working state.
 
 `tests/benchmarks/extraction/` scores `import_text()`'s actual extraction quality against a set of gold-standard cases in `tests/benchmarks/extraction/cases/*.yaml`, spanning several domains (business, healthcare, finance, legal) and categories (entity typing, multi-type/multi-valued relations and attributes, negation/false-positive traps, intra- and cross-document coreference, schema reuse/expansion). It is **not** part of the default `pytest` run (`testpaths = ["tests/unit"]`) and is **report-only** — it never fails the build on a metric regression, only on a harness error. Requires the `openai` extra installed alongside `dev` (`pip install -e '.[dev,openai]'`).
 
