@@ -46,7 +46,9 @@ from blue_data_kb_source.resolution.resolver import NodeResolver
 from blue_data_kb_source.schema.manager import SchemaManager
 from blue_data_kb_source.types import (
     AssertResult,
+    IngestFailure,
     IngestionError,
+    IngestReport,
     KBError,
     NodeRef,
     ResolutionCandidate,
@@ -584,6 +586,77 @@ class IngestionManager:
         created.append(ref)
         return AssertResult(node_id=literal_id, created=True, extraction_id=ref.extraction_id,
                             created_nodes=created)
+
+    # ------------------------------------------------------------------ #
+    # Bulk ingest                                                          #
+    # ------------------------------------------------------------------ #
+
+    async def ingest(
+        self,
+        database: str,
+        payload: dict,
+        *,
+        source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: _ExtractionType = "assertion",
+        schema_creation_mode: _SchemaCreationMode = "llm",
+        model: str = "gpt-4o",
+    ) -> IngestReport:
+        """Run every payload row through its per-item assert, collecting a report.
+
+        Arms are processed in the payload's own order (decision 27); each row is
+        the assert's keyword arguments, and may carry its own `confidence` or
+        `extraction_type` to override the run-level default (decision 30). Row
+        failures are collected, never raised — `KBError`s with their candidates,
+        and `TypeError`s from malformed row keys; an unknown arm key raises
+        before any row is processed.
+        """
+        arms = {
+            "classes": self.assert_class,
+            "relations": self.assert_relation_type,
+            "subclasses": self.assert_subclass,
+            "subrelations": self.assert_subrelation,
+            "class_properties": self.assert_class_property,
+            "relation_properties": self.assert_relation_property,
+            "entities": self.assert_entity,
+            "facts": self.assert_fact,
+            "entity_properties": self.assert_entity_property,
+            "fact_properties": self.assert_fact_property,
+        }
+        unknown = [k for k in payload if k not in arms]
+        if unknown:
+            raise IngestionError(
+                f"unknown payload arm(s): {', '.join(sorted(unknown))}. "
+                f"Valid arms: {', '.join(arms)}. Nothing was written."
+            )
+        report = IngestReport()
+        for arm, rows in payload.items():
+            for index, row in enumerate(rows):
+                kwargs = dict(row)
+                kwargs.setdefault("confidence", confidence)
+                kwargs.setdefault("extraction_type", extraction_type)
+                try:
+                    result = await arms[arm](
+                        database,
+                        schema_creation_mode=schema_creation_mode, model=model,
+                        source_id=source_id, **kwargs,
+                    )
+                except (KBError, TypeError) as exc:
+                    report.failures.append(IngestFailure(
+                        arm=arm, index=index, reason=str(exc),
+                        candidates=list(getattr(exc, "candidates", [])),
+                    ))
+                    continue
+                if result.created:
+                    report.written += 1
+                elif result.match_type == "structural":
+                    report.deduped += 1
+                else:
+                    report.skipped += 1
+                for ref in result.created_nodes:
+                    report.created[ref.label] = report.created.get(ref.label, 0) + 1
+                report.widened.extend(w.name for w in result.widened_relations)
+        return report
 
     # ------------------------------------------------------------------ #
     # Internals                                                            #

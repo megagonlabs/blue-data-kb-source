@@ -1,7 +1,7 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from blue_data_kb_source import IngestionError, KBError
+from blue_data_kb_source import IngestionError, IngestReport, KBError
 from blue_data_kb_source._constants import (
     CLASS,
     DEFINE_PROPERTY,
@@ -613,3 +613,196 @@ async def test_assert_fact_property_new_value_is_a_new_literal(kb):
                                            "SINCE", "2001", schema_creation_mode="none")
     assert result.created is True
     assert result.node_id != first.node_id
+
+
+# ------------------------------------------------------------------ #
+# Bulk ingest                                                          #
+# ------------------------------------------------------------------ #
+
+_PAYLOAD = {
+    "classes": [{"name": "PERSON", "description": "A human"}],
+    "relations": [{"name": "WORKED_AT", "domain": "PERSON", "range": "COMPANY"}],
+    "entities": [{"name": "Alice", "class_name": "PERSON"}],
+    "facts": [{"head": "Alice", "relation": "WORKED_AT", "tail": "IBM"}],
+    "entity_properties": [{"entity": "Alice", "property": "AGE", "value": "30"}],
+}
+
+
+async def test_ingest_mixed_payload_counts(kb):
+    report = await kb.ingest("test", _PAYLOAD, schema_creation_mode="none")
+    assert isinstance(report, IngestReport)
+    assert (report.written, report.deduped, report.skipped, report.failures) == (5, 0, 0, [])
+    # classes: PERSON + COMPANY (relation cascade) + EVERYTHING (IBM untyped)
+    assert report.created[CLASS] == 3
+    assert report.created[ENTITY] == 2
+    assert report.created[FACT] == 1
+
+
+async def test_reingest_converges(kb):
+    await kb.ingest("test", _PAYLOAD, schema_creation_mode="none")
+    report = await kb.ingest("test", _PAYLOAD, schema_creation_mode="none")
+    # class + relation + entity reuse without evidence -> skipped;
+    # fact and property value dedupe structurally -> deduped.
+    assert (report.written, report.deduped, report.skipped) == (0, 2, 3)
+    assert report.created == {}
+
+
+async def test_row_failure_is_collected_and_later_rows_run(kb):
+    await kb.declare_class("test", "ALPHA_THING", "carries the beta token")
+    await kb.declare_class("test", "GAMMA_THING", "also carries the beta token")
+    payload = {
+        "classes": [{"name": "beta"}, {"name": "SOLID"}],
+    }
+    report = await kb.ingest("test", payload, schema_creation_mode="none")
+    assert report.written == 1
+    assert len(report.failures) == 1
+    failure = report.failures[0]
+    assert (failure.arm, failure.index) == ("classes", 0)
+    assert len(failure.candidates) == 2
+    names = [n["properties"]["name"] for n in kb.match_nodes("test", label=CLASS)]
+    assert "SOLID" in names
+
+
+async def test_row_confidence_overrides_the_run_default(kb):
+    payload = {
+        "facts": [
+            {"head": "Alice", "relation": "WORKED_AT", "tail": "IBM", "confidence": 0.9},
+        ],
+    }
+    report = await kb.ingest("test", payload, confidence=0.4, schema_creation_mode="none")
+    assert report.written == 1
+    fact_id = next(n["id"] for n in kb.match_nodes("test", label=FACT))
+    meta = await kb.get_metadata("test", fact_id)
+    assert meta["confidence"] == 0.9
+
+
+async def test_run_confidence_applies_when_row_has_none(kb):
+    payload = {"facts": [{"head": "Alice", "relation": "WORKED_AT", "tail": "IBM"}]}
+    await kb.ingest("test", payload, confidence=0.4, schema_creation_mode="none")
+    fact_id = next(n["id"] for n in kb.match_nodes("test", label=FACT))
+    meta = await kb.get_metadata("test", fact_id)
+    assert meta["confidence"] == 0.4
+
+
+async def test_unknown_arm_raises_before_any_write(kb):
+    payload = {"classes": [{"name": "PERSON"}], "factz": []}
+    with pytest.raises(IngestionError, match="factz"):
+        await kb.ingest("test", payload, schema_creation_mode="none")
+    assert list(kb.match_nodes("test", label=CLASS)) == []
+
+
+async def test_widened_relations_reach_the_report(kb):
+    await kb.declare_class("test", "PERSON", "A human")
+    await kb.declare_class("test", "COMPANY", "A business")
+    agency = await kb.declare_class("test", "AGENCY", "A public body")
+    await kb.declare_relation_type("test", "WORKED_AT", "Employment",
+                                   domain="PERSON", range="COMPANY")
+    await kb.add_entity("test", "Bob", class_id=agency)
+    company = await kb.declare_class("test", "COMPANY", "A business")
+    await kb.add_entity("test", "IBM", class_id=company)
+    payload = {"facts": [{"head": "Bob", "relation": "WORKED_AT", "tail": "IBM"}]}
+    report = await kb.ingest("test", payload, schema_creation_mode="none")
+    assert report.widened == ["WORKED_AT"]
+
+
+async def test_row_extraction_type_overrides_the_run_default(kb):
+    payload = {"classes": [
+        {"name": "PERSON"},
+        {"name": "COMPANY", "extraction_type": "assertion"},
+    ]}
+    report = await kb.ingest("test", payload, extraction_type="external_record",
+                             schema_creation_mode="none")
+    assert report.written == 2
+    by_name = {n["properties"]["name"]: n["id"] for n in kb.match_nodes("test", label=CLASS)}
+    person_types = [p["extraction_type"] for p in _evidence_of(kb, by_name["PERSON"])]
+    assert person_types == ["external_record"]
+    assert [p["extraction_type"] for p in _evidence_of(kb, by_name["COMPANY"])] == ["assertion"]
+
+
+async def test_malformed_row_is_collected_and_later_rows_run(kb):
+    payload = {"classes": [
+        {"name": "ALPHA"},
+        {"name": "BETA", "bogus": 1},
+        {"name": "GAMMA"},
+    ]}
+    report = await kb.ingest("test", payload, schema_creation_mode="none")
+    assert report.written == 2
+    assert [(f.arm, f.index) for f in report.failures] == [("classes", 1)]
+    assert "bogus" in report.failures[0].reason
+    names = {n["properties"]["name"] for n in kb.match_nodes("test", label=CLASS)}
+    assert names == {"ALPHA", "GAMMA"}
+
+
+async def test_arms_run_in_payload_order_not_a_fixed_order(kb):
+    # facts before relations: the fact row creates WORKED_AT itself, so the later
+    # relations row finds it and is skipped (widening aside). A fixed schema-first
+    # order would write both rows — the report is the order-sensitive signal,
+    # since widening makes the final graph converge either way.
+    payload = {
+        "facts": [{"head": "Alice", "relation": "WORKED_AT", "tail": "IBM"}],
+        "relations": [{"name": "WORKED_AT", "domain": "PERSON", "range": "COMPANY"}],
+    }
+    report = await kb.ingest("test", payload, schema_creation_mode="none")
+    assert (report.written, report.skipped) == (1, 1)
+
+
+async def test_run_source_reaches_every_rows_evidence(kb):
+    src = await kb.add_source("test", source="wikidata", name="Wikidata")
+    report = await kb.ingest("test", {"classes": [{"name": "PERSON"}]},
+                             source_id=src, schema_creation_mode="none")
+    assert report.written == 1
+    class_id = next(n["id"] for n in kb.match_nodes("test", label=CLASS))
+    ext_id = _evidence_of(kb, class_id) and kb.get_neighbors(
+        "test", class_id, edge_type=EXTRACTED_FROM, direction="out")[0]["node"]["id"]
+    src_nbs = kb.get_neighbors("test", ext_id, edge_type=EXTRACTED_FROM, direction="out")
+    assert [nb["node"]["properties"]["name"] for nb in src_nbs] == ["Wikidata"]
+
+
+async def test_ingest_passes_mode_and_model_to_the_judges(kb):
+    judge = AsyncMock(return_value="A judged sentence.")
+    with patch("blue_data_kb_source.ingestion.manager.judge_description", judge):
+        await kb.ingest("test", {"classes": [{"name": "PERSON"}]}, model="gpt-4o-mini")
+    judge.assert_called_once()
+    assert judge.call_args.kwargs["model"] == "gpt-4o-mini"
+
+
+async def test_empty_payload_reports_zeros(kb):
+    report = await kb.ingest("test", {}, schema_creation_mode="none")
+    assert (report.written, report.deduped, report.skipped, report.failures,
+            report.created, report.widened) == (0, 0, 0, [], {}, [])
+
+
+async def test_thirty_row_bulk_counts_and_converges(kb):
+    # Same-width names cannot substring-match each other, so resolution stays
+    # clean at any count; this pins the report arithmetic beyond hand-counted
+    # fixtures and doubles as a performance canary for the O(rows x graph) scans.
+    payload = {
+        "classes": [{"name": f"TYPE_{i:02d}"} for i in range(10)],
+        "entities": [{"name": f"ENT_{i:02d}", "class_name": f"TYPE_{i:02d}"}
+                     for i in range(10)],
+        "entity_properties": [{"entity": f"ENT_{i:02d}", "property": f"AGE_{i:02d}",
+                               "value": str(20 + i)} for i in range(10)],
+    }
+    report = await kb.ingest("test", payload, schema_creation_mode="none")
+    assert (report.written, report.deduped, report.skipped, report.failures) == (30, 0, 0, [])
+    assert report.created == {CLASS: 10, ENTITY: 10, PROPERTY: 10, LITERAL: 10}
+    again = await kb.ingest("test", payload, schema_creation_mode="none")
+    assert (again.written, again.deduped, again.skipped) == (0, 10, 20)
+    assert again.created == {}
+
+
+async def test_similar_names_at_scale_fail_into_the_report_not_the_graph(kb):
+    # Bulk ingest grows the graph it resolves against: once many OUTPOST-A** rows
+    # exist, a bare "OUTPOST" row search-matches several of them and must fail
+    # into the report with candidates, never corrupt the graph or stop the run.
+    rows = ([{"name": f"OUTPOST A{i:02d}"} for i in range(1, 21)]
+            + [{"name": "OUTPOST"} for _ in range(4)])
+    report = await kb.ingest("test", {"entities": rows}, schema_creation_mode="none")
+    assert report.written + len(report.failures) == len(rows)
+    assert report.written == 20
+    assert len(report.failures) == 4
+    for failure in report.failures:
+        assert len(failure.candidates) >= 2
+    names = {n["properties"]["name"] for n in kb.match_nodes("test", label=ENTITY)}
+    assert "OUTPOST" not in names
+    assert len(names) == 20

@@ -92,6 +92,25 @@ class AssertResult:
 
 
 @dataclass
+class IngestFailure:
+    arm: str                            # "facts", "entities", ...
+    index: int                          # row position within that arm
+    reason: str
+    candidates: list[ResolutionCandidate] = field(default_factory=list)
+
+
+@dataclass
+class IngestReport:
+    written: int = 0                    # rows that created their subject
+    deduped: int = 0                    # existing item, new evidence attached (structural)
+    skipped: int = 0                    # existing item, nothing written
+    failures: list[IngestFailure] = field(default_factory=list)
+    created: dict[str, int] = field(default_factory=dict)   # label -> count, full cascade
+    widened: list[str] = field(default_factory=list)        # relation names; the audit
+                                                            # surface for bad rows
+
+
+@dataclass
 class AnswerResult:
     entity: str | None = None
     relation: str | None = None

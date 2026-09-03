@@ -45,6 +45,7 @@ from blue_data_kb_source.types import (
     AssertResult,
     DataSearchResult,
     EnrichmentResult,
+    IngestReport,
     KBError,
     SchemaSearchResult,
     ValidationResult,
@@ -990,6 +991,23 @@ class KBSource(GraphSource, ABC):
     ) -> AssertResult:
         return await self._ingestion.assert_fact_property(
             database, head, relation, tail, property, value, literal_type,
+            source_id=source_id, confidence=confidence, extraction_type=extraction_type,
+            schema_creation_mode=schema_creation_mode, model=model,
+        )
+
+    async def ingest(
+        self,
+        database: str,
+        payload: dict,
+        *,
+        source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: Literal["text_span", "external_record", "assertion"] = "assertion",
+        schema_creation_mode: Literal["llm", "none"] = "llm",
+        model: str = "gpt-4o",
+    ) -> IngestReport:
+        return await self._ingestion.ingest(
+            database, payload,
             source_id=source_id, confidence=confidence, extraction_type=extraction_type,
             schema_creation_mode=schema_creation_mode, model=model,
         )
