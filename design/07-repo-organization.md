@@ -45,6 +45,15 @@ blue-data-kb-source/
 │   │       │   ├── __init__.py
 │   │       │   └── notifier.py          # ChangeNotifier
 │   │       │
+│   │       ├── resolution/
+│   │       │   ├── __init__.py
+│   │       │   └── resolver.py          # NodeResolver — ranked name resolution for the ingest path
+│   │       │
+│   │       ├── ingestion/
+│   │       │   ├── __init__.py
+│   │       │   ├── manager.py           # IngestionManager — assert_* and bulk ingest
+│   │       │   └── judges.py            # single-shot LLM judges (naming, placement, descriptions)
+│   │       │
 │   │       ├── search/
 │   │       │   ├── __init__.py
 │   │       │   └── indexer.py           # KBSearchIndexer — BM25 + semantic search
@@ -64,6 +73,8 @@ blue-data-kb-source/
 │       │   ├── knowledge/               # KnowledgeManager and QueryEngine tests
 │       │   ├── provenance/              # ProvenanceTracker tests
 │       │   ├── notification/            # ChangeNotifier tests
+│       │   ├── resolution/              # NodeResolver tests
+│       │   ├── ingestion/               # judges (OpenAI mocked) and IngestionManager tests
 │       │   └── extraction/              # ExtractionEngine tests (OpenAI mocked)
 │       └── benchmarks/                  # gold-standard-case suites against real OpenAI (VCR cassettes)
 │           ├── common/                  # shared harness: capture + cases/runner/scoring/reporting per family (unprefixed = extraction, query_*, judge_*)
@@ -162,9 +173,12 @@ All core business logic lives under `lib/src/`. This is the only artifact publis
 | `knowledge/helpers.py` | Shared metadata/provenance lookup bodies used by `KnowledgeManager` and `QueryEngine` — free functions, not a component |
 | `provenance/tracker.py` | `ProvenanceTracker` — Knowledge Layer |
 | `notification/notifier.py` | `ChangeNotifier` — Knowledge Layer |
+| `resolution/resolver.py` | `NodeResolver` — Ingestion; ranked name resolution (exact, normalized, search), used by `IngestionManager` only today |
+| `ingestion/manager.py` | `IngestionManager` — Ingestion; the ingest path: ten `assert_*` operations plus bulk `ingest` |
+| `ingestion/judges.py` | Single-shot LLM judges for class naming, property placement, and descriptions — isolated from `manager.py` |
 | `search/indexer.py` | `KBSearchIndexer` — Search Indexer; BM25 and semantic search over schema and data, optional per database |
 | `extraction/engine.py` | `ExtractionEngine` — Extraction Engine; LLM agent for text extraction |
-| `types.py` | Shared result types: `AnswerResult`, `ValidationResult`, `EnrichmentResult`, `SchemaSearchResult`, `DataSearchResult` |
+| `types.py` | Shared result types (`AnswerResult`, `ValidationResult`, `EnrichmentResult`, `SchemaSearchResult`, `DataSearchResult`, `ResolutionCandidate`, `NodeRef`, `AssertResult`, `IngestReport`, `IngestFailure`) and the exception hierarchy |
 
 ### `types.py`
 
@@ -230,6 +244,8 @@ lib/tests/
 │   ├── knowledge/       # KnowledgeManager and QueryEngine: add/update/delete, get_metadata, answer, validate, enrich
 │   ├── provenance/      # ProvenanceTracker: source and extraction node wiring
 │   ├── notification/    # ChangeNotifier: hook registration, event delivery
+│   ├── resolution/      # NodeResolver: ranked candidates over one label
+│   ├── ingestion/       # IngestionManager + judges: assert_*, bulk ingest
 │   └── extraction/      # ExtractionEngine: import_text tool dispatch (OpenAI mocked)
 └── benchmarks/          # opt-in, real-OpenAI gold-standard-case suites — excluded from the default `pytest` run
     ├── common/          # shared harness: capture + cases/runner/scoring/reporting per family (unprefixed = extraction, query_*, judge_*)

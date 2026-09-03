@@ -21,38 +21,38 @@
 ┌─────────────────────────────────────────────────────────────────────┐
 │                              KBSource                               │
 │                                                                     │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │                       Schema Layer                          │   │
-│  │  ┌──────────────────────────────────────────────────────┐   │   │
-│  │  │                   Schema Manager                     │   │   │
-│  │  │              ┌──────────────────────────┐            │   │   │
-│  │  │              │ Schema Expansion Engine   │            │   │   │
-│  │  │              │      (LLM Agent)          │            │   │   │
-│  │  │              └──────────────────────────┘            │   │   │
-│  │  └──────────────────────────────────────────────────────┘   │   │
-│  └─────────────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │                         Schema Layer                        │    │
+│  │  ┌──────────────────────────────────────────────────────┐   │    │
+│  │  │                    Schema Manager                    │   │    │
+│  │  │              ┌──────────────────────────┐            │   │    │
+│  │  │              │ Schema Expansion Engine  │            │   │    │
+│  │  │              │       (LLM Agent)        │            │   │    │
+│  │  │              └──────────────────────────┘            │   │    │
+│  │  └──────────────────────────────────────────────────────┘   │    │
+│  └─────────────────────────────────────────────────────────────┘    │
 │                                                                     │
-│  ┌──────────────────────────┐  ┌────────────────────────────────┐  │
-│  │    Extraction Engine     │  │        Knowledge Layer         │  │
-│  │  ┌──────────────────┐    │  │  ┌────────────────────────┐   │  │
-│  │  │    LLM Agent      │    │  │  │  Knowledge Manager     │   │  │
-│  │  └──────────────────┘    │  │  │  ┌──────────────────┐  │   │  │
-│  └──────────────────────────┘  │  │  │  Query Engine    │  │   │  │
-│                                │  │  │  (LLM Agent)     │  │   │  │
-│                                │  │  └──────────────────┘  │   │  │
-│                                │  └────────────────────────┘   │  │
-│                                │  ┌────────────────────────┐   │  │
-│                                │  │  Provenance Tracker    │   │  │
-│                                │  └────────────────────────┘   │  │
-│                                │  ┌────────────────────────┐   │  │
-│                                │  │   Change Notifier      │   │  │
-│                                │  └────────────────────────┘   │  │
-│                                └────────────────────────────────┘  │
+│  ┌──────────────────────────┐  ┌────────────────────────────────┐   │
+│  │    Ingestion Manager     │  │        Knowledge Layer         │   │
+│  │  ┌──────────────────┐    │  │  ┌────────────────────────┐    │   │
+│  │  │  Node Resolver   │    │  │  │  Knowledge Manager     │    │   │
+│  │  └──────────────────┘    │  │  │  ┌──────────────────┐  │    │   │
+│  │  ┌──────────────────┐    │  │  │  │  Query Engine    │  │    │   │
+│  │  │    LLM judges    │    │  │  │  │  (LLM Agent)     │  │    │   │
+│  │  └──────────────────┘    │  │  │  └──────────────────┘  │    │   │
+│  └──────────────────────────┘  │  └────────────────────────┘    │   │
+│                                │  ┌────────────────────────┐    │   │
+│  ┌──────────────────────────┐  │  │  Provenance Tracker    │    │   │
+│  │    Extraction Engine     │  │  └────────────────────────┘    │   │
+│  │  ┌──────────────────┐    │  │  ┌────────────────────────┐    │   │
+│  │  │    LLM Agent     │    │  │  │   Change Notifier      │    │   │
+│  │  └──────────────────┘    │  │  └────────────────────────┘    │   │
+│  └──────────────────────────┘  └────────────────────────────────┘   │
 │                                                                     │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │                       Search Indexer                        │   │
-│  │       (used by Schema Manager and Knowledge Manager)        │   │
-│  └─────────────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │                        Search Indexer                       │    │
+│  │        (used by Schema Manager and Knowledge Manager)       │    │
+│  └─────────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────┬───────────────────────┘
                                               │
                          ┌────────────────────▼───────────────────┐
@@ -72,6 +72,8 @@
 | Schema Expansion Engine | `schema/expansion.py` | LLM agent behind `expand_schema` — grows CLASS/RELATION/PROPERTY only, grounded by text; not exposed directly on `KBSource` |
 | Knowledge Manager | `knowledge/manager.py` | Creates/updates/deletes entities, facts, property values; data export/import; `get_metadata`; owns Query Engine |
 | Query Engine | `knowledge/engine.py` | LLM agent behind `answer`/`validate`/`enrich`; not exposed directly on `KBSource` |
+| Node Resolver | `resolution/resolver.py` | Ranked name resolution (exact, normalized, search) for the ingest path |
+| Ingestion Manager | `ingestion/manager.py` | `assert_*` and bulk `ingest`: resolve-or-create with LLM judges, widening, and evidence dedupe |
 | Provenance Tracker | `provenance/tracker.py` | Creates `SOURCE`/`EXTRACTION` nodes and wires `EXTRACTED_FROM` edges |
 | Change Notifier | `notification/notifier.py` | Fires per-database hooks synchronously after each write |
 | Search Indexer | `search/indexer.py` | BM25/semantic index over schema and instance data, kept in sync via change hooks |
@@ -81,34 +83,34 @@
 
 ```
   ┌───────────────────────────────────────────────────────────────────────────┐
-  │                          platform/ components                             │
+  │                            platform/ components                           │
   │                                                                           │
-  │  ┌──────────────────────┐   ┌──────────────────────┐                     │
-  │  │        cli            │   │        mcp            │                   │
-  │  │  (Click + Rich)       │   │  (FastMCP server)     │                   │
-  │  │  terminal, one         │   │  stdio/MCP protocol   │                   │
-  │  │  KBSource per          │   │  26 tools: schema,    │                   │
-  │  │  registered database   │   │  knowledge, query,    │                   │
-  │  │  (~/.kbdb registry)     │   │  extraction, source   │                   │
-  │  └──────────┬─────────────┘   └──────────┬─────────────┘                 │
-  │             │                            │                                │
-  │             │            ┌───────────────┘                                │
+  │  ┌──────────────────────┐   ┌──────────────────────┐                      │
+  │  │         cli          │   │         mcp          │                      │
+  │  │  (Click + Rich)      │   │  (FastMCP server)    │                      │
+  │  │  terminal, one       │   │  stdio/MCP protocol  │                      │
+  │  │  KBSource per        │   │  26 tools: schema,   │                      │
+  │  │  registered database │   │  knowledge, query,   │                      │
+  │  │  (~/.kbdb registry)  │   │  extraction, source  │                      │
+  │  └──────────┬───────────┘   └──────────┬───────────┘                      │
+  │             │                          │                                  │
+  │             │            ┌─────────────┘                                  │
   │             │            │  (no shared state — each owns its own          │
   │             │            │   KBSource singleton, configured separately)   │
   │             ▼            ▼                                                │
-  │  ┌──────────────────────────────────────┐   ┌──────────────────────┐     │
-  │  │                                       │   │        api             │   │
-  │  │              KBSource                 │   │  (FastAPI, planned)   │   │
-  │  │                                       │   └───────────────────────┘   │
-  │  └──────────────────┬───────────────────┘                                │
+  │  ┌──────────────────────────────────────┐   ┌──────────────────────┐      │
+  │  │                                      │   │         api          │      │
+  │  │               KBSource               │   │  (FastAPI, planned)  │      │
+  │  │                                      │   └──────────────────────┘      │
+  │  └──────────────────┬───────────────────┘                                 │
   │                     │  stdio, spawned per `expand_schema` call            │
   │                     │  only when reference="mcp"                          │
-  │                     ▼                                                    │
+  │                     ▼                                                     │
   │           ┌──────────────────────┐                                        │
-  │           │    wordnet-mcp        │                                       │
-  │           │  (FastMCP server)     │                                       │
-  │           │  WordNet lookups      │                                       │
-  │           │  via nltk.wordnet     │                                       │
+  │           │    wordnet-mcp       │                                        │
+  │           │  (FastMCP server)    │                                        │
+  │           │  WordNet lookups     │                                        │
+  │           │  via nltk.wordnet    │                                        │
   │           └──────────────────────┘                                        │
   └───────────────────────────────────────────────────────────────────────────┘
                               │  Python import
@@ -186,7 +188,28 @@ With `include_metadata=True` (`answer`/`validate` only), the engine harvests eve
 
 ---
 
-## Data flow: expand_schema (schema growth)
+## Data flow: assert_* / ingest (ingestion)
+
+```
+assert_fact("main", "Alice", "WORKED_AT", "IBM")
+  │
+  ├─ phase 1 (read-only): Node Resolver ranks candidates per operand;
+  │    LLM judges name classes / place properties / write descriptions
+  │    — ambiguity or judge failure raises IngestionError, nothing written
+  │
+  └─ phase 2: writes through the same add_*/declare_*/attach_* operations
+       direct callers use — creating what didn't resolve, widening domain/range
+       on a non-conforming fact, or attaching new evidence to a known
+       triple — so hooks and search indexing fire normally
+```
+
+`ingest` loops a ten-arm JSON payload through the per-item asserts in file order and
+returns an `IngestReport` (written/deduped/skipped, per-label created counts, widened
+relations, and per-row failures with their candidates) instead of raising.
+
+---
+
+## Data flow: expand_schema (the extraction path's schema pass)
 
 ```
 caller

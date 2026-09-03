@@ -33,11 +33,11 @@ Command-line interface built with Click and Rich. Thin wrapper over the Python l
 
 ## Information Flow Overview
 
-The Write Path and the Extraction Path are the KB's expansion paths — the flows that add
-schema and instance knowledge (a third, the Ingest Path, is planned); the Schema Expansion
-Pass is the Extraction Path's schema-growing half, run first by `import_text` or on its own.
-The Answer, Validate, and Enrich Paths are the usage paths, which read the KB without
-expanding it, and the Schema Path declares and manages schema by explicit call.
+The Write, Ingest, and Extraction Paths are the KB's expansion paths — the flows that add
+schema and instance knowledge; the Schema Expansion Pass is the Extraction Path's
+schema-growing half, run first by `import_text` or on its own. The Answer, Validate, and
+Enrich Paths are the usage paths, which read the KB without expanding it, and the Schema
+Path declares and manages schema by explicit call.
 
 ### Schema Path
 
@@ -54,6 +54,13 @@ expanding it, and the Schema Path declares and manages schema by explicit call.
 3. If `text` is provided: Provenance Tracker creates an EXTRACTION node recording the assertion (`text`: a verbatim span for `text_span` evidence, otherwise the submitted statement) with its `extraction_type` and `confidence`, wires it to the instance and optionally to a SOURCE node
 4. Change Notifier fires all registered hooks for the database with an enriched event describing the change
 5. The new instance ID is returned to the caller
+
+### Ingest Path
+
+1. Caller asserts an item by name (`assert_*`), or submits a ten-arm payload of rows (`ingest`)
+2. Ingestion Manager resolves every operand read-only via the Node Resolver — exact, normalized, then search candidates — and runs any needed LLM judges (class naming, property placement, description generation); ambiguity or a judge failure raises here, before anything is written
+3. Ingestion Manager writes through the Write Path: unresolved operands are created (schema elements included), a non-conforming fact widens its relation's domain/range, and an already-known item gains a new EXTRACTION instead of a duplicate
+4. The result reports what happened — created nodes, widened relations, the match kind on reuse; bulk runs collect per-row failures (with resolution candidates) into an `IngestReport` rather than stopping
 
 ### Schema Expansion Pass
 
@@ -122,7 +129,7 @@ The Schema Layer manages the typed vocabulary of the knowledge base. It is the a
 - Expose the meta-schema — the fixed description of KBDB's own graph structure — for agent introspection
 - Search schema elements by natural language query or keywords
 - Consolidate schema elements: today, only merging redundant classes, properties, or relations into one target is implemented (see below) — splitting is not
-- Grow the schema itself from free text via an LLM agent (`expand_schema`, owned internally as a Schema Expansion Engine — see below) — a separate concern from the Extraction Engine (§3), which only ever *uses* the schema, never grows it
+- Grow the schema itself from free text via an LLM agent (`expand_schema`, owned internally as a Schema Expansion Engine — see below) — a separate concern from the Extraction Engine (§4), which only ever *uses* the schema, never grows it
 
 **Schema Declaration**
 
@@ -163,14 +170,14 @@ START_DATE   PROPERTY   "Date when employment began"
 
 `expand_schema` delegates to a Schema Expansion Engine the Schema Manager owns internally (constructed with a back-reference to the Schema Manager itself, so its tool dispatch can call `declare_class`/`add_is_subclass_of`/`attach_property`/etc. directly) — an LLM agent that grows the schema from a text passage, symmetric in spirit to how the Knowledge Manager owns a Query Engine for reading.
 
-- **Scope**: declares `CLASS`/`RELATION`/`PROPERTY` nodes only, grounded by the given text — never `ENTITY`/`FACT`/`LITERAL`. The system prompt draws a hard line between a CLASS (a *kind* that can have many members, e.g. `PERSON`) and an *entity* (one specific named referent, e.g. "Alice") — the model is instructed to declare the general kind a mentioned individual belongs to, never a class named after the individual itself; the individual is created later, as an entity, by the Extraction Engine (§3) against that class.
+- **Scope**: declares `CLASS`/`RELATION`/`PROPERTY` nodes only, grounded by the given text — never `ENTITY`/`FACT`/`LITERAL`. The system prompt draws a hard line between a CLASS (a *kind* that can have many members, e.g. `PERSON`) and an *entity* (one specific named referent, e.g. "Alice") — the model is instructed to declare the general kind a mentioned individual belongs to, never a class named after the individual itself; the individual is created later, as an entity, by the Extraction Engine (§4) against that class.
 - **Hierarchy vs. relation**: an is-a/type-of/kind-of/subclass-of relationship is wired only via `add_subclass_of` (→ `add_is_subclass_of`), never a declared `RELATION` — `declare_relation_type` rejects a fixed set of taxonomic names (`IS_A`, `TYPE_OF`, `SUBCLASS_OF`, ...) outright.
 - **Deduplication (`dedup_mode`)**: `"search"` (default, keyword/semantic `search_schema`), `"llm"` (a separate tool-forced LLM call judges whether an existing element already means the same thing, even under different wording — e.g. `JOIN_DATE`/`START_DATE`), or `"none"` (no dedup tooling or check at all). Beyond the `search_schema` tool the model can call, `declare_class`/`declare_relation_type` specifically also run this check automatically before creating a node, regardless of whether the model searched first — closing the gap where two differently-worded near-duplicates (e.g. `WORKED_AT`/`EMPLOYED_AT`) would otherwise both get declared, since the underlying `declare_*` calls themselves only dedup on an exact name match.
 - **Grounding (`reference`)**: `"llm"` (default) proposes freely from the model's own knowledge; `"mcp"` additionally connects each server in `mcp_servers` (stdio, sse, or streamable_http) and offers the model its tools too — e.g. WordNet hypernym/synonym lookups via `platform/wordnet-mcp` — to ground new names and hierarchy placement before declaring them.
 - **Hierarchy depth (`depth`)**: how many levels beyond what's directly evidenced in the text to also propose and link via `add_subclass_of` (e.g. a mentioned "poodle" also suggesting a `DOG` parent class at `depth=1`; `depth=0` sticks to only what's directly evidenced).
 - **Reuse over duplication**: after declaring a new class/relation, the agent searches again for a plausible parent/child to attach via `add_subclass_of`, and calls `attach_property` instead of declaring a new property when an existing one already covers the concept on a different class/relation.
 
-`import_text` (§3) composes with this rather than duplicating it: with `expand_schema=True` (the default), it calls `expand_schema` first, using the text/queries being extracted as the grounding passage, before running its own (schema-read-only) extraction agent.
+`import_text` (§4) composes with this rather than duplicating it: with `expand_schema=True` (the default), it calls `expand_schema` first, using the text/queries being extracted as the grounding passage, before running its own (schema-read-only) extraction agent.
 
 ---
 
@@ -307,9 +314,34 @@ Hooks are scoped to a single database: a hook registered on database `"main"` do
 
 ---
 
-## 3. Extraction Engine
+## 3. Ingestion
 
-The Extraction Engine bridges free text and the structured knowledge base using an LLM as its reasoning core. It calls into the Knowledge Layer using the same operations available to any other caller, and only *reads* the Schema Layer — it never declares new schema. Growing the schema is the Schema Expansion Engine's job exclusively (§1, "Schema Expansion"); `KBSource.import_text` composes the two by calling `expand_schema` first (when `expand_schema=True`, the default) and this engine second.
+Sits above the schema and knowledge layers, like the Extraction Engine: it consumes both, is owned by neither, and writes only through their existing operations.
+
+### Node Resolver
+
+**Responsibilities**
+
+- Resolve a name to ranked candidates, one label at a time (`resolve_class`/`resolve_relation`/`resolve_property`/`resolve_entity`)
+- Rank by tier: exact name matches, then normalized matches (casefold, whitespace, punctuation, accent folding), then search hits — via the database's index when configured, else an unranked substring scan
+- Never pick a winner — callers own the pick-or-raise policy
+
+Only the Ingestion Manager is wired to it today; extraction and querying keep their own lookups.
+
+### Ingestion Manager
+
+**Responsibilities**
+
+- Expose the ingest path: ten `assert_*` operations plus bulk `ingest`
+- Resolve every operand read-only before writing (phase 1), running any needed judges (`ingestion/judges.py`: single-shot LLM calls for property placement, class naming, and description generation) — any failure raises `IngestionError` before anything is written
+- Write through the existing `declare_*`/`add_*`/`attach_*` operations (phase 2), so change notification and search indexing fire exactly as for direct writes
+- Create unresolved names at every level; widen a relation's domain/range for a non-conforming fact; dedupe known triples and equal property values by attaching new evidence
+- Stamp every created node with an EXTRACTION recording the serialized assertion
+- Under `schema_creation_mode="none"`, run no judges: descriptions stay empty and untyped entities attach to the `EVERYTHING` catch-all class
+
+## 4. Extraction Engine
+
+The Extraction Engine bridges free text and the structured knowledge base using an LLM as its reasoning core. It calls into the Knowledge Layer using the same operations available to any other caller, and only *reads* the Schema Layer — it never declares new schema. Growing the schema from the given text is the Schema Expansion Engine's job (§1, "Schema Expansion"); `KBSource.import_text` composes the two by calling `expand_schema` first (when `expand_schema=True`, the default) and this engine second.
 
 ### LLM Agent
 
@@ -357,7 +389,7 @@ Assuming `EMPLOYEE`, `COMPANY`, `WORKED_AT`, and `START_DATE` are already in the
 
 ---
 
-## 4. Search Indexer
+## 5. Search Indexer
 
 The Search Indexer maintains a search index over schema elements and instance data so that `search_schema` and `search_data` can be answered by ranked lookup instead of an LLM call. It is optional per database: enabling it registers the indexer as a global change hook, so it stays in sync automatically as writes occur elsewhere in the system.
 
@@ -389,7 +421,7 @@ Semantic search requires a vector source and embedding function at construction 
 
 ---
 
-## 5. Graph Store
+## 6. Graph Store
 
 The Graph Store persists all schema and instance data as a typed graph of nodes and edges. It is fully abstract: the same KBDB operations run without modification against any supported backend.
 

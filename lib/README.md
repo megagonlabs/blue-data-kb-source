@@ -478,6 +478,24 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 
 ---
 
+#### Ingest operations (→ `IngestionManager`)
+
+Name-based, resolve-or-create counterparts to the knowledge write operations: resolution happens first (ambiguity raises `IngestionError` carrying the candidates, nothing written), and anything unresolved is created — schema included, with LLM judges naming and describing. All eleven take trailing `source_id?`/`confidence?`/`extraction_type?`/`schema_creation_mode?`/`model?` options.
+
+| Method | Returns | Description |
+|---|---|---|
+| `await assert_class(database, name, description?)` | `AssertResult` | Reuse a class when one resolves, create it otherwise |
+| `await assert_relation_type(database, name, domain, range, description?, is_symmetric?)` | `AssertResult` | Missing domain/range classes are created; an existing relation is widened, not rejected |
+| `await assert_class_property(database, name, class_name, description?)` | `AssertResult` | The owning class is created when missing |
+| `await assert_relation_property(database, name, relation_name, description?)` | `AssertResult` | The relation must already exist |
+| `await assert_subclass(database, child, parent)` | `AssertResult` | Missing classes are created; the edge is idempotent |
+| `await assert_subrelation(database, child, parent)` | `AssertResult` | Both relations must already exist |
+| `await assert_entity(database, name, class_name?, description?)` | `AssertResult` | Resolves by name; a new or classless entity gets a judged class (`EVERYTHING` under `"none"`) |
+| `await assert_fact(database, head, relation, tail, name?, description?)` | `AssertResult` | Operands resolved or created; an existing triple dedupes with new evidence; non-conforming domain/range widens |
+| `await assert_entity_property(database, entity, property, value, literal_type?)` | `AssertResult` | Equal values dedupe; placement of a new property is judged over the entity's classes |
+| `await assert_fact_property(database, head, relation, tail, property, value, literal_type?)` | `AssertResult` | The fact is identified structurally by its triple, and created when missing |
+| `await ingest(database, payload)` | `IngestReport` | Runs a ten-arm payload of rows through the asserts in file order; rows may override `confidence`/`extraction_type`; failures collect into the report |
+
 #### Extraction (→ `ExtractionEngine`)
 
 | Method | Returns | Description |
@@ -494,6 +512,11 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | `AnswerResult` | `entity`, `relation`, `value`, `provenance` |
 | `ValidationResult` | `supporting: list[dict]`, `counter: list[dict]` |
 | `EnrichmentResult` | `entity`, `relation`, `value`, `distance` |
+| `ResolutionCandidate` | `node_id`, `name`, `label`, `match_type`, `score` |
+| `NodeRef` | `node_id`, `label`, `name`, `extraction_id` |
+| `AssertResult` | `node_id`, `created`, `match_type`, `extraction_id`, `created_nodes`, `widened_relations` |
+| `IngestFailure` | `arm`, `index`, `reason`, `candidates` |
+| `IngestReport` | `written`, `deduped`, `skipped`, `failures`, `created`, `widened` |
 
 ### Exceptions
 
@@ -504,6 +527,7 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | `KnowledgeError` | Knowledge-layer write or query failures (e.g. an `entity_id` that doesn't exist, or refers to a FACT instead) |
 | `ExtractionError` | LLM extraction failures (e.g. missing `openai` package) |
 | `ProvenanceError` | Provenance-tracking failures |
+| `IngestionError` | An assert's resolve phase failed — ambiguity (candidates attached), a judge crash; nothing was written |
 
 `SchemaManager`/`KnowledgeManager` methods that take an id parameter referencing an existing node
 (`class_id`, `relation_id`, `property_id`, `entity_id`, `fact_id`, `source_id`, ...) validate that the
@@ -583,12 +607,15 @@ lib/
 │       ├── knowledge/          # KnowledgeManager + QueryEngine (LLM agent)
 │       ├── provenance/         # ProvenanceTracker
 │       ├── notification/       # ChangeNotifier
+│       ├── resolution/         # NodeResolver — ranked name resolution
+│       ├── ingestion/          # IngestionManager + LLM judges (assert_*, ingest)
 │       └── extraction/         # ExtractionEngine (LLM agent)
 └── tests/
     ├── conftest.py           # kb / populated_kb fixtures shared by unit/ and benchmarks/
     ├── unit/
     └── benchmarks/
-        ├── common/            # shared harness: capture, (query_)scoring, (query_)runner, (query_)reporting
+        ├── common/            # shared harness: capture + cases/runner/scoring/reporting per family
         ├── extraction/        # gold-standard cases + pytest suite + live run.py CLI (import_text)
-        └── querying/          # gold-standard cases + pytest suite + live run.py CLI (answer/validate/enrich)
+        ├── querying/          # gold-standard cases + pytest suite + live run.py CLI (answer/validate/enrich)
+        └── judges/            # gold-standard cases + pytest suite + live run.py CLI (ingestion judges)
 ```

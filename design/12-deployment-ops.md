@@ -62,7 +62,7 @@ All configuration is via environment variables — no config files. The CLI and 
 |---|---|---|
 | `KBDB_DATA_DIR` | `~/.kbdb` | Directory holding `registry.json` (per-database backend/search config) and file-backed graph data |
 | `KBDB_DATABASE` | — | Overrides which database `--database` defaults to, if not passed explicitly |
-| `OPENAI_API_KEY` | — | Required for `kb schema expand`/`kb data extract`/`answer`/`validate` |
+| `OPENAI_API_KEY` | — | Required for `kb schema expand`/`kb data extract`/`answer`/`validate`, and for the `assert`/`ingest` commands under `--schema-creation-mode llm` (the default; `none` needs no key) |
 
 Per-database backend and search configuration (graph backend, Neo4j connection, search mode, vector backend) is **not** environment-variable-driven — it's set via `kb database register ...` flags and persisted in `{KBDB_DATA_DIR}/registry.json`. See [09-api-interface-spec.md](09-api-interface-spec.md) §4 for the full flag reference.
 

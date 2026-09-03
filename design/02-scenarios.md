@@ -2,7 +2,7 @@
 
 ## Scenario 1: Defining a Domain Schema
 
-A developer is building an agent that reasons over a specific domain. Before any data is ingested, the developer defines the vocabulary the knowledge base will use: entity classes, relation types between them, and properties that describe those entities and relations. The schema is stored persistently in the knowledge base and serves as the structured vocabulary for all subsequent ingestion and querying.
+A developer is building an agent that reasons over a specific domain. Before any data enters the knowledge base, the developer defines the vocabulary the knowledge base will use: entity classes, relation types between them, and properties that describe those entities and relations. The schema is stored persistently in the knowledge base and serves as the structured vocabulary for all subsequent ingestion and querying.
 
 **Example:**
 
@@ -11,19 +11,19 @@ A developer building an employment-history agent defines the following schema:
 - Relation: `WORKED_AT` — from `EMPLOYEE` to `COMPANY`
 - Properties: `NAME` on `PERSON`, `NAME` on `COMPANY`, `START_DATE` on `WORKED_AT`
 
-The schema is now in place and all subsequent ingestion will use these types.
+The schema is now in place, and instances of each of these types can be added to the knowledge base.
 
-Instead of hand-declaring every class and relation, a developer can also seed the schema from a domain description via `expand_schema` (see Scenario 11) — useful when the vocabulary isn't fully known up front, or when bootstrapping from a glossary/spec document rather than designing the schema by hand.
+It does not have to be complete up front, though. The schema also grows ahead of the data that needs it: when an incoming statement mentions a class or relation the schema doesn't have yet, the ingest path adds it first (Scenario 3), and the extraction path grows the schema from text before extracting instances from it, or on its own (Scenario 5).
 
 ---
 
-## Scenario 2: Ingesting a Structured Document
+## Scenario 2: Populating from a Structured Document
 
-A developer populates the knowledge base from a document whose content is already known and structured. Entity instances are created for each subject in the document, facts are wired between them according to the schema, and property values are attached. Each item is linked to a source node representing the originating document, so any fact can later be traced back to where it came from.
+A developer populates the knowledge base from a document whose content is already known and structured, and the developer already knows exactly where each item belongs in the schema, so each one is added directly. Entity instances are created for each subject, facts are wired between them according to the schema, and property values are attached. Each item is linked to a source node representing the originating document, so any fact can later be traced back to where it came from.
 
 **Example:**
 
-A developer ingests Alice's résumé:
+A developer records what Alice's résumé says:
 - Source: `Alice's résumé (PDF)`
 - Entity: `Alice` of class `EMPLOYEE`, name property `"Alice"` — both linked to the résumé
 - Entity: `IBM` of class `COMPANY` — added without a `text`/`source_id`, so it carries no provenance link
@@ -33,9 +33,25 @@ Provenance linking is opt-in per write, not automatic — only items created wit
 
 ---
 
-## Scenario 3: Extracting Knowledge from Free Text
+## Scenario 3: Ingesting from External Sources
 
-A document arrives as unstructured prose. Rather than parsing it manually, the developer provides the text and a set of guiding queries to the extraction function. The system invokes an LLM that reads the current schema, identifies the relevant entities and facts in the text, and populates the knowledge base. For each item it creates, the LLM records the exact text span it drew from, preserving fine-grained provenance back to the source passage.
+Knowledge arrives already structured, but from outside the developer's control: an external tool that extracts triples in bulk, statements an agent or a person hands in, another knowledge base being folded in. As in Scenario 2, it is clear what to add — each statement already says who is related to what, and how. What is not settled is the vocabulary. The statements use their own names, and those may not line up with the knowledge base's: a company the graph already knows under a slightly different name, a person with no class given, a relation the schema has never seen. The developer hands the statements to the ingest function, which looks each name up in the graph, adds whatever is missing (new classes and relations included, named and described by an LLM), and records new evidence for anything already there instead of creating a duplicate. If a name could mean two existing things, that statement is set aside and reported with both candidates instead of being guessed.
+
+**Example:**
+
+An external extractor hands over what it found in a batch of résumés, as triples. The knowledge base already holds `Alice`, `IBM`, and `Alice —WORKED_AT→ IBM` from Scenario 2, plus a few companies from other documents, `Apple Inc.` and `Apple Records` among them:
+- `Alice —WORKED_AT→ ibm`: lower-case `ibm` is recognized as the `IBM` the graph already knows, and since the fact already exists it only gains a new evidence link
+- `Bob —WORKED_AT→ IBM`: `Bob` is new and came with no class; an LLM picks `EMPLOYEE` from the classes already in the schema, and the entity and the fact are added
+- `Alice —LIVES_IN→ Boston`: neither exists yet, so both are added — `LIVES_IN` as a new relation and `Boston` as a new `CITY`, with the LLM naming the class and writing the descriptions
+- `Bob —WORKED_AT→ Apple`: `Apple` could be `Apple Inc.` or `Apple Records`, both already in the graph, so this statement is set aside and reported with both candidates
+
+Feeding the same batch again adds nothing new; the known items simply gain more evidence.
+
+---
+
+## Scenario 4: Extracting Knowledge from Free Text
+
+A document arrives as unstructured prose. Rather than parsing it manually, the developer provides the text and a set of guiding queries to the extraction function. The system invokes an LLM that reads the current schema, identifies the relevant entities and facts in the text, and populates the knowledge base. For each item it creates, the LLM records the exact text span it drew from, preserving fine-grained provenance back to the source passage. The extraction itself never changes the schema. By default, though, the call first grows the schema from the same text (Scenario 5), so concepts the schema lacks are declared before the instances are extracted.
 
 **Example:**
 
@@ -57,9 +73,9 @@ Each item is stored alongside the verbatim span the LLM identified.
 
 ---
 
-## Scenario 4: Schema Evolution During Ingestion
+## Scenario 5: Growing the Schema from Free Text
 
-A new document introduces concepts not present in the existing schema. `import_text` handles this in two LLM passes, not one: by default (`expand_schema=True`) it first runs `expand_schema` — a schema-growth agent that only ever declares `CLASS`/`RELATION`/`PROPERTY` elements, checking first (by default, via a `search_schema` tool over the existing schema, `dedup_mode="search"`) whether something close enough already exists, to avoid declaring a near-duplicate (e.g. `JOIN_DATE` when `START_DATE` already covers it) — before the extraction agent runs at all. Finding no suitable class or relation, it declares the new ones (and, where a taxonomic relationship applies, wires it via `add_subclass_of` rather than a declared relation); the *extraction* agent then runs against that just-expanded schema and populates the corresponding instances — it never declares schema itself. The schema has grown to accommodate the new domain, and all subsequent documents benefit from the expanded vocabulary without any manual intervention from the developer.
+A new document introduces concepts not present in the existing schema. `import_text` handles this in two LLM passes, not one: by default (`expand_schema=True`) it first runs `expand_schema` — a schema-growth agent that only ever declares `CLASS`/`RELATION`/`PROPERTY` elements, checking first (by default, via a `search_schema` tool over the existing schema, `dedup_mode="search"`) whether something close enough already exists, to avoid declaring a near-duplicate (e.g. `JOIN_DATE` when `START_DATE` already covers it) — before the extraction agent runs at all. Finding no suitable class or relation, it declares the new ones (and, where a taxonomic relationship applies, wires it via `add_subclass_of` rather than a declared relation); the *extraction* agent then runs against that just-expanded schema and populates the corresponding instances — it never declares schema itself. The schema has grown to accommodate the new domain, and all subsequent documents benefit from the expanded vocabulary without any manual intervention from the developer. The pass can also be run on its own, before any extraction, to seed a schema from domain material (Scenario 12).
 
 **Example:**
 
@@ -80,29 +96,29 @@ The schema now covers both employment and education, and future documents can re
 
 ---
 
-## Scenario 5: Multi-source Knowledge Accumulation
+## Scenario 6: Multi-source Knowledge Accumulation
 
-A knowledge base is built up from a series of documents over time. Each ingestion pass creates a distinct source node, and every entity, fact, and property value added during that pass is linked to its originating document. When the same entity appears in multiple documents, it is reused and new facts are appended alongside their respective provenance links. At any point, an agent can ask not only what is known about an entity but also which source established each piece of that knowledge.
+A knowledge base is built up from a series of sources over time. Each run over a new source — an extracted document, an ingested snapshot — creates a distinct source node, and every entity, fact, and property value added during that run is linked to it. When the same entity appears in multiple sources, it is reused and new facts are appended alongside their respective provenance links. At any point, an agent can ask not only what is known about an entity but also which source established each piece of that knowledge.
 
 **Example:**
 
-Three documents are ingested in sequence:
+Three documents are processed in sequence:
 
 1. **Alice's résumé** → `Alice —WORKED_AT→ IBM` (start: 1998), `Alice —WORKED_AT→ Google` (start: 2005)
 2. **TechCrunch article** → `Alice —FOUNDED→ Acme AI` (year: 2018)
 3. **LinkedIn export** → `Alice —WORKED_AT→ Google` (already known — entity reused, no duplicate created)
 
-After all three passes, `Alice` is a single entity with three outgoing facts, each carrying a distinct provenance link. A plain `answer("main", "what do we know about Alice?")` call returns the facts with their extraction text (the verbatim span each was drawn from) — to also get *which document* each came from, the caller passes `include_metadata=True`, which adds a `get_metadata` tool to the agent's loop and returns a `metadata` dict alongside the result, keyed by node id, giving the source name and its `original` date for each cited item (see Scenario 7).
+After all three runs, `Alice` is a single entity with three outgoing facts, each carrying a distinct provenance link. A plain `answer("main", "what do we know about Alice?")` call returns the facts with their extraction text (the verbatim span each was drawn from) — to also get *which source* each came from, the caller passes `include_metadata=True`, which adds a `get_metadata` tool to the agent's loop and returns a `metadata` dict alongside the result, keyed by node id, giving the source name and its `original` date for each cited item (see Scenario 8).
 
 ---
 
-## Scenario 6: Real-time Knowledge Monitoring
+## Scenario 7: Real-time Knowledge Monitoring
 
 A pipeline component needs to react immediately whenever new facts are added to the knowledge base — for example, to trigger an enrichment step or push a notification downstream. The component registers a change hook on the specific database it cares about. From that point on, every time an entity, fact, or property value is written, the hook receives a structured event describing the change. The hook fires synchronously before control returns to the caller, ensuring no events are missed. When the component shuts down it deregisters the hook.
 
 **Example:**
 
-A downstream enrichment service registers a hook on the `"main"` database. As an ingestion run proceeds:
+A downstream enrichment service registers a hook on the `"main"` database. As a run populates the database:
 
 ```
 entity added:    "Alice"  (class: EMPLOYEE)
@@ -115,7 +131,7 @@ The service receives each event in order and, upon seeing a new `WORKED_AT` fact
 
 ---
 
-## Scenario 7: LLM-Powered Querying
+## Scenario 8: LLM-Powered Querying
 
 A knowledge base has been populated from multiple résumés and news articles. A developer wants to query it in natural language without writing graph traversal code. They call `answer`, `validate`, and `enrich` on the knowledge base. Internally, each call runs an LLM agent that is given the current schema and a set of read-only graph tools. The agent reasons over the graph, calls the appropriate tools to gather evidence, and returns a structured result.
 
@@ -161,9 +177,9 @@ Both `answer` and `validate` also take `natural_language=True`, returning prose 
 
 ---
 
-## Scenario 8: Schema Consolidation
+## Scenario 9: Schema Consolidation
 
-During ingestion from several sources, redundant or overlapping schema elements accumulate. Two separate extraction runs have produced both a `COMPANY` class and a `CORPORATION` class, and instances of `CORPORATION` need to be reachable as `COMPANY` too. A developer calls `consolidate_schema` to merge them. The Schema Manager identifies every instance whose primary instance edge points at `CORPORATION` and adds a **new** instance edge from each one to `COMPANY` — it does not remove the old edge, and it does not delete `CORPORATION` from the schema. `operation="split"` is not implemented — `consolidate_schema` only supports `"merge"` today.
+As the schema grows across many sources — extraction runs, ingest runs, independent declarations — redundant or overlapping elements accumulate. Two separate extraction runs have produced both a `COMPANY` class and a `CORPORATION` class, and instances of `CORPORATION` need to be reachable as `COMPANY` too. A developer calls `consolidate_schema` to merge them. The Schema Manager identifies every instance whose primary instance edge points at `CORPORATION` and adds a **new** instance edge from each one to `COMPANY` — it does not remove the old edge, and it does not delete `CORPORATION` from the schema. `operation="split"` is not implemented — `consolidate_schema` only supports `"merge"` today.
 
 **Example:**
 
@@ -205,9 +221,9 @@ A subsequent call to `fetch_database_schema` still lists both `COMPANY` and `COR
 
 ---
 
-## Scenario 9: Schema Export and Reuse
+## Scenario 10: Schema Export and Reuse
 
-A team has invested effort in defining a rich domain schema in one knowledge base. A second team building a related agent wants to start from the same vocabulary rather than redefine it from scratch. The first team exports the schema to a portable representation and shares it. The second team imports it into a fresh knowledge base, which now contains all the same classes, relations, and property definitions. Each team then extends the schema independently as their ingestion needs diverge.
+A team has invested effort in defining a rich domain schema in one knowledge base. A second team building a related agent wants to start from the same vocabulary rather than redefine it from scratch. The first team exports the schema to a portable representation and shares it. The second team imports it into a fresh knowledge base, which now contains all the same classes, relations, and property definitions. Each team then extends the schema independently as their needs diverge.
 
 **Example:**
 
@@ -226,7 +242,7 @@ Team A's schema remains unchanged. Both teams share the common vocabulary while 
 
 ---
 
-## Scenario 10: Searching Schema and Data
+## Scenario 11: Searching Schema and Data
 
 A developer wants to look up schema elements or instance data directly by keyword or meaning, without invoking an LLM. When a database is registered, it can be configured with a search mode — `bm25` for keyword search or `semantic` for embedding-based similarity search. As entities, facts, classes, relations, and properties are written, the search indexer keeps a corpus up to date automatically. The developer can then search schema elements and data independently, optionally restricting results to a specific node type, and can force a full reindex if needed.
 
@@ -237,7 +253,7 @@ A team registers a database with semantic search enabled:
 kb database register main --search semantic --embedding-model text-embedding-3-small
 ```
 
-After ingesting the employment schema and Alice's résumé, they search the schema for a concept without knowing the exact class name:
+After loading the employment schema and extracting Alice's résumé, they search the schema for a concept without knowing the exact class name:
 ```bash
 kb --database main schema search "place of employment" --mode semantic --type relation
 # → WORKED_AT   RELATION   "Employment relationship"
@@ -258,7 +274,7 @@ Search results are returned directly from the index, with no LLM call involved.
 
 ---
 
-## Scenario 11: Standalone Schema Expansion with External Grounding
+## Scenario 12: Standalone Schema Expansion with External Grounding
 
 A developer wants to build out a schema from a batch of domain material — glossaries, sample documents, a data dictionary — before any entities or facts are extracted, and wants the resulting class/relation names and hierarchy checked against an external lexical resource rather than left entirely to the model's own judgment. `expand_schema` is called directly (not through `import_text`), once per document or passage, growing the schema incrementally and letting later calls build on what earlier ones declared.
 

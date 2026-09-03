@@ -38,27 +38,24 @@ An item can accumulate evidence from multiple passages over time: `add_entity_ex
 
 ---
 
-## Search — keyword and semantic
+## Structured ingestion
 
-Optional BM25 keyword search or hybrid semantic (embedding) search over both schema and instance data, enabled per database.
+When knowledge arrives as triples rather than prose — an external extractor, an agent's
+statements, another knowledge base — the `assert_*` family and bulk `ingest` take names
+instead of ids, resolve them against the graph, and create whatever doesn't resolve,
+schema elements included (an LLM names classes and writes descriptions; `schema_creation_mode="none"`
+skips the LLM and uses an `EVERYTHING` catch-all). Known triples and equal property values
+dedupe by attaching new evidence, non-conforming facts widen their relation's domain/range,
+and ambiguous names fail with candidates instead of writing. Bulk runs return a report:
 
 ```python
-kb = MemoryKBSource(name="my-kb", properties={"search": {"mode": "bm25"}})   # BM25
-# or, for semantic search too:
-kb = MemoryKBSource(
-    name="my-kb",
-    properties={"search": {"mode": "semantic", "vector_source": my_vector_source, "embedding_fn": my_embed_fn}},
-)
-
-hits = await kb.search_schema("main", "employment")
-hits = await kb.search_data("main", "Alice", mode="semantic")
+report = await kb.ingest("main", payload, source_id=src, confidence=0.8)
+# report.written / deduped / skipped / failures / created / widened
 ```
 
-Without `enable_search`, `search_schema`/`search_data` still work — they fall back to an unranked substring match, so callers never need to branch on whether search is configured.
+Re-running the same payload converges — nothing duplicates, evidence accumulates.
 
----
-
-## LLM schema expansion
+## LLM schema expansion — the extraction path's schema pass
 
 `expand_schema` reads a passage of free text and grows the schema — declaring `CLASS`/`RELATION`/`PROPERTY` elements grounded by the text — without ever touching entities, facts, or property values.
 
@@ -88,6 +85,26 @@ await kb.import_text(
 ```
 
 Pass `expand_schema=False` to extract only, e.g. when reusing a schema already expanded once across many documents.
+
+---
+
+## Search — keyword and semantic
+
+Optional BM25 keyword search or hybrid semantic (embedding) search over both schema and instance data, enabled per database.
+
+```python
+kb = MemoryKBSource(name="my-kb", properties={"search": {"mode": "bm25"}})   # BM25
+# or, for semantic search too:
+kb = MemoryKBSource(
+    name="my-kb",
+    properties={"search": {"mode": "semantic", "vector_source": my_vector_source, "embedding_fn": my_embed_fn}},
+)
+
+hits = await kb.search_schema("main", "employment")
+hits = await kb.search_data("main", "Alice", mode="semantic")
+```
+
+Without `enable_search`, `search_schema`/`search_data` still work — they fall back to an unranked substring match, so callers never need to branch on whether search is configured.
 
 ---
 
