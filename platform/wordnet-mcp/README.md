@@ -7,10 +7,11 @@ Claude Code, and any MCP-compatible host).
 Read-only — WordNet is a fixed, pre-built lexical database, so there are no
 write tools.
 
-Standalone prototype: not yet wired into `blue-data-kb-source`'s schema
-expansion. It's built so a future `import_text`/schema-discovery flow (or an
-LLM agent doing schema design) can call it directly, but that integration is
-a separate step.
+Wired into `blue-data-kb-source`'s schema expansion: `kb schema expand
+--reference mcp` and `kb data extract --schema-expansion-mode mcp` both spawn
+this server over stdio (via `--mcp-server` / `--schema-expansion-mcp-server`)
+and give the model its tools to ground class/relation names and hierarchy
+placement before declaring them. See "Schema expansion integration" below.
 
 ---
 
@@ -61,6 +62,30 @@ Add to `~/.config/claude-desktop/claude_desktop_config.json`:
 
 If `blue-data-wordnet-mcp` is not on the system PATH, use the full path to
 the venv's binary.
+
+---
+
+## Schema expansion integration
+
+No need to run the server yourself first — `kb schema expand` /
+`kb data extract` spawn it as a subprocess over stdio for the duration of the
+call, given its command via `--mcp-server` / `--schema-expansion-mcp-server`.
+
+```bash
+kb schema expand "Dogs are a type of canine, and canines are carnivores." \
+  --reference mcp \
+  --mcp-server '{"transport":"stdio","command":"blue-data-wordnet-mcp"}'
+```
+
+```bash
+kb data extract "..." \
+  --schema-expansion-mode mcp \
+  --schema-expansion-mcp-server '{"transport":"stdio","command":"blue-data-wordnet-mcp"}'
+```
+
+Add `-v` (or `-l` for one line per tool call) to watch the WordNet lookups
+(`lookup_synsets`, `get_hypernyms`, ...) the model makes before it declares
+classes and relations.
 
 ---
 
