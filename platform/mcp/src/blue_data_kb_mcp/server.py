@@ -8,7 +8,7 @@ directly.
 Tool groups
 -----------
 Schema (write)     — declare_class, declare_relation, declare_class_property,
-                      declare_relation_property, add_is_subclass_of
+                      declare_relation_property, add_is_subclass_of, attach_property
 Schema (read)      — search_schema, fetch_schema, fetch_meta_schema
 Schema expansion   — expand_schema (LLM-grown schema, optionally grounded by
                       connected MCP servers, e.g. platform/wordnet-mcp — run
@@ -201,6 +201,24 @@ async def add_is_subclass_of(child_id: str, parent_id: str, database: str = "def
     """
     try:
         await get_kb().add_is_subclass_of(database, child_id, parent_id)
+        return _ok({"status": "ok"})
+    except Exception as e:
+        return _err(e)
+
+
+@mcp.tool()
+async def attach_property(target_id: str, property_id: str, database: str = "default") -> str:
+    """Attach an existing property to a class or relation (idempotent). Use to reuse a
+    property already declared elsewhere instead of declaring a same-meaning duplicate
+    under a new name — e.g. found via search_schema.
+
+    Args:
+        target_id:   Id of the class or relation to attach the property to.
+        property_id: Id of the existing property to reuse.
+        database:    Target database (default 'default').
+    """
+    try:
+        await get_kb().attach_property(database, target_id, property_id)
         return _ok({"status": "ok"})
     except Exception as e:
         return _err(e)

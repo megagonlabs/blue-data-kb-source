@@ -156,6 +156,102 @@ async def test_expand_schema_mcp_reference_requires_servers(kb):
 
 
 # ------------------------------------------------------------------ #
+# hierarchy / property reuse / auto-dedup                              #
+# ------------------------------------------------------------------ #
+
+async def test_expand_schema_add_subclass_of_links_hierarchy(kb):
+    person = await kb.declare_class("test", "PERSON", "A human individual")
+    employee = await kb.declare_class("test", "EMPLOYEE", "A person employed by an organization")
+
+    factory, _ = _mock_openai_sequence(
+        _tool_call_response("add_subclass_of", {"child_id": employee, "parent_id": person}),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", factory):
+        await kb.expand_schema("test", "Bob is an employee.", dedup_mode="none")
+
+    schema = await kb.fetch_database_schema("test")
+    assert any(
+        r["name"] == "IS_SUBCLASS_OF" and r["source"] == "EMPLOYEE" and r["target"] == "PERSON"
+        for r in schema.relations.values()
+    )
+
+
+async def test_expand_schema_attach_property_reuses_existing_property(kb):
+    person = await kb.declare_class("test", "PERSON", "A human individual")
+    company = await kb.declare_class("test", "COMPANY", "A business organization")
+    name_prop = await kb.declare_class_property("test", "NAME", "Name of the individual", class_id=person)
+
+    factory, _ = _mock_openai_sequence(
+        _tool_call_response("attach_property", {"target_id": company, "property_id": name_prop}),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", factory):
+        await kb.expand_schema("test", "IBM is a company.", dedup_mode="none")
+
+    schema = await kb.fetch_database_schema("test")
+    assert "NAME" in schema.entities["COMPANY"]["contents"]["attributes"]
+    # reused, not duplicated: still the same single PROPERTY node
+    props = await kb.search_schema("test", "NAME", type_filter="property")
+    assert [p.id for p in props if p.name == "NAME"] == [name_prop]
+
+
+async def test_expand_schema_rejects_taxonomic_relation_type(kb):
+    person = await kb.declare_class("test", "PERSON", "A human individual")
+    animal = await kb.declare_class("test", "ANIMAL", "A living organism")
+
+    calls = []
+    factory, _ = _mock_openai_sequence(
+        _tool_call_response(
+            "declare_relation_type",
+            {"name": "IS_A", "description": "taxonomy", "domain": "PERSON", "range": "ANIMAL"},
+        ),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", factory):
+        await kb.expand_schema(
+            "test", "A person is an animal.", dedup_mode="none",
+            on_tool_result=lambda name, args, result: calls.append((name, result)),
+        )
+
+    assert "error" in calls[0][1]
+    schema = await kb.fetch_database_schema("test")
+    assert not any(r["name"] == "IS_A" for r in schema.relations.values())
+    _ = person, animal
+
+
+async def test_expand_schema_auto_dedup_catches_relation_synonym_without_search(kb):
+    """declare_relation_type is auto-checked for near-duplicates even when the model skips
+    search_schema and calls it directly — closing the gap where only exact-name matches were
+    caught (e.g. WORKED_AT vs EMPLOYED_AT)."""
+    person = await kb.declare_class("test", "PERSON", "A human individual")
+    company = await kb.declare_class("test", "COMPANY", "A business organization")
+    worked_at = await kb.declare_relation_type(
+        "test", "WORKED_AT", "Employment relationship", domain="PERSON", range="COMPANY"
+    )
+
+    calls = []
+    factory, _ = _mock_openai_sequence(
+        _tool_call_response(
+            "declare_relation_type",
+            {"name": "EMPLOYED_AT", "description": "Employment relationship", "domain": "PERSON", "range": "COMPANY"},
+        ),
+        _tool_call_response("return_matches", {"matching_ids": [worked_at]}),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", factory):
+        await kb.expand_schema(
+            "test", "Alice is employed at IBM.", dedup_mode="llm",
+            on_tool_result=lambda name, args, result: calls.append((name, result)),
+        )
+
+    assert calls[0] == ("declare_relation_type", {"id": worked_at})
+    schema = await kb.fetch_database_schema("test")
+    assert not any(r["name"] == "EMPLOYED_AT" for r in schema.relations.values())
+    _ = person, company
+
+
+# ------------------------------------------------------------------ #
 # reference="mcp" — live bridge to the real blue-data-wordnet-mcp server #
 # ------------------------------------------------------------------ #
 

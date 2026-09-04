@@ -113,15 +113,71 @@ _SCHEMA_TOOLS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_subclass_of",
+            "description": (
+                "Link an existing CLASS or RELATION as a subtype of a more general existing one "
+                "of the same kind — e.g. EMPLOYEE (child) add_subclass_of PERSON (parent). Use "
+                "this for any is-a/type-of/kind-of relationship between two concepts; never "
+                "declare_relation_type for that purpose. Both ids must come from a prior "
+                "declare_class/declare_relation_type/search_schema/get_schema result. Returns {}."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "child_id": {"type": "string", "description": "id of the more specific CLASS or RELATION"},
+                    "parent_id": {"type": "string", "description": "id of the more general CLASS or RELATION"},
+                },
+                "required": ["child_id", "parent_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "attach_property",
+            "description": (
+                "Attach an existing PROPERTY (e.g. one found via search_schema) to a CLASS or "
+                "RELATION (idempotent), reusing it instead of declaring a same-meaning "
+                "near-duplicate under a new name. Prefer this over declare_class_property / "
+                "declare_relation_property whenever search_schema already turned up a property "
+                "that means the same thing. Returns {}."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target_id": {"type": "string", "description": "id of the CLASS or RELATION to attach the property to"},
+                    "property_id": {"type": "string", "description": "id of the existing PROPERTY to reuse"},
+                },
+                "required": ["target_id", "property_id"],
+            },
+        },
+    },
 ]
+
+_TAXONOMIC_RELATION_NAMES = {
+    "IS_A", "TYPE_OF", "KIND_OF", "SUBCLASS_OF", "SUBTYPE_OF", "SUBTYPE",
+    "INSTANCE_OF", "IS_INSTANCE_OF", "IS_SUBCLASS_OF", "IS_KIND_OF", "IS_TYPE_OF",
+}
 
 _SYSTEM_PROMPT_TEMPLATE = """\
 You are a knowledge base (KB) schema expansion agent.
 
 The KB stores:
   CLASS     — category of entities (e.g. PERSON, COMPANY)
-  RELATION  — type of relationship (e.g. WORKED_AT, LIVES_IN)
+  RELATION  — type of relationship between two entities (e.g. WORKED_AT, LIVES_IN)
   PROPERTY  — attribute of a class or relation (e.g. AGE, START_DATE)
+
+Hierarchy between two CLASSes or two RELATIONs (is-a / type-of / kind-of /
+subclass-of) is a *structural* link, wired with add_subclass_of — it is never a
+declared RELATION. Never call declare_relation_type with a name like IS_A, TYPE_OF,
+KIND_OF, or SUBCLASS_OF; use add_subclass_of on the two existing CLASS or RELATION
+ids instead. declare_relation_type is only for semantic relationships that hold
+between instances — WORKED_AT, LIVES_IN, and even meronymy like PART_OF (e.g. an
+ENGINE is PART_OF a CAR, a fact-level relationship, not a taxonomy edge) all
+belong there.
 
 Your job is only to grow the schema — you never add entities, facts, or property
 values. That happens in a separate extraction pass, run afterward, against the
@@ -134,15 +190,26 @@ Workflow:
    declare_relation_property, call search_schema with a short description of the
    concept. If an existing element already covers the same meaning — even under a
    different name — reuse it; do not declare a near-duplicate (e.g. a JOIN_DATE
-   property when a START_DATE property already means the same thing).
-3. Beyond what's directly evidenced, you may also propose up to {depth} level(s) of
-   generalization/specialization around each concept — e.g. depth=1 also considers
-   each concept's immediate parent or child category (a mentioned "poodle" also
-   suggests DOG as a parent CLASS); depth=0 sticks to only what's directly
+   property when a START_DATE property already means the same thing, or an
+   EMPLOYED_AT relation when WORKED_AT already means the same thing). Declaring a
+   class/relation also runs an automatic duplicate check as a safety net, but don't
+   rely on that — searching first is cheaper and is also how you find a parent to
+   attach to in step 4.
+3. When search_schema turns up an existing PROPERTY that covers the concept you
+   need on a *different* class/relation than the one that already defines it, call
+   attach_property to reuse it there instead of declare_class_property /
+   declare_relation_property under a new name.
+4. After declaring a new CLASS or RELATION, search_schema again for a plausible
+   existing parent or child of the same kind, and call add_subclass_of to place it
+   in the hierarchy whenever one clearly fits. Beyond what's directly evidenced,
+   also propose up to {depth} level(s) of generalization/specialization around
+   each concept this way — e.g. depth=1 also considers each concept's immediate
+   parent or child category (a mentioned "poodle" also suggests DOG as a parent
+   CLASS, linked via add_subclass_of); depth=0 sticks to only what's directly
    evidenced.{mcp_note}
-4. declare_relation_type requires the domain (head CLASS name) and range (tail
+5. declare_relation_type requires the domain (head CLASS name) and range (tail
    CLASS name) — find or declare both classes first.
-5. Use UPPER_SNAKE_CASE for CLASS, RELATION, and PROPERTY names.
+6. Use UPPER_SNAKE_CASE for CLASS, RELATION, and PROPERTY names.
 
 Current schema:
 {schema}
@@ -367,6 +434,11 @@ class SchemaExpansionEngine:
             ]}
 
         if fn == "declare_class":
+            dup_id = await self._auto_dedup_check(
+                database, CLASS, args["name"], args["description"], dedup_mode, model
+            )
+            if dup_id:
+                return {"id": dup_id}
             cid = await self._schema.declare_class(database, name=args["name"], description=args["description"])
             return {"id": cid}
 
@@ -377,6 +449,17 @@ class SchemaExpansionEngine:
             return {"id": pid}
 
         if fn == "declare_relation_type":
+            if args["name"].upper() in _TAXONOMIC_RELATION_NAMES:
+                return {"error": (
+                    f"'{args['name']}' expresses an is-a/type-of hierarchy, not a semantic "
+                    "relationship between instances — declare_relation_type is not for this. "
+                    "Use add_subclass_of on the two existing CLASS or RELATION ids instead."
+                )}
+            dup_id = await self._auto_dedup_check(
+                database, RELATION, args["name"], args["description"], dedup_mode, model
+            )
+            if dup_id:
+                return {"id": dup_id}
             rid = await self._schema.declare_relation_type(
                 database,
                 name=args["name"],
@@ -396,7 +479,42 @@ class SchemaExpansionEngine:
             )
             return {"id": pid}
 
+        if fn == "add_subclass_of":
+            await self._schema.add_is_subclass_of(database, args["child_id"], args["parent_id"])
+            return {}
+
+        if fn == "attach_property":
+            await self._schema.attach_property(database, args["target_id"], args["property_id"])
+            return {}
+
         return {"error": f"unknown tool: {fn}"}
+
+    async def _auto_dedup_check(
+        self,
+        database: str,
+        type_filter: str,
+        name: str,
+        description: str,
+        dedup_mode: Literal["search", "llm", "none"],
+        model: str,
+    ) -> str | None:
+        """Best-effort near-duplicate lookup run before creating a CLASS/RELATION node, regardless
+        of whether the model called search_schema itself first — otherwise declare_class /
+        declare_relation_type only dedup on an exact name match, so e.g. WORKED_AT and EMPLOYED_AT
+        would sail through as two separate relations. Returns the id of a close-enough existing
+        element to reuse, or None to proceed with creating a new one. A no-op when
+        dedup_mode="none"."""
+        if dedup_mode == "none":
+            return None
+        query = f"{name}: {description}" if description else name
+        if dedup_mode == "llm":
+            results = await self._judge_similar_schema(database, query, type_filter, model)
+        elif self._search_indexer is not None:
+            mode = "semantic" if self._search_indexer.has_semantic else "keyword"
+            results = self._search_indexer.search_schema(database, query, k=5, mode=mode, type_filter=type_filter)
+        else:
+            results = await self._schema.find_schema(database, query, type_filter=type_filter)
+        return results[0].id if results else None
 
     async def _judge_similar_schema(
         self,

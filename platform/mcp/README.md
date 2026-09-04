@@ -166,6 +166,13 @@ Same shape: `name`, `description`, `class_id`/`relation_id` (optional owner),
 `child_id`, `parent_id`, `database` — both ids must be the same kind (both
 classes or both relations). Returns `{"status": "ok"}`.
 
+#### `attach_property`
+
+`target_id`, `property_id`, `database` — wires an existing PROPERTY to another
+CLASS or RELATION (idempotent). Use to reuse a property found via `search_schema`
+instead of declaring a same-meaning duplicate under a new name. Returns
+`{"status": "ok"}`.
+
 ---
 
 ### Schema tools (read)
@@ -198,9 +205,13 @@ in `text` to also propose), `reference` (`llm` default / `mcp`), `mcp_servers`
 `reference="mcp"`; each server's tools are additionally offered to the model,
 e.g. WordNet hypernyms/synonyms via `platform/wordnet-mcp`), `dedup_mode`
 (`search` default / `llm` / `none` — how it checks for an existing schema
-element before declaring a new one), `model`, `database`. Runs an LLM agent
-that grows the schema (CLASS/RELATION/PROPERTY) — never touches entities,
-facts, or property values. Returns `{"status": "ok"}`.
+element before declaring a new one; for `declare_class`/`declare_relation_type`
+this check also runs automatically before creation, even if the model skips
+`search_schema`), `model`, `database`. Runs an LLM agent that grows the schema
+(CLASS/RELATION/PROPERTY), using `add_subclass_of`/`attach_property` internally
+to place new elements under existing ones and reuse existing properties, and
+never declaring a taxonomic (is-a/type-of/kind-of) name as a RELATION — never
+touches entities, facts, or property values. Returns `{"status": "ok"}`.
 
 ---
 

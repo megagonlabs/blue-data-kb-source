@@ -286,6 +286,9 @@ class KBSource(GraphSource, ABC):
     async def add_is_subclass_of(self, database: str, child_id: str, parent_id: str) -> None:
         await self._schema.add_is_subclass_of(database, child_id, parent_id)
 
+    async def attach_property(self, database: str, target_id: str, property_id: str) -> None:
+        await self._schema.attach_property(database, target_id, property_id)
+
     async def expand_schema(
         self,
         database: str,

@@ -283,6 +283,25 @@ class SchemaManager:
                     "relation_id": relation_id, "relation_name": relation_name})
         return node_id
 
+    async def attach_property(self, database: str, target_id: str, property_id: str) -> None:
+        """Attach an existing PROPERTY to a CLASS or RELATION via DEFINE_PROPERTY (idempotent).
+
+        Use to reuse a property across classes/relations (e.g. a START_DATE property already
+        declared on one relation, wanted on another) instead of declaring a same-meaning
+        near-duplicate under a new name.
+        """
+        target_node = self._require_class_or_relation(database, target_id, "target_id")
+        require_node_type(self._source, database, property_id, PROPERTY, "property_id", SchemaError)
+        for nb in self._source.get_neighbors(database, target_id, edge_type=DEFINE_PROPERTY, direction="out"):
+            if nb["node"]["id"] == property_id:
+                return
+        self._source.add_edge(database, target_id, DEFINE_PROPERTY, property_id, properties=edge_stamped())
+        self._fire({
+            "type": "property_attached", "database": database, "id": property_id,
+            "target_id": target_id, "target_label": target_node.get("label", ""),
+            "property_id": property_id,
+        })
+
     async def update_class(
         self,
         database: str,

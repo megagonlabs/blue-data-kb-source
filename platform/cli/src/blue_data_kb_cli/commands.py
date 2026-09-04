@@ -1037,6 +1037,31 @@ def schema_class_property_add(
     console.print(f"Added class property: [bold]{name}[/bold] (id: {prop_id})")
 
 
+@schema_class_property_group.command("attach")
+@click.option("--property",    "property_name", default=None, help="Existing property name.")
+@click.option("--property-id",                  default=None, help="Existing property node ID (overrides --property).")
+@click.option("--class",       "class_name",     default=None, help="Target class name.")
+@click.option("--class-id",                      default=None, help="Target class node ID (overrides --class).")
+@click.pass_obj
+def schema_class_property_attach(
+    obj: dict, property_name: str | None, property_id: str | None,
+    class_name: str | None, class_id: str | None,
+) -> None:
+    """Attach an existing PROPERTY to a class (idempotent) — reuse it instead of declaring a
+    same-meaning duplicate under a new name."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    resolved_property = _resolve_node(kb, db, PROPERTY, property_name, property_id, "property")
+    resolved_class = _resolve_node(kb, db, CLASS, class_name, class_id, "class")
+    try:
+        _run(kb.attach_property(db, resolved_class, resolved_property))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    prop_label = property_name or property_id
+    class_label = class_name or class_id
+    console.print(f"Attached property [bold]{prop_label}[/bold] to class [bold]{class_label}[/bold]")
+
+
 @schema_class_property_group.command("list")
 @click.option("--class",    "class_name", default=None, help="Filter by class name.")
 @click.option("--class-id",              default=None, help="Filter by class node ID.")
@@ -1497,6 +1522,31 @@ def schema_relation_property_add(
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(f"Added relation property: [bold]{name}[/bold] (id: {prop_id})")
+
+
+@schema_relation_property_group.command("attach")
+@click.option("--property",    "property_name", default=None, help="Existing property name.")
+@click.option("--property-id",                  default=None, help="Existing property node ID (overrides --property).")
+@click.option("--relation",    "relation_name",  default=None, help="Target relation name.")
+@click.option("--relation-id",                   default=None, help="Target relation node ID (overrides --relation).")
+@click.pass_obj
+def schema_relation_property_attach(
+    obj: dict, property_name: str | None, property_id: str | None,
+    relation_name: str | None, relation_id: str | None,
+) -> None:
+    """Attach an existing PROPERTY to a relation (idempotent) — reuse it instead of declaring a
+    same-meaning duplicate under a new name."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    resolved_property = _resolve_node(kb, db, PROPERTY, property_name, property_id, "property")
+    resolved_relation = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
+    try:
+        _run(kb.attach_property(db, resolved_relation, resolved_property))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    prop_label = property_name or property_id
+    relation_label = relation_name or relation_id
+    console.print(f"Attached property [bold]{prop_label}[/bold] to relation [bold]{relation_label}[/bold]")
 
 
 @schema_relation_property_group.command("list")

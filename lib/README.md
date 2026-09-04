@@ -184,22 +184,37 @@ async def extract(kb):
 5. When an entity or fact already exists, call `link_extraction` instead of re-creating it, adding a
    new `EXTRACTED_FROM` edge alongside any existing ones.
 
+The agent has tools for every kind of schema change: `declare_class`/`declare_relation_type`
+(new CLASS/RELATION), `declare_class_property`/`declare_relation_property` (new PROPERTY),
+`add_subclass_of` (place a CLASS/RELATION under an existing parent of the same kind — the only way
+to express is-a/type-of/kind-of; the model is instructed never to declare a taxonomic name like
+`IS_A` or `SUBCLASS_OF` as a `RELATION`, and `declare_relation_type` rejects a small set of those
+names outright), and `attach_property` (reuse an existing PROPERTY on another CLASS/RELATION instead
+of declaring a same-meaning duplicate). `search_schema` is used both for de-duplication and, after
+declaring something new, to find a plausible existing parent/child to link with `add_subclass_of`.
+
 `expand_schema` (called directly, or implicitly by `import_text`) takes:
 - **`depth`** (default `1`) — how many hierarchy levels beyond what's directly evidenced in the text
-  to also propose (e.g. a mentioned "poodle" also suggesting a `DOG` parent `CLASS`).
+  to also propose and link via `add_subclass_of` (e.g. a mentioned "poodle" also suggesting a `DOG`
+  parent `CLASS`).
 - **`reference`** — `"llm"` (default) proposes schema freely; `"mcp"` additionally connects the
   servers in `mcp_servers` and gives the model their tools too, to ground new names and hierarchy
   placement (e.g. WordNet hypernyms/synonyms via `platform/wordnet-mcp`) — `mcp_servers` entries are
   `{"transport": "stdio", "command": ..., "args": [...], "env": {...}}` or
   `{"transport": "sse"|"streamable_http", "url": ..., "headers": {...}}`.
-- **`dedup_mode`** — how it checks for an existing schema element before declaring a new one:
+- **`dedup_mode`** — how it checks for an existing schema element before declaring a new one. This
+  applies both to the `search_schema` tool the model can call, and — for `declare_class` /
+  `declare_relation_type` specifically — as an automatic check run before the node is created,
+  regardless of whether the model called `search_schema` itself (closing the gap where two
+  differently-worded near-duplicates, e.g. `WORKED_AT` and `EMPLOYED_AT`, would otherwise both get
+  declared since the underlying `declare_*` calls only dedup on an exact name match):
   - `"search"` (default) — the database's configured search backend (keyword substring match, or
     semantic/embedding search if registered with `--search semantic`).
   - `"llm"` — asks the same model to judge whether any existing element means the same thing as the
-    proposed one, even under different wording (e.g. `JOIN_DATE` vs `START_DATE`). More reliable for
-    synonyms than keyword/semantic search over short names, at the cost of one extra model call per
-    check.
-  - `"none"` — the `search_schema` tool isn't offered at all.
+    proposed one, even under different wording (e.g. `JOIN_DATE` vs `START_DATE`, `WORKED_AT` vs
+    `EMPLOYED_AT`). More reliable for synonyms than keyword/semantic search over short names, at the
+    cost of one extra model call per check.
+  - `"none"` — the `search_schema` tool isn't offered, and the automatic pre-create check is skipped.
 
 ```python
 await kb.expand_schema(
@@ -367,14 +382,15 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | `await declare_relation_type(database, name, description, is_symmetric?, relation_id?, *, domain, range)` | `str` | Add a `:RELATION` node; `domain`/`range` are required (keyword-only), accept a class name or list of class names, and wire `DOMAIN`/`RANGE` edges |
 | `await declare_class_property(database, name, description, property_id?, class_id?)` | `str` | Add a `:PROPERTY` node; optionally wires `DEFINE_PROPERTY` from a class |
 | `await declare_relation_property(database, name, description, property_id?, relation_id?)` | `str` | Add a `:PROPERTY` node; optionally wires `DEFINE_PROPERTY` from a relation |
-| `await add_is_subclass_of(database, child_id, parent_id)` | `None` | Wire `IS_SUBCLASS_OF` between two CLASS or RELATION nodes |
+| `await add_is_subclass_of(database, child_id, parent_id)` | `None` | Wire `IS_SUBCLASS_OF` between two CLASS or RELATION nodes (both must be the same kind) |
+| `await attach_property(database, target_id, property_id)` | `None` | Wire `DEFINE_PROPERTY` from an existing CLASS or RELATION to an existing PROPERTY (idempotent) — reuse a property across classes/relations instead of declaring a same-meaning duplicate under a new name |
 | `await fetch_database_schema(database)` | `DataSchema` | Build a `DataSchema` from the `:CLASS` and `:RELATION` nodes declared in *database* |
 | `await fetch_meta_schema()` | `DataSchema` | Return the fixed `DataSchema` describing the KB graph schema itself (node and edge type taxonomy) |
 | `await export_database_schema(database)` | `dict` | `fetch_database_schema(database).to_json()` — portable JSON, symmetric with `import_database_schema` |
 | `await import_database_schema(database, schema_json)` | `None` | Populate *database* from a `DataSchema.to_json()`/`export_database_schema` dict; declares classes, properties, relations, and domain/range edges |
 | `await search_schema(database, query)` | `list[SchemaSearchResult]` | Return CLASS/RELATION/PROPERTY nodes whose name or description contains *query* (case-insensitive) |
 | `await consolidate_schema(database, operation, source_names, target_name, predicate?)` | `None` | Merge or split schema elements and rewire instances; `operation="merge"` supported |
-| `await expand_schema(database, text, depth?, reference?, mcp_servers?, dedup_mode?, model?, on_tool_call?, max_turns?)` | `None` | OpenAI LLM agent that grows the schema (CLASS/RELATION/PROPERTY) grounded by *text*; never touches entities/facts/property values. `depth` (default `1`) — hierarchy levels beyond what's directly evidenced to also propose. `reference` — `"llm"` (default) or `"mcp"` (also gives the model tools from connected `mcp_servers`, e.g. WordNet). `dedup_mode` (`"search"` default, `"llm"`, or `"none"`) controls how it checks for existing schema elements before declaring near-duplicates. Requires `openai` (and `mcp` for `reference="mcp"`). |
+| `await expand_schema(database, text, depth?, reference?, mcp_servers?, dedup_mode?, model?, on_tool_call?, max_turns?)` | `None` | OpenAI LLM agent that grows the schema (CLASS/RELATION/PROPERTY) grounded by *text*; never touches entities/facts/property values. `depth` (default `1`) — hierarchy levels beyond what's directly evidenced to also propose, linked via `add_subclass_of`. `reference` — `"llm"` (default) or `"mcp"` (also gives the model tools from connected `mcp_servers`, e.g. WordNet). `dedup_mode` (`"search"` default, `"llm"`, or `"none"`) controls how `search_schema` checks for existing elements *and* is auto-applied as a safety-net check before every `declare_class`/`declare_relation_type` call, even if the model skips `search_schema` — pass `"none"` to disable both. Never declares a taxonomic (is-a/type-of/kind-of/subclass-of) name as a `RELATION`; those are rejected in favor of `add_subclass_of`. Requires `openai` (and `mcp` for `reference="mcp"`). |
 
 ---
 
