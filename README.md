@@ -29,6 +29,9 @@ blue-data-kb-source/
 │   ├── mcp/                    # MCP server (blue-data-kb-mcp)
 │   │   ├── src/blue_data_kb_mcp/
 │   │   └── tests/
+│   ├── wordnet-mcp/            # WordNet MCP server (blue-data-wordnet-mcp)
+│   │   ├── src/blue_data_wordnet_mcp/
+│   │   └── tests/
 │   └── api/                    # REST API — planned, not yet implemented
 ├── docs/                       # User-facing documentation (start at docs/README.md)
 ├── examples/                   # Runnable examples (start at examples/README.md)
@@ -95,3 +98,4 @@ For runnable scripts with real captured output — one per storage/search backen
 | [lib/](lib/README.md) | `blue-data-kb-source` — core Python library |
 | [platform/cli/](platform/cli/README.md) | `blue-data-kb-cli` — `kb` CLI |
 | [platform/mcp/](platform/mcp/README.md) | `blue-data-kb-mcp` — MCP server for LLM agent tool use |
+| [platform/wordnet-mcp/](platform/wordnet-mcp/README.md) | `blue-data-wordnet-mcp` — standalone MCP server exposing WordNet lexical lookups; optionally connected by `expand_schema(reference="mcp")` to ground new schema names and hierarchy placement |
