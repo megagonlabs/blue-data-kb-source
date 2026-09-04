@@ -57,8 +57,8 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | `await add_is_subclass_of(database, child_id, parent_id)` | `None` | Wire `IS_SUBCLASS_OF` between two `CLASS` or two `RELATION` nodes — the only way to express an is-a/type-of/kind-of hierarchy; never a declared `RELATION` |
 | `await remove_is_subclass_of(database, child_id, parent_id)` | `None` | Remove an `IS_SUBCLASS_OF` edge |
 | `await attach_property(database, target_id, property_id)` | `None` | Wire `DEFINE_PROPERTY` from an existing `CLASS`/`RELATION` to an existing `PROPERTY` (idempotent) — reuse a property across classes/relations instead of declaring a same-meaning duplicate under a new name |
-| `await add_relation_domain(database, relation_id, class_id)` | `None` | Add a `CLASS` to an existing relation's `DOMAIN` — deduplicated, add-only (no removal counterpart) |
-| `await add_relation_range(database, relation_id, class_id)` | `None` | Same, for `RANGE` |
+| `await attach_relation_domain(database, relation_id, class_id)` | `None` | Attach a `CLASS` to an existing relation's `DOMAIN` — deduplicated, add-only (no detach counterpart) |
+| `await attach_relation_range(database, relation_id, class_id)` | `None` | Same, for `RANGE` |
 | `await get_class_ancestors(database, class_id, max_hops?)` | `list[dict]` | Ancestor `CLASS` nodes via `IS_SUBCLASS_OF`, breadth-first with cycle protection, nearest-first; `max_hops` defaults to `5`, `None` = unbounded |
 | `await get_class_descendants(database, class_id, max_hops?)` | `list[dict]` | Descendant `CLASS` nodes, same walk downward |
 | `await get_relation_ancestors(database, relation_id, max_hops?)` | `list[dict]` | Ancestor `RELATION` nodes, same walk over the relation hierarchy |
@@ -77,7 +77,7 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | `await consolidate_schema(database, operation, source_names, target_name, predicate?)` | `None` | Merge or split schema elements and rewire instances; `operation="merge"` supported today |
 | `await expand_schema(database, text, depth?, reference?, mcp_servers?, dedup_mode?, model?, on_tool_call?, on_tool_result?, max_turns?)` | `None` | OpenAI LLM agent that grows the schema (`CLASS`/`RELATION`/`PROPERTY`) grounded by `text` — never touches entities, facts, or property values (that's `import_text`, below). `depth` (default `1`) — hierarchy levels beyond what's directly evidenced to also propose, linked via `add_is_subclass_of`. `reference`: `"llm"` (default) proposes freely; `"mcp"` also gives the model tools from `mcp_servers` (e.g. WordNet via `platform/wordnet-mcp`) to ground names/hierarchy. `dedup_mode` (`"search"` default \| `"llm"` \| `"none"`) controls how it checks for an existing element before declaring a new one — see [guide.md](guide.md#growing-the-schema-and-extracting-knowledge-from-text-llm). Never declares a taxonomic (is-a/type-of/kind-of) name as a `RELATION`. Requires `openai` (and `mcp` for `reference="mcp"`) |
 
-Note: `declare_relation_type` wires the initial `DOMAIN`/`RANGE` edges inline (`domain`/`range` are required there), and re-declaring never re-wires them — post-declaration widening is what `add_relation_domain`/`add_relation_range` (above) are for.
+Note: `declare_relation_type` wires the initial `DOMAIN`/`RANGE` edges inline (`domain`/`range` are required there), and re-declaring never re-wires them — post-declaration widening is what `attach_relation_domain`/`attach_relation_range` (above) are for.
 
 ### Knowledge operations — write
 
@@ -155,7 +155,7 @@ Note: `add_extracted_from` is **not** a public `KBSource` method — use `add_ex
 
 #### Change hook events
 
-Every event carries `type`, `database`, `id`. Schema events fire only when something is actually created — a repeated call that creates nothing (an idempotent re-declaration, a deduplicated widen) does not re-fire.
+Every event carries `type`, `database`, `id`. Schema events fire only when something is actually created — a repeated call that creates nothing (an idempotent re-declaration, a deduplicated attach) does not re-fire.
 
 | `type` | Extra fields |
 |---|---|
@@ -165,7 +165,7 @@ Every event carries `type`, `database`, `id`. Schema events fire only when somet
 | `relation_property_declared` | `name`, `description`, `relation_id`, `relation_name` |
 | `class_subclass` / `relation_subclass` | `child_id`, `child_name`, `parent_id`, `parent_name` |
 | `property_attached` | `target_id`, `target_label` (`"CLASS"`\|`"RELATION"`), `property_id` |
-| `relation_domain_added` / `relation_range_added` | `relation_id`, `relation_name`, `class_id`, `class_name` |
+| `relation_domain_attached` / `relation_range_attached` | `relation_id`, `relation_name`, `class_id`, `class_name` |
 | `entity_added` | `name`, `class_id`, `class_name` |
 | `fact_added` | `name`, `head_entity_id`, `head_entity_name`, `tail_entity_id`, `tail_entity_name`, `relation_id`, `relation_name` |
 | `entity_property_added` | `entity_id`, `entity_name`, `property_id`, `property_name`, `value` |

@@ -97,8 +97,8 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `add_is_subclass_of(database, child_id, parent_id)` | `None` | Wire IS_SUBCLASS_OF edge; not deduplicated — calling twice adds two edges. The only way to express an is-a/type-of/kind-of hierarchy between two CLASSes or two RELATIONs — never a declared RELATION |
 | `remove_is_subclass_of(database, child_id, parent_id)` | `None` | Remove an IS_SUBCLASS_OF edge |
 | `attach_property(database, target_id, property_id)` | `None` | Wire DEFINE_PROPERTY from an existing CLASS/RELATION to an existing PROPERTY (idempotent) — reuse a property across classes/relations instead of declaring a same-meaning duplicate under a new name |
-| `add_relation_domain(database, relation_id, class_id)` | `None` | Add a CLASS to the relation's DOMAIN; deduplicated, and add-only — no removal counterpart, domains only widen |
-| `add_relation_range(database, relation_id, class_id)` | `None` | Same, for RANGE |
+| `attach_relation_domain(database, relation_id, class_id)` | `None` | Attach a CLASS to the relation's DOMAIN; deduplicated, and add-only — no detach counterpart, domains only widen |
+| `attach_relation_range(database, relation_id, class_id)` | `None` | Same, for RANGE |
 | `get_class_ancestors(database, class_id, max_hops?)` | `list[dict]` | Ancestor CLASS nodes via IS_SUBCLASS_OF, breadth-first with cycle protection, ordered nearest-first (order within a depth is backend-dependent); `max_hops` defaults to 5, `None` = unbounded |
 | `get_class_descendants(database, class_id, max_hops?)` | `list[dict]` | Descendant CLASS nodes, same walk in the other direction |
 | `get_relation_ancestors(database, relation_id, max_hops?)` | `list[dict]` | Ancestor RELATION nodes — RELATION also carries IS_SUBCLASS_OF |
@@ -116,7 +116,7 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `consolidate_schema(database, operation, source_names, target_name, predicate?)` | `None` | Only `operation="merge"` is implemented; any other value raises `SchemaError`. `predicate` is accepted but unused. See SchemaManager below for what merge actually does — it does not remove source elements. |
 | `expand_schema(database, text, depth?, reference?, mcp_servers?, dedup_mode?, model?, on_tool_call?, on_tool_result?, max_turns?)` | `None` | LLM agent that grows the schema (CLASS/RELATION/PROPERTY only) grounded by `text` — never touches entities/facts/property values. See SchemaExpansionEngine below |
 
-`add_domain`/`add_range` do **not** exist as separate methods — `domain`/`range` are wired inline as part of `declare_relation_type` and are required there, not optional add-ons.
+`declare_relation_type` wires the initial DOMAIN/RANGE edges inline (`domain`/`range` are required there), and re-declaring never re-wires them — post-declaration widening is what `attach_relation_domain`/`attach_relation_range` are for.
 
 #### Knowledge operations (delegate to `KnowledgeManager`)
 

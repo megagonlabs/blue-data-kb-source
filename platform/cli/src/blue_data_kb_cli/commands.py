@@ -1432,30 +1432,30 @@ def schema_relation_child_list(
 
 @schema_relation_group.group("domain")
 def schema_relation_domain_group() -> None:
-    """Relation domain management (add and list only — domains are add-only by design)."""
+    """Relation domain management (attach and list only — no detach counterpart by design)."""
 
 
-@schema_relation_domain_group.command("add")
+@schema_relation_domain_group.command("attach")
 @click.option("--relation",    "relation_name", default=None, required=False, help="Relation name.")
 @click.option("--relation-id",                  default=None, required=False, help="Relation node ID.")
-@click.option("--class",       "class_name",    default=None, required=False, help="Class name to add.")
-@click.option("--class-id",                     default=None, required=False, help="Class node ID to add.")
+@click.option("--class",       "class_name",    default=None, required=False, help="Class name to attach.")
+@click.option("--class-id",                     default=None, required=False, help="Class node ID to attach.")
 @click.pass_obj
-def schema_relation_domain_add(
+def schema_relation_domain_attach(
     obj: dict, relation_name: str | None, relation_id: str | None,
     class_name: str | None, class_id: str | None,
 ) -> None:
-    """Add a class to the relation's domain (deduplicated; no remove counterpart by design)."""
+    """Attach a class to the relation's domain (deduplicated; no detach counterpart by design)."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     resolved_rel   = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
     resolved_class = _resolve_node(kb, db, CLASS,    class_name,    class_id,    "class")
     try:
-        _run(kb.add_relation_domain(db, resolved_rel, resolved_class))
+        _run(kb.attach_relation_domain(db, resolved_rel, resolved_class))
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(
-        f"[bold]{class_name or class_id}[/bold] added to domain of "
+        f"[bold]{class_name or class_id}[/bold] attached to domain of "
         f"[bold]{relation_name or relation_id}[/bold]"
     )
 
@@ -1501,30 +1501,30 @@ def schema_relation_domain_list(
 
 @schema_relation_group.group("range")
 def schema_relation_range_group() -> None:
-    """Relation range management (add and list only — ranges are add-only by design)."""
+    """Relation range management (attach and list only — no detach counterpart by design)."""
 
 
-@schema_relation_range_group.command("add")
+@schema_relation_range_group.command("attach")
 @click.option("--relation",    "relation_name", default=None, required=False, help="Relation name.")
 @click.option("--relation-id",                  default=None, required=False, help="Relation node ID.")
-@click.option("--class",       "class_name",    default=None, required=False, help="Class name to add.")
-@click.option("--class-id",                     default=None, required=False, help="Class node ID to add.")
+@click.option("--class",       "class_name",    default=None, required=False, help="Class name to attach.")
+@click.option("--class-id",                     default=None, required=False, help="Class node ID to attach.")
 @click.pass_obj
-def schema_relation_range_add(
+def schema_relation_range_attach(
     obj: dict, relation_name: str | None, relation_id: str | None,
     class_name: str | None, class_id: str | None,
 ) -> None:
-    """Add a class to the relation's range (deduplicated; no remove counterpart by design)."""
+    """Attach a class to the relation's range (deduplicated; no detach counterpart by design)."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     resolved_rel   = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
     resolved_class = _resolve_node(kb, db, CLASS,    class_name,    class_id,    "class")
     try:
-        _run(kb.add_relation_range(db, resolved_rel, resolved_class))
+        _run(kb.attach_relation_range(db, resolved_rel, resolved_class))
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(
-        f"[bold]{class_name or class_id}[/bold] added to range of "
+        f"[bold]{class_name or class_id}[/bold] attached to range of "
         f"[bold]{relation_name or relation_id}[/bold]"
     )
 

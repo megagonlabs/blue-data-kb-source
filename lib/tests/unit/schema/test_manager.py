@@ -243,39 +243,39 @@ async def test_add_is_subclass_of_wires_edge(kb):
 # Domain / range widening                                              #
 # ------------------------------------------------------------------ #
 
-async def test_add_relation_domain_widens(kb):
+async def test_attach_relation_domain_widens(kb):
     await kb.declare_class("test", "EMPLOYEE", "")
     await kb.declare_class("test", "COMPANY", "")
     contractor = await kb.declare_class("test", "CONTRACTOR", "")
     worked = await kb.declare_relation_type(
         "test", "WORKED_AT", "", domain="EMPLOYEE", range="COMPANY"
     )
-    await kb.add_relation_domain("test", worked, contractor)
+    await kb.attach_relation_domain("test", worked, contractor)
     dr = await kb.get_relation_domain_range("test", worked)
     assert {c["properties"]["name"] for c in dr["domain"]} == {"EMPLOYEE", "CONTRACTOR"}
     assert {c["properties"]["name"] for c in dr["range"]} == {"COMPANY"}
 
 
-async def test_add_relation_range_widens(kb):
+async def test_attach_relation_range_widens(kb):
     await kb.declare_class("test", "PERSON", "")
     await kb.declare_class("test", "COMPANY", "")
     uni = await kb.declare_class("test", "UNIVERSITY", "")
     worked = await kb.declare_relation_type(
         "test", "WORKED_AT", "", domain="PERSON", range="COMPANY"
     )
-    await kb.add_relation_range("test", worked, uni)
+    await kb.attach_relation_range("test", worked, uni)
     dr = await kb.get_relation_domain_range("test", worked)
     assert {c["properties"]["name"] for c in dr["domain"]} == {"PERSON"}
     assert {c["properties"]["name"] for c in dr["range"]} == {"COMPANY", "UNIVERSITY"}
 
 
-async def test_add_relation_domain_deduplicates(kb):
+async def test_attach_relation_domain_deduplicates(kb):
     person = await kb.declare_class("test", "PERSON", "")
     await kb.declare_class("test", "COMPANY", "")
     worked = await kb.declare_relation_type(
         "test", "WORKED_AT", "", domain="PERSON", range="COMPANY"
     )
-    await kb.add_relation_domain("test", worked, person)
+    await kb.attach_relation_domain("test", worked, person)
     dr = await kb.get_relation_domain_range("test", worked)
     assert [c["properties"]["name"] for c in dr["domain"]] == ["PERSON"]
 
@@ -288,7 +288,7 @@ async def test_widened_domain_extends_allowed_relations(kb):
         "test", "WORKED_AT", "", domain="EMPLOYEE", range="COMPANY"
     )
     assert await kb.get_allowed_relations_between_classes("test", contractor, company) == []
-    await kb.add_relation_domain("test", worked, contractor)
+    await kb.attach_relation_domain("test", worked, contractor)
     after = await kb.get_allowed_relations_between_classes("test", contractor, company)
     assert [r["properties"]["name"] for r in after] == ["WORKED_AT"]
 
@@ -305,7 +305,7 @@ async def test_widening_flips_is_fact_allowed(kb):
     before = await kb.is_fact_allowed("test", bob, worked, ibm)
     assert before["ok"] is False
     assert before["reason"] == "DOMAIN_RANGE_MISMATCH"
-    await kb.add_relation_domain("test", worked, contractor)
+    await kb.attach_relation_domain("test", worked, contractor)
     after = await kb.is_fact_allowed("test", bob, worked, ibm)
     assert after["ok"] is True
     assert after["reason"] == "ALLOWED"
@@ -318,13 +318,13 @@ async def test_widening_guards_reject_wrong_labels(kb):
         "test", "WORKED_AT", "", domain="PERSON", range="COMPANY"
     )
     with pytest.raises(SchemaError):
-        await kb.add_relation_domain("test", person, person)
+        await kb.attach_relation_domain("test", person, person)
     with pytest.raises(SchemaError):
-        await kb.add_relation_domain("test", worked, worked)
+        await kb.attach_relation_domain("test", worked, worked)
     with pytest.raises(SchemaError):
-        await kb.add_relation_range("test", worked, worked)
+        await kb.attach_relation_range("test", worked, worked)
     with pytest.raises(SchemaError):
-        await kb.add_relation_range("test", person, person)
+        await kb.attach_relation_range("test", person, person)
 
 
 # ------------------------------------------------------------------ #
@@ -548,7 +548,7 @@ async def test_add_is_subclass_of_relation_fires_hook(kb):
     assert ev["parent_name"] == "WORKS_FOR"
 
 
-async def test_add_relation_domain_fires_hook(kb):
+async def test_attach_relation_domain_fires_hook(kb):
     await kb.declare_class("test", "EMPLOYEE", "")
     await kb.declare_class("test", "COMPANY", "")
     contractor = await kb.declare_class("test", "CONTRACTOR", "")
@@ -556,15 +556,15 @@ async def test_add_relation_domain_fires_hook(kb):
         "test", "WORKED_AT", "", domain="EMPLOYEE", range="COMPANY"
     )
     events = _collect_events(kb, "test")
-    await kb.add_relation_domain("test", worked, contractor)
-    ev = next(e for e in events if e["type"] == "relation_domain_added")
+    await kb.attach_relation_domain("test", worked, contractor)
+    ev = next(e for e in events if e["type"] == "relation_domain_attached")
     assert ev["relation_name"] == "WORKED_AT"
     assert ev["class_name"] == "CONTRACTOR"
-    await kb.add_relation_domain("test", worked, contractor)
-    assert len([e for e in events if e["type"] == "relation_domain_added"]) == 1
+    await kb.attach_relation_domain("test", worked, contractor)
+    assert len([e for e in events if e["type"] == "relation_domain_attached"]) == 1
 
 
-async def test_add_relation_range_fires_hook(kb):
+async def test_attach_relation_range_fires_hook(kb):
     await kb.declare_class("test", "PERSON", "")
     await kb.declare_class("test", "COMPANY", "")
     uni = await kb.declare_class("test", "UNIVERSITY", "")
@@ -572,12 +572,12 @@ async def test_add_relation_range_fires_hook(kb):
         "test", "WORKED_AT", "", domain="PERSON", range="COMPANY"
     )
     events = _collect_events(kb, "test")
-    await kb.add_relation_range("test", worked, uni)
-    ev = next(e for e in events if e["type"] == "relation_range_added")
+    await kb.attach_relation_range("test", worked, uni)
+    ev = next(e for e in events if e["type"] == "relation_range_attached")
     assert ev["relation_name"] == "WORKED_AT"
     assert ev["class_name"] == "UNIVERSITY"
-    await kb.add_relation_range("test", worked, uni)
-    assert len([e for e in events if e["type"] == "relation_range_added"]) == 1
+    await kb.attach_relation_range("test", worked, uni)
+    assert len([e for e in events if e["type"] == "relation_range_attached"]) == 1
 
 
 async def test_schema_hooks_scoped_to_database(kb):

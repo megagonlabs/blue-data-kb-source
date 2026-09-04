@@ -69,7 +69,7 @@ def test_relation_property_add_and_list(runner):
     assert rows == [{"relation": "WORKED_AT", "property": "START_DATE", "description": "Start of employment"}]
 
 
-def test_relation_domain_add_and_list(runner):
+def test_relation_domain_attach_and_list(runner):
     invoke(runner, DB + ["schema", "class", "add", "EMPLOYEE", "An employed person"])
     invoke(runner, DB + ["schema", "class", "add", "COMPANY", "A business organization"])
     invoke(runner, DB + ["schema", "class", "add", "CONTRACTOR", "An independent contractor"])
@@ -78,7 +78,8 @@ def test_relation_domain_add_and_list(runner):
         "--domain", "EMPLOYEE", "--range", "COMPANY",
     ])
     invoke(runner, DB + [
-        "schema", "relation", "domain", "add", "--relation", "WORKED_AT", "--class", "CONTRACTOR",
+        "schema", "relation", "domain", "attach",
+        "--relation", "WORKED_AT", "--class", "CONTRACTOR",
     ])
     rows = invoke_json(runner, DB + [
         "schema", "relation", "domain", "list", "--relation", "WORKED_AT", "--format", "json",
@@ -90,7 +91,7 @@ def test_relation_domain_add_and_list(runner):
     assert "CONTRACTOR" in result.output
 
 
-def test_relation_range_add_and_dedupe(runner):
+def test_relation_range_attach_and_dedupe(runner):
     invoke(runner, DB + ["schema", "class", "add", "EMPLOYEE", "An employed person"])
     invoke(runner, DB + ["schema", "class", "add", "COMPANY", "A business organization"])
     invoke(runner, DB + ["schema", "class", "add", "UNIVERSITY", "An academic institution"])
@@ -99,10 +100,10 @@ def test_relation_range_add_and_dedupe(runner):
         "--domain", "EMPLOYEE", "--range", "COMPANY",
     ])
     invoke(runner, DB + [
-        "schema", "relation", "range", "add", "--relation", "WORKED_AT", "--class", "UNIVERSITY",
+        "schema", "relation", "range", "attach", "--relation", "WORKED_AT", "--class", "UNIVERSITY",
     ])
     invoke(runner, DB + [
-        "schema", "relation", "range", "add", "--relation", "WORKED_AT", "--class", "COMPANY",
+        "schema", "relation", "range", "attach", "--relation", "WORKED_AT", "--class", "COMPANY",
     ])
     rows = invoke_json(runner, DB + [
         "schema", "relation", "range", "list", "--relation", "WORKED_AT", "--format", "json",

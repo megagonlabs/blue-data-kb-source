@@ -418,7 +418,7 @@ class SchemaManager:
             "parent_name": parent_node.get("properties", {}).get("name"),
         })
 
-    async def add_relation_domain(self, database: str, relation_id: str, class_id: str) -> None:
+    async def attach_relation_domain(self, database: str, relation_id: str, class_id: str) -> None:
         rel_node = require_node_type(
             self._source, database, relation_id, RELATION, "relation_id", SchemaError
         )
@@ -430,7 +430,7 @@ class SchemaManager:
             return
         self._source.add_edge(database, relation_id, DOMAIN, class_id, properties=edge_stamped())
         self._fire({
-            "type": "relation_domain_added",
+            "type": "relation_domain_attached",
             "database": database,
             "id": relation_id,
             "relation_id":   relation_id,
@@ -439,7 +439,7 @@ class SchemaManager:
             "class_name":    class_node.get("properties", {}).get("name"),
         })
 
-    async def add_relation_range(self, database: str, relation_id: str, class_id: str) -> None:
+    async def attach_relation_range(self, database: str, relation_id: str, class_id: str) -> None:
         rel_node = require_node_type(
             self._source, database, relation_id, RELATION, "relation_id", SchemaError
         )
@@ -451,7 +451,7 @@ class SchemaManager:
             return
         self._source.add_edge(database, relation_id, RANGE, class_id, properties=edge_stamped())
         self._fire({
-            "type": "relation_range_added",
+            "type": "relation_range_attached",
             "database": database,
             "id": relation_id,
             "relation_id":   relation_id,

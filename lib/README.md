@@ -256,7 +256,7 @@ pip install "blue-data-kb-source[openai,mcp]"  # for reference="mcp"
 
 Register a callback on the KB instance to be notified whenever the schema or instance data changes in a specific database. Hooks cover both schema declarations and instance writes. Multiple hooks can be registered for the same database; all fire in registration order. Hooks are synchronous (`def`, not `async def`).
 
-Schema events fire only when something is actually created — a repeated call that creates nothing (an idempotent re-declaration, a deduplicated widen) does not re-fire.
+Schema events fire only when something is actually created — a repeated call that creates nothing (an idempotent re-declaration, a deduplicated attach) does not re-fire.
 
 ```python
 def on_kb_change(event: dict) -> None:
@@ -276,9 +276,9 @@ def on_kb_change(event: dict) -> None:
         print(f"subrelation {event['child_name']} IS_SUBCLASS_OF {event['parent_name']}")
     elif t == "property_attached":
         print(f"attach     property {event['property_id']}  to {event['target_label']} {event['target_id']}")
-    elif t == "relation_domain_added":
+    elif t == "relation_domain_attached":
         print(f"domain     {event['relation_name']} now accepts {event['class_name']}")
-    elif t == "relation_range_added":
+    elif t == "relation_range_attached":
         print(f"range      {event['relation_name']} now accepts {event['class_name']}")
     # --- instance events ---
     elif t == "entity_added":
@@ -337,8 +337,8 @@ Each event dict always contains `type`, `database`, and `id`. Extra fields by ty
 | `class_subclass` | `child_id`, `child_name`, `parent_id`, `parent_name` |
 | `relation_subclass` | `child_id`, `child_name`, `parent_id`, `parent_name` |
 | `property_attached` | `target_id`, `target_label` (`"CLASS"`\|`"RELATION"`), `property_id` |
-| `relation_domain_added` | `relation_id`, `relation_name`, `class_id`, `class_name` |
-| `relation_range_added` | `relation_id`, `relation_name`, `class_id`, `class_name` |
+| `relation_domain_attached` | `relation_id`, `relation_name`, `class_id`, `class_name` |
+| `relation_range_attached` | `relation_id`, `relation_name`, `class_id`, `class_name` |
 
 **Instance events**
 
@@ -405,8 +405,8 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | `await declare_relation_property(database, name, description, property_id?, relation_id?)` | `str` | Add a `:PROPERTY` node; optionally wires `DEFINE_PROPERTY` from a relation |
 | `await add_is_subclass_of(database, child_id, parent_id)` | `None` | Wire `IS_SUBCLASS_OF` between two CLASS or RELATION nodes (both must be the same kind) |
 | `await attach_property(database, target_id, property_id)` | `None` | Wire `DEFINE_PROPERTY` from an existing CLASS or RELATION to an existing PROPERTY (idempotent) — reuse a property across classes/relations instead of declaring a same-meaning duplicate under a new name |
-| `await add_relation_domain(database, relation_id, class_id)` | `None` | Add a CLASS to an existing relation's `DOMAIN` — deduplicated, and add-only (no removal counterpart; domains only widen) |
-| `await add_relation_range(database, relation_id, class_id)` | `None` | Same, for `RANGE` |
+| `await attach_relation_domain(database, relation_id, class_id)` | `None` | Attach a CLASS to an existing relation's `DOMAIN` — deduplicated, and add-only (no detach counterpart; domains only widen) |
+| `await attach_relation_range(database, relation_id, class_id)` | `None` | Same, for `RANGE` |
 | `await get_class_ancestors(database, class_id, max_hops?)` | `list[dict]` | Ancestor CLASS nodes via `IS_SUBCLASS_OF`, breadth-first with cycle protection, ordered nearest-first; `max_hops` defaults to `5`, `None` = unbounded |
 | `await get_class_descendants(database, class_id, max_hops?)` | `list[dict]` | Descendant CLASS nodes, same walk downward |
 | `await get_relation_ancestors(database, relation_id, max_hops?)` | `list[dict]` | Ancestor RELATION nodes, same walk over the relation hierarchy |
