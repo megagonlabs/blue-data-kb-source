@@ -87,6 +87,24 @@ async def test_expand_schema_dedup_mode_none_omits_search_schema_tool():
     assert "declare_class" in tool_names
 
 
+async def test_expand_schema_prompt_warns_against_entity_classes(kb):
+    """Regression guard for declaring a CLASS per specific named individual (e.g. ALICE,
+    UNITED_NATIONS) instead of the general kind it belongs to (PERSON, ORGANIZATION) — a
+    prompt/tool-description-only fix, so this just pins the guidance stays present."""
+    factory, mock_client = _mock_openai_sequence(_text_response("done"))
+    with patch("openai.AsyncOpenAI", factory):
+        await kb.expand_schema("test", "Alice also worked at United Nations.", dedup_mode="none")
+
+    call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+    system_prompt = call_kwargs["messages"][0]["content"]
+    assert "ALICE" in system_prompt and "UNITED_NATIONS" in system_prompt
+    assert "never a CLASS of its own" in system_prompt
+
+    tools = {t["function"]["name"]: t["function"]["description"] for t in call_kwargs["tools"]}
+    assert "NEVER call this for a specific named individual" in tools["declare_class"]
+    assert "never a specific fact between two named individuals" in tools["declare_relation_type"]
+
+
 async def test_expand_schema_dedup_mode_search_finds_existing_property(kb):
     person = await kb.declare_class("test", "PERSON", "A human individual")
     company = await kb.declare_class("test", "COMPANY", "A business organization")

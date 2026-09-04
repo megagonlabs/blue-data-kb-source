@@ -193,6 +193,12 @@ names outright), and `attach_property` (reuse an existing PROPERTY on another CL
 of declaring a same-meaning duplicate). `search_schema` is used both for de-duplication and, after
 declaring something new, to find a plausible existing parent/child to link with `add_subclass_of`.
 
+A CLASS is a *kind* that can have many members (`PERSON`, `ORGANIZATION`) — the model is instructed
+never to declare a CLASS (or RELATION) named after a specific individual mentioned in the text (e.g.
+"Alice" or "United Nations" should never become a `CLASS ALICE`/`CLASS UNITED_NATIONS`); it declares
+the general kind instead (`PERSON`, `ORGANIZATION`) and leaves the specific individual to the
+extraction pass, which creates it as an entity against that CLASS.
+
 `expand_schema` (called directly, or implicitly by `import_text`) takes:
 - **`depth`** (default `1`) — how many hierarchy levels beyond what's directly evidenced in the text
   to also propose and link via `add_subclass_of` (e.g. a mentioned "poodle" also suggesting a `DOG`

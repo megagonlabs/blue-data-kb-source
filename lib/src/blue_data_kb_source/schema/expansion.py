@@ -49,11 +49,20 @@ _SCHEMA_TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "declare_class",
-            "description": "Declare a CLASS in the schema (idempotent). Returns {id}.",
+            "description": (
+                "Declare a CLASS — a category/kind that can have many members (e.g. PERSON, "
+                "ORGANIZATION) — in the schema (idempotent). NEVER call this for a specific named "
+                "individual mentioned in the text: a person named 'Alice' is not a CLASS 'ALICE', "
+                "an organization named 'United Nations' is not a CLASS 'UNITED_NATIONS' — those "
+                "are entities, created later in a separate extraction pass. If a mentioned kind "
+                "doesn't fit any existing CLASS, declare the general kind it belongs to (e.g. "
+                "ORGANIZATION), never a class named after the specific instance itself. Returns "
+                "{id}."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "name": {"type": "string", "description": "Class name e.g. PERSON"},
+                    "name": {"type": "string", "description": "Class name e.g. PERSON — a category, never a specific named individual"},
                     "description": {"type": "string"},
                 },
                 "required": ["name", "description"],
@@ -81,8 +90,12 @@ _SCHEMA_TOOLS: list[dict[str, Any]] = [
         "function": {
             "name": "declare_relation_type",
             "description": (
-                "Declare a RELATION type in the schema (idempotent). Every relation must have a "
-                "domain and range CLASS — find or declare both classes first. Returns {id}."
+                "Declare a RELATION type in the schema (idempotent) — a general kind of "
+                "relationship (e.g. WORKED_AT), never a specific fact between two named "
+                "individuals (e.g. no ALICE_WORKED_AT_UNITED_NATIONS relation — that's a FACT, "
+                "created later in extraction, between entities that instantiate the CLASSes "
+                "below). Every relation must have a domain and range CLASS — find or declare "
+                "both classes first. Returns {id}."
             ),
             "parameters": {
                 "type": "object",
@@ -170,6 +183,29 @@ The KB stores:
   RELATION  — type of relationship between two entities (e.g. WORKED_AT, LIVES_IN)
   PROPERTY  — attribute of a class or relation (e.g. AGE, START_DATE)
 
+Your job is only to grow the schema — the CLASS/RELATION/PROPERTY *types* — never
+the specific entities, facts, or property values that instantiate them. Those are
+created later in a separate extraction pass, against the schema you produce here.
+
+CLASS vs. entity — the single most important distinction in this job: a CLASS is
+a *kind* that can have many members (PERSON, ORGANIZATION, COMPANY). A specific
+named person, place, organization, or thing mentioned in the text is an *entity*
+— exactly one real-world referent — never a CLASS of its own. If the text says
+"Alice worked at the United Nations":
+  WRONG:  declare_class("ALICE", ...)             — Alice is a PERSON, not a class
+          declare_class("UNITED_NATIONS", ...)    — an ORGANIZATION, not a class
+  RIGHT:  confirm/declare_class("PERSON", ...) and declare_class("ORGANIZATION",
+          ...) — the general kinds "Alice" and "United Nations" belong to — then
+          declare_relation_type("WORKED_AT", domain="PERSON", range="ORGANIZATION")
+          if no equivalent relation already exists.
+Before calling declare_class on any name, ask: "could many different real-world
+things share this same name as a kind?" (PERSON — yes; ALICE — no, it names one
+specific person). If the answer is no, the word names an entity: find or declare
+the general kind it belongs to instead, and never create a class named after the
+instance itself. The same applies to declare_relation_type — declare a general
+kind of relationship (WORKED_AT), never a relation named after a specific fact
+between two named individuals (e.g. no ALICE_WORKED_AT_UNITED_NATIONS).
+
 Hierarchy between two CLASSes or two RELATIONs (is-a / type-of / kind-of /
 subclass-of) is a *structural* link, wired with add_subclass_of — it is never a
 declared RELATION. Never call declare_relation_type with a name like IS_A, TYPE_OF,
@@ -179,13 +215,11 @@ between instances — WORKED_AT, LIVES_IN, and even meronymy like PART_OF (e.g. 
 ENGINE is PART_OF a CAR, a fact-level relationship, not a taxonomy edge) all
 belong there.
 
-Your job is only to grow the schema — you never add entities, facts, or property
-values. That happens in a separate extraction pass, run afterward, against the
-schema you produce here.
-
 Workflow:
 1. Read the text and identify the categories, relationship types, and attributes
-   it evidences.
+   it evidences — separating general kinds (candidates for CLASS/RELATION) from
+   specific named individuals (entities; see CLASS vs. entity above — these never
+   get declared here, only the kinds they belong to).
 2. Before calling declare_class, declare_relation_type, declare_class_property, or
    declare_relation_property, call search_schema with a short description of the
    concept. If an existing element already covers the same meaning — even under a
