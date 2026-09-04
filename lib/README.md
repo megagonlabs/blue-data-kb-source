@@ -199,6 +199,12 @@ never to declare a CLASS (or RELATION) named after a specific individual mention
 the general kind instead (`PERSON`, `ORGANIZATION`) and leaves the specific individual to the
 extraction pass, which creates it as an entity against that CLASS.
 
+Declaring a new CLASS is also expected to lead to a RELATION connecting it to the rest of the
+schema: the model is prompted to check, after each new CLASS, whether the text evidences a
+relationship to another class (existing or new) — e.g. text about a person's skills and hobbies
+should yield not just `SKILL`/`HOBBY` classes but `HAS_SKILL`/`HAS_HOBBY` relations from `PERSON`
+to them. A class left with no relation to anything is treated as a likely sign one was missed.
+
 `expand_schema` (called directly, or implicitly by `import_text`) takes:
 - **`depth`** (default `1`) — how many hierarchy levels beyond what's directly evidenced in the text
   to also propose and link via `add_subclass_of` (e.g. a mentioned "poodle" also suggesting a `DOG`

@@ -56,8 +56,10 @@ _SCHEMA_TOOLS: list[dict[str, Any]] = [
                 "an organization named 'United Nations' is not a CLASS 'UNITED_NATIONS' — those "
                 "are entities, created later in a separate extraction pass. If a mentioned kind "
                 "doesn't fit any existing CLASS, declare the general kind it belongs to (e.g. "
-                "ORGANIZATION), never a class named after the specific instance itself. Returns "
-                "{id}."
+                "ORGANIZATION), never a class named after the specific instance itself. After "
+                "declaring, also check whether the text evidences a RELATION connecting this "
+                "CLASS to another one (existing or new) — see declare_relation_type; a class "
+                "left with no relation to anything is often a sign one was missed. Returns {id}."
             ),
             "parameters": {
                 "type": "object",
@@ -215,11 +217,22 @@ between instances — WORKED_AT, LIVES_IN, and even meronymy like PART_OF (e.g. 
 ENGINE is PART_OF a CAR, a fact-level relationship, not a taxonomy edge) all
 belong there.
 
+A CLASS sitting unconnected to the rest of the schema is a red flag: classes exist
+to be related to each other. Every CLASS you declare should end up reachable from
+the rest of the schema via at least one RELATION (as domain or range) and/or one
+add_subclass_of link — if you can't connect it either way, ask whether it was the
+right class to declare at all.
+
 Workflow:
 1. Read the text and identify the categories, relationship types, and attributes
    it evidences — separating general kinds (candidates for CLASS/RELATION) from
    specific named individuals (entities; see CLASS vs. entity above — these never
-   get declared here, only the kinds they belong to).
+   get declared here, only the kinds they belong to). Identify relationship types
+   explicitly, not just classes: for each new kind you plan to declare, ask "what
+   connects this to PERSON or another class already in the schema?" — e.g. text
+   evidencing that a PERSON has a SKILL or a HOBBY evidences HAS_SKILL and
+   HAS_HOBBY relations between them just as much as it evidences the SKILL/HOBBY
+   classes themselves; don't stop at declaring the class.
 2. Before calling declare_class, declare_relation_type, declare_class_property, or
    declare_relation_property, call search_schema with a short description of the
    concept. If an existing element already covers the same meaning — even under a
@@ -241,9 +254,18 @@ Workflow:
    parent or child category (a mentioned "poodle" also suggests DOG as a parent
    CLASS, linked via add_subclass_of); depth=0 sticks to only what's directly
    evidenced.{mcp_note}
-5. declare_relation_type requires the domain (head CLASS name) and range (tail
+5. After declaring a new CLASS, also check whether the text evidences a RELATION
+   connecting it to another CLASS — existing or one you just declared — with
+   either end (domain or range) being the new CLASS. E.g. after declaring SKILL
+   and HOBBY from "Alice has programming skills, and hobbies such as wood
+   working", also declare HAS_SKILL (domain="PERSON", range="SKILL") and
+   HAS_HOBBY (domain="PERSON", range="HOBBY") if no equivalent relation already
+   exists (search_schema first, as in step 2) — a class with no relation
+   connecting it to anything is usually a sign a relation was missed, not that
+   none is needed.
+6. declare_relation_type requires the domain (head CLASS name) and range (tail
    CLASS name) — find or declare both classes first.
-6. Use UPPER_SNAKE_CASE for CLASS, RELATION, and PROPERTY names.
+7. Use UPPER_SNAKE_CASE for CLASS, RELATION, and PROPERTY names.
 
 Current schema:
 {schema}

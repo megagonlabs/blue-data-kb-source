@@ -105,6 +105,25 @@ async def test_expand_schema_prompt_warns_against_entity_classes(kb):
     assert "never a specific fact between two named individuals" in tools["declare_relation_type"]
 
 
+async def test_expand_schema_prompt_pushes_relation_coverage_for_new_classes(kb):
+    """Regression guard for declaring new CLASSes (e.g. SKILL, HOBBY) with no RELATION
+    connecting them to the rest of the schema (e.g. HAS_SKILL/HAS_HOBBY from PERSON) — a
+    prompt/tool-description-only fix, so this just pins the guidance stays present."""
+    factory, mock_client = _mock_openai_sequence(_text_response("done"))
+    with patch("openai.AsyncOpenAI", factory):
+        await kb.expand_schema(
+            "test", "Alice has programming skills, and hobbies such as wood working.", dedup_mode="none"
+        )
+
+    call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+    system_prompt = call_kwargs["messages"][0]["content"]
+    assert "HAS_SKILL" in system_prompt and "HAS_HOBBY" in system_prompt
+    assert "a class with no relation" in system_prompt and "is usually a sign a relation was missed" in system_prompt
+
+    tools = {t["function"]["name"]: t["function"]["description"] for t in call_kwargs["tools"]}
+    assert "a class left with no relation to anything is often a sign one was missed" in tools["declare_class"]
+
+
 async def test_expand_schema_dedup_mode_search_finds_existing_property(kb):
     person = await kb.declare_class("test", "PERSON", "A human individual")
     company = await kb.declare_class("test", "COMPANY", "A business organization")
