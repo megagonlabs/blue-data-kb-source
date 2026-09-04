@@ -8,6 +8,7 @@ Schema-write event types fired so far:
   class_property_declared      ['class_id', 'class_name', 'description', 'id', 'name']
   class_declared               ['description', 'id', 'name']
   class_subclass               ['child_id', 'child_name', 'id', 'parent_id', 'parent_name']
+  property_attached            ['id', 'property_id', 'target_id', 'target_label']
 
 ------------------------------------------------------------
 2. Idempotent declare_* calls do not re-fire

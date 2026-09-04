@@ -2,13 +2,13 @@
 
 ## Overview
 
-KBDB is distributed today as three independent PyPI packages, installed and run locally or embedded in another Python process — there is no server deployment, container image, or CI/CD pipeline yet. The sections below are split into **Today** (what actually exists and how to use it) and **Planned** (the target operational picture for when a server-shaped deployment — REST API, Docker image, managed observability — is built). Do not treat anything under a "Planned" heading as available now.
+KBDB is distributed today as four independent PyPI packages, installed and run locally or embedded in another Python process — there is no server deployment, container image, or CI/CD pipeline yet. The sections below are split into **Today** (what actually exists and how to use it) and **Planned** (the target operational picture for when a server-shaped deployment — REST API, Docker image, managed observability — is built). Do not treat anything under a "Planned" heading as available now.
 
 ---
 
 ## 1. Versioning
 
-KBDB follows [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`). Each of the three packages below declares its own version in its own `pyproject.toml` and is versioned independently — there is no single repo-wide version today.
+KBDB follows [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`). Each of the four packages below declares its own version in its own `pyproject.toml` and is versioned independently — there is no single repo-wide version today.
 
 - **PATCH** — bug fixes, no interface changes
 - **MINOR** — backwards-compatible new features
@@ -18,33 +18,36 @@ KBDB follows [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`). E
 
 ## 2. Packages (Today)
 
-Three separate PyPI packages, none of them published yet — installed today from source via each package's `scripts/install.sh`:
+Four separate PyPI packages, none of them published yet — installed today from source via each package's `scripts/install.sh`:
 
 | Package | Path | Console script | Depends on |
 |---|---|---|---|
 | `blue-data-kb-source` | `lib/` | — (library only) | `blue-data` (local path) |
 | `blue-data-kb-cli` | `platform/cli/` | `kb` | `blue-data-kb-source>=0.1.0` |
 | `blue-data-kb-mcp` | `platform/mcp/` | `blue-data-kb-mcp` | `blue-data-kb-source>=0.1.0` |
+| `blue-data-wordnet-mcp` | `platform/wordnet-mcp/` | `blue-data-wordnet-mcp` | none (`mcp[cli]`, `nltk` only — no `blue-data-kb-source`/`blue-data` at all) |
 
-The CLI and MCP server are **not** optional extras of `blue-data-kb-source` — they are their own packages, each depending on it. This is deliberate (see [07-repo-organization.md](07-repo-organization.md)'s rationale on independently deployable `platform/` services) but means there is no single `pip install blue-data-kb-source[cli]`/`[server]` incantation; install each package you need separately.
+The CLI and MCP server are **not** optional extras of `blue-data-kb-source` — they are their own packages, each depending on it. This is deliberate (see [07-repo-organization.md](07-repo-organization.md)'s rationale on independently deployable `platform/` services) but means there is no single `pip install blue-data-kb-source[cli]`/`[server]` incantation; install each package you need separately. `blue-data-wordnet-mcp` goes a step further — it's not a `KBSource` adapter at all, just an optional peer server `expand_schema(reference="mcp")` can connect to for WordNet grounding, so it can be installed and run entirely independently of the other three.
 
 `blue-data-kb-source`'s real optional extras (`lib/pyproject.toml`):
 
 ```
 pip install blue-data-kb-source                  # library only, MemoryGraphSource/FileGraphSource
 pip install blue-data-kb-source[neo4j]           # + Neo4j graph backend
-pip install blue-data-kb-source[openai]          # + LLM extraction/querying (import_text, answer, validate, enrich)
+pip install blue-data-kb-source[openai]          # + LLM schema expansion/extraction/querying (expand_schema, import_text, answer, validate, enrich)
 pip install blue-data-kb-source[search]          # + semantic search vector backends
+pip install blue-data-kb-source[mcp]             # + MCP client SDK, for expand_schema(reference="mcp")
 pip install blue-data-kb-source[all]             # everything
 pip install blue-data-kb-source[dev]             # + pytest, pytest-asyncio, etc.
 ```
 
-None of the three packages are published to PyPI yet — `pip install blue-data-kb-source` as written above doesn't resolve today. Install from the local checkout instead:
+None of the four packages are published to PyPI yet — `pip install blue-data-kb-source` as written above doesn't resolve today. Install from the local checkout instead:
 
 ```bash
 cd lib && bash scripts/install.sh                 # installs blue-data (local path) + this package
 cd ../platform/cli && bash scripts/install.sh      # + kb CLI
 cd ../platform/mcp && bash scripts/install.sh      # + blue-data-kb-mcp server
+cd ../platform/wordnet-mcp && bash scripts/install.sh  # + blue-data-wordnet-mcp server (independent of the above)
 ```
 
 ---
@@ -59,7 +62,7 @@ All configuration is via environment variables — no config files. The CLI and 
 |---|---|---|
 | `KBDB_DATA_DIR` | `~/.kbdb` | Directory holding `registry.json` (per-database backend/search config) and file-backed graph data |
 | `KBDB_DATABASE` | — | Overrides which database `--database` defaults to, if not passed explicitly |
-| `OPENAI_API_KEY` | — | Required for `kb data extract`/`answer`/`validate` |
+| `OPENAI_API_KEY` | — | Required for `kb schema expand`/`kb data extract`/`answer`/`validate` |
 
 Per-database backend and search configuration (graph backend, Neo4j connection, search mode, vector backend) is **not** environment-variable-driven — it's set via `kb database register ...` flags and persisted in `{KBDB_DATA_DIR}/registry.json`. See [09-api-interface-spec.md](09-api-interface-spec.md) §4 for the full flag reference.
 
@@ -75,12 +78,16 @@ A completely separate `BLUE_DATA_KB_SOURCE_*` namespace, since the server owns o
 | `BLUE_DATA_KB_SOURCE_SEARCH` | `none` | `none` \| `bm25` \| `semantic` |
 | `BLUE_DATA_KB_SOURCE_VECTOR_BACKEND` | `memory` | `memory` \| `file` \| `chromadb` \| `redis`, when `SEARCH=semantic` |
 | `BLUE_DATA_KB_SOURCE_EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model, when `SEARCH=semantic` |
-| `BLUE_DATA_KB_SOURCE_DEFAULT_MODEL` | `gpt-4o` | Default model for `answer`/`validate`/`enrich`/`import_text` |
+| `BLUE_DATA_KB_SOURCE_DEFAULT_MODEL` | `gpt-4o` | Default model for `answer`/`validate`/`enrich`/`expand_schema`/`import_text` |
 | `OPENAI_API_KEY` | — | Required for LLM features |
 
 Full table with examples: [platform/mcp/README.md](../platform/mcp/README.md) Configuration reference. Pointing both `KBDB_DATA_DIR` and `BLUE_DATA_KB_SOURCE_DIRECTORY` at the same path gives the CLI and MCP server practical (not automatic) access to the same file-backed data — they don't otherwise coordinate.
 
 The MCP server runs over **stdio transport** (`mcp.run()`, launched as a subprocess by an MCP client like Claude Desktop or Claude Code) — it is not a network service and has no port to configure.
+
+### WordNet MCP server (`blue-data-wordnet-mcp`) — `platform/wordnet-mcp/src/blue_data_wordnet_mcp/server.py`
+
+No environment variables at all — the server is fully self-contained, holding no `KBSource` and needing no backend configuration. It runs over stdio the same way the MCP server does, either standalone (`blue-data-wordnet-mcp`) or spawned automatically by `expand_schema(reference="mcp", mcp_servers=[{"transport": "stdio", "command": "blue-data-wordnet-mcp"}])`/`kb schema expand --reference mcp --mcp-server '...'`. The one piece of "configuration" is the WordNet corpus itself: downloaded lazily via `nltk.download()` on first tool call (one-time network access), or pre-fetched with `python -m nltk.downloader wordnet omw-1.4`.
 
 ---
 
@@ -103,9 +110,9 @@ cd lib && bash scripts/publish.sh              # twine upload dist/*
 cd platform/cli && bash scripts/deploy.sh      # python -m build && twine upload dist/*
 ```
 
-`platform/mcp/scripts/` has `build.sh` and `install.sh` but **no publish/deploy script yet** — publishing `blue-data-kb-mcp` today would mean running `python -m build && twine upload dist/*` by hand from `platform/mcp/`.
+`platform/mcp/scripts/` and `platform/wordnet-mcp/scripts/` each have `build.sh` and `install.sh` but **no publish/deploy script yet** — publishing either `blue-data-kb-mcp` or `blue-data-wordnet-mcp` today would mean running `python -m build && twine upload dist/*` by hand from the respective directory.
 
-None of the three packages have been published to PyPI as of this writing — all current installation is from local source via each package's `scripts/install.sh`.
+None of the four packages have been published to PyPI as of this writing — all current installation is from local source via each package's `scripts/install.sh`.
 
 ---
 

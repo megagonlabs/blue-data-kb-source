@@ -194,22 +194,32 @@ class SchemaManager:
         existing = self._source.match_nodes(database, label=RELATION, properties={"name": name})
         if existing:
             return existing[0]["id"]
+        # Resolve every domain/range class *before* creating the RELATION node, so a
+        # missing class raises without leaving a half-wired (domain-less) node behind —
+        # a later retry with a valid domain would otherwise hit the idempotency check
+        # above and silently reuse that broken node instead of wiring it.
+        domain_ids: list[str] = []
+        for class_name in domain_names:
+            classes = self._source.match_nodes(database, label=CLASS, properties={"name": class_name})
+            if not classes:
+                raise SchemaError(f"domain class '{class_name}' not found in '{database}'")
+            domain_ids.append(classes[0]["id"])
+        range_ids: list[str] = []
+        for class_name in range_names:
+            classes = self._source.match_nodes(database, label=CLASS, properties={"name": class_name})
+            if not classes:
+                raise SchemaError(f"range class '{class_name}' not found in '{database}'")
+            range_ids.append(classes[0]["id"])
         rid = self._source.add_node(
             database,
             RELATION,
             stamped({"name": name, "description": description, "is_symmetric": is_symmetric}),
             node_id=relation_id,
         )
-        for class_name in domain_names:
-            classes = self._source.match_nodes(database, label=CLASS, properties={"name": class_name})
-            if not classes:
-                raise SchemaError(f"domain class '{class_name}' not found in '{database}'")
-            self._source.add_edge(database, rid, DOMAIN, classes[0]["id"], properties=edge_stamped())
-        for class_name in range_names:
-            classes = self._source.match_nodes(database, label=CLASS, properties={"name": class_name})
-            if not classes:
-                raise SchemaError(f"range class '{class_name}' not found in '{database}'")
-            self._source.add_edge(database, rid, RANGE, classes[0]["id"], properties=edge_stamped())
+        for class_id in domain_ids:
+            self._source.add_edge(database, rid, DOMAIN, class_id, properties=edge_stamped())
+        for class_id in range_ids:
+            self._source.add_edge(database, rid, RANGE, class_id, properties=edge_stamped())
         self._fire({"type": "relation_declared", "database": database, "id": rid,
                     "name": name, "description": description, "is_symmetric": is_symmetric,
                     "domain": domain_names, "range": range_names})

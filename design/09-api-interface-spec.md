@@ -36,6 +36,7 @@ class KBSource(GraphSource, ABC):
     async def delete_property(self, database: str, property_id: str) -> None: ...
     async def add_is_subclass_of(self, database: str, child_id: str, parent_id: str) -> None: ...
     async def remove_is_subclass_of(self, database: str, child_id: str, parent_id: str) -> None: ...
+    async def attach_property(self, database: str, target_id: str, property_id: str) -> None: ...
 
     # Schema — export / import / consolidate
     async def fetch_database_schema(self, database: str) -> DataSchema: ...
@@ -43,6 +44,9 @@ class KBSource(GraphSource, ABC):
     async def import_database_schema(self, database: str, schema_json: dict) -> None: ...
     async def fetch_meta_schema(self) -> DataSchema: ...                           # fixed schema describing the KB's own node/edge taxonomy
     async def consolidate_schema(self, database: str, operation: str, source_names: list[str], target_name: str, predicate: Callable | None = None) -> None: ...  # operation="merge" only, today
+
+    # Schema — LLM-driven expansion (grows CLASS/RELATION/PROPERTY only; never touches entities/facts/property values)
+    async def expand_schema(self, database: str, text: str, *, depth: int = 1, reference: Literal["llm", "mcp"] = "llm", mcp_servers: list[dict[str, Any]] | None = None, dedup_mode: Literal["search", "llm", "none"] = "search", model: str = "gpt-4o", on_tool_call: Callable[[str, dict], None] | None = None, on_tool_result: Callable[[str, dict, Any], None] | None = None, max_turns: int = 25) -> None: ...
 
     # Search — schema and data, keyword (BM25) or semantic
     async def search_schema(self, database: str, query: str, k: int = 5, mode: str = "keyword", type_filter: str | list[str] | None = None) -> list[SchemaSearchResult]: ...
@@ -88,8 +92,8 @@ class KBSource(GraphSource, ABC):
     async def update_source(self, database: str, source_id: str, name: str | None = None, description: str | None = None, original: str | None = None) -> None: ...
     async def delete_source(self, database: str, source_id: str) -> None: ...
 
-    # Extraction
-    async def import_text(self, database: str, text: str, queries: list[str] | None = None, model: str = "gpt-4o", source_id: str | None = None, schema_discovery_mode: Literal["search", "llm", "none"] = "search", on_tool_call: Callable[[str, dict], None] | None = None, on_tool_result: Callable[[str, dict, Any], None] | None = None) -> None: ...
+    # Extraction — against the schema as it currently stands; never declares new schema itself
+    async def import_text(self, database: str, text: str, queries: list[str] | None = None, model: str = "gpt-4o", source_id: str | None = None, expand_schema: bool = True, schema_expansion_target: list[Literal["text", "queries"]] | None = None, schema_expansion_depth: int = 1, schema_expansion_mode: Literal["llm", "mcp"] = "llm", schema_expansion_mcp_servers: list[dict[str, Any]] | None = None, schema_expansion_dedup_mode: Literal["search", "llm", "none"] = "search", on_tool_call: Callable[[str, dict], None] | None = None, on_tool_result: Callable[[str, dict, Any], None] | None = None, max_turns: int = 25) -> None: ...
 
     # Change hooks (database-scoped only — global hooks are internal, used to wire up KBSearchIndexer)
     def add_change_hook(self, database: str, fn: Callable[[dict], None]) -> None: ...
@@ -100,6 +104,8 @@ Notes:
 - `add_domain`/`add_range` do **not** exist as separate methods — `domain`/`range` are wired inline as part of `declare_relation_type`, and are required (not optional) there.
 - `add_extracted_from` is **not** a public `KBSource` method (it exists only as a private `ProvenanceTracker` helper, invoked internally by `add_extraction` when `element_id` is given) — use `add_extraction(..., element_id=...)` instead.
 - `answer`/`validate` return a 2-tuple `(result, metadata)` only when `include_metadata=True`; `metadata` is `dict[node_id, dict]` (see "Metadata lookup" below). This composes with `natural_language`: with both flags set, the prose `result` has a natural-language provenance section appended after the main answer/assessment, and `metadata` (element 1) is still the raw structured dict.
+- `expand_schema` and `import_text` are two separate LLM passes (both OpenAI agents): `expand_schema` only ever creates `CLASS`/`RELATION`/`PROPERTY` nodes, grounded by a text passage; `import_text` only ever creates `ENTITY`/`FACT`/`LITERAL` nodes, against the schema as it currently stands (a mention with no matching schema element is skipped — it never declares new schema itself). `import_text`'s `expand_schema=True` default runs the former first; its `schema_expansion_*` params mirror `expand_schema`'s `depth`/`reference`/`mcp_servers`/`dedup_mode` one-to-one, and `schema_expansion_target` selects what of `text`/`queries` feeds that call. An `import_text(..., schema_discovery_mode=...)` parameter existed in an earlier revision of this spec — it no longer exists; see ADR in [13-decision-log.md](13-decision-log.md).
+- An is-a/type-of/kind-of/subclass-of hierarchy between two `CLASS`es or two `RELATION`s is *only* ever expressed with `add_is_subclass_of` — never a declared `RELATION`. `expand_schema` rejects a taxonomic name (`IS_A`, `TYPE_OF`, `SUBCLASS_OF`, ...) passed to `declare_relation_type`.
 
 ### Metadata lookup
 
@@ -329,6 +335,38 @@ Merge or split schema elements.
 
 ---
 
+#### `POST /databases/{database}/schema/properties/attach`
+
+Wire an existing property onto another class or relation (idempotent), reusing it instead of declaring a same-meaning duplicate.
+
+**Request**
+```json
+{ "target_id": "<class-or-relation-id>", "property_id": "<property-id>" }
+```
+
+**Response `204 No Content`**
+
+---
+
+#### `POST /databases/{database}/schema/expand`
+
+Grow the schema (`CLASS`/`RELATION`/`PROPERTY` only — never entities/facts/property values) via an LLM agent grounded by a text passage. Mirrors `KBSource.expand_schema` (§1).
+
+**Request**
+```json
+{
+  "text": "Alice joined IBM as a software engineer in June 1998.",
+  "depth": 1,
+  "reference": "llm",
+  "dedup_mode": "search",
+  "model": "gpt-4o"
+}
+```
+
+**Response `204 No Content`**
+
+---
+
 ### Knowledge — write
 
 #### `POST /databases/{database}/entities`
@@ -523,7 +561,10 @@ Register a source document.
 
 #### `POST /databases/{database}/extract`
 
-Extract knowledge from free text using an LLM.
+Extract entities/facts/property values from free text using an LLM, against the schema as it
+currently stands (never declares new schema itself — a mention with no matching element is
+skipped). Mirrors `KBSource.import_text` (§1); `expand_schema: true` (default) runs
+`schema/expand` above first.
 
 **Request**
 ```json
@@ -531,7 +572,8 @@ Extract knowledge from free text using an LLM.
   "text": "Alice joined IBM as a software engineer in June 1998.",
   "queries": ["Where did Alice work?", "When did she start?"],
   "model": "gpt-4o",
-  "source_id": "<source-id>"
+  "source_id": "<source-id>",
+  "expand_schema": true
 }
 ```
 
@@ -586,12 +628,13 @@ env vars (`platform/mcp/src/blue_data_kb_mcp/config.py:get_kb()`) — **not** th
 since `KBSource` already supports multiple logical databases on one backend. See
 `platform/mcp/README.md`'s Configuration reference for the full env var table.
 
-24 tools, grouped (matching `platform/mcp/src/blue_data_kb_mcp/server.py`'s section banners):
+26 tools, grouped (matching `platform/mcp/src/blue_data_kb_mcp/server.py`'s section banners):
 
 | Group | Tools |
 |---|---|
-| Schema (write) | `declare_class`, `declare_relation`, `declare_class_property`, `declare_relation_property`, `add_is_subclass_of` |
+| Schema (write) | `declare_class`, `declare_relation`, `declare_class_property`, `declare_relation_property`, `add_is_subclass_of`, `attach_property` |
 | Schema (read) | `search_schema`, `fetch_schema`, `fetch_meta_schema` |
+| Schema expansion | `expand_schema` |
 | Knowledge (write) | `add_entity`, `add_fact`, `add_entity_property`, `add_fact_property`, `add_entity_extraction`, `add_fact_extraction`, `add_entity_property_extraction`, `add_fact_property_extraction` |
 | Knowledge (read) | `search_data`, `fetch_data`, `get_metadata` |
 | Query | `answer`, `validate`, `enrich` |
@@ -672,9 +715,13 @@ kb schema list [--format table|json]
 kb schema search QUERY [--type class|relation|property]... [--mode keyword|semantic] [--top-k N] [--format table|json]
 kb schema export [--output|-o FILE]
 kb schema import INPUT_FILE
+kb schema expand TEXT [--depth N] [--reference llm|mcp] [--mcp-server JSON]...
+                 [--dedup-mode search|llm|none] [--model MODEL] [-v|--verbose] [-l|--log] [--log-limit N]
 ```
 
 `schema list` prints classes, class properties, class hierarchy, relations, relation properties, and relation hierarchy in one pass. `schema search` runs in keyword mode by default (works without search enabled, unranked); `--mode semantic` requires the database to be registered with `--search semantic`. `schema export`/`schema import` round-trip the full schema as JSON (`DataSchema.to_json()`/`from_json()`); import declares idempotently, so re-importing the same file is safe. Export/import instance data separately with `kb data export`/`kb data import` below — import the schema first so data import has classes/relations/properties to resolve names against.
+
+`schema expand` runs the schema-growth LLM agent (`KBSource.expand_schema`, §1) grounded by `TEXT` — declares `CLASS`/`RELATION`/`PROPERTY` only, never entities/facts. `--depth` (default `1`) controls how many hierarchy levels beyond what's directly evidenced also get proposed, linked via `add_is_subclass_of` (never as a declared relation — a taxonomic name like `IS_A`/`TYPE_OF`/`SUBCLASS_OF` is rejected). `--reference mcp` additionally gives the model tools from `--mcp-server` (repeatable JSON, e.g. a WordNet server via `platform/wordnet-mcp`) to ground names/hierarchy placement. `--dedup-mode` controls how it checks for an existing element before declaring a new one (`search` default / `llm` / `none`), and is auto-applied as a safety-net check before every new `CLASS`/`RELATION`, even if the model skips `search_schema`. Run once, then `kb data extract --no-expand-schema` to extract many documents against the resulting schema without re-expanding it each time.
 
 **Example**
 ```
@@ -704,10 +751,13 @@ kb schema class parent list   (--class ... | --class-id ...) [--recursive] [--fo
 kb schema class child  list   (--class ... | --class-id ...) [--recursive] [--format table|json|tree]
 
 kb schema class property add    NAME DESCRIPTION (--class ... | --class-id ...)
+kb schema class property attach (--property ... | --property-id ...) (--class ... | --class-id ...)
 kb schema class property list   [--class ...] [--class-id ...] [--format table|json]
 kb schema class property update (--property ... | --property-id ...) [--name NEW] [--description NEW]
 kb schema class property delete (--property ... | --property-id ...) [--yes]
 ```
+
+`property attach` wires an *existing* property onto a class (idempotent) — reuse it instead of declaring a same-meaning duplicate under a new name.
 
 **Example**
 ```
@@ -733,7 +783,7 @@ kb schema relation delete (--relation ... | --relation-id ...) [--yes]
 kb schema relation parent add/remove/list   (--relation ... | --relation-id ...) (--parent ... | --parent-id ...)
 kb schema relation child  list              (--relation ... | --relation-id ...)
 
-kb schema relation property add/list/update/delete   (same shape as class property)
+kb schema relation property add/attach/list/update/delete   (same shape as class property)
 ```
 
 **Example**
@@ -846,12 +896,15 @@ Added fact (id: ...)
 
 ```
 kb data extract TEXT [--query Q]... (--source NAME | --source-id ID) [--model MODEL]
-                 [--schema-discovery-mode search|llm|none] [-v|--verbose] [-l|--log] [--log-limit N]
+                 [--expand-schema|--no-expand-schema] [--schema-expansion-target text|queries]...
+                 [--schema-expansion-depth N] [--schema-expansion-mode llm|mcp]
+                 [--schema-expansion-mcp-server JSON]... [--schema-expansion-dedup-mode search|llm|none]
+                 [-v|--verbose] [-l|--log] [--log-limit N]
 kb data answer QUESTION [--format table|json|nl] [--model MODEL] [--include-metadata] [-v] [-l] [--log-limit N]
 kb data validate STATEMENT [--natural-language] [--model MODEL] [--include-metadata] [-v] [-l] [--log-limit N]
 ```
 
-All three require `OPENAI_API_KEY` (and the `openai` extra installed). `-v/--verbose` shows tool call arguments in the status line; `-l/--log` also prints each tool call and its result on its own persistent line; `--log-limit` sets the truncation length for verbose/log output (default 80). `--schema-discovery-mode` controls how `extract`'s agent checks for existing schema elements before declaring new ones (`search` uses the configured search backend, `llm` asks the model to judge synonyms, `none` disables the check).
+All three require `OPENAI_API_KEY` (and the `openai` extra installed). `-v/--verbose` shows tool call arguments in the status line; `-l/--log` also prints each tool call and its result on its own persistent line; `--log-limit` sets the truncation length for verbose/log output (default 80). `extract` never declares new schema itself — it only resolves mentions against the schema as it currently stands, skipping anything with no match. `--expand-schema` (default: on) runs `kb schema expand` first, grounded by `--schema-expansion-target` (any combination of `text`/`queries`, default both); `--schema-expansion-depth`/`--schema-expansion-mode`/`--schema-expansion-mcp-server`/`--schema-expansion-dedup-mode` mirror `kb schema expand`'s `--depth`/`--reference`/`--mcp-server`/`--dedup-mode` one-to-one. Use `--no-expand-schema` to extract only, against a schema already expanded once via `kb schema expand`.
 
 `--include-metadata` (on `answer`/`validate`) has the agent additionally call `get_metadata` for each entity/fact/property value it cites, and surfaces created/modified/extraction/source info alongside the result: a second "Metadata" table (`--format table`, or unadorned `answer`/`validate` output), a `metadata` key alongside `result` (`--format json`), or folded into the prose as a follow-up section after the main answer (`--format nl` / `--natural-language`).
 

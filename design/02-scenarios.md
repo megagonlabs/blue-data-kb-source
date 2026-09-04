@@ -13,6 +13,8 @@ A developer building an employment-history agent defines the following schema:
 
 The schema is now in place and all subsequent ingestion will use these types.
 
+Instead of hand-declaring every class and relation, a developer can also seed the schema from a domain description via `expand_schema` (see Scenario 11) — useful when the vocabulary isn't fully known up front, or when bootstrapping from a glossary/spec document rather than designing the schema by hand.
+
 ---
 
 ## Scenario 2: Ingesting a Structured Document
@@ -57,20 +59,24 @@ Each item is stored alongside the verbatim span the LLM identified.
 
 ## Scenario 4: Schema Evolution During Ingestion
 
-A new document introduces concepts not present in the existing schema. During extraction the LLM first checks — by default, via a `search_schema` tool over the existing schema (`import_text`'s `schema_discovery_mode="search"`, the default) — whether something close enough already exists, to avoid declaring a near-duplicate (e.g. `JOIN_DATE` when `START_DATE` already covers it). Finding no suitable class or relation, it declares the new ones and then populates the corresponding instances. The schema has grown to accommodate the new domain, and all subsequent documents benefit from the expanded vocabulary without any manual intervention from the developer.
+A new document introduces concepts not present in the existing schema. `import_text` handles this in two LLM passes, not one: by default (`expand_schema=True`) it first runs `expand_schema` — a schema-growth agent that only ever declares `CLASS`/`RELATION`/`PROPERTY` elements, checking first (by default, via a `search_schema` tool over the existing schema, `dedup_mode="search"`) whether something close enough already exists, to avoid declaring a near-duplicate (e.g. `JOIN_DATE` when `START_DATE` already covers it) — before the extraction agent runs at all. Finding no suitable class or relation, it declares the new ones (and, where a taxonomic relationship applies, wires it via `add_subclass_of` rather than a declared relation); the *extraction* agent then runs against that just-expanded schema and populates the corresponding instances — it never declares schema itself. The schema has grown to accommodate the new domain, and all subsequent documents benefit from the expanded vocabulary without any manual intervention from the developer.
 
 **Example:**
 
 A second résumé mentions: "Alice studied Computer Science at MIT from 1994 to 1998."
 
-The current schema has no `UNIVERSITY` class and no `STUDIED_AT` relation. The LLM:
+The current schema has no `UNIVERSITY` class and no `STUDIED_AT` relation.
+
+Schema expansion pass (`expand_schema`):
 1. Declares class `UNIVERSITY`
 2. Declares relation `STUDIED_AT` — from `EMPLOYEE` to `UNIVERSITY`
 3. Declares properties `FIELD_OF_STUDY` and `END_DATE` on `STUDIED_AT`
+
+Extraction pass (`import_text`), against the now-expanded schema:
 4. Adds entity `MIT` (class `UNIVERSITY`)
 5. Adds fact `Alice —STUDIED_AT→ MIT` with field `Computer Science`, end date `1998`
 
-The schema now covers both employment and education, and future documents can reference these types without triggering another declaration.
+The schema now covers both employment and education, and future documents can reference these types without triggering another expansion pass (pass `expand_schema=False` to `import_text` to skip straight to extraction once a schema is stable).
 
 ---
 
@@ -246,3 +252,35 @@ kb.reindex("main")
 ```
 
 Search results are returned directly from the index, with no LLM call involved.
+
+---
+
+## Scenario 11: Standalone Schema Expansion with External Grounding
+
+A developer wants to build out a schema from a batch of domain material — glossaries, sample documents, a data dictionary — before any entities or facts are extracted, and wants the resulting class/relation names and hierarchy checked against an external lexical resource rather than left entirely to the model's own judgment. `expand_schema` is called directly (not through `import_text`), once per document or passage, growing the schema incrementally and letting later calls build on what earlier ones declared.
+
+The agent's most important discipline here is **never declaring a class or relation named after a specific individual mentioned in the text** — a passage naming "Dr. Sarah Chen" or "Acme Robotics" must yield classes like `RESEARCHER`/`COMPANY`, never `SARAH_CHEN`/`ACME_ROBOTICS`; those specific individuals are created later, as entities, by a separate extraction pass against the classes declared here. The second discipline is keeping hierarchy out of the relation vocabulary: an is-a/type-of/kind-of link (e.g. "a poodle is a kind of dog") is wired with `add_subclass_of`, never declared as a relation like `IS_A` or `TYPE_OF`.
+
+**Example:**
+
+A team is building a schema for a robotics-industry knowledge base and wants new class/relation names and hierarchy placement checked against WordNet before they're committed:
+
+```python
+await kb.expand_schema(
+    "main",
+    "Robotics companies design and manufacture industrial robots, including "
+    "articulated arms and mobile platforms used in manufacturing and logistics.",
+    depth=1,
+    reference="mcp",
+    mcp_servers=[{"transport": "stdio", "command": "blue-data-wordnet-mcp"}],
+    dedup_mode="llm",   # catch synonyms like ROBOT vs INDUSTRIAL_ROBOT worded differently
+)
+```
+
+The agent:
+1. Identifies `ROBOT`, `MANUFACTURER`, `INDUSTRIAL_ROBOT` (a kind of `ROBOT`, via WordNet's hyponym relation) as candidate classes, and `MANUFACTURES` as a candidate relation from `MANUFACTURER` to `ROBOT`
+2. Calls the WordNet MCP server's tools to confirm `INDUSTRIAL_ROBOT` is a reasonable hyponym of `ROBOT` before declaring the subclass link, and to check for a closer synonym before naming a new class
+3. Declares `ROBOT`, `MANUFACTURER`, `INDUSTRIAL_ROBOT` and the `MANUFACTURES` relation; wires `INDUSTRIAL_ROBOT` under `ROBOT` via `add_subclass_of` — not a declared `IS_A`/`KIND_OF` relation
+4. At `depth=1`, also proposes `MACHINE` as a parent of `ROBOT`, since it's one hop beyond what's directly evidenced
+
+The CLI equivalent is `kb schema expand "..." --reference mcp --mcp-server '{"transport":"stdio","command":"blue-data-wordnet-mcp"}' --dedup-mode llm`. Once the schema is judged stable, subsequent documents are extracted against it with `kb data extract --no-expand-schema` (or `import_text(..., expand_schema=False)`), without paying for another expansion pass each time.

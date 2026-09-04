@@ -1,0 +1,87 @@
+------------------------------------------------------------
+1. expand_schema -- grow the schema from a text passage, nothing
+   entered by hand first
+------------------------------------------------------------
+Text: 'Alice Johnson is a senior software engineer at IBM. She has programming skills in distributed systems and enjoys woodworking as a hobby outside of work.'
+
+Expect: general classes like PERSON/COMPANY plus relations connecting
+them (WORKED_AT and similar) -- but never a CLASS named ALICE or IBM;
+those are entities, created later by import_text. Exact names and how
+finely the model subdivides SKILL/HOBBY are the model's own choice,
+not scripted -- that's the point of an LLM-driven pass.
+
+  [tool call]   search_schema({'query': 'PERSON', 'type': 'class'})
+  [tool result] search_schema -> {'schema_elements': []}
+  [tool call]   search_schema({'query': 'COMPANY', 'type': 'class'})
+  [tool result] search_schema -> {'schema_elements': []}
+  [tool call]   search_schema({'query': 'SKILL', 'type': 'class'})
+  [tool result] search_schema -> {'schema_elements': []}
+  [tool call]   search_schema({'query': 'HOBBY', 'type': 'class'})
+  [tool result] search_schema -> {'schema_elements': []}
+  [tool call]   declare_class({'name': 'PERSON', 'description': 'A human individual.'})
+  [tool result] declare_class -> {'id': '41e9ca09-7aa1-4176-99de-3c794fb04146'}
+  [tool call]   declare_class({'name': 'COMPANY', 'description': 'A business organization or firm.'})
+  [tool result] declare_class -> {'id': '5c3f0d1f-ee34-4112-9fb9-a73f4b8eda82'}
+  [tool call]   declare_class({'name': 'SKILL', 'description': 'An ability or expertise in a particular area.'})
+  [tool result] declare_class -> {'id': '9c812760-211f-434f-a7bd-2bf54e4ff245'}
+  [tool call]   declare_class({'name': 'HOBBY', 'description': 'A leisure activity or interest pursued outside of work.'})
+  [tool result] declare_class -> {'id': '9f5eebbd-9dd6-4c10-a501-e935e146b46e'}
+  [tool call]   declare_relation_type({'name': 'WORKS_AT', 'description': 'Relationship indicating employment of a person at a company.', 'domain': 'PERSON', 'range': 'COMPANY'})
+  [tool result] declare_relation_type -> {'id': 'b7f4b545-494b-4ab2-8db6-e6c507c79c65'}
+  [tool call]   declare_relation_type({'name': 'HAS_SKILL', 'description': 'Relationship indicating a person has a particular skill.', 'domain': 'PERSON', 'range': 'SKILL'})
+  [tool result] declare_relation_type -> {'id': '2c490c06-aa36-441b-8f4c-007b855f3112'}
+  [tool call]   declare_relation_type({'name': 'HAS_HOBBY', 'description': 'Relationship indicating a person has a hobby or leisure interest.', 'domain': 'PERSON', 'range': 'HOBBY'})
+  [tool result] declare_relation_type -> {'id': '45df4b00-1e06-4088-b7db-80da034a8321'}
+
+Schema after expansion: 4 classes, 3 relations
+  CLASS    PERSON
+  CLASS    COMPANY
+  CLASS    SKILL
+  CLASS    HOBBY
+  RELATION WORKS_AT  (PERSON -> COMPANY)
+  RELATION HAS_SKILL  (PERSON -> SKILL)
+  RELATION HAS_HOBBY  (PERSON -> HOBBY)
+
+------------------------------------------------------------
+2. expand_schema again -- a second, related passage. dedup_mode
+   keeps this convergent instead of piling up near-duplicates
+------------------------------------------------------------
+Text: 'IBM later acquired Nimbus Analytics, a smaller technology consulting firm.'
+Expect: still no CLASS named IBM or NIMBUS_ANALYTICS -- IBM and Nimbus
+Analytics are entities of whatever general class fits (COMPANY, or a
+more specific subclass of it the model chooses to declare). A new
+ACQUIRED relation is likely, unless dedup_mode judges an existing one
+already covers 'acquired'.
+
+  [tool call]   search_schema({'query': 'acquisition', 'mode': 'keyword', 'type': 'relation'})
+  [tool result] search_schema -> {'schema_elements': []}
+  [tool call]   search_schema({'query': 'TECHNOLOGY_CONSULTING_FIRM', 'mode': 'keyword', 'type': 'class'})
+  [tool result] search_schema -> {'schema_elements': []}
+  [tool call]   declare_class({'name': 'TECHNOLOGY_CONSULTING_FIRM', 'description': 'A company that provides technology-related consulting services.'})
+  [tool result] declare_class -> {'id': '2bb37b13-1e07-4e32-9a9a-1b1dedfed3e5'}
+  [tool call]   declare_relation_type({'name': 'ACQUIRED', 'description': 'Relation indicating that one company has purchased or taken control of another company.', 'domain': 'COMPANY', 'range': 'COMPANY'})
+  [tool result] declare_relation_type -> {'id': '929544cb-0a64-4125-83d2-ed9ba53bfe0b'}
+  [tool call]   add_subclass_of({'child_id': '2bb37b13-1e07-4e32-9a9a-1b1dedfed3e5', 'parent_id': 'COMPANY'})
+  [tool result] add_subclass_of -> {'error': "parent_id 'COMPANY' does not exist in database 'main'. Expected the id of an existing CLASS or RELATION node."}
+  [tool call]   search_schema({'query': 'COMPANY', 'type': 'class'})
+  [tool result] search_schema -> {'schema_elements': [{'id': '5c3f0d1f-ee34-4112-9fb9-a73f4b8eda82', 'type': 'CLASS', 'name': 'COMPANY', 'description': 'A business organization or firm.'}, {'id': '2bb37b13-1e07-4e32-9a9a-1b1dedfed3e5', 'type': 'CLASS', 'name': 'TECHNOLOGY_CONSULTING_FIRM', 'description': 'A company that provides technology-related consulting services.'}]}
+  [tool call]   add_subclass_of({'child_id': '2bb37b13-1e07-4e32-9a9a-1b1dedfed3e5', 'parent_id': '5c3f0d1f-ee34-4112-9fb9-a73f4b8eda82'})
+  [tool result] add_subclass_of -> {}
+
+------------------------------------------------------------
+3. attach_property -- reuse an existing property on another class
+   instead of declaring a same-meaning duplicate under a new name
+------------------------------------------------------------
+Declared NAME on PERSON (d520866e-9134-4dae-a992-ae7cbdc34977), then attached the same
+property to COMPANY -- one PROPERTY node, two DEFINE_PROPERTY edges,
+instead of a second same-meaning property under a new name.
+
+------------------------------------------------------------
+4. Hierarchy is add_subclass_of, never a declared relation
+------------------------------------------------------------
+EMPLOYEE IS_SUBCLASS_OF PERSON -- wired directly, not via a
+declared IS_A/TYPE_OF relation (declare_relation_type rejects those names).
+
+Demo complete. Next: llm_extraction_demo.py runs import_text against
+a schema like this one (expand_schema=True by default, or pass
+expand_schema=False to extract only, reusing what's already here).

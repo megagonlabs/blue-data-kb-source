@@ -1,0 +1,52 @@
+------------------------------------------------------------
+1. Seed a minimal starting schema -- import_text reuses these by name
+------------------------------------------------------------
+Declared PERSON, COMPANY -- import_text's schema-expansion pass can extend
+this schema as needed (e.g. declaring WORKED_AT itself) before extracting
+
+------------------------------------------------------------
+2. import_text -- one call, two passes (expand schema, then extract)
+------------------------------------------------------------
+  [tool call]   search_schema({'query': 'work relationship', 'mode': 'semantic', 'type': 'relation'})
+  [tool result] search_schema -> {'schema_elements': []}
+  [tool call]   declare_relation_type({'name': 'WORKED_AT', 'description': 'Relationship where a person works or has worked at a company', 'domain': 'PERSON', 'range': 'COMPANY'})
+  [tool result] declare_relation_type -> {'id': 'a4022b3a-bfe0-4a66-a68f-d84baa2b1b4f'}
+  [tool call]   find_entity({'name': 'Alice Johnson'})
+  [tool result] find_entity -> {'id': None}
+  [tool call]   find_entity({'name': 'IBM'})
+  [tool result] find_entity -> {'id': None}
+  [tool call]   find_entity({'name': 'Nimbus Analytics'})
+  [tool result] find_entity -> {'id': None}
+  [tool call]   search_schema({'query': 'person', 'mode': 'keyword', 'type': 'class'})
+  [tool result] search_schema -> {'schema_elements': [{'id': 'd9eb1f21-dfce-4a31-9609-3846e0511a98', 'type': 'CLASS', 'name': 'PERSON', 'description': 'A human individual'}]}
+  [tool call]   search_schema({'query': 'company', 'mode': 'keyword', 'type': 'class'})
+  [tool result] search_schema -> {'schema_elements': [{'id': '705f3e3e-37d7-411e-9e10-3283693321c5', 'type': 'CLASS', 'name': 'COMPANY', 'description': 'A business organization'}]}
+  [tool call]   add_entity({'name': 'Alice Johnson', 'description': 'A senior software engineer specializing in distributed systems.', 'class_id': 'd9eb1f21-dfce-4a31-9609-3846e0511a98', 'text': 'Alice Johnson is a senior software engineer at IBM, where she has worked since 2019.'})
+  [tool result] add_entity -> {'id': '236034d9-5815-4346-a2d7-be03709a9a7b'}
+  [tool call]   add_entity({'name': 'IBM', 'description': 'A technology and consulting company headquartered in Armonk, New York.', 'class_id': '705f3e3e-37d7-411e-9e10-3283693321c5', 'text': 'IBM, where she has worked since 2019.'})
+  [tool result] add_entity -> {'id': '0cf1b161-c6ab-432a-940d-2b47b45bffce'}
+  [tool call]   add_entity({'name': 'Nimbus Analytics', 'description': 'A startup where Alice Johnson worked as a backend developer.', 'class_id': '705f3e3e-37d7-411e-9e10-3283693321c5', 'text': 'Nimbus Analytics'})
+  [tool result] add_entity -> {'id': 'c0592238-f46d-468e-bdff-9b779fa3a6f2'}
+  [tool call]   search_schema({'query': 'worked at', 'mode': 'keyword', 'type': 'relation'})
+  [tool result] search_schema -> {'schema_elements': [{'id': 'a4022b3a-bfe0-4a66-a68f-d84baa2b1b4f', 'type': 'RELATION', 'name': 'WORKED_AT', 'description': 'Relationship where a person works or has worked at a company'}]}
+  [tool call]   add_fact({'head_entity_id': '236034d9-5815-4346-a2d7-be03709a9a7b', 'tail_entity_id': '0cf1b161-c6ab-432a-940d-2b47b45bffce', 'relation_id': 'a4022b3a-bfe0-4a66-a68f-d84baa2b1b4f', 'text': 'Alice Johnson is a senior software engineer at IBM, where she has worked since 2019.'})
+  [tool result] add_fact -> {'id': '5b65a9f3-db87-460c-adb4-81f5a50c17d0'}
+  [tool call]   add_fact({'head_entity_id': '236034d9-5815-4346-a2d7-be03709a9a7b', 'tail_entity_id': 'c0592238-f46d-468e-bdff-9b779fa3a6f2', 'relation_id': 'a4022b3a-bfe0-4a66-a68f-d84baa2b1b4f', 'text': 'Before IBM, she was a backend developer at a startup called Nimbus Analytics.'})
+  [tool result] add_fact -> {'id': '97305894-06e4-48ff-894d-dfa29af91d68'}
+import_text returns None -- its effects are the tool calls printed above:
+first declare_class/declare_relation_type (schema expansion), then
+add_entity/add_fact (extraction), each tagged with text=<the sentence it
+came from>, source_id=<alice-bio.txt>.
+
+------------------------------------------------------------
+3. Inspect what got extracted
+------------------------------------------------------------
+fetch_database_data(compact=True) -> 5 rows:
+  {'relation_type': 'IS_INSTANCE_OF', 'entity_name': 'Alice Johnson', 'class_name': 'PERSON'}
+  {'relation_type': 'IS_INSTANCE_OF', 'entity_name': 'IBM', 'class_name': 'COMPANY'}
+  {'relation_type': 'IS_INSTANCE_OF', 'entity_name': 'Nimbus Analytics', 'class_name': 'COMPANY'}
+  {'relation_type': 'REPRESENTS', 'entity_name': 'Alice Johnson_WORKED_AT_IBM', 'source_name': 'Alice Johnson', 'target_name': 'IBM', 'relation_name': 'WORKED_AT'}
+  {'relation_type': 'REPRESENTS', 'entity_name': 'Alice Johnson_WORKED_AT_Nimbus Analytics', 'source_name': 'Alice Johnson', 'target_name': 'Nimbus Analytics', 'relation_name': 'WORKED_AT'}
+get_metadata on the extracted Alice entity: {'id': '236034d9-5815-4346-a2d7-be03709a9a7b', 'type': 'ENTITY', 'name': 'Alice Johnson', 'class_name': 'PERSON', 'description': 'A senior software engineer specializing in distributed systems.', 'created': '2026-09-04T22:25:09.899233+00:00', 'modified': '2026-09-04T22:25:09.899233+00:00', 'extraction': 'Alice Johnson is a senior software engineer at IBM, where she has worked since 2019.', 'source': "Alice's bio", 'source_original': None}
+
+Demo complete.

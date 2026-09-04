@@ -364,7 +364,7 @@ hand-typed session like above), see
 Claude / MCP client
         │  MCP (stdio transport)
         ▼
-blue_data_kb_mcp.server   ← FastMCP app, 24 tool handlers (async, await KBSource directly)
+blue_data_kb_mcp.server   ← FastMCP app, 26 tool handlers (async, await KBSource directly)
         │
 blue_data_kb_mcp.config   ← singleton KBSource factory (BLUE_DATA_KB_SOURCE_* env vars)
         │  DataSource.instantiate(dotted_class_path, ...)

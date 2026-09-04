@@ -22,9 +22,11 @@
 | Initial provider | OpenAI (`openai>=1.0`) |
 | Interface | OpenAI function-calling (tool use) |
 
-The Extraction Engine calls the OpenAI API directly using the `openai` Python SDK. The model is configurable per call (`model` parameter on `import_text`, defaulting to `gpt-4o`). The tool loop drives schema declaration and instance creation by presenting the KB operations as OpenAI function definitions.
+The Extraction Engine calls the OpenAI API directly using the `openai` Python SDK. The model is configurable per call (`model` parameter on `import_text`, defaulting to `gpt-4o`). Its tool loop drives *only* instance creation (`add_entity`/`add_fact`/etc.) by presenting the relevant KB operations as OpenAI function definitions — it has no schema-declaration tool.
 
-The Knowledge Layer's Query Engine has the same kind of dependency: `answer`, `validate`, and `enrich` each run their own OpenAI tool-use loop over a read-only set of graph tools. The Schema Layer and Graph Store have no LLM dependency, but the Extraction Engine and the Query Engine (inside the Knowledge Layer) both require an API key at call time.
+The Schema Layer has its own equivalent dependency: `expand_schema` runs a separate OpenAI tool-use loop (the Schema Expansion Engine) that drives schema declaration (`declare_class`/`declare_relation_type`/etc.) the same way `import_text` used to before the two were split. `KBSource.import_text` composes both loops — with `expand_schema=True` (the default), it calls `expand_schema` first, then runs the Extraction Engine's own loop against the result.
+
+The Knowledge Layer's Query Engine has the same kind of dependency: `answer`, `validate`, and `enrich` each run their own OpenAI tool-use loop over a read-only set of graph tools. The Graph Store has no LLM dependency, but the Schema Expansion Engine, the Extraction Engine, and the Query Engine (inside the Knowledge Layer) all require an API key at call time. With `expand_schema`'s `reference="mcp"`, the Schema Expansion Engine's tool set is additionally extended at call time with tools from connected MCP servers (e.g. WordNet via `platform/wordnet-mcp`) — see MCP Server below.
 
 **OpenAI SDK usage:**
 
@@ -118,7 +120,18 @@ FastAPI provides automatic OpenAPI schema generation and async request handling.
 |---------|--------|
 | Library | `mcp[cli]` (official MCP Python SDK), pinned `>=1.0.0,<2.0.0` |
 
-Exposes 24 KBDB schema, knowledge, query, extraction, and provenance operations as MCP tools (`FastMCP`) for consumption by LLM agents; tool handlers delegate directly to the Python library. The version pin is deliberate: `mcp==2.0.0` renamed `mcp.server.fastmcp.FastMCP` to `mcp.server.MCPServer`, a breaking import-path change — staying on `1.x` keeps `FastMCP` importable at the path the server code uses.
+Exposes 26 KBDB schema, schema-expansion, knowledge, query, extraction, and provenance operations as MCP tools (`FastMCP`) for consumption by LLM agents; tool handlers delegate directly to the Python library. The version pin is deliberate: `mcp==2.0.0` renamed `mcp.server.fastmcp.FastMCP` to `mcp.server.MCPServer`, a breaking import-path change — staying on `1.x` keeps `FastMCP` importable at the path the server code uses.
+
+### WordNet MCP Server
+
+**Implemented** — `platform/wordnet-mcp/` (package `blue-data-wordnet-mcp`)
+
+| Concern | Choice |
+|---------|--------|
+| Library | `mcp[cli]` (same pin as `platform/mcp/`, `>=1.0.0,<2.0.0`) |
+| Lexical database | `nltk` (`>=3.8`), `nltk.corpus.wordnet` |
+
+A standalone MCP server, unrelated to `KBSource` — it has no dependency on `blue-data` or `blue-data-kb-source` at all. Exposes 10 read-only WordNet lookups (synset lookup, synonyms, hypernyms/hyponyms, meronyms/holonyms, antonyms, similarity, lemmatization) as MCP tools. The WordNet corpus (`wordnet`, `omw-1.4`) is downloaded via `nltk.download()` lazily on first tool call if not already present, then cached locally — one-time network access, offline after that. Wired into schema expansion as an *optional* peer server: `expand_schema(reference="mcp", mcp_servers=[{"transport": "stdio", "command": "blue-data-wordnet-mcp"}])` spawns it over stdio and offers its tools to the Schema Expansion Engine's agent loop, to ground new class/relation names and hierarchy placement — see [09-api-interface-spec.md](09-api-interface-spec.md) §1 and `platform/wordnet-mcp/README.md`.
 
 ### CLI
 
@@ -180,7 +193,9 @@ Provides the `GraphSource` abstract base class and all concrete graph backends c
 | `redis` | latest stable | PyPI | Redis vector backend (optional, semantic search) |
 | `fastapi` | latest stable | PyPI | REST API framework (provisional — `platform/api/` not yet built) |
 | `uvicorn` | latest stable | PyPI | ASGI server for FastAPI (provisional) |
-| `mcp[cli]` | `>=1.0.0,<2.0.0` | PyPI | MCP server SDK — implemented, pinned below 2.0 (see MCP Server above) |
+| `mcp[cli]` | `>=1.0.0,<2.0.0` | PyPI | MCP server SDK — implemented, pinned below 2.0 (see MCP Server above); also the sole non-`nltk` dependency of `platform/wordnet-mcp/` |
+| `mcp` | `>=1.0.0,<2.0.0` | PyPI | `lib`'s own optional `mcp` extra (`pip install blue-data-kb-source[mcp]`) — the MCP **client** SDK (`mcp.client.stdio`/`sse`/`streamable_http`, `ClientSession`) `expand_schema(reference="mcp")` uses to connect to external servers like `platform/wordnet-mcp`; distinct role from the `mcp[cli]` **server** SDK row above, same version pin |
+| `nltk` | `>=3.8` | PyPI | WordNet lexical database access — `platform/wordnet-mcp/` only, optional peer for `expand_schema(reference="mcp")` |
 | `click` | `>=8.0` | PyPI | CLI argument parsing — implemented |
 | `rich` | `>=13.0` | PyPI | CLI output formatting — implemented |
 | `arrow` | `>=1.3` | PyPI | CLI date handling — implemented |

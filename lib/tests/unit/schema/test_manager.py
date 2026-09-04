@@ -84,6 +84,21 @@ async def test_declare_relation_type_raises_on_missing_domain(kb):
         await kb.declare_relation_type("test", "WORKS_AT", "", domain="NONEXISTENT", range="COMPANY")
 
 
+async def test_declare_relation_type_failed_call_leaves_no_orphan_node(kb):
+    """A domain/range resolution failure must not create a RELATION node at all --
+    otherwise a later retry with a valid domain hits the idempotent by-name check
+    above and silently reuses the broken, domain-less node instead of wiring it."""
+    await kb.declare_class("test", "COMPANY", "")
+    with pytest.raises(SchemaError, match="domain class"):
+        await kb.declare_relation_type("test", "WORKS_AT", "", domain="NONEXISTENT", range="COMPANY")
+
+    await kb.declare_class("test", "PERSON", "")
+    await kb.declare_relation_type("test", "WORKS_AT", "Employment", domain="PERSON", range="COMPANY")
+
+    schema = await kb.fetch_database_schema("test")
+    assert schema.has_relation("PERSON", "WORKS_AT", "COMPANY")
+
+
 async def test_declare_relation_type_raises_on_missing_range(kb):
     await kb.declare_class("test", "PERSON", "")
     with pytest.raises(SchemaError, match="range class"):

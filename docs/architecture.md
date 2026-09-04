@@ -25,6 +25,10 @@
 │  │                       Schema Layer                          │   │
 │  │  ┌──────────────────────────────────────────────────────┐   │   │
 │  │  │                   Schema Manager                     │   │   │
+│  │  │              ┌──────────────────────────┐            │   │   │
+│  │  │              │ Schema Expansion Engine   │            │   │   │
+│  │  │              │      (LLM Agent)          │            │   │   │
+│  │  │              └──────────────────────────┘            │   │   │
 │  │  └──────────────────────────────────────────────────────┘   │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 │                                                                     │
@@ -64,13 +68,14 @@
 | Component | Module | Role |
 |---|---|---|
 | `KBSource` | `kb_source.py` | Entry point; delegates to every manager below |
-| Schema Manager | `schema/manager.py` | Declares/updates/deletes classes, relations, properties; hierarchy; export/import; meta-schema |
+| Schema Manager | `schema/manager.py` | Declares/updates/deletes classes, relations, properties; hierarchy; `attach_property`; export/import; meta-schema; owns Schema Expansion Engine |
+| Schema Expansion Engine | `schema/expansion.py` | LLM agent behind `expand_schema` — grows CLASS/RELATION/PROPERTY only, grounded by text; not exposed directly on `KBSource` |
 | Knowledge Manager | `knowledge/manager.py` | Creates/updates/deletes entities, facts, property values; data export/import; `get_metadata`; owns Query Engine |
 | Query Engine | `knowledge/engine.py` | LLM agent behind `answer`/`validate`/`enrich`; not exposed directly on `KBSource` |
 | Provenance Tracker | `provenance/tracker.py` | Creates `SOURCE`/`EXTRACTION` nodes and wires `EXTRACTED_FROM` edges |
 | Change Notifier | `notification/notifier.py` | Fires per-database hooks synchronously after each write |
 | Search Indexer | `search/indexer.py` | BM25/semantic index over schema and instance data, kept in sync via change hooks |
-| Extraction Engine | `extraction/engine.py` | LLM agent behind `import_text` |
+| Extraction Engine | `extraction/engine.py` | LLM agent behind `import_text` — extracts entities/facts/property values against the schema as it stands; never declares schema itself |
 
 ### platform/ layer
 
@@ -82,7 +87,7 @@
   │  │        cli            │   │        mcp            │                   │
   │  │  (Click + Rich)       │   │  (FastMCP server)     │                   │
   │  │  terminal, one         │   │  stdio/MCP protocol   │                   │
-  │  │  KBSource per          │   │  24 tools: schema,    │                   │
+  │  │  KBSource per          │   │  26 tools: schema,    │                   │
   │  │  registered database   │   │  knowledge, query,    │                   │
   │  │  (~/.kbdb registry)     │   │  extraction, source   │                   │
   │  └──────────┬─────────────┘   └──────────┬─────────────┘                 │
@@ -95,7 +100,16 @@
   │  │                                       │   │        api             │   │
   │  │              KBSource                 │   │  (FastAPI, planned)   │   │
   │  │                                       │   └───────────────────────┘   │
-  │  └──────────────────────────────────────┘                                │
+  │  └──────────────────┬───────────────────┘                                │
+  │                     │  stdio, spawned per `expand_schema` call            │
+  │                     │  only when reference="mcp"                          │
+  │                     ▼                                                    │
+  │           ┌──────────────────────┐                                        │
+  │           │    wordnet-mcp        │                                       │
+  │           │  (FastMCP server)     │                                       │
+  │           │  WordNet lookups      │                                       │
+  │           │  via nltk.wordnet     │                                       │
+  │           └──────────────────────┘                                        │
   └───────────────────────────────────────────────────────────────────────────┘
                               │  Python import
                               ▼
@@ -106,9 +120,12 @@
 |---|---|---|---|
 | `cli` | `platform/cli/` (`kb`) | Terminal (Click) | Implemented |
 | `mcp` | `platform/mcp/` (`blue-data-kb-mcp`) | stdio (MCP) | Implemented |
+| `wordnet-mcp` | `platform/wordnet-mcp/` (`blue-data-wordnet-mcp`) | stdio (MCP) | Implemented — optional, referenced by `expand_schema(reference="mcp")` |
 | `api` | `platform/api/` | HTTP (FastAPI) | Planned — see [api.md](api.md) |
 
 The `cli` and `mcp` processes are independent — they do not share state with each other, and each holds its own `KBSource` instance. `cli` resolves its backend per invocation from `~/.kbdb/registry.json` (multiple named databases, each independently configured — see [cli.md](cli.md)); `mcp` owns a single `KBSource` for the process lifetime, configured entirely by `BLUE_DATA_KB_SOURCE_*` environment variables, with `database` as a plain per-tool-call argument (see [mcp.md](mcp.md)). This is a deliberate difference, not an oversight — `mcp` depends only on `blue-data-kb-source`, not on `blue-data-kb-cli`, so each platform component stays independently deployable.
+
+`wordnet-mcp` is a standalone read-only MCP server, not a `KBSource` dependency — the Schema Expansion Engine (`schema/expansion.py`) spawns it (or connects to it, for `sse`/`streamable_http` transports) itself when `expand_schema` is called with `reference="mcp"` and an entry for it in `mcp_servers`, offering its tools (hypernym/synonym lookups) to the LLM agent alongside the built-in schema tools for that one call. Neither `cli` nor `mcp` talk to it directly.
 
 ---
 
@@ -169,26 +186,62 @@ With `include_metadata=True` (`answer`/`validate` only), the engine harvests eve
 
 ---
 
+## Data flow: expand_schema (schema growth)
+
+```
+caller
+  → SchemaManager.expand_schema(text, depth, reference, mcp_servers, dedup_mode)
+      → SchemaExpansionEngine.expand_schema(...)
+          → fetch_database_schema()          # schema context for the prompt
+          → (reference="mcp") connect each entry in mcp_servers over
+              stdio/sse/streamable_http, collect its tools name-prefixed
+              "mcp__<server>__<tool>"
+          → LLM agent loop:
+              agent calls search_schema (unless dedup_mode="none")
+                to check for an existing near-duplicate before declaring
+              agent calls declare_class / declare_relation_type /
+                declare_class_property / declare_relation_property
+                → an automatic dedup check (per dedup_mode) also runs here,
+                  regardless of whether the agent called search_schema itself
+              agent calls add_subclass_of to place a new CLASS/RELATION under
+                an existing parent (never a declare_relation_type call — a
+                taxonomic name like IS_A/TYPE_OF/SUBCLASS_OF is rejected there)
+              agent calls attach_property to reuse an existing PROPERTY on
+                another CLASS/RELATION instead of declaring a duplicate
+              (reference="mcp") agent may also call the connected server's
+                tools, e.g. WordNet hypernym/synonym lookups, to ground names
+                and hierarchy placement
+              ... until the agent stops issuing tool calls, or max_turns is hit
+```
+
+`expand_schema` never creates `ENTITY`/`FACT`/`LITERAL` nodes — only `CLASS`/`RELATION`/`PROPERTY` and the edges between them. Idempotent declarations mean re-running it over overlapping text converges rather than duplicating.
+
+---
+
 ## Data flow: import_text (extraction)
 
 ```
 caller
-  → ExtractionEngine.import_text(text, queries, source_id, schema_discovery_mode)
-      → fetch_database_schema()          # schema context for the prompt
-      → LLM agent loop:
-          agent calls search_schema (unless schema_discovery_mode="none")
-            to check for an existing near-duplicate before declaring
-          agent calls declare_class / declare_relation_type / declare_class_property / ...
-            for concepts not yet in the schema
-          agent calls add_entity / add_fact / add_entity_property_value / ...
-            passing the verbatim text span as `text`
-            → ProvenanceTracker creates an EXTRACTION node, wires EXTRACTED_FROM
-              to the instance and (if source_id given) to the SOURCE
-            → ChangeNotifier fires registered hooks for the database
-          ... until the agent stops issuing tool calls
+  → KBSource.import_text(text, queries, source_id, expand_schema, schema_expansion_*)
+      → (expand_schema=True, the default) SchemaManager.expand_schema(...)
+          — see "Data flow: expand_schema" above; schema_expansion_* params feed
+            its depth/reference/mcp_servers/dedup_mode one-to-one
+      → ExtractionEngine.import_text(text, queries, source_id)
+          → fetch_database_schema()          # schema context for the prompt,
+                                              # now including anything expand_schema just added
+          → LLM agent loop:
+              agent calls search_schema to resolve a mention to an existing
+                CLASS/RELATION/PROPERTY — no match means skip that item;
+                import_text never declares new schema itself
+              agent calls add_entity / add_fact / add_entity_property_value / ...
+                passing the verbatim text span as `text`
+                → ProvenanceTracker creates an EXTRACTION node, wires EXTRACTED_FROM
+                  to the instance and (if source_id given) to the SOURCE
+                → ChangeNotifier fires registered hooks for the database
+              ... until the agent stops issuing tool calls, or max_turns is hit
 ```
 
-Idempotent schema declarations mean re-running `import_text` over overlapping text converges rather than duplicating — a concept already declared is reused, and an entity/fact already present accumulates a new `EXTRACTED_FROM` edge (via `link_extraction`) instead of a duplicate node.
+Idempotent instance resolution (`find_entity`/`find_fact` before creating) means re-running `import_text` over overlapping text converges rather than duplicating — an entity/fact already present accumulates a new `EXTRACTED_FROM` edge (via `link_extraction`) instead of a duplicate node. Pass `expand_schema=False` to skip the first phase entirely and extract only against whatever schema already exists (e.g. one grown once via a prior `expand_schema` call and reused across many documents).
 
 ---
 

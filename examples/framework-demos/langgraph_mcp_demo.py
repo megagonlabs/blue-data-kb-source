@@ -3,8 +3,8 @@ LangGraph + blue-data-kb-source: MCP-based integration.
 
 A ReAct agent that uses the real blue-data-kb-mcp server as tools via
 langchain-mcp-adapters. No KBSource-specific code on the LangGraph side at
-all -- the agent discovers all 24 tools (schema declare/search, entity/fact/
-property writes, get_metadata, answer/validate/enrich, import_text,
+all -- the agent discovers all 26 tools (schema declare/search, expand_schema,
+entity/fact/property writes, get_metadata, answer/validate/enrich, import_text,
 add_source) from the running MCP server and picks which ones to call itself.
 
 Contrast with langgraph_direct_demo.py, which hand-builds a fixed 3-node

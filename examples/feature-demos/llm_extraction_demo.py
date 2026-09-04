@@ -9,10 +9,8 @@ extracts against the resulting schema — every write it makes is
 provenance-tagged with the source text and source_id automatically, and it
 reuses existing schema/entities by name instead of creating duplicates.
 
-Requires OPENAI_API_KEY -- not live-verified in this session (no key
-available in the sandboxed environment this was written in). The calls
-below are structurally correct against KBSource.import_text's signature;
-run it yourself with a real key to see live output.
+Requires OPENAI_API_KEY. Live-verified -- see llm_extraction_demo.output.txt
+for a captured real run (model/output wording will vary run to run).
 
     export OPENAI_API_KEY=sk-...
     python3 llm_extraction_demo.py

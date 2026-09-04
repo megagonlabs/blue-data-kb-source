@@ -54,14 +54,16 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | `await delete_class(database, class_id)` | `None` | Delete a class (errors if instances or subclasses exist) |
 | `await delete_relation(database, relation_id)` | `None` | Delete a relation (errors if facts or sub-relations exist) |
 | `await delete_property(database, property_id)` | `None` | Delete a property (errors if values exist) |
-| `await add_is_subclass_of(database, child_id, parent_id)` | `None` | Wire `IS_SUBCLASS_OF` between two `CLASS` or two `RELATION` nodes |
+| `await add_is_subclass_of(database, child_id, parent_id)` | `None` | Wire `IS_SUBCLASS_OF` between two `CLASS` or two `RELATION` nodes — the only way to express an is-a/type-of/kind-of hierarchy; never a declared `RELATION` |
 | `await remove_is_subclass_of(database, child_id, parent_id)` | `None` | Remove an `IS_SUBCLASS_OF` edge |
+| `await attach_property(database, target_id, property_id)` | `None` | Wire `DEFINE_PROPERTY` from an existing `CLASS`/`RELATION` to an existing `PROPERTY` (idempotent) — reuse a property across classes/relations instead of declaring a same-meaning duplicate under a new name |
 | `await fetch_database_schema(database)` | `DataSchema` | Build a `DataSchema` from the classes/relations declared in *database* |
 | `await export_database_schema(database)` | `dict` | `fetch_database_schema(database).to_json()` — portable JSON, symmetric with `import_database_schema` |
 | `await import_database_schema(database, schema_json)` | `None` | Populate *database* from a `DataSchema.to_json()`/`export_database_schema` dict |
 | `await fetch_meta_schema()` | `DataSchema` | The fixed `DataSchema` describing the KB's own node/edge taxonomy (not database-specific) |
 | `await search_schema(database, query, k?, mode?, type_filter?)` | `list[SchemaSearchResult]` | Search classes/relations/properties by keyword or semantic similarity |
 | `await consolidate_schema(database, operation, source_names, target_name, predicate?)` | `None` | Merge or split schema elements and rewire instances; `operation="merge"` supported today |
+| `await expand_schema(database, text, depth?, reference?, mcp_servers?, dedup_mode?, model?, on_tool_call?, on_tool_result?, max_turns?)` | `None` | OpenAI LLM agent that grows the schema (`CLASS`/`RELATION`/`PROPERTY`) grounded by `text` — never touches entities, facts, or property values (that's `import_text`, below). `depth` (default `1`) — hierarchy levels beyond what's directly evidenced to also propose, linked via `add_is_subclass_of`. `reference`: `"llm"` (default) proposes freely; `"mcp"` also gives the model tools from `mcp_servers` (e.g. WordNet via `platform/wordnet-mcp`) to ground names/hierarchy. `dedup_mode` (`"search"` default \| `"llm"` \| `"none"`) controls how it checks for an existing element before declaring a new one — see [guide.md](guide.md#growing-the-schema-and-extracting-knowledge-from-text-llm). Never declares a taxonomic (is-a/type-of/kind-of) name as a `RELATION`. Requires `openai` (and `mcp` for `reference="mcp"`) |
 
 Note: `add_domain`/`add_range` do **not** exist as separate methods — `domain`/`range` are wired inline as part of `declare_relation_type`, required there.
 
@@ -123,7 +125,7 @@ Note: `add_extracted_from` is **not** a public `KBSource` method — use `add_ex
 
 | Method | Returns | Description |
 |---|---|---|
-| `await import_text(database, text, queries?, model?, source_id?, schema_discovery_mode?, on_tool_call?, on_tool_result?)` | `None` | LLM agent extracts entities/facts/properties from `text` into `database`, extending the schema as needed. `schema_discovery_mode`: `"search"` (default), `"llm"`, or `"none"` — see [guide.md](guide.md#extracting-knowledge-from-text-llm). Requires `openai` |
+| `await import_text(database, text, queries?, model?, source_id?, expand_schema?, schema_expansion_target?, schema_expansion_depth?, schema_expansion_mode?, schema_expansion_mcp_servers?, schema_expansion_dedup_mode?, on_tool_call?, on_tool_result?, max_turns?)` | `None` | LLM agent extracts entities/facts/property values from `text` into `database`, against the schema as it currently stands — never declares new schema itself; a mention with no matching element is skipped. `expand_schema` (default `True`) runs `expand_schema()` first; its `schema_expansion_*` params mirror `expand_schema`'s `depth`/`reference`/`mcp_servers`/`dedup_mode` one-to-one, with `schema_expansion_target` (any combination of `"text"`/`"queries"`, default both) selecting what gets concatenated into that call's `text` — see [guide.md](guide.md#growing-the-schema-and-extracting-knowledge-from-text-llm). Requires `openai` |
 
 ### Change hooks
 
@@ -143,6 +145,7 @@ Every event carries `type`, `database`, `id`. Schema events fire only when a new
 | `class_property_declared` | `name`, `description`, `class_id`, `class_name` |
 | `relation_property_declared` | `name`, `description`, `relation_id`, `relation_name` |
 | `class_subclass` / `relation_subclass` | `child_id`, `child_name`, `parent_id`, `parent_name` |
+| `property_attached` | `target_id`, `target_label` (`"CLASS"`\|`"RELATION"`), `property_id` |
 | `entity_added` | `name`, `class_id`, `class_name` |
 | `fact_added` | `name`, `head_entity_id`, `head_entity_name`, `tail_entity_id`, `tail_entity_name`, `relation_id`, `relation_name` |
 | `entity_property_added` | `entity_id`, `entity_name`, `property_id`, `property_name`, `value` |
@@ -214,6 +217,7 @@ Not part of the public API — reached only through `KBSource` — but useful to
 | Class | Module | Role |
 |---|---|---|
 | `SchemaManager` | `schema/manager.py` | Backs all Schema operations above |
+| `SchemaExpansionEngine` | `schema/expansion.py` | LLM agent behind `expand_schema`; owned by `SchemaManager`, not exposed directly |
 | `KnowledgeManager` | `knowledge/manager.py` | Backs all Knowledge operations above; owns `QueryEngine` |
 | `QueryEngine` | `knowledge/engine.py` | LLM agent behind `answer`/`validate`/`enrich`; not exposed directly |
 | `ProvenanceTracker` | `provenance/tracker.py` | Backs Provenance operations |

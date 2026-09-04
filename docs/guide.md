@@ -49,6 +49,12 @@ start_date_prop = await kb.declare_relation_property(
 
 `domain`/`range` are keyword-only and required on `declare_relation_type` — there's no separate `add_domain`/`add_range` step.
 
+Found an existing property that already means what you need on a different class/relation? `attach_property` reuses it there instead of declaring a same-meaning duplicate under a new name:
+
+```python
+await kb.attach_property("main", target_id=company, property_id=person_name)  # e.g. reuse NAME on COMPANY too
+```
+
 ---
 
 ## Adding data, with provenance
@@ -125,9 +131,17 @@ Without `enable_search`, both calls still work — they fall back to an unranked
 
 ---
 
-## Extracting knowledge from text (LLM)
+## Growing the schema and extracting knowledge from text (LLM)
 
-`import_text` runs an OpenAI agent that reads a passage, extends the schema as needed, and populates entities, facts, and property values — each with its own provenance. Requires the `openai` extra and `OPENAI_API_KEY`.
+Two separate OpenAI agents, each requiring the `openai` extra and `OPENAI_API_KEY`:
+
+- **`expand_schema`** — grows the schema (`CLASS`/`RELATION`/`PROPERTY`), grounded by a text passage.
+  Never touches entities, facts, or property values.
+- **`import_text`** — extracts entities, facts, and property values *against the schema as it
+  currently stands*. Never declares new schema; a mention with no matching schema element is
+  skipped. By default it runs `expand_schema` first (`expand_schema=True`), so a single call still
+  does both — pass `expand_schema=False` to extract only, e.g. when reusing a schema already
+  expanded once across many documents.
 
 ```python
 import os
@@ -140,18 +154,66 @@ await kb.import_text(
     text="Alice joined IBM as a software engineer in June 1998. She later moved to Google in 2005.",
     queries=["Where did Alice work?", "When did she start?"],
     source_id=src,
+    # expand_schema=True by default — set False to extract only, against schema
+    # already grown by a prior expand_schema() call.
 )
 ```
 
-The agent: inspects the current schema; before declaring anything new, checks whether an existing element already covers the meaning (`schema_discovery_mode`, below); declares any missing classes/relations/properties; then calls `add_entity`/`add_fact`/`add_entity_property_value`/etc. with the verbatim source span as `text` so per-item `EXTRACTION` nodes get created. If an entity or fact is found to already exist, the agent links the new text as additional evidence instead of duplicating it.
+`import_text`'s extraction pass inspects the current schema, calls `search_schema` to resolve each
+mention to an existing `CLASS`/`RELATION`/`PROPERTY` (skipping anything with no match — it never
+declares schema itself), then calls `add_entity`/`add_fact`/`add_entity_property_value`/etc. with
+the verbatim source span as `text` so per-item `EXTRACTION` nodes get created. If an entity or fact
+is found to already exist, the agent links the new text as additional evidence instead of
+duplicating it.
 
-`schema_discovery_mode` controls how the agent checks for near-duplicates before declaring:
+### `expand_schema`
 
-- `"search"` (default) — the database's configured search backend (keyword or semantic)
-- `"llm"` — asks the model to judge synonyms (e.g. `JOIN_DATE` vs `START_DATE`) — more reliable than keyword/semantic matching over short names, at the cost of one extra model call per check
-- `"none"` — the check is skipped entirely
+A CLASS is a *kind* that can have many members (`PERSON`, `ORGANIZATION`) — the model is instructed
+never to declare a CLASS (or RELATION) named after a specific individual mentioned in the text (e.g.
+"Alice" or "United Nations" should never become a `CLASS ALICE`/`CLASS UNITED_NATIONS`); it declares
+the general kind instead and leaves the specific individual to the extraction pass, which creates it
+as an entity against that CLASS. Declaring a new CLASS is also expected to lead to a RELATION
+connecting it to the rest of the schema (e.g. `SKILL`/`HOBBY` classes should come with `HAS_SKILL`/
+`HAS_HOBBY` relations from `PERSON`) — a class left with no relation to anything is treated as a
+likely sign one was missed. An is-a/type-of/kind-of hierarchy between two CLASSes or two RELATIONs
+is wired with `add_is_subclass_of`, never a declared RELATION — `expand_schema` rejects a taxonomic
+name (`IS_A`, `TYPE_OF`, `SUBCLASS_OF`, ...) passed to `declare_relation_type`.
 
-If `source_id` resolves to an existing `SOURCE` node, its `name`/`description` are included in the agent's system prompt as context (e.g. "Alice's résumé — submitted for her job application"), not just used for provenance wiring.
+```python
+await kb.expand_schema(
+    "main",
+    "Alice joined IBM as a software engineer in June 1998.",
+    depth=1,
+    reference="mcp",
+    mcp_servers=[{"transport": "stdio", "command": "blue-data-wordnet-mcp"}],
+)
+await kb.import_text("main", text="...", expand_schema=False)  # reuse the schema above
+```
+
+- **`depth`** (default `1`) — how many hierarchy levels beyond what's directly evidenced in the text
+  to also propose and link via `add_is_subclass_of` (e.g. a mentioned "poodle" also suggesting a
+  `DOG` parent CLASS).
+- **`reference`** — `"llm"` (default) proposes schema freely; `"mcp"` additionally connects the
+  servers in `mcp_servers` and gives the model their tools too, to ground new names and hierarchy
+  placement (e.g. WordNet hypernyms/synonyms via [`platform/wordnet-mcp`](../platform/wordnet-mcp)).
+- **`dedup_mode`** — how it checks for an existing schema element before declaring a new one. This
+  applies both to the `search_schema` tool the model can call, and — for `declare_class`/
+  `declare_relation_type` specifically — as an automatic check run before the node is created,
+  regardless of whether the model called `search_schema` itself:
+  - `"search"` (default) — the database's configured search backend (keyword or semantic)
+  - `"llm"` — asks the model to judge synonyms (e.g. `JOIN_DATE` vs `START_DATE`) — more reliable
+    than keyword/semantic matching over short names, at the cost of one extra model call per check
+  - `"none"` — the `search_schema` tool isn't offered, and the automatic pre-create check is skipped
+
+`import_text`'s own schema-expansion params (`schema_expansion_target`, `schema_expansion_depth`,
+`schema_expansion_mode`, `schema_expansion_mcp_servers`, `schema_expansion_dedup_mode`) mirror
+`expand_schema`'s `text`/`depth`/`reference`/`mcp_servers`/`dedup_mode` one-to-one —
+`schema_expansion_target` (any combination of `"text"`/`"queries"`, default both) selects what gets
+concatenated into the `text` passed to the underlying `expand_schema` call.
+
+If `source_id` resolves to an existing `SOURCE` node, its `name`/`description` are included in the
+extraction agent's system prompt as context (e.g. "Alice's résumé — submitted for her job
+application"), not just used for provenance wiring.
 
 ---
 

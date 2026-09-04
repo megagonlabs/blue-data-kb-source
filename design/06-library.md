@@ -6,7 +6,7 @@
 
 ## KBSource(GraphSource)
 
-Entry point for all KBDB operations. Abstract base class — must be subclassed together with a concrete `GraphSource` backend using Python MRO. Three such subclasses ship with the library already: `MemoryKBSource` (`memory_kb_source.py`), `FileKBSource` (`file_kb_source.py`), and `NEO4JKBSource` (`neo4j/neo4j_kb_source.py`, kept out of the package's top-level `__init__.py` so importing it — not `import blue_data_kb_source` itself — is what requires the `neo4j` driver). Each overrides `_initialize_connection_properties` to report a `kb/memory`/`kb/file`/`kb/neo4j` connection protocol instead of inheriting the mixed-in `GraphSource` backend's own `graph/*` protocol (see ADR-004 in [13-decision-log.md](13-decision-log.md)). Instantiates and coordinates the `SchemaManager`, `KnowledgeManager` (which internally owns a `QueryEngine`), `ProvenanceTracker`, `ChangeNotifier`, `ExtractionEngine`, and — when search is enabled — `KBSearchIndexer`. Every method except the `GraphSource` primitives it inherits (e.g. `create_database`) is `async` and must be awaited.
+Entry point for all KBDB operations. Abstract base class — must be subclassed together with a concrete `GraphSource` backend using Python MRO. Three such subclasses ship with the library already: `MemoryKBSource` (`memory_kb_source.py`), `FileKBSource` (`file_kb_source.py`), and `NEO4JKBSource` (`neo4j/neo4j_kb_source.py`, kept out of the package's top-level `__init__.py` so importing it — not `import blue_data_kb_source` itself — is what requires the `neo4j` driver). Each overrides `_initialize_connection_properties` to report a `kb/memory`/`kb/file`/`kb/neo4j` connection protocol instead of inheriting the mixed-in `GraphSource` backend's own `graph/*` protocol (see ADR-004 in [13-decision-log.md](13-decision-log.md)). Instantiates and coordinates the `SchemaManager` (which internally owns a `SchemaExpansionEngine`), `KnowledgeManager` (which internally owns a `QueryEngine`), `ProvenanceTracker`, `ChangeNotifier`, `ExtractionEngine`, and — when search is enabled — `KBSearchIndexer`. Every method except the `GraphSource` primitives it inherits (e.g. `create_database`) is `async` and must be awaited.
 
 ### Constructor
 
@@ -94,13 +94,15 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `delete_class(database, class_id)` | `None` | Delete a CLASS node |
 | `delete_relation(database, relation_id)` | `None` | Delete a RELATION node |
 | `delete_property(database, property_id)` | `None` | Delete a PROPERTY node |
-| `add_is_subclass_of(database, child_id, parent_id)` | `None` | Wire IS_SUBCLASS_OF edge; not deduplicated — calling twice adds two edges |
+| `add_is_subclass_of(database, child_id, parent_id)` | `None` | Wire IS_SUBCLASS_OF edge; not deduplicated — calling twice adds two edges. The only way to express an is-a/type-of/kind-of hierarchy between two CLASSes or two RELATIONs — never a declared RELATION |
 | `remove_is_subclass_of(database, child_id, parent_id)` | `None` | Remove an IS_SUBCLASS_OF edge |
+| `attach_property(database, target_id, property_id)` | `None` | Wire DEFINE_PROPERTY from an existing CLASS/RELATION to an existing PROPERTY (idempotent) — reuse a property across classes/relations instead of declaring a same-meaning duplicate under a new name |
 | `fetch_database_schema(database)` | `DataSchema` | Assemble a `DataSchema` object from the current graph |
 | `export_database_schema(database)` | `dict` | `fetch_database_schema(database).to_json()` — portable JSON form |
 | `fetch_meta_schema()` | `DataSchema` | Return the fixed KBDB meta-schema |
 | `import_database_schema(database, schema_json)` | `None` | Replay a `DataSchema.to_json()` dict via idempotent `declare_*` calls — safe to import into a database that already has same-named elements |
 | `consolidate_schema(database, operation, source_names, target_name, predicate?)` | `None` | Only `operation="merge"` is implemented; any other value raises `SchemaError`. `predicate` is accepted but unused. See SchemaManager below for what merge actually does — it does not remove source elements. |
+| `expand_schema(database, text, depth?, reference?, mcp_servers?, dedup_mode?, model?, on_tool_call?, on_tool_result?, max_turns?)` | `None` | LLM agent that grows the schema (CLASS/RELATION/PROPERTY only) grounded by `text` — never touches entities/facts/property values. See SchemaExpansionEngine below |
 
 `add_domain`/`add_range` do **not** exist as separate methods — `domain`/`range` are wired inline as part of `declare_relation_type` and are required there, not optional add-ons.
 
@@ -163,7 +165,7 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `import_text(database, text, queries?, model?, source_id?, schema_discovery_mode?, on_tool_call?, on_tool_result?)` | `None` | Extract entities, facts, and properties from free text using an LLM; `schema_discovery_mode` (`"search"` default \| `"llm"` \| `"none"`) controls how the agent avoids declaring near-duplicate schema elements — see ExtractionEngine below |
+| `import_text(database, text, queries?, model?, source_id?, expand_schema?, schema_expansion_target?, schema_expansion_depth?, schema_expansion_mode?, schema_expansion_mcp_servers?, schema_expansion_dedup_mode?, on_tool_call?, on_tool_result?, max_turns?)` | `None` | Extract entities, facts, and property values from free text using an LLM, against the schema as it currently stands — never declares new schema itself (a mention with no matching element is skipped). `expand_schema` (default `True`) runs `expand_schema()` first; the `schema_expansion_*` params mirror that method's `depth`/`reference`/`mcp_servers`/`dedup_mode` one-to-one — see ExtractionEngine and SchemaExpansionEngine below |
 
 #### Sync convenience methods
 
@@ -183,13 +185,14 @@ Manages the typed vocabulary of the knowledge base. All declaration methods are 
 ### Constructor
 
 ```python
-SchemaManager(source, notifier=None)
+SchemaManager(source, notifier=None, search_indexer=None)
 ```
 
 **Parameters**
 
 - `source` — the parent `KBSource` instance; used for all Graph Store access
 - `notifier` — the `ChangeNotifier` instance; fires `class_declared`/`relation_declared`/`class_property_declared`/`relation_property_declared`/`class_subclass`/`relation_subclass` and the corresponding `*_updated`/`*_deleted` events
+- `search_indexer` — forwarded straight through to the `SchemaExpansionEngine` this constructor creates internally (`self._expansion = SchemaExpansionEngine(source, self, search_indexer)`); backs `expand_schema`'s `search_schema` tool the same way it backs `KBSource.search_schema` itself
 
 ### Methods
 
@@ -258,6 +261,14 @@ Merge is additive, not a rewrite-and-remove operation:
 3. For each instance whose primary instance edge (`IS_INSTANCE_OF`/`REPRESENTS`/`IS_VALUE_OF`) points at a source element, **add a new** instance edge from that same instance to the target element
 
 That's all it does. It does **not** remove the old instance edge, does **not** delete the source schema nodes, and does **not** touch `DEFINE_PROPERTY`/`DOMAIN`/`RANGE`/`IS_SUBCLASS_OF` edges on the sources. `fetch_database_schema` after a merge still lists the source elements. An instance that was merged now has instance edges to *both* its original class and the target class; code that assumes one class per entity (like `get_metadata`'s `class_name`) reports whichever edge it finds first — the original one, since it was created first. If you need the old edges gone or the source nodes removed, do that explicitly afterward with `delete_class`/`delete_relation`/`delete_property`.
+
+#### `attach_property(database, target_id, property_id)`
+
+Wires a `DEFINE_PROPERTY` edge from an existing CLASS or RELATION (`target_id`) to an existing PROPERTY (`property_id`). Idempotent — calling it again with the same pair is a no-op, not a duplicate edge. Raises `SchemaError` if `target_id` isn't a CLASS/RELATION or `property_id` isn't a PROPERTY. Exists so a property discovered via `search_schema` on one class/relation can be reused on another instead of `declare_class_property`/`declare_relation_property` creating a same-meaning duplicate under a new name — both `SchemaExpansionEngine` (below) and `kb schema class/relation property attach` use it for exactly this.
+
+#### `expand_schema(database, text, *, depth=1, reference="llm", mcp_servers=None, dedup_mode="search", model="gpt-4o", on_tool_call=None, on_tool_result=None, max_turns=25)`
+
+Thin delegation to `SchemaExpansionEngine.expand_schema` (below) — `SchemaManager` owns one `SchemaExpansionEngine` instance, constructed with a reference back to itself so the engine's tool dispatch can call `declare_class`/`add_is_subclass_of`/`attach_property`/etc. directly.
 
 ---
 
@@ -533,7 +544,11 @@ Rebuilds the entire index for a database from scratch by iterating every CLASS, 
 
 ## ExtractionEngine
 
-Bridges free text and the structured knowledge base using an LLM agent loop that calls into `SchemaManager` and `KnowledgeManager` as tools.
+Bridges free text and the structured knowledge base using an LLM agent loop. Unlike an earlier
+revision of this engine, it never declares schema — its tool set is fixed (no `schema_discovery_mode`-
+style conditional tool filtering) and contains no `declare_*` tool at all; growing the schema is
+`SchemaExpansionEngine`'s job exclusively (see below). A mention in the text with no matching
+CLASS/RELATION/PROPERTY is simply skipped.
 
 ### Constructor
 
@@ -541,13 +556,15 @@ Bridges free text and the structured knowledge base using an LLM agent loop that
 ExtractionEngine(source, schema_manager, knowledge_manager, provenance_tracker, search_indexer=None)
 ```
 
-`search_indexer` is `None` unless `properties["search"]["mode"]` was `"bm25"`/`"semantic"` (or a live `vector_source` was given directly) — it backs the agent's `search_schema` tool under the default `schema_discovery_mode="search"`.
+`search_indexer` is `None` unless `properties["search"]["mode"]` was `"bm25"`/`"semantic"` (or a live `vector_source` was given directly) — it backs the agent's `search_schema` tool.
 
 ### Methods
 
-#### `import_text(database, text, queries=None, model="gpt-4o", source_id=None, schema_discovery_mode="search", on_tool_call=None, on_tool_result=None)`
+#### `import_text(database, text, queries=None, model="gpt-4o", source_id=None, on_tool_call=None, on_tool_result=None, max_turns=25)`
 
-Extracts entities, facts, and property values from `text` into `database`.
+Extracts entities, facts, and property values from `text` into `database`, against the schema as it
+currently stands. Called directly by `ExtractionEngine`'s consumer — `KBSource.import_text` (see the
+`expand_schema` note below for how the two-phase call is orchestrated).
 
 **Parameters**
 
@@ -556,18 +573,77 @@ Extracts entities, facts, and property values from `text` into `database`.
 - `queries` — optional list of natural language questions guiding the extraction focus
 - `model` — OpenAI model to use for the agent loop
 - `source_id` — ID of an existing SOURCE node; passed through to each instance creation call
-- `schema_discovery_mode` — how the agent avoids declaring near-duplicate schema elements: `"search"` (default) offers a `search_schema` tool backed by keyword/semantic search; `"llm"` instead routes near-duplicate detection through a separate LLM-judge call; `"none"` drops schema-discovery tooling entirely
 - `on_tool_call` / `on_tool_result` — optional callbacks invoked with `(tool_name, arguments)` / `(tool_name, arguments, result)` for each tool call the agent makes
+- `max_turns` (default `25`) — caps the number of agent turns; hitting the limit stops the loop silently rather than raising
 
 **Algorithm**
 
 1. Call `SchemaManager.fetch_database_schema(database)` and serialize it as context for the LLM
-2. Assemble the tool set: schema inspection (`get_schema`, `find_class`, `find_relation_type`, `find_entity`, `find_fact`, and `search_schema` unless `schema_discovery_mode="none"`), schema declaration, instance creation, and `link_extraction` (attach evidence to an existing item instead of duplicating it)
-3. Submit `text`, `queries`, and schema context to the LLM with the tool set — the system prompt instructs the agent to check `find_entity`/`find_fact`/`search_schema` before creating anything new
-4. Loop:
+2. Fixed tool set: schema inspection (`get_schema`, `find_class`, `find_relation_type`, `find_entity`, `find_fact`, `search_schema`), instance creation (`add_entity`, `add_fact`, `add_entity_property_value`, `add_fact_property_value`), and `link_extraction` (attach evidence to an existing item instead of duplicating it) — no schema-declaration tool is offered
+3. Submit `text`, `queries`, and schema context to the LLM with the tool set — the system prompt instructs the agent to resolve each mention via `find_entity`/`find_fact`/`search_schema` against the existing schema, and to skip anything with no match rather than invent new schema
+4. Loop (up to `max_turns` turns):
    - Receive tool calls from the LLM
-   - For schema declaration calls: dispatch to `SchemaManager`
    - For instance creation calls: dispatch to `KnowledgeManager`, passing `text=<verbatim span>` and `source_id=source_id`
    - For `link_extraction` calls (item already exists): dispatch to `ProvenanceTracker.link_extraction`, attaching the new span as further evidence rather than creating a duplicate
    - Return tool results to the LLM
-5. Exit when the LLM returns without further tool calls
+5. Exit when the LLM returns without further tool calls, or `max_turns` is reached
+
+**Where schema growth fits in:** `KBSource.import_text` (not `ExtractionEngine` itself) owns the two-phase orchestration — with `expand_schema=True` (the default), it calls `SchemaManager.expand_schema(...)` first, using `text`/`queries` (filtered by `schema_expansion_target`) as that call's grounding text, before calling `ExtractionEngine.import_text` above. Pass `expand_schema=False` to skip straight to extraction against whatever schema already exists.
+
+---
+
+## SchemaExpansionEngine
+
+Grows the schema — declares `CLASS`/`RELATION`/`PROPERTY` elements grounded by a text passage — using
+an LLM agent loop that calls back into `SchemaManager`. Never creates `ENTITY`/`FACT`/`LITERAL` nodes;
+that's `ExtractionEngine`'s job exclusively (above). Owned by `SchemaManager`, not exposed directly —
+callers reach it only through `SchemaManager.expand_schema`/`KBSource.expand_schema`.
+
+### Constructor
+
+```python
+SchemaExpansionEngine(source, schema_manager, search_indexer=None)
+```
+
+### Methods
+
+#### `expand_schema(database, text, *, depth=1, reference="llm", mcp_servers=None, dedup_mode="search", model="gpt-4o", on_tool_call=None, on_tool_result=None, max_turns=25)`
+
+**Parameters**
+
+- `database` — target database
+- `text` — the free-text passage to ground new schema elements in
+- `depth` (default `1`) — how many hierarchy levels beyond what's directly evidenced in `text` to also propose and link via `add_is_subclass_of` (e.g. a mentioned "poodle" also suggests a `DOG` parent CLASS at `depth=1`; `depth=0` sticks to only what's directly evidenced)
+- `reference` — `"llm"` (default) proposes schema freely from the model's own knowledge; `"mcp"` additionally connects each server in `mcp_servers` and offers the model its tools too (e.g. WordNet hypernym/synonym lookups via `platform/wordnet-mcp`), to ground new names and hierarchy placement — raises `SchemaError` if `reference="mcp"` and `mcp_servers` is empty
+- `mcp_servers` — list of `{"transport": "stdio", "command", "args"?, "env"?}` or `{"transport": "sse"|"streamable_http", "url", "headers"?}` dicts; each is connected via an `AsyncExitStack` for the duration of the call, and its tools are exposed to the model name-prefixed `mcp__<server>__<tool>`
+- `dedup_mode` — how the engine checks for an existing schema element before declaring a new one; applies both to the `search_schema` tool the model can call, and — for `declare_class`/`declare_relation_type` specifically — as an automatic check run before the node is created, regardless of whether the model called `search_schema` itself (closes the gap where two differently-worded near-duplicates, e.g. `WORKED_AT`/`EMPLOYED_AT`, would otherwise both get declared, since the underlying `declare_*` calls only dedup on an exact name match):
+  - `"search"` (default) — the database's configured search backend (keyword substring match, or semantic/embedding search if registered)
+  - `"llm"` — asks the model to judge whether an existing element means the same thing as the proposed one, even under different wording, via a separate tool-forced completion call (`_judge_similar_schema`) — more reliable for synonyms than keyword/semantic search over short names, at the cost of one extra model call per check
+  - `"none"` — the `search_schema` tool isn't offered at all, and the automatic pre-create check is skipped
+- `model` — OpenAI model to use for the agent loop (and for `dedup_mode="llm"`'s judge call)
+- `on_tool_call` / `on_tool_result` — optional callbacks invoked with `(tool_name, arguments)` / `(tool_name, arguments, result)` for each tool call the agent makes (including MCP tool calls)
+- `max_turns` (default `25`) — caps the number of agent turns; hitting the limit stops the loop silently
+
+**Tool set:** `get_schema`, `search_schema` (unless `dedup_mode="none"`), `declare_class`, `declare_class_property`, `declare_relation_type`, `declare_relation_property`, `add_subclass_of` (dispatches to `SchemaManager.add_is_subclass_of`), `attach_property` — plus, when `reference="mcp"`, every tool from each connected server.
+
+**System prompt contract (`_SYSTEM_PROMPT_TEMPLATE`)** — the model is instructed to:
+
+- Never declare a CLASS/RELATION named after a specific individual mentioned in the text (e.g. "Alice" or "United Nations" are entities, not classes named `ALICE`/`UNITED_NATIONS`) — only the general kind (`PERSON`, `ORGANIZATION`) the individual belongs to. This is the CLASS-vs-entity distinction: a CLASS is a *kind* that can have many members; a specific named referent is created later, as an entity, by the extraction pass.
+- Treat an is-a/type-of/kind-of/subclass-of relationship as a *structural* link, wired only via `add_subclass_of` — never a declared RELATION. `declare_relation_type` rejects a name in `_TAXONOMIC_RELATION_NAMES` (`IS_A`, `TYPE_OF`, `KIND_OF`, `SUBCLASS_OF`, `SUBTYPE_OF`, `SUBTYPE`, `INSTANCE_OF`, and their `IS_`-prefixed variants) with an error pointing the model at `add_subclass_of` instead.
+- Call `search_schema` before every `declare_*` call to avoid a near-duplicate (reusing an existing element under different wording, e.g. `JOIN_DATE`/`START_DATE`), and call `attach_property` instead of `declare_class_property`/`declare_relation_property` when `search_schema` turns up an existing PROPERTY that already covers the concept on a *different* class/relation.
+- After declaring a new CLASS or RELATION, `search_schema` again for a plausible existing parent/child of the same kind and call `add_subclass_of` if one clearly fits — and, beyond what's directly evidenced, also propose up to `depth` level(s) of generalization/specialization this way.
+- After declaring a new CLASS, check whether the text evidences a RELATION connecting it to another CLASS (existing or new) — a CLASS left with no RELATION connecting it to anything is treated as a likely sign one was missed, not that none is needed.
+- Use `UPPER_SNAKE_CASE` for CLASS/RELATION/PROPERTY names.
+
+**Algorithm**
+
+1. Call `SchemaManager.fetch_database_schema(database)` and serialize it (simplified form) into the system prompt, along with `depth` and the MCP note (if `reference="mcp"`)
+2. If `reference="mcp"`: connect every entry in `mcp_servers` (stdio/sse/streamable_http) inside an `AsyncExitStack`, collecting each server's tools name-prefixed `mcp__<server>__<tool>` and a dispatch table back to the right `ClientSession`
+3. Loop (up to `max_turns` turns):
+   - Receive tool calls from the LLM
+   - `search_schema`: dispatch to `KBSearchIndexer.search_schema` (if configured) or `SchemaManager.find_schema`, unless `dedup_mode="llm"` — then dispatch to the LLM-judge path instead
+   - `declare_class`/`declare_relation_type`: run the automatic dedup check first (`_auto_dedup_check`, per `dedup_mode`); if a close-enough element is already found, return its id instead of creating a new one; `declare_relation_type` additionally rejects a taxonomic name outright before this check
+   - `declare_class_property`/`declare_relation_property`/`add_subclass_of`/`attach_property`: dispatch straight to the matching `SchemaManager` method
+   - an `mcp__`-prefixed call: dispatch to the connected MCP session instead of local tool dispatch
+   - Return tool results to the LLM
+4. Exit when the LLM returns without further tool calls, or `max_turns` is reached

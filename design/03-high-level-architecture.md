@@ -20,6 +20,10 @@
 │  │                                                             │   │
 │  │  ┌──────────────────────────────────────────────────────┐   │   │
 │  │  │                   Schema Manager                     │   │   │
+│  │  │              ┌──────────────────────────┐            │   │   │
+│  │  │              │ Schema Expansion Engine   │            │   │   │
+│  │  │              │      (LLM Agent)          │            │   │   │
+│  │  │              └──────────────────────────┘            │   │   │
 │  │  └──────────────────────────────────────────────────────┘   │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 │                                                                     │
@@ -62,7 +66,7 @@ Four interface adapters sit in front of KBDB and delegate to the core library. T
 
 **Python Library** — Native Python API (`KBSource` and related classes). Used to embed KBDB directly in Python applications and agentic pipelines.
 
-**MCP Server** — Exposes schema declaration, instance ingestion, and query operations as MCP tools, enabling LLM agents to interact with KBDB within an agentic context.
+**MCP Server** — Exposes schema declaration, schema expansion, instance ingestion, and query operations as MCP tools, enabling LLM agents to interact with KBDB within an agentic context. A separate, standalone WordNet MCP server (`platform/wordnet-mcp`) can optionally be connected by the Schema Expansion Engine below to ground new names and hierarchy placement — it is not part of this server.
 
 **CLI** — Command-line interface (Click + Rich). Used for interactive development, debugging, scripting, and schema inspection.
 
@@ -79,8 +83,11 @@ Manages the typed vocabulary of the knowledge base — classes, relation types, 
 - Exposes the meta-schema — a fixed description of KBDB's own graph structure — for introspection by agents and tools
 - Supports schema consolidation: merging or splitting classes, relations, and properties, propagating the resulting changes to all affected instances
 - Supports schema search: filtering schema elements by natural language query or keywords, enabling agents and tools to discover what the schema already captures before declaring new elements — delegated to the Search Indexer when search is enabled for the database, otherwise served directly by the Schema Manager
+- Supports LLM-driven schema growth from free text (`expand_schema`): declares new classes, relations, and properties grounded in a text passage, distinct from and never overlapping with the Extraction Engine's job of populating instances against the schema
 
-**Schema Manager** — Handles all schema declaration, hierarchy wiring, domain/range constraints, import/export, and consolidation.
+**Schema Manager** — Handles all schema declaration, hierarchy wiring, domain/range constraints, import/export, and consolidation; owns the Schema Expansion Engine internally.
+
+**Schema Expansion Engine** — An LLM agent embedded inside the Schema Manager that grows the schema from text. It declares classes, relations, and properties only — never entities, facts, or property values — reuses existing elements via search-based or LLM-judged deduplication, wires is-a/type-of/kind-of hierarchy exclusively through subclass links rather than declared relations, and can optionally ground new names and hierarchy placement using an external lexical resource (e.g. WordNet) connected as an MCP server. Not exposed at the `KBSource` level directly — reached only through `SchemaManager.expand_schema`/`KBSource.expand_schema`.
 
 ### Knowledge Layer
 
@@ -113,13 +120,13 @@ Maintains a keyword (BM25) or embedding-based (semantic) search index over schem
 
 ### Extraction Engine
 
-Reads free text and populates the knowledge base by calling into the Schema Layer and Knowledge Layer using an LLM as the reasoning core.
+Reads free text and populates the knowledge base by calling into the Knowledge Layer using an LLM as the reasoning core. It only *reads* the Schema Layer — it never declares new schema itself; that is the Schema Expansion Engine's job exclusively (see Schema Layer above).
 
 - The LLM is given the current schema and a set of guiding queries, then asked to identify entities, facts, and property values in the text
-- When the text introduces concepts not covered by the current schema, the LLM extends the schema before creating the corresponding instances
+- When the text mentions something not covered by the current schema, it is skipped rather than triggering a schema declaration — by default, `import_text` runs the Schema Expansion Engine first (`expand_schema=True`) so the schema already reflects the text before this engine runs; that composition happens one layer up, in `KBSource.import_text`, not inside the Extraction Engine itself
 - Each item created during extraction is linked to the verbatim text span the LLM identified as its source
 
-**LLM Agent** — Orchestrates the extraction loop: reads the schema, calls schema and instance tools in sequence, and records the source text span for each item it creates.
+**LLM Agent** — Orchestrates the extraction loop: reads the schema, calls instance tools in sequence, and records the source text span for each item it creates. Its tool set contains no schema-declaration tool.
 
 ### Graph Store
 

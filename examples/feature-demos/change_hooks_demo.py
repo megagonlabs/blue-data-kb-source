@@ -2,10 +2,11 @@
 Change hooks -- add_change_hook/remove_change_hook, event catalog, per-database scoping.
 
 file_backend_demo.py registers one hook and prints event types as a smoke test.
-This demo is the deeper look: the event catalog across schema/instance writes,
-updates, and deletes; that hooks are scoped per database (a hook on "main"
-never fires for events on "other"); that idempotent declare_* calls don't
-re-fire; and that removal requires the exact function object you registered.
+This demo is the deeper look: the event catalog across schema/instance writes
+(including attach_property's property_attached event), updates, and deletes;
+that hooks are scoped per database (a hook on "main" never fires for events
+on "other"); that idempotent declare_* calls don't re-fire; and that removal
+requires the exact function object you registered.
 """
 import asyncio
 
@@ -38,6 +39,7 @@ async def main():
     title_prop = await kb.declare_class_property("main", "TITLE", "Job title", class_id=person)
     employee = await kb.declare_class("main", "EMPLOYEE", "A person employed by a company")
     await kb.add_is_subclass_of("main", child_id=employee, parent_id=person)
+    await kb.attach_property("main", target_id=company, property_id=title_prop)
 
     print("Schema-write event types fired so far:")
     for e in main_events:

@@ -58,9 +58,25 @@ Without `enable_search`, `search_schema`/`search_data` still work — they fall 
 
 ---
 
+## LLM schema expansion
+
+`expand_schema` reads a passage of free text and grows the schema — declaring `CLASS`/`RELATION`/`PROPERTY` elements grounded by the text — without ever touching entities, facts, or property values.
+
+```python
+await kb.expand_schema(
+    "main",
+    "Alice joined IBM as a software engineer in June 1998.",
+    depth=1,
+)
+```
+
+The model is instructed never to declare a CLASS/RELATION named after a specific individual (e.g. "Alice" is a `PERSON`, not a `CLASS ALICE`) — only the general kind. Before declaring anything new, it checks whether an existing element already covers the same meaning (`dedup_mode`: `"search"` — keyword/semantic lookup, `"llm"` — asks the model to judge synonyms like `JOIN_DATE` vs `START_DATE`, or `"none"`) — so repeated runs converge on a stable schema instead of accumulating near-duplicates. `depth` controls how many hierarchy levels beyond what's directly evidenced also get proposed and wired via `add_is_subclass_of` (never as a declared RELATION — is-a/type-of/kind-of names are rejected there). With `reference="mcp"`, the model additionally gets tools from connected MCP servers — e.g. WordNet hypernym/synonym lookups via [`platform/wordnet-mcp`](../platform/wordnet-mcp) — to ground new names and hierarchy placement.
+
+---
+
 ## LLM knowledge extraction
 
-`import_text` reads a passage of free text, extends the schema as needed, and populates entities, facts, and property values — each wired to its own per-item provenance record.
+`import_text` reads a passage of free text and populates entities, facts, and property values *against the schema as it currently stands* — each wired to its own per-item provenance record. It never declares new schema itself (a mention with no matching element is skipped); by default it runs `expand_schema` first (`expand_schema=True`), so a single call still grows the schema and extracts against it.
 
 ```python
 await kb.import_text(
@@ -71,7 +87,7 @@ await kb.import_text(
 )
 ```
 
-Before declaring a new schema element, the agent checks whether an existing one already covers the same meaning (`schema_discovery_mode`: `"search"` — keyword/semantic lookup, `"llm"` — asks the model to judge synonyms like `JOIN_DATE` vs `START_DATE`, or `"none"`) — so repeated extraction runs converge on a stable schema instead of accumulating near-duplicate properties.
+Pass `expand_schema=False` to extract only, e.g. when reusing a schema already expanded once across many documents.
 
 ---
 

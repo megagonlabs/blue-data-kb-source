@@ -274,6 +274,8 @@ def on_kb_change(event: dict) -> None:
         print(f"subclass   {event['child_name']} IS_SUBCLASS_OF {event['parent_name']}")
     elif t == "relation_subclass":
         print(f"subrelation {event['child_name']} IS_SUBCLASS_OF {event['parent_name']}")
+    elif t == "property_attached":
+        print(f"attach     property {event['property_id']}  to {event['target_label']} {event['target_id']}")
     # --- instance events ---
     elif t == "entity_added":
         print(f"entity     {event['name']!r}  (class: {event['class_name']})")
@@ -330,6 +332,7 @@ Each event dict always contains `type`, `database`, and `id`. Extra fields by ty
 | `relation_property_declared` | `name`, `description`, `relation_id`, `relation_name` |
 | `class_subclass` | `child_id`, `child_name`, `parent_id`, `parent_name` |
 | `relation_subclass` | `child_id`, `child_name`, `parent_id`, `parent_name` |
+| `property_attached` | `target_id`, `target_label` (`"CLASS"`\|`"RELATION"`), `property_id` |
 
 **Instance events**
 
@@ -369,8 +372,8 @@ The CLI exposes the same round trip: `kb schema export -o schema.json` / `kb sch
 For runnable versions of the patterns above with real captured output, see
 [examples/backends/](../examples/backends/) (one script per `GraphSource`/`VectorSource`
 combination) and [examples/feature-demos/](../examples/feature-demos/) (one script per
-feature — schema declaration, provenance, change hooks, export/import, LLM extraction and
-querying).
+feature — schema declaration, provenance, change hooks, export/import, LLM schema
+expansion, LLM extraction and querying).
 
 ## API
 

@@ -155,9 +155,10 @@ python3 examples/feature-demos/provenance_demo.py
 
 ### Change hooks (`change_hooks_demo.py`)
 
-The event catalog across schema declarations, instance writes, updates, and deletes;
-that idempotent `declare_*` calls don't re-fire; that hooks are scoped per database; and
-that `remove_change_hook` needs the exact function object you registered.
+The event catalog across schema declarations (including `attach_property`'s
+`property_attached` event), instance writes, updates, and deletes; that idempotent
+`declare_*` calls don't re-fire; that hooks are scoped per database; and that
+`remove_change_hook` needs the exact function object you registered.
 
 ```bash
 python3 examples/feature-demos/change_hooks_demo.py
@@ -179,11 +180,34 @@ python3 examples/feature-demos/schema_data_export_import_demo.py
 
 **API key:** not required | **[Sample output](feature-demos/schema_data_export_import_demo.output.txt)**
 
+### LLM schema expansion (`schema_expansion_demo.py`)
+
+`expand_schema` — growing the schema (CLASS/RELATION/PROPERTY) from a text passage is a
+separate LLM pass from extraction, callable directly. Walks through the model's two most
+important disciplines: never declaring a CLASS/RELATION named after a specific
+individual mentioned in the text (only the general kind it belongs to), and expressing
+an is-a/type-of/kind-of hierarchy only via `add_is_subclass_of`, never a declared
+relation. Also covers `dedup_mode` (converging on a stable schema across repeated calls
+instead of piling up near-duplicates) and `attach_property` (reusing an existing property
+on another class/relation instead of declaring a same-meaning duplicate).
+
+```bash
+export OPENAI_API_KEY=sk-...
+python3 examples/feature-demos/schema_expansion_demo.py
+```
+
+**Requires:** `OPENAI_API_KEY` | **[Sample output](feature-demos/schema_expansion_demo.output.txt)**
+— live-verified: the captured run shows the model recovering mid-loop from its own
+mistake, too (calling `add_subclass_of` with a class *name* instead of an id, getting
+`{"error": ...}` back, then calling `search_schema` and retrying with the right id).
+
 ### LLM knowledge extraction (`llm_extraction_demo.py`)
 
-`import_text` — hand it free text and a model drives its own schema-discovery,
+`import_text` — hand it free text and a model does the schema expansion (by default,
+running `expand_schema` first — see `schema_expansion_demo.py` for that pass on its own),
 entity/fact extraction, and provenance-linking tool calls, reusing existing schema/
-entities by name instead of duplicating them.
+entities by name instead of duplicating them. Pass `expand_schema=False` to extract only,
+against a schema already grown once.
 
 ```bash
 export OPENAI_API_KEY=sk-...
@@ -268,7 +292,7 @@ go without a real key.)*
 ### MCP-based integration (`langgraph_mcp_demo.py`)
 
 No KB-specific code on the LangGraph side at all — a `create_react_agent` ReAct agent
-freely chooses among all 24 tools auto-discovered via `langchain_mcp_adapters` from the
+freely chooses among all 26 tools auto-discovered via `langchain_mcp_adapters` from the
 real `blue-data-kb-mcp` server, launched automatically as a subprocess (stdio transport,
 pointed at a scratch directory so it never touches `~/.kbdb`). Contrast with the direct
 demo's fixed pipeline: here the LLM decides which tools to call and in what order.
@@ -282,7 +306,7 @@ python3 examples/framework-demos/langgraph_mcp_demo.py
 
 **Requires:** `OPENAI_API_KEY` | *(not live-verified in this session — same reason as
 langgraph_direct_demo.py. Verified the same way: with a fake key, the subprocess launch,
-all-24-tool auto-discovery, and ReAct agent construction all succeed, failing only at the
+all-26-tool auto-discovery, and ReAct agent construction all succeed, failing only at the
 genuine OpenAI network call with a 401.)*
 
 ---
@@ -385,7 +409,8 @@ python3 examples/scenario-demos/contradiction_catching_demo.py
 | `provenance_demo.py` | feature-demos | none | — | [output](feature-demos/provenance_demo.output.txt) |
 | `change_hooks_demo.py` | feature-demos | none | — | [output](feature-demos/change_hooks_demo.output.txt) |
 | `schema_data_export_import_demo.py` | feature-demos | none | — | [output](feature-demos/schema_data_export_import_demo.output.txt) |
-| `llm_extraction_demo.py` | feature-demos | OpenAI | — | — (not live-verified) |
+| `schema_expansion_demo.py` | feature-demos | OpenAI | — | [output](feature-demos/schema_expansion_demo.output.txt) |
+| `llm_extraction_demo.py` | feature-demos | OpenAI | — | [output](feature-demos/llm_extraction_demo.output.txt) |
 | `answer_demo.py` | feature-demos | OpenAI | — | — (not live-verified) |
 | `validate_demo.py` | feature-demos | OpenAI | — | — (not live-verified) |
 | `enrich_demo.py` | feature-demos | OpenAI | — | — (not live-verified) |

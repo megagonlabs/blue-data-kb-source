@@ -24,7 +24,8 @@ blue-data-kb-source/
 │   │       │
 │   │       ├── schema/
 │   │       │   ├── __init__.py
-│   │       │   └── manager.py           # SchemaManager (bootstraps __meta__ database on init)
+│   │       │   ├── manager.py           # SchemaManager (bootstraps __meta__ database on init)
+│   │       │   └── expansion.py         # SchemaExpansionEngine — LLM agent for expand_schema
 │   │       │
 │   │       ├── knowledge/
 │   │       │   ├── __init__.py
@@ -50,7 +51,7 @@ blue-data-kb-source/
 │   └── tests/
 │       ├── conftest.py                  # shared fixtures: kb (MemoryKBSource), populated_kb
 │       ├── unit/
-│       │   ├── schema/                  # SchemaManager tests
+│       │   ├── schema/                  # SchemaManager and SchemaExpansionEngine tests (OpenAI mocked)
 │       │   ├── knowledge/               # KnowledgeManager and QueryEngine tests
 │       │   ├── provenance/              # ProvenanceTracker tests
 │       │   ├── notification/            # ChangeNotifier tests
@@ -87,20 +88,35 @@ blue-data-kb-source/
     │           ├── test_data.py         # entity/fact/property CRUD, data search, reindex
     │           └── test_llm.py          # extract/answer/validate with mocked OpenAI
     │
-    └── mcp/                             # MCP server (blue-data-kb-mcp PyPI package)
+    ├── mcp/                             # MCP server (blue-data-kb-mcp PyPI package)
+    │   ├── pyproject.toml
+    │   ├── README.md                    # tool reference, Claude Desktop config, architecture note
+    │   ├── scripts/
+    │   │   ├── build.sh                 # build distributable
+    │   │   └── install.sh               # install blue-data and lib locally, then this package (no deploy.sh yet)
+    │   ├── src/
+    │   │   └── blue_data_kb_mcp/
+    │   │       ├── __init__.py
+    │   │       ├── server.py            # FastMCP app; 26 @mcp.tool() handlers
+    │   │       └── config.py            # BLUE_DATA_KB_SOURCE_* env-var-driven KBSource singleton factory
+    │   └── tests/
+    │       ├── __init__.py
+    │       └── test_tools.py            # all 26 tools, called directly against an injected MemoryKBSource
+    │
+    └── wordnet-mcp/                     # WordNet MCP server (blue-data-wordnet-mcp PyPI package)
         ├── pyproject.toml
-        ├── README.md                    # tool reference, Claude Desktop config, architecture note
+        ├── README.md                    # tool reference, schema-expansion integration note
         ├── scripts/
         │   ├── build.sh                 # build distributable
-        │   └── install.sh               # install blue-data and lib locally, then this package (no deploy.sh yet)
+        │   └── install.sh               # install this package (no dependency on blue-data or lib)
         ├── src/
-        │   └── blue_data_kb_mcp/
+        │   └── blue_data_wordnet_mcp/
         │       ├── __init__.py
-        │       ├── server.py            # FastMCP app; 24 @mcp.tool() handlers
-        │       └── config.py            # BLUE_DATA_KB_SOURCE_* env-var-driven KBSource singleton factory
+        │       ├── server.py            # FastMCP app; 10 @mcp.tool() handlers over nltk.corpus.wordnet
+        │       └── nltk_data.py         # lazy nltk.download() of the wordnet/omw-1.4 corpora
         └── tests/
             ├── __init__.py
-            └── test_tools.py            # all 24 tools, called directly against an injected MemoryKBSource
+            └── test_tools.py            # all 10 tools, called directly against the real (downloaded) corpus
 ```
 
 ---
@@ -125,7 +141,8 @@ All core business logic lives under `lib/src/`. This is the only artifact publis
 |--------|----------------------|
 | `kb_source.py` | `KBSource` — entry point, delegates to all components |
 | `_constants.py` | Node label and edge type string constants shared across all modules |
-| `schema/manager.py` | `SchemaManager` — Schema Layer; bootstraps `__meta__` database on init |
+| `schema/manager.py` | `SchemaManager` — Schema Layer; bootstraps `__meta__` database on init; owns `SchemaExpansionEngine` |
+| `schema/expansion.py` | `SchemaExpansionEngine` — LLM agent for `expand_schema`; declares CLASS/RELATION/PROPERTY only, never entities/facts; not exposed at `KBSource` level |
 | `knowledge/manager.py` | `KnowledgeManager` — Knowledge Layer; instance writes; owns `QueryEngine` |
 | `knowledge/engine.py` | `QueryEngine` — LLM agent for answer, validate, enrich; not exposed at `KBSource` level |
 | `provenance/tracker.py` | `ProvenanceTracker` — Knowledge Layer |
@@ -149,6 +166,7 @@ Currently implemented:
 | `cli/` | Implemented | `FileKBSource` adapter; persistent JSON-backed state per database |
 | `api/` | Planned | FastAPI REST adapter |
 | `mcp/` | Implemented | FastMCP adapter (`blue-data-kb-mcp`); env-var-configured `KBSource` singleton, no dependency on `cli/`'s registry — see [09-api-interface-spec.md](09-api-interface-spec.md) §3 |
+| `wordnet-mcp/` | Implemented | FastMCP adapter (`blue-data-wordnet-mcp`) over `nltk.corpus.wordnet`; read-only, no dependency on `lib`/`blue-data` at all — a standalone lexical resource optionally connected by `expand_schema(reference="mcp")`, not a `KBSource` adapter like the other three rows |
 
 `cli/` follows this internal structure:
 
@@ -169,9 +187,20 @@ Currently implemented:
 | `pyproject.toml` | Package metadata and dependencies (includes `lib` as a dependency; no `cli` dependency) |
 | `scripts/install.sh` | Installs `blue-data` and `lib` locally, then this package in editable mode |
 | `scripts/build.sh` | Builds the distributable package (no `deploy.sh` yet — publishing is a manual `build && twine upload`, see [12-deployment-ops.md](12-deployment-ops.md) §5) |
-| `src/blue_data_kb_mcp/server.py` | `FastMCP` app; 24 `@mcp.tool()` handlers, grouped by comment banner (schema/knowledge read+write, query, extraction, provenance) |
+| `src/blue_data_kb_mcp/server.py` | `FastMCP` app; 26 `@mcp.tool()` handlers, grouped by comment banner (schema/knowledge read+write, schema expansion, query, extraction, provenance) |
 | `src/blue_data_kb_mcp/config.py` | `BLUE_DATA_KB_SOURCE_*` env-var-driven singleton `KBSource` factory — independent of `cli/`'s `registry.json` |
-| `tests/test_tools.py` | Calls the 24 tool functions directly against an injected `MemoryKBSource` singleton |
+| `tests/test_tools.py` | Calls the 26 tool functions directly against an injected `MemoryKBSource` singleton |
+
+`wordnet-mcp/` is the simplest of the three — no `lib`/`blue-data` dependency at all, so there's no `KBSource` factory to speak of:
+
+| Path | Purpose |
+|------|---------|
+| `pyproject.toml` | Package metadata and dependencies (`mcp[cli]`, `nltk` — no `lib`/`blue-data`) |
+| `scripts/install.sh` | Installs this package in editable mode (no local sibling packages to install first) |
+| `scripts/build.sh` | Builds the distributable package (no `deploy.sh` yet, same as `mcp/`) |
+| `src/blue_data_wordnet_mcp/server.py` | `FastMCP` app; 10 `@mcp.tool()` handlers over `nltk.corpus.wordnet` (synset lookup, synonyms, hypernyms/hyponyms, meronyms/holonyms, antonyms, similarity, lemmatization) |
+| `src/blue_data_wordnet_mcp/nltk_data.py` | Lazy `nltk.download()` of the `wordnet`/`omw-1.4` corpora on first tool call, if not already present locally |
+| `tests/test_tools.py` | Calls the 10 tool functions directly against the real (downloaded) WordNet corpus — no mocking, since there's no external API to mock |
 
 ### `tests/`
 
@@ -181,7 +210,8 @@ Library tests live under `lib/tests/`. Each platform service has its own `tests/
 lib/tests/
 ├── conftest.py          # shared fixtures: kb (MemoryKBSource), populated_kb
 ├── unit/
-│   ├── schema/          # SchemaManager: declare, update, delete, hierarchy, consolidate, search, import/export
+│   ├── schema/          # SchemaManager (test_manager.py): declare, update, delete, hierarchy, consolidate, search, import/export
+│   │                    #   + SchemaExpansionEngine (test_expansion.py): expand_schema tool dispatch, dedup_mode, MCP wiring (OpenAI mocked)
 │   ├── knowledge/       # KnowledgeManager and QueryEngine: add/update/delete, get_metadata, answer, validate, enrich
 │   ├── provenance/      # ProvenanceTracker: source and extraction node wiring
 │   ├── notification/    # ChangeNotifier: hook registration, event delivery
