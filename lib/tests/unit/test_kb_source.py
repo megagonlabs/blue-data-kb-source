@@ -103,3 +103,57 @@ def test_live_vector_source_and_embedding_fn_objects_are_used_as_is():
     )
     assert kb._search_indexer._vector_source is explicit_vector
     assert kb._search_indexer._embedding_fn is _fake_embedding
+
+
+# ------------------------------------------------------------------ #
+# attach events keep the search index fresh                            #
+# ------------------------------------------------------------------ #
+
+def _indexed_text(kb, database: str, node_id: str) -> str | None:
+    for docs in kb._search_indexer._corpus.get(database, {}).values():
+        if node_id in docs:
+            return docs[node_id]
+    return None
+
+
+async def test_attaching_a_class_reindexes_a_classless_entity():
+    """The BM25 corpus folds an entity's class name into its indexed text, so the
+    class an entity gains after creation has to reindex it — otherwise the entity
+    stays unfindable by that class until someone calls `reindex`."""
+    kb = MemoryKBSource(name="t", properties={"search": {"mode": "bm25"}})
+    kb.create_database("test")
+    employee = await kb.declare_class("test", "EMPLOYEE", "An employed person")
+    zed = await kb.add_entity("test", "Zed")
+
+    assert _indexed_text(kb, "test", zed) == "Zed"
+    await kb.attach_entity_class("test", zed, employee)
+    assert _indexed_text(kb, "test", zed) == "Zed EMPLOYEE"
+
+
+async def test_a_second_class_is_not_folded_into_the_indexed_text():
+    """Pins a known limitation, not a desired one: the indexer folds in only the
+    *first* IS_INSTANCE_OF neighbour (`cls_nbs[0]`), so an entity that already has
+    a class gains nothing searchable from a second one. The event fires and the
+    entity is reindexed either way — the gap is in what `_entity_text` reads."""
+    kb = MemoryKBSource(name="t", properties={"search": {"mode": "bm25"}})
+    kb.create_database("test")
+    person   = await kb.declare_class("test", "PERSON", "A human individual")
+    employee = await kb.declare_class("test", "EMPLOYEE", "An employed person")
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+
+    await kb.attach_entity_class("test", alice, employee)
+    assert _indexed_text(kb, "test", alice) == "Alice PERSON"
+
+
+async def test_attaching_an_extraction_reindexes_the_element():
+    """The corpus folds in provenance text, so wiring an extraction to an item has to
+    reindex that item."""
+    kb = MemoryKBSource(name="t", properties={"search": {"mode": "bm25"}})
+    kb.create_database("test")
+    person = await kb.declare_class("test", "PERSON", "A human individual")
+    ann = await kb.add_entity("test", "Ann", class_id=person)
+    extraction = await kb.add_extraction("test", "Ann performs oboe recitals.")
+
+    assert _indexed_text(kb, "test", ann) == "Ann PERSON"
+    await kb.attach_extraction("test", ann, extraction)
+    assert _indexed_text(kb, "test", ann) == "Ann PERSON Ann performs oboe recitals."

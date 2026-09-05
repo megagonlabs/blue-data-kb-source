@@ -99,6 +99,7 @@ Note: `declare_relation_type` wires the initial `DOMAIN`/`RANGE` edges inline (`
 | `await add_fact_extraction(database, fact_id, text, source_id?)` | `str` | Same, for an existing fact |
 | `await add_entity_property_value_extraction(database, entity_id, property_id, text, source_id?)` | `str` | Link a new text span to an entity's existing property value; raises if none exists |
 | `await add_fact_property_value_extraction(database, fact_id, property_id, text, source_id?)` | `str` | Same, for a fact's property value |
+| `await attach_entity_class(database, entity_id, class_id)` | `None` | Attach an existing CLASS to an existing ENTITY — deduplicated, add-only (no detach counterpart). An entity's *additional* class; `add_entity(class_id=…)` wires the first |
 
 ### Knowledge operations — read and export
 
@@ -137,6 +138,7 @@ Note: `declare_relation_type` wires the initial `DOMAIN`/`RANGE` edges inline (`
 | `await update_source(database, source_id, name?, description?, original?)` | `None` | Update a source's name/description/original date |
 | `await delete_source(database, source_id)` | `None` | Delete a source and its `EXTRACTION` nodes; instance nodes are preserved |
 | `await add_extraction(database, text, name?, description?, node_id?, source_id?, element_id?)` | `str` | Add an `EXTRACTION` node; `element_id` wires `EXTRACTED_FROM` to an existing entity/fact/literal in the same call |
+| `await attach_extraction(database, element_id, extraction_id)` | `None` | Wire `EXTRACTED_FROM` from an `ENTITY`/`FACT`/`LITERAL` to an EXTRACTION that already exists — created up front by `add_extraction` without an `element_id`, or re-wired on snapshot restore. Deduplicated, add-only. Each item still keeps its own EXTRACTION node; this does not share evidence between items |
 
 Note: `add_extracted_from` is **not** a public `KBSource` method — use `add_extraction(..., element_id=...)`.
 
@@ -170,6 +172,8 @@ Every event carries `type`, `database`, `id`. Schema events fire only when somet
 | `fact_added` | `name`, `head_entity_id`, `head_entity_name`, `tail_entity_id`, `tail_entity_name`, `relation_id`, `relation_name` |
 | `entity_property_added` | `entity_id`, `entity_name`, `property_id`, `property_name`, `value` |
 | `fact_property_added` | `fact_id`, `fact_name`, `property_id`, `property_name`, `value`, `head_entity_id/name`, `tail_entity_id/name`, `relation_id`, `relation_name` |
+| `entity_class_attached` | `entity_id`, `entity_name`, `class_id`, `class_name` |
+| `extraction_attached` | `element_id`, `extraction_id` |
 
 Name/id fields are `None` when the corresponding id wasn't provided on the write call.
 

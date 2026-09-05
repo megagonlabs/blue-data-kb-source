@@ -112,7 +112,8 @@ class KBSearchIndexer:
 
         # ---- updates ----
         elif etype in ("class_updated", "relation_updated", "property_updated",
-                       "entity_updated", "fact_updated"):
+                       "entity_updated", "fact_updated",
+                       "entity_class_attached", "extraction_attached"):
             if node_id:
                 self.reindex_node(database, node_id)
         elif etype == "entity_property_updated":

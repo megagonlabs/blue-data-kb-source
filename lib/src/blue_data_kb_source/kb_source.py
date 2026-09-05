@@ -144,7 +144,7 @@ class KBSource(GraphSource, ABC):
     def __init__(self, name: str, properties: dict[str, Any] | None = None) -> None:
         super().__init__(name, properties=properties)
         self._notifier = ChangeNotifier()
-        self._provenance = ProvenanceTracker(self)
+        self._provenance = ProvenanceTracker(self, self._notifier)
 
         # Search/vector/embedding config lives entirely under properties["search"] —
         # matching DataSource.__init__(name, properties=None): no extra constructor
@@ -568,6 +568,9 @@ class KBSource(GraphSource, ABC):
     ) -> None:
         await self._knowledge.delete_fact_property_value(database, fact_id, property_id)
 
+    async def attach_entity_class(self, database: str, entity_id: str, class_id: str) -> None:
+        await self._knowledge.attach_entity_class(database, entity_id, class_id)
+
     async def fetch_database_data(
         self,
         database: str,
@@ -713,6 +716,11 @@ class KBSource(GraphSource, ABC):
         if element_id is not None:
             await self._provenance.add_extracted_from(database, element_id, extraction_id)
         return extraction_id
+
+    async def attach_extraction(
+        self, database: str, element_id: str, extraction_id: str
+    ) -> None:
+        await self._provenance.attach_extraction(database, element_id, extraction_id)
 
     async def add_entity_extraction(
         self, database: str, entity_id: str, text: str, source_id: str | None = None

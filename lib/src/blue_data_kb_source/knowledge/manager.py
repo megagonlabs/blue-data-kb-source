@@ -376,6 +376,41 @@ class KnowledgeManager:
         return await self._provenance.link_extraction(database, lit_id, text, source_id)
 
     # ------------------------------------------------------------------ #
+    # Attach operations                                                    #
+    # ------------------------------------------------------------------ #
+
+    async def attach_entity_class(self, database: str, entity_id: str, class_id: str) -> None:
+        """Attach an existing ENTITY to an existing CLASS via IS_INSTANCE_OF (idempotent).
+
+        Supplies an entity's *additional* class — `add_entity(class_id=...)` wires
+        the first one at creation. Re-attaching a class the entity already has is a
+        silent no-op that fires no event.
+        """
+        entity_node = require_node_type(
+            self._source, database, entity_id, ENTITY, "entity_id", KnowledgeError
+        )
+        class_node = require_node_type(
+            self._source, database, class_id, CLASS, "class_id", KnowledgeError
+        )
+        nbs = self._source.get_neighbors(
+            database, entity_id, edge_type=IS_INSTANCE_OF, direction="out"
+        )
+        if any(nb["node"]["id"] == class_id for nb in nbs):
+            return
+        self._source.add_edge(
+            database, entity_id, IS_INSTANCE_OF, class_id, properties=edge_stamped()
+        )
+        self._notifier.fire({
+            "type": "entity_class_attached",
+            "database": database,
+            "id": entity_id,
+            "entity_id":   entity_id,
+            "entity_name": entity_node.get("properties", {}).get("name"),
+            "class_id":    class_id,
+            "class_name":  class_node.get("properties", {}).get("name"),
+        })
+
+    # ------------------------------------------------------------------ #
     # Update operations                                                    #
     # ------------------------------------------------------------------ #
 

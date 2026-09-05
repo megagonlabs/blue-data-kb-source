@@ -2200,6 +2200,85 @@ def entity_delete(
 
 
 # ------------------------------------------------------------------ #
+# kb data entity class                                                 #
+# ------------------------------------------------------------------ #
+
+
+@entity_group.group("class")
+def entity_class_group() -> None:
+    """Entity class (IS_INSTANCE_OF) membership (attach and list only — no detach
+    counterpart by design)."""
+
+
+@entity_class_group.command("attach")
+@click.option("--entity",    "entity_name", default=None, help="Entity name.")
+@click.option("--entity-id",                default=None, help="Entity node ID.")
+@click.option("--class",     "class_name",  default=None, help="Class name to attach.")
+@click.option("--class-id",                 default=None, help="Class node ID to attach.")
+@click.pass_obj
+def entity_class_attach(
+    obj: dict,
+    entity_name: str | None, entity_id: str | None,
+    class_name: str | None, class_id: str | None,
+) -> None:
+    """Attach a class to an existing entity (deduplicated; no detach counterpart by design).
+
+    `entity add --class` wires an entity's first class at creation; this adds a
+    further one to an entity that already exists.
+    """
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    eid = _resolve_node(kb, db, ENTITY, entity_name, entity_id, "entity")
+    cid = _resolve_node(kb, db, CLASS,  class_name,  class_id,  "class")
+    try:
+        _run(kb.attach_entity_class(db, eid, cid))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(
+        f"[bold]{class_name or class_id}[/bold] attached to "
+        f"[bold]{entity_name or entity_id}[/bold]"
+    )
+
+
+@entity_class_group.command("list")
+@click.option("--entity",    "entity_name", default=None, help="Entity name.")
+@click.option("--entity-id",                default=None, help="Entity node ID.")
+@click.option(
+    "--format", "fmt",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    show_default=True,
+)
+@click.pass_obj
+def entity_class_list(
+    obj: dict, entity_name: str | None, entity_id: str | None, fmt: str,
+) -> None:
+    """List the classes an entity is an instance of."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    eid = _resolve_node(kb, db, ENTITY, entity_name, entity_id, "entity")
+    try:
+        nodes = _run(kb.get_entity_classes(db, eid))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    if fmt == "json":
+        console.print_json(json.dumps([
+            {"name": n.get("properties", {}).get("name", n["id"]), "id": n["id"]}
+            for n in nodes
+        ]))
+    else:
+        if not nodes:
+            console.print("[dim](no classes)[/dim]")
+            return
+        t = Table(show_header=True, header_style="bold")
+        t.add_column("Name", style="bold", min_width=14)
+        t.add_column("ID",   style="dim")
+        for n in nodes:
+            t.add_row(n.get("properties", {}).get("name", n["id"]), n["id"])
+        console.print(t)
+
+
+# ------------------------------------------------------------------ #
 # kb data entity extraction                                            #
 # ------------------------------------------------------------------ #
 

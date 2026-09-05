@@ -86,6 +86,7 @@ class KBSource(GraphSource, ABC):
     async def delete_fact(self, database: str, fact_id: str) -> None: ...
     async def delete_entity_property_value(self, database: str, entity_id: str, property_id: str) -> None: ...
     async def delete_fact_property_value(self, database: str, fact_id: str, property_id: str) -> None: ...
+    async def attach_entity_class(self, database: str, entity_id: str, class_id: str) -> None: ...
     async def fetch_database_data(self, database: str, include_provenance: bool = False, compact: bool = False, detailed: bool = False) -> dict | list: ...
 
     # Knowledge — export / import
@@ -116,6 +117,7 @@ class KBSource(GraphSource, ABC):
     # Provenance
     async def add_source(self, database: str, source: str, name: str | None = None, description: str | None = None, node_id: str | None = None, original: str | None = None) -> str: ...
     async def add_extraction(self, database: str, text: str, name: str | None = None, description: str | None = None, node_id: str | None = None, source_id: str | None = None, element_id: str | None = None) -> str: ...  # element_id wires EXTRACTED_FROM to an existing entity/fact/literal in the same call
+    async def attach_extraction(self, database: str, element_id: str, extraction_id: str) -> None: ...   # wire an EXTRACTION that already exists to its item
     async def add_entity_extraction(self, database: str, entity_id: str, text: str, source_id: str | None = None) -> str: ...       # additional text span for an *existing* entity
     async def add_fact_extraction(self, database: str, fact_id: str, text: str, source_id: str | None = None) -> str: ...
     async def add_entity_property_value_extraction(self, database: str, entity_id: str, property_id: str, text: str, source_id: str | None = None) -> str: ...
@@ -814,6 +816,9 @@ kb schema relation delete (--relation ... | --relation-id ...) [--yes]
 kb schema relation parent add/remove/list   (--relation ... | --relation-id ...) (--parent ... | --parent-id ...)
 kb schema relation child  list              (--relation ... | --relation-id ...)
 
+kb schema relation domain attach/list       (--relation ... | --relation-id ...) (--class ... | --class-id ...)
+kb schema relation range  attach/list       (--relation ... | --relation-id ...) (--class ... | --class-id ...)
+
 kb schema relation property add/attach/list/update/delete   (same shape as class property)
 ```
 
@@ -866,6 +871,8 @@ kb data entity add [--name NAME] (--class NAME | --class-id ID) [--description D
 kb data entity list [--show-provenance] [--format table|json]
 kb data entity update (--entity NAME | --entity-id ID) [--name NEW] [--description NEW]
 kb data entity delete (--entity NAME | --entity-id ID) [--cascade] [--yes]
+
+kb data entity class attach/list (--entity ... | --entity-id ...) (--class ... | --class-id ...)
 
 kb data entity extraction add (--entity ... | --entity-id ...) --text TEXT (--source ... | --source-id ...)
 

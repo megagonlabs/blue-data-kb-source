@@ -1,3 +1,7 @@
+import pytest
+from blue_data_kb_source.provenance.tracker import ProvenanceTracker
+from blue_data_kb_source.types import ProvenanceError
+
 # ------------------------------------------------------------------ #
 # add_source                                                           #
 # ------------------------------------------------------------------ #
@@ -183,3 +187,89 @@ async def test_add_extraction_with_element_id_and_source_id_links_both(kb):
     assert any(nb["node"]["id"] == extraction_id for nb in nbs)
     src_nbs = kb.get_neighbors("test", extraction_id, edge_type="EXTRACTED_FROM", direction="out")
     assert any(nb["node"]["id"] == src_id for nb in src_nbs)
+
+
+# ------------------------------------------------------------------ #
+# attach_extraction                                                    #
+# ------------------------------------------------------------------ #
+
+def _collect_events(kb, database: str) -> list[dict]:
+    events: list[dict] = []
+    kb.add_change_hook(database, events.append)
+    return events
+
+
+def _extractions_of(kb, database: str, node_id: str) -> list[str]:
+    return [nb["node"]["id"] for nb in kb.get_neighbors(
+        database, node_id, edge_type=kb.EXTRACTED_FROM, direction="out")]
+
+
+async def test_attach_extraction_wires_an_extraction_created_up_front(kb):
+    person = await kb.declare_class("test", "PERSON", "A human individual")
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    extraction = await kb.add_extraction("test", "Alice is an engineer.")
+    assert _extractions_of(kb, "test", alice) == []
+
+    await kb.attach_extraction("test", alice, extraction)
+
+    assert _extractions_of(kb, "test", alice) == [extraction]
+    assert len(kb.match_nodes("test", label="EXTRACTION")) == 1
+
+
+async def test_attach_extraction_deduplicates_and_fires_hook_once(kb):
+    person = await kb.declare_class("test", "PERSON", "A human individual")
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    extraction = await kb.add_extraction("test", "Alice is an engineer.")
+    events = _collect_events(kb, "test")
+
+    await kb.attach_extraction("test", alice, extraction)
+    ev = next(e for e in events if e["type"] == "extraction_attached")
+    assert ev["element_id"] == alice
+    assert ev["extraction_id"] == extraction
+
+    await kb.attach_extraction("test", alice, extraction)
+    assert len([e for e in events if e["type"] == "extraction_attached"]) == 1
+    assert _extractions_of(kb, "test", alice) == [extraction]
+
+
+async def test_attach_extraction_rejects_wrong_labels(kb):
+    person = await kb.declare_class("test", "PERSON", "A human individual")
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    extraction = await kb.add_extraction("test", "Alice is an engineer.")
+    with pytest.raises(ProvenanceError):
+        await kb.attach_extraction("test", person, extraction)  # element is a CLASS
+    with pytest.raises(ProvenanceError):
+        await kb.attach_extraction("test", alice, alice)        # extraction_id is an ENTITY
+
+
+async def test_attach_extraction_accepts_fact_and_literal_elements(kb):
+    person  = await kb.declare_class("test", "PERSON", "A human individual")
+    company = await kb.declare_class("test", "COMPANY", "A business organization")
+    worked  = await kb.declare_relation_type(
+        "test", "WORKED_AT", "Employment", domain="PERSON", range="COMPANY"
+    )
+    age   = await kb.declare_class_property("test", "AGE", "Age in years", class_id=person)
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    ibm   = await kb.add_entity("test", "IBM", class_id=company)
+    fact  = await kb.add_fact("test", relation_id=worked, head_entity_id=alice, tail_entity_id=ibm)
+    await kb.add_entity_property_value("test", 30, entity_id=alice, property_id=age)
+    literal = kb.match_nodes("test", label="LITERAL")[0]["id"]
+    extraction = await kb.add_extraction("test", "Alice, 30, joined IBM.")
+
+    await kb.attach_extraction("test", fact, extraction)
+    await kb.attach_extraction("test", literal, extraction)
+
+    assert _extractions_of(kb, "test", fact) == [extraction]
+    assert _extractions_of(kb, "test", literal) == [extraction]
+
+
+async def test_attach_extraction_works_on_a_tracker_without_a_notifier(kb):
+    person = await kb.declare_class("test", "PERSON", "A human individual")
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    extraction = await kb.add_extraction("test", "Alice is an engineer.")
+    tracker = ProvenanceTracker(kb)   # no notifier, as a bare component
+
+    await tracker.attach_extraction("test", alice, extraction)
+    await tracker.attach_extraction("test", alice, extraction)   # dedupe path, still no notifier
+
+    assert _extractions_of(kb, "test", alice) == [extraction]

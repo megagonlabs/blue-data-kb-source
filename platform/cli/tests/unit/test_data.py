@@ -208,3 +208,71 @@ def test_reindex_with_search_enabled(runner):
     invoke(runner, DB + ["data", "entity", "add", "--name", "Alice"])
     result = invoke(runner, DB + ["data", "reindex"])
     assert "Search index rebuilt" in result.output
+
+
+def test_entity_class_attach_and_list(runner):
+    invoke(runner, DB + ["schema", "class", "add", "PERSON", "A human individual"])
+    invoke(runner, DB + ["schema", "class", "add", "EMPLOYEE", "An employed person"])
+    invoke(runner, DB + ["data", "entity", "add", "--name", "Alice", "--class", "PERSON"])
+
+    result = invoke(runner, DB + [
+        "data", "entity", "class", "attach", "--entity", "Alice", "--class", "EMPLOYEE",
+    ])
+    assert "attached" in result.output
+    rows = invoke_json(runner, DB + [
+        "data", "entity", "class", "list", "--entity", "Alice", "--format", "json",
+    ])
+    assert {r["name"] for r in rows} == {"PERSON", "EMPLOYEE"}
+
+
+def test_entity_class_attach_is_deduplicated(runner):
+    invoke(runner, DB + ["schema", "class", "add", "PERSON", "A human individual"])
+    invoke(runner, DB + ["data", "entity", "add", "--name", "Alice", "--class", "PERSON"])
+
+    invoke(runner, DB + [
+        "data", "entity", "class", "attach", "--entity", "Alice", "--class", "PERSON",
+    ])
+    rows = invoke_json(runner, DB + [
+        "data", "entity", "class", "list", "--entity", "Alice", "--format", "json",
+    ])
+    assert [r["name"] for r in rows] == ["PERSON"]
+
+
+def test_entity_class_attach_unknown_class_errors(runner):
+    invoke(runner, DB + ["schema", "class", "add", "PERSON", "A human individual"])
+    invoke(runner, DB + ["data", "entity", "add", "--name", "Alice", "--class", "PERSON"])
+
+    result = runner.invoke(cli, DB + [
+        "data", "entity", "class", "attach", "--entity", "Alice", "--class", "NOPE",
+    ])
+    assert result.exit_code != 0
+    assert "NOPE" in result.output
+
+
+def test_entity_class_list_table_shows_the_attached_class(runner):
+    invoke(runner, DB + ["schema", "class", "add", "PERSON", "A human individual"])
+    invoke(runner, DB + ["schema", "class", "add", "EMPLOYEE", "An employed person"])
+    invoke(runner, DB + ["data", "entity", "add", "--name", "Alice", "--class", "PERSON"])
+    invoke(runner, DB + [
+        "data", "entity", "class", "attach", "--entity", "Alice", "--class", "EMPLOYEE",
+    ])
+    result = invoke(runner, DB + ["data", "entity", "class", "list", "--entity", "Alice"])
+    assert "PERSON" in result.output
+    assert "EMPLOYEE" in result.output
+
+
+def test_entity_class_attach_by_ids(runner):
+    class_out = invoke(runner, DB + ["schema", "class", "add", "EMPLOYEE", "An employed person"])
+    invoke(runner, DB + ["schema", "class", "add", "PERSON", "A human individual"])
+    entity_out = invoke(runner, DB + [
+        "data", "entity", "add", "--name", "Alice", "--class", "PERSON",
+    ])
+    class_id, entity_id = _extract_id(class_out.output), _extract_id(entity_out.output)
+
+    invoke(runner, DB + [
+        "data", "entity", "class", "attach", "--entity-id", entity_id, "--class-id", class_id,
+    ])
+    rows = invoke_json(runner, DB + [
+        "data", "entity", "class", "list", "--entity-id", entity_id, "--format", "json",
+    ])
+    assert {r["name"] for r in rows} == {"PERSON", "EMPLOYEE"}

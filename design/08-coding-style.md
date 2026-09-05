@@ -87,6 +87,10 @@ def declare(name: str, description: str) -> None:
 |-----------|-----------|---------|
 | Classes | PascalCase | `SchemaManager`, `KnowledgeManager` |
 | Methods / functions | snake_case | `declare_class`, `import_text` |
+| Schema-node creation | `declare_<node>` — idempotent by name | `declare_class`, `declare_relation_type` |
+| Instance-node creation | `add_<node>` — never idempotent | `add_entity`, `add_fact` |
+| Edge between existing nodes | `attach_<host>_<thing>(host_id, thing_id)`; host omitted only when more than one host kind is accepted | `attach_relation_domain`, `attach_property` |
+| Peer edge, same node kind | `add_<edge>` / `remove_<edge>` | `add_is_subclass_of`, `remove_is_subclass_of` |
 | Module-level constants | UPPER_SNAKE_CASE | `CLASS`, `RELATION`, `IS_INSTANCE_OF` |
 | Private members | single `_` prefix | `_node_name`, `_fire_change` |
 | Modules / packages | lowercase | `schema/`, `manager.py` |

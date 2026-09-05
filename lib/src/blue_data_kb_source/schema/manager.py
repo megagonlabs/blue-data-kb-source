@@ -419,6 +419,12 @@ class SchemaManager:
         })
 
     async def attach_relation_domain(self, database: str, relation_id: str, class_id: str) -> None:
+        """Attach an existing CLASS to a relation's DOMAIN via DOMAIN (idempotent).
+
+        Use to widen a relation after declaration (e.g. a WORKED_AT declared over EMPLOYEE,
+        later also holding for CONTRACTOR) — `declare_relation_type` wires DOMAIN only on
+        first declaration. Add-only: there is no detach counterpart.
+        """
         rel_node = require_node_type(
             self._source, database, relation_id, RELATION, "relation_id", SchemaError
         )
@@ -440,6 +446,12 @@ class SchemaManager:
         })
 
     async def attach_relation_range(self, database: str, relation_id: str, class_id: str) -> None:
+        """Attach an existing CLASS to a relation's RANGE via RANGE (idempotent).
+
+        Use to widen a relation after declaration (e.g. a WORKED_AT declared over EMPLOYEE,
+        later also holding for CONTRACTOR) — `declare_relation_type` wires RANGE only on
+        first declaration. Add-only: there is no detach counterpart.
+        """
         rel_node = require_node_type(
             self._source, database, relation_id, RELATION, "relation_id", SchemaError
         )

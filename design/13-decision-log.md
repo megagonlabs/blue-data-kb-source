@@ -300,3 +300,16 @@ Architectural decisions are recorded here as they are made, throughout the desig
 **Rationale:** ADR-007 makes declarations idempotent, with the recorded consequence that domain/range edges are wired only by the first `declare_relation_type` call — a re-declaration never touches them. That left the multi-valued domain/range model (a relation may hold several DOMAIN and RANGE edges) reachable only at declare time; nothing could extend an existing relation's applicability. The ingest path needs exactly that operation: its conformance checks (`is_fact_allowed`) treat a domain/range miss as a widening trigger rather than a rejection, and these methods are the write half of that pair. Add-only keeps the operation monotonic — widening can never invalidate an existing fact, so it requires no re-check of instance data.
 
 **Consequences:** Extends ADR-007 rather than superseding it: declarations stay idempotent and still never re-wire domain/range; widening is a separate, explicit call. Because domains and ranges only grow, every widening is permanent until a detach counterpart exists — a class added by mistake, or by one bad ingest row, stays. Bulk ingest callers should therefore surface which relations they widened as their audit trail. Events `relation_domain_attached` / `relation_range_attached` fire on actual widenings only, so downstream consumers (search indexer, audit tooling) receive a true change signal.
+
+---
+
+## ADR-024 — Link-Only Writes: `attach_*`, and the Creation-and-Linking Rule
+
+**Date:** 2026-09-04
+**Status:** Accepted
+
+**Decision:** Edge-only writes between existing nodes are named `attach_<host>_<thing>` (table in `08-coding-style.md` §Naming). This release adds `attach_entity_class` and `attach_extraction`, and renames the widening pair to `attach_relation_domain` / `attach_relation_range`. The rule behind them: a node is created together with its defining link when it has no meaningful state without one; where an unlinked state is meaningful the link may follow, and then a link-only operation must exist for it.
+
+**Rationale:** The data model always allowed several `IS_INSTANCE_OF`, `DEFINE_PROPERTY`, `DOMAIN`, and `EXTRACTED_FROM` edges per node, but every public write created a node with its first link or nothing, so a second link was reachable only by writing the edge directly — which the ingest path did, bypassing the change hooks and leaving the search index stale. Naming by host keeps each attach readable beside its creating sibling and keeps `add_` meaning "create a node" outside the two peer-edge cases that predate the rule.
+
+**Consequences:** Extends ADR-007 and ADR-023 rather than superseding them. `ProvenanceTracker` gains an optional notifier for `attach_extraction`'s event; its creating writes stay silent, a follow-up. No `detach_*` exists, so every attach is permanent; whether unlinking becomes a counterpart or confidence on the edge is left open.

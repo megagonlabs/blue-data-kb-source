@@ -1045,3 +1045,53 @@ async def test_search_data_fallback_returns_fact_with_parts(kb):
     assert fact_hit.head_name == "Alice"
     assert fact_hit.relation_name == "WORKED_AT"
     assert fact_hit.tail_name == "IBM"
+
+
+# ------------------------------------------------------------------ #
+# attach_entity_class                                                 #
+# ------------------------------------------------------------------ #
+
+def _collect_events(kb, database: str) -> list[dict]:
+    events: list[dict] = []
+    kb.add_change_hook(database, events.append)
+    return events
+
+
+async def test_attach_entity_class_adds_a_second_class(kb):
+    person   = await kb.declare_class("test", "PERSON", "A human individual")
+    employee = await kb.declare_class("test", "EMPLOYEE", "An employed person")
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    await kb.attach_entity_class("test", alice, employee)
+    names = {c["properties"]["name"] for c in await kb.get_entity_classes("test", alice)}
+    assert names == {"PERSON", "EMPLOYEE"}
+
+
+async def test_attach_entity_class_deduplicates(kb):
+    person = await kb.declare_class("test", "PERSON", "A human individual")
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    await kb.attach_entity_class("test", alice, person)
+    assert len(await kb.get_entity_classes("test", alice)) == 1
+
+
+async def test_attach_entity_class_fires_hook_once(kb):
+    person   = await kb.declare_class("test", "PERSON", "A human individual")
+    employee = await kb.declare_class("test", "EMPLOYEE", "An employed person")
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    events = _collect_events(kb, "test")
+    await kb.attach_entity_class("test", alice, employee)
+    ev = next(e for e in events if e["type"] == "entity_class_attached")
+    assert ev["entity_id"] == alice
+    assert ev["entity_name"] == "Alice"
+    assert ev["class_id"] == employee
+    assert ev["class_name"] == "EMPLOYEE"
+    await kb.attach_entity_class("test", alice, employee)
+    assert len([e for e in events if e["type"] == "entity_class_attached"]) == 1
+
+
+async def test_attach_entity_class_rejects_wrong_labels(kb):
+    person = await kb.declare_class("test", "PERSON", "A human individual")
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    with pytest.raises(KBError):
+        await kb.attach_entity_class("test", person, person)   # entity_id is a CLASS
+    with pytest.raises(KBError):
+        await kb.attach_entity_class("test", alice, alice)     # class_id is an ENTITY

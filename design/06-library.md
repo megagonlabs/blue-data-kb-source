@@ -138,6 +138,7 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `add_fact_extraction(database, fact_id, text, source_id?)` | `str` | Same, for an existing fact |
 | `add_entity_property_value_extraction(database, entity_id, property_id, text, source_id?)` | `str` | Same, for an existing entity's property value |
 | `add_fact_property_value_extraction(database, fact_id, property_id, text, source_id?)` | `str` | Same, for an existing fact's property value |
+| `attach_entity_class(database, entity_id, class_id)` | `None` | Attach an existing CLASS to an existing ENTITY via IS_INSTANCE_OF; deduplicated, and add-only — no detach counterpart. Supplies an entity's *additional* class; `add_entity(class_id=…)` wires the first at creation |
 | `fetch_database_data(database, include_provenance?, compact?, detailed?)` | `dict \| list` | Fetch all instance data in the database |
 | `export_database_data(database, include_provenance?)` | `dict` | Portable, `ref`-keyed JSON export of entities/facts/property values (schema not included — export/import schema separately first) |
 | `import_database_data(database, data)` | `None` | Import from `export_database_data`'s format; resolves CLASS/RELATION/PROPERTY **by name** against the target's current schema. **Not idempotent** — re-importing the same export duplicates every entity/fact/property value, unlike schema import |
@@ -152,6 +153,8 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `answer(database, question, model?, natural_language?, include_metadata?, on_tool_call?, on_tool_result?)` | `list[dict] \| str \| tuple[list[dict] \| str, dict]` | Answer a natural language question using an LLM agent over the instance graph; each dict is a flat `{entity, relation, value, provenance}`-shaped row (keys vary by question); returns prose when `natural_language=True`; returns a `(result, metadata)` tuple when `include_metadata=True` |
 | `validate(database, statement, model?, natural_language?, include_metadata?, on_tool_call?, on_tool_result?)` | `ValidationResult \| str \| tuple[ValidationResult \| str, dict]` | Return supporting and counter evidence for a statement using an LLM agent; same `natural_language`/`include_metadata` variance as `answer` |
 | `enrich(database, query, depth?, model?, on_tool_call?, on_tool_result?)` | `list[EnrichmentResult]` | Return related knowledge bearing on a query using an LLM agent; no `natural_language`/`include_metadata` variance |
+
+`declare_*` and `add_<node>` create a node (idempotently by name for schema, never for instances); `attach_*` and `add_is_subclass_of` only add an edge between nodes that already exist, so a node's *additional* links come from them while its first ones come with creation — the verb table is in [08-coding-style.md](08-coding-style.md), the rule in [13-decision-log.md](13-decision-log.md) ADR-024.
 
 #### Search operations (delegate to `KBSearchIndexer` when search is enabled, otherwise served unranked by `SchemaManager`/`KnowledgeManager`)
 
@@ -172,6 +175,7 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `add_extraction(database, text, name?, description?, node_id?, source_id?, element_id?)` | `str` | Create an EXTRACTION node; wires EXTRACTED_FROM to `source_id` if given; if `element_id` is also given, additionally wires EXTRACTED_FROM from that existing entity/fact/literal to the new extraction in the same call |
 
 `add_extracted_from` is **not** a public `KBSource` method — it exists only as a private `ProvenanceTracker` helper, invoked internally by `add_extraction` when `element_id` is given. Use `add_extraction(..., element_id=...)` instead of calling it directly.
+| `attach_extraction(database, element_id, extraction_id)` | `None` | Wire EXTRACTED_FROM from an ENTITY / FACT / LITERAL to an EXTRACTION that already exists — for an extraction created up front by `add_extraction` without an `element_id`, or re-wired on snapshot restore. Deduplicated and add-only. Not a way to share evidence: each item keeps its own EXTRACTION node (`10-data-model.md` §2.3) |
 
 #### Change hook operations (delegate to `ChangeNotifier`)
 
@@ -429,8 +433,13 @@ Records the origin of each piece of knowledge by creating and wiring EXTRACTION 
 ### Constructor
 
 ```python
-ProvenanceTracker(source)
+ProvenanceTracker(source, notifier=None)
 ```
+
+**Parameters**
+
+- `source` — the parent `KBSource` instance; used for all Graph Store access
+- `notifier` — the `ChangeNotifier` instance; fires `extraction_attached`, the tracker's only event. The creating writes (`add_source`, `add_extraction`, `link_extraction`) stay silent, so a change-hook listener sees provenance only when an existing extraction is wired to an item
 
 ### Methods
 
@@ -449,6 +458,10 @@ Deletes a SOURCE node.
 #### `add_extraction(database, text, name=None, description=None, node_id=None, source_id=None, element_id=None)`
 
 Creates an EXTRACTION node. If `source_id` is provided, wires an EXTRACTED_FROM edge from the EXTRACTION to the SOURCE. If `element_id` is also provided, additionally wires EXTRACTED_FROM from that existing entity/fact/literal to the new extraction (via the private `add_extracted_from` helper) in the same call. Returns the EXTRACTION node ID.
+
+#### `attach_extraction(database, element_id, extraction_id)`
+
+Wires an `EXTRACTED_FROM` edge from an existing ENTITY, FACT, or LITERAL (`element_id`) to an existing EXTRACTION (`extraction_id`). Idempotent — calling it again with the same pair is a no-op, not a duplicate edge. Raises `ProvenanceError` if `element_id` isn't an ENTITY/FACT/LITERAL or `extraction_id` isn't an EXTRACTION. Exists so an extraction created up front — by `add_extraction` without an `element_id`, or rebuilt when a snapshot is restored — can be wired to its item afterwards; it does not pool evidence across items, since each item still gets its own EXTRACTION node.
 
 #### `link_extraction(database, element_id, text, source_id=None)`
 
