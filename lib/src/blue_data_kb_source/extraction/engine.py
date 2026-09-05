@@ -109,7 +109,7 @@ _TOOLS: list[dict[str, Any]] = [
                     "name": {"type": "string"},
                     "description": {"type": "string"},
                     "class_id": {"type": "string"},
-                    "text": {"type": "string", "description": "Verbatim text span this entity was extracted from"},
+                    "text": {"type": "string", "description": "The full verbatim sentence (not just the bare name) this entity was extracted from"},
                 },
                 "required": ["name"],
             },
@@ -127,7 +127,7 @@ _TOOLS: list[dict[str, Any]] = [
                     "tail_entity_id": {"type": "string"},
                     "relation_id": {"type": "string"},
                     "name": {"type": "string"},
-                    "text": {"type": "string", "description": "Verbatim text span this fact was extracted from"},
+                    "text": {"type": "string", "description": "The full verbatim sentence (not just the bare relation phrase) this fact was extracted from"},
                 },
                 "required": ["head_entity_id", "tail_entity_id", "relation_id"],
             },
@@ -148,7 +148,7 @@ _TOOLS: list[dict[str, Any]] = [
                         "type": "string",
                         "enum": ["NUMBER", "DATE", "BOOLEAN", "STRING"],
                     },
-                    "text": {"type": "string", "description": "Verbatim text span this value was extracted from"},
+                    "text": {"type": "string", "description": "The full verbatim sentence (not just the bare value) this value was extracted from"},
                 },
                 "required": ["entity_id", "property_id", "value"],
             },
@@ -169,7 +169,7 @@ _TOOLS: list[dict[str, Any]] = [
                         "type": "string",
                         "enum": ["NUMBER", "DATE", "BOOLEAN", "STRING"],
                     },
-                    "text": {"type": "string", "description": "Verbatim text span this value was extracted from"},
+                    "text": {"type": "string", "description": "The full verbatim sentence (not just the bare value) this value was extracted from"},
                 },
                 "required": ["fact_id", "property_id", "value"],
             },
@@ -191,7 +191,7 @@ _TOOLS: list[dict[str, Any]] = [
                 "type": "object",
                 "properties": {
                     "element_id": {"type": "string", "description": "id of the existing entity, fact, or literal"},
-                    "text": {"type": "string", "description": "Verbatim text span this was found in"},
+                    "text": {"type": "string", "description": "The full verbatim sentence this was found in"},
                 },
                 "required": ["element_id", "text"],
             },
@@ -230,10 +230,14 @@ Workflow:
    add_entity_property_value or add_fact_property_value.
 4. Use names exactly as they appear in the text for entities.
 5. When calling add_entity, add_fact, add_entity_property_value,
-   add_fact_property_value, or link_extraction, always pass the verbatim sentence
-   or phrase from the source text that the item was extracted from as the
-   `text` argument. Reusing an existing entity/fact via link_extraction records
-   the new text as an additional link without creating a duplicate.
+   add_fact_property_value, or link_extraction, always pass the full sentence
+   (verbatim, exactly as written) that the item was extracted from as the
+   `text` argument — never just the bare name, relation phrase, or value on its
+   own. A short span like "Alice" or "1998-06" gives a reader no way to verify
+   the extraction later; the surrounding sentence does. If the item depends on
+   two adjacent sentences, include the verbatim span covering both. Reusing an
+   existing entity/fact via link_extraction records the new text as an
+   additional link without creating a duplicate.
 
 Source of this text: {source}
 
