@@ -1,0 +1,13 @@
+id: apple_is_not_fruit
+judge: class_name
+description: >
+  Lexical trap: the word matches FRUIT, the meaning matches COMPANY. Reuse by
+  surface form here would corrupt the graph.
+inputs:
+  operand_name: "Apple, the technology company"
+  triple_text: "Apple ACQUIRED Beats"
+  existing_classes:
+    - {name: FRUIT, description: "An edible plant product"}
+    - {name: COMPANY, description: "A business organization"}
+expected:
+  reuse: COMPANY

@@ -1,0 +1,13 @@
+id: ministry_is_not_company
+judge: class_name
+description: >
+  Over-merge trap in the conservative direction: an organization that is
+  clearly not a business must get a new class, not be forced into COMPANY.
+inputs:
+  operand_name: "the Ministry of Transport"
+  triple_text: "Ministry_of_Transport REGULATES Initech"
+  existing_classes:
+    - {name: COMPANY, description: "A business organization"}
+    - {name: PERSON, description: "A human individual"}
+expected:
+  new: true

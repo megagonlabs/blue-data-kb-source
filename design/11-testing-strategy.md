@@ -7,7 +7,7 @@
 KBDB has three real test tiers, spread across independently-installed packages:
 
 - **`lib/tests/unit/`** — fast, offline unit tests for the library, doubling `MemoryKBSource` for the graph backend and `unittest.mock.patch` for OpenAI calls
-- **`lib/tests/benchmarks/`** — gold-standard-case suites for `import_text`/`answer`/`validate`/`enrich` against real OpenAI responses (via VCR cassettes), with LLM-judge scoring; a heavier, opt-in tier, not part of the default `pytest` run
+- **`lib/tests/benchmarks/`** — gold-standard-case suites for `import_text`/`answer`/`validate`/`enrich` and the ingestion judges against real OpenAI responses (via VCR cassettes), scored by LLM-judge alignment (extraction/querying) or deterministically (judges); a heavier, opt-in tier, not part of the default `pytest` run
 - **`platform/cli/tests/`** and **`platform/mcp/tests/`** — adapter-layer tests for the CLI and MCP server, each in their own package with their own fixtures
 
 There is no Neo4j-backed integration test suite today — the Neo4j backend (via the `blue-data` dependency) is real and wired into both the CLI and MCP server, but nothing currently tests against a live Neo4j instance.
@@ -38,11 +38,14 @@ lib/tests/
     knowledge/    test_manager.py       # add/update/delete entity/fact/property, get_metadata, export/import, answer/validate/enrich (QueryEngine mocked)
     provenance/   test_tracker.py       # add_source, add_extraction, attach_extraction, update/delete_source
     notification/ test_notifier.py      # hook registration, event delivery, database scoping
+    resolution/   test_resolver.py      # tier order, normalization, dedupe, label scoping, index modes
+    ingestion/    test_judges.py, test_manager.py   # judges (OpenAI mocked); assert_*/ingest: resolution policy, cascades, dedupe, report
     extraction/   test_engine.py        # import_text: tool dispatch (no schema-declaration tool), provenance wiring (OpenAI mocked)
   benchmarks/
-    common/       capture.py, cases.py, query_cases.py, (query_)reporting.py, (query_)runner.py, (query_)scoring.py
+    common/       capture.py; cases/runner/scoring/reporting per family — unprefixed (extraction), query_*, judge_*
     extraction/   cases/*.yaml, cassettes/, conftest.py, test_extraction_benchmark.py, run.py
     querying/     cases/*.yaml, cassettes/, conftest.py, test_querying_benchmark.py, run.py
+    judges/       cases/*.yaml, cassettes/, conftest.py, test_judges_benchmark.py, run.py
 
 platform/cli/tests/
   unit/
@@ -87,9 +90,9 @@ def kb() -> MemoryKBSource:
 
 Two different, deliberately separate mocking strategies exist depending on the tier:
 
-**`lib/tests/unit/`** (fast, offline, no network) mocks `openai.AsyncOpenAI` directly via `unittest.mock.patch`, returning a scripted `MagicMock`/`AsyncMock` response sequence via a `_mock_openai_sequence` helper — the same small pattern independently redefined in each of `unit/extraction/test_engine.py`, `unit/schema/test_expansion.py`, and `unit/knowledge/test_manager.py`'s `answer`/`validate`/`enrich` tests, rather than imported from one shared module. `unit/schema/test_expansion.py`'s `reference="mcp"` test is the one exception to "no network/subprocess at all": only the model's decisions are mocked (`openai.AsyncOpenAI`, as above) — the MCP half (spawn, `list_tools`, `call_tool`) is real, spawning the actual `blue-data-wordnet-mcp` binary over stdio to prove the generic MCP bridge drives an external server's tools, not a scripted fake of the MCP protocol. It's skipped (`pytest.mark.skipif`) when `blue-data-wordnet-mcp` isn't installed on `PATH`, so it degrades gracefully rather than failing in an environment that only installed `lib/`'s `dev` extra. No cassettes, no `@pytest.mark.vcr` anywhere in this tier — this is what otherwise makes `lib/tests/unit/` safe to run with no `OPENAI_API_KEY` and no network access.
+**`lib/tests/unit/`** (fast, offline, no network) mocks `openai.AsyncOpenAI` directly via `unittest.mock.patch`, returning a scripted `MagicMock`/`AsyncMock` response sequence via a `_mock_openai_sequence` helper — the same small pattern independently redefined in each of `unit/extraction/test_engine.py`, `unit/schema/test_expansion.py`, and `unit/knowledge/test_manager.py`'s `answer`/`validate`/`enrich` tests, rather than imported from one shared module. `unit/ingestion/` patches the judge functions at their import site the same way. `unit/schema/test_expansion.py`'s `reference="mcp"` test is the one exception to "no network/subprocess at all": only the model's decisions are mocked (`openai.AsyncOpenAI`, as above) — the MCP half (spawn, `list_tools`, `call_tool`) is real, spawning the actual `blue-data-wordnet-mcp` binary over stdio to prove the generic MCP bridge drives an external server's tools, not a scripted fake of the MCP protocol. It's skipped (`pytest.mark.skipif`) when `blue-data-wordnet-mcp` isn't installed on `PATH`, so it degrades gracefully rather than failing in an environment that only installed `lib/`'s `dev` extra. No cassettes, no `@pytest.mark.vcr` anywhere in this tier — this is what otherwise makes `lib/tests/unit/` safe to run with no `OPENAI_API_KEY` and no network access.
 
-**`lib/tests/benchmarks/`** (opt-in, heavier) uses `pytest-recording` (VCR.py) against real OpenAI responses, scoped per suite — `lib/tests/benchmarks/extraction/cassettes/` and `lib/tests/benchmarks/querying/cassettes/`, each with its own `conftest.py` defining `vcr_config`/`vcr_cassette_dir`, and `pytestmark = pytest.mark.vcr` set at the module level in each suite's `test_*_benchmark.py`. This is where cassette-recording rules apply:
+**`lib/tests/benchmarks/`** (opt-in, heavier) uses `pytest-recording` (VCR.py) against real OpenAI responses, scoped per suite — `lib/tests/benchmarks/extraction/cassettes/`, `lib/tests/benchmarks/querying/cassettes/`, and `lib/tests/benchmarks/judges/cassettes/`, each with its own `conftest.py` defining `vcr_config`/`vcr_cassette_dir`, and `pytestmark = pytest.mark.vcr` set at the module level in each suite's `test_*_benchmark.py`. This is where cassette-recording rules apply:
 
 - Cassettes are committed to the repository.
 - When a prompt or tool set changes in a way that would alter the response, the cassette must be re-recorded: delete the cassette file and run with `--record-mode=once`.
@@ -250,6 +253,7 @@ cd lib && pytest tests/unit/ --cov=src --cov-report=term-missing
 # Library benchmark suites (opt-in, real OpenAI calls unless cassettes already exist)
 cd lib && pytest tests/benchmarks/extraction/
 cd lib && pytest tests/benchmarks/querying/
+cd lib && pytest tests/benchmarks/judges/
 
 # Re-record a benchmark suite's cassettes
 cd lib && pytest tests/benchmarks/extraction/ --record-mode=once
@@ -267,7 +271,7 @@ cd platform/mcp && pytest tests/
 
 `lib/tests/benchmarks/` is a first-class test tier, not a side project — gold-standard-case suites that score `import_text` (extraction) and `answer`/`validate`/`enrich` (querying) against real LLM output, not mocks. As of this writing: 11 extraction case files and 18 querying case files under `lib/tests/benchmarks/{extraction,querying}/cases/*.yaml`, spanning multiple domains (business, healthcare, finance, legal, supply-chain).
 
-> **The extraction suite is currently known-broken**, not merely aspirational: it's keyed on `import_text(..., schema_discovery_mode=...)`, a parameter that no longer exists now that schema growth is the separate `expand_schema` pass. The harness needs reworking to score the two passes (schema expansion, then extraction) independently before it can run again. See the "Extraction benchmark suite" section of `lib/README.md` for the full caveat. The querying suite is unaffected — it seeds a fixed schema/data via `seed_schema`/`seed_data` rather than calling `import_text` at all.
+> **The extraction suite is currently known-broken**, not merely aspirational: it's keyed on `import_text(..., schema_discovery_mode=...)`, a parameter that no longer exists now that schema growth from text is the separate `expand_schema` pass. The harness needs reworking to score the two passes (schema expansion, then extraction) independently before it can run again. See the "Extraction benchmark suite" section of `lib/README.md` for the full caveat. The querying suite is unaffected — it seeds a fixed schema/data via `seed_schema`/`seed_data` rather than calling `import_text` at all.
 
 Shared harness under `lib/tests/benchmarks/common/`:
 

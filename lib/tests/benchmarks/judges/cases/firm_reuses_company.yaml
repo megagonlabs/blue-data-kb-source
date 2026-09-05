@@ -1,0 +1,11 @@
+id: firm_reuses_company
+judge: class_name
+description: A synonym (firm) should reuse COMPANY, not coin FIRM.
+inputs:
+  operand_name: "Globex, a firm"
+  triple_text: "Globex ACQUIRED Initech"
+  existing_classes:
+    - {name: COMPANY, description: "A business organization"}
+    - {name: PERSON, description: "A human individual"}
+expected:
+  reuse: COMPANY

@@ -1,0 +1,11 @@
+id: corporation_reuses_company
+judge: class_name
+description: Another synonym distance (corporation vs company).
+inputs:
+  operand_name: "a large corporation"
+  triple_text: "Initech EMPLOYS Bob"
+  existing_classes:
+    - {name: COMPANY, description: "A business organization"}
+    - {name: EMPLOYEE, description: "A person employed by an organization"}
+expected:
+  reuse: COMPANY

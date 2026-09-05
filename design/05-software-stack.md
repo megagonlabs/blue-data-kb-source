@@ -22,11 +22,7 @@
 | Initial provider | OpenAI (`openai>=1.0`) |
 | Interface | OpenAI function-calling (tool use) |
 
-The Extraction Engine calls the OpenAI API directly using the `openai` Python SDK. The model is configurable per call (`model` parameter on `import_text`, defaulting to `gpt-4o`). Its tool loop drives *only* instance creation (`add_entity`/`add_fact`/etc.) by presenting the relevant KB operations as OpenAI function definitions — it has no schema-declaration tool.
-
-The Schema Layer has its own equivalent dependency: `expand_schema` runs a separate OpenAI tool-use loop (the Schema Expansion Engine) that drives schema declaration (`declare_class`/`declare_relation_type`/etc.) the same way `import_text` used to before the two were split. `KBSource.import_text` composes both loops — with `expand_schema=True` (the default), it calls `expand_schema` first, then runs the Extraction Engine's own loop against the result.
-
-The Knowledge Layer's Query Engine has the same kind of dependency: `answer`, `validate`, and `enrich` each run their own OpenAI tool-use loop over a read-only set of graph tools. The Graph Store has no LLM dependency, but the Schema Expansion Engine, the Extraction Engine, and the Query Engine (inside the Knowledge Layer) all require an API key at call time. With `expand_schema`'s `reference="mcp"`, the Schema Expansion Engine's tool set is additionally extended at call time with tools from connected MCP servers (e.g. WordNet via `platform/wordnet-mcp`) — see MCP Server below.
+Four components call the OpenAI API directly, all through the `openai` Python SDK. The ingestion judges are the lightest dependency: single forced-function calls, no loop, made during `assert_*`/`ingest` under the default `schema_creation_mode="llm"` and skipped entirely under `"none"`. The Schema Expansion Engine (inside the Schema Layer) runs an OpenAI tool-use loop that drives schema declaration (`declare_class`/`declare_relation_type`/etc.); with `reference="mcp"` its tool set is additionally extended at call time with tools from connected MCP servers (e.g. WordNet via `platform/wordnet-mcp`) — see MCP Server below. The Extraction Engine runs its own tool loop that drives *only* instance creation (`add_entity`/`add_fact`/etc.) by presenting the relevant KB operations as OpenAI function definitions — it has no schema-declaration tool; `KBSource.import_text` composes the two, calling `expand_schema` first (`expand_schema=True`, the default) and then running the extraction loop against the result. The Query Engine (inside the Knowledge Layer) runs its own tool-use loop for each of `answer`, `validate`, and `enrich` over a read-only set of graph tools. The model is configurable per call (`model` parameter, defaulting to `gpt-4o`). The Graph Store has no LLM dependency; the four above all require an API key at call time, so the `openai` extra gates ingest, schema expansion, extraction, and querying alike.
 
 **OpenAI SDK usage:**
 
@@ -143,7 +139,7 @@ A standalone MCP server, unrelated to `KBSource` — it has no dependency on `bl
 | Output formatting | Rich (`>=13.0`) |
 | Date parsing | `arrow` (`>=1.3`) |
 
-Click handles command routing and argument parsing. Rich provides formatted terminal output (tables, progress indicators) for schema inspection and interactive ingestion. `arrow` is used for date handling in CLI-facing date arguments/output.
+Click handles command routing and argument parsing. Rich provides formatted terminal output (tables, progress indicators) for schema inspection and interactive expansion. `arrow` is used for date handling in CLI-facing date arguments/output.
 
 ---
 
@@ -156,7 +152,7 @@ Click handles command routing and argument parsing. Rich provides formatted term
 | Coverage | pytest-cov |
 | Test scope | Unit tests (`lib/tests/unit/`) against `MemoryGraphSource`; separate opt-in benchmark suites (`lib/tests/benchmarks/`) against real OpenAI responses. No automated Neo4j-backed test exists yet — see [11-testing-strategy.md](11-testing-strategy.md) §9. |
 
-Unit tests exercise the full KB API using the in-memory backend with no external dependencies. OpenAI calls made by the Extraction Engine and Query Engine during unit tests are stubbed out with `unittest.mock.patch("openai.AsyncOpenAI", ...)`, so the suite runs deterministically without a live API key. `pytest-recording` **is** used — but only by `lib/tests/benchmarks/{extraction,querying}/`, which are excluded from the default `pytest` run (`testpaths = ["tests/unit"]`) and invoked explicitly; it's unused by `lib/tests/unit/` itself.
+Unit tests exercise the full KB API using the in-memory backend with no external dependencies. OpenAI calls made by the ingestion judges, the Extraction Engine, and the Query Engine during unit tests are stubbed out with `unittest.mock.patch("openai.AsyncOpenAI", ...)`, so the suite runs deterministically without a live API key. `pytest-recording` **is** used — but only by `lib/tests/benchmarks/{judges,extraction,querying}/`, which are excluded from the default `pytest` run (`testpaths = ["tests/unit"]`) and invoked explicitly; it's unused by `lib/tests/unit/` itself.
 
 ---
 

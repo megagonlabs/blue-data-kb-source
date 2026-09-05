@@ -102,6 +102,33 @@ meta = await kb.get_metadata("main", alice)
 
 ---
 
+## Asserting and ingesting external knowledge
+
+Sometimes you hold names, not ids: triples produced by an external tool, statements from an agent or a person, rows out of another system. `assert_*` resolves each name for you and creates anything missing, schema included — by default an LLM picks class names and writes descriptions, and `schema_creation_mode="none"` skips the LLM, filing untyped entities under an `EVERYTHING` catch-all:
+
+```python
+result = await kb.assert_fact("main", "Alice", "WORKED_AT", "IBM",
+                              source_id=src, confidence=0.8)
+# result.created        -> True on a fresh graph; False + match_type="structural"
+#                          when the triple already exists (new evidence attached)
+# result.created_nodes  -> everything created along the way, entities and schema alike
+# result.widened_relations -> relations whose domain/range grew to fit the fact
+```
+
+An ambiguous name raises `IngestionError` with the candidates it was ambiguous between, and nothing is written. For bulk, `ingest` runs a ten-arm payload (classes, relations, entities, facts, …) through the same asserts row by row and returns a report instead of raising:
+
+```python
+report = await kb.ingest("main", payload, source_id=src, confidence=0.8)
+# report.written / deduped / skipped, report.created (label -> count),
+# report.widened, and report.failures — each failure carrying its row, reason,
+# and candidates. Re-running the same payload converges: known items just
+# accumulate evidence.
+```
+
+The CLI mirrors both: `kb data entity assert`, `kb data fact assert`, … and `kb data ingest FILE` (JSON, same ergonomics as `kb data import`).
+
+---
+
 ## Search
 
 Enable BM25 keyword search (and, with a vector backend, semantic search) per database via `properties["search"]` at construction — this is the only way to configure it, since `KBSource.__init__(name, properties=None)` takes no other constructor arguments:

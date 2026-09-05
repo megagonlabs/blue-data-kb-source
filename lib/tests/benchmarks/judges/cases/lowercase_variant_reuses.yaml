@@ -1,0 +1,11 @@
+id: lowercase_variant_reuses
+judge: class_name
+description: A case variant of an existing class must merge, not fork.
+inputs:
+  operand_name: "employee"
+  triple_text: "Bob EMPLOYED_AS engineer"
+  existing_classes:
+    - {name: EMPLOYEE, description: "A person employed by an organization"}
+    - {name: PERSON, description: "A human individual"}
+expected:
+  reuse: EMPLOYEE

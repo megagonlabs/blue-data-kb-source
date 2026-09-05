@@ -125,6 +125,20 @@ class KBSource(GraphSource, ABC):
     async def update_source(self, database: str, source_id: str, name: str | None = None, description: str | None = None, original: str | None = None) -> None: ...
     async def delete_source(self, database: str, source_id: str) -> None: ...
 
+    # Ingest (assert / ingest) — all take trailing source_id/confidence/extraction_type/
+    # schema_creation_mode/model keyword options, elided here; see 06-library.md
+    async def assert_class(self, database: str, name: str, description: str | None = None, ...) -> AssertResult: ...
+    async def assert_relation_type(self, database: str, name: str, domain: str | list[str], range: str | list[str], description: str | None = None, is_symmetric: bool = False, ...) -> AssertResult: ...
+    async def assert_class_property(self, database: str, name: str, class_name: str, description: str | None = None, ...) -> AssertResult: ...
+    async def assert_relation_property(self, database: str, name: str, relation_name: str, description: str | None = None, ...) -> AssertResult: ...
+    async def assert_subclass(self, database: str, child: str, parent: str, ...) -> AssertResult: ...
+    async def assert_subrelation(self, database: str, child: str, parent: str, ...) -> AssertResult: ...
+    async def assert_entity(self, database: str, name: str, class_name: str | None = None, description: str | None = None, ...) -> AssertResult: ...
+    async def assert_fact(self, database: str, head: str, relation: str, tail: str, name: str | None = None, description: str | None = None, ...) -> AssertResult: ...
+    async def assert_entity_property(self, database: str, entity: str, property: str, value, literal_type: str | None = None, ...) -> AssertResult: ...
+    async def assert_fact_property(self, database: str, head: str, relation: str, tail: str, property: str, value, literal_type: str | None = None, ...) -> AssertResult: ...
+    async def ingest(self, database: str, payload: dict, ...) -> IngestReport: ...
+
     # Extraction — against the schema as it currently stands; never declares new schema itself
     async def import_text(self, database: str, text: str, queries: list[str] | None = None, model: str = "gpt-4o", source_id: str | None = None, expand_schema: bool = True, schema_expansion_target: list[Literal["text", "queries"]] | None = None, schema_expansion_depth: int = 1, schema_expansion_mode: Literal["llm", "mcp"] = "llm", schema_expansion_mcp_servers: list[dict[str, Any]] | None = None, schema_expansion_dedup_mode: Literal["search", "llm", "none"] = "search", on_tool_call: Callable[[str, dict], None] | None = None, on_tool_result: Callable[[str, dict, Any], None] | None = None, max_turns: int = 25) -> None: ...
 
@@ -136,6 +150,7 @@ class KBSource(GraphSource, ABC):
 Notes:
 - `declare_relation_type` wires the initial `DOMAIN`/`RANGE` edges inline (`domain`/`range` are required there), and re-declaring never re-wires them — post-declaration widening is what `attach_relation_domain`/`attach_relation_range` (above) are for.
 - `add_extracted_from` is **not** a public `KBSource` method (it is a private `ProvenanceTracker` helper that `add_extraction(element_id=...)` and `attach_extraction` both call, and where a FACT's derived `confidence` is refreshed). To link an extraction to an item, pass `element_id` to `add_extraction` when creating it, or call `attach_extraction` for an extraction that already exists.
+- The `assert_*` family resolves names before writing: ambiguity raises `IngestionError` carrying the candidates, and nothing is written on any phase-1 failure. `ingest` collects per-row failures into its report instead of raising.
 - `add_extraction` takes `confidence` (`[0.0, 1.0]`), which scores the recorded assertion — an out-of-range value raises `ProvenanceError`. `None` confidence means unstated, which is not the same as `0.0`.
 - On the four `add_*` creators, where `text` is optional, `confidence` without `text` raises `KnowledgeError`: with no `text` no EXTRACTION is created, so the score would have nowhere to live. The four `add_*_extraction` methods require `text`, so the case cannot arise there.
 - `answer`/`validate` return a 2-tuple `(result, metadata)` only when `include_metadata=True`; `metadata` is `dict[node_id, dict]` (see "Metadata lookup" below). This composes with `natural_language`: with both flags set, the prose `result` has a natural-language provenance section appended after the main answer/assessment, and `metadata` (element 1) is still the raw structured dict.
@@ -790,17 +805,20 @@ $ kb schema search "employment"
 
 ```
 kb schema class add NAME DESCRIPTION
+kb schema class assert NAME [assert options]
 kb schema class list [--format table|json]
 kb schema class update (--class NAME | --class-id ID) [--name NEW] [--description NEW]
 kb schema class delete (--class NAME | --class-id ID) [--yes]
 
 kb schema class parent add    (--class ... | --class-id ...) (--parent ... | --parent-id ...)
+kb schema class parent assert CHILD PARENT [assert options]
 kb schema class parent remove (--class ... | --class-id ...) (--parent ... | --parent-id ...)
 kb schema class parent list   (--class ... | --class-id ...) [--recursive] [--format table|json|tree]
 kb schema class child  list   (--class ... | --class-id ...) [--recursive] [--format table|json|tree]
 
 kb schema class property add    NAME DESCRIPTION (--class ... | --class-id ...)
 kb schema class property attach (--property ... | --property-id ...) (--class ... | --class-id ...)
+kb schema class property assert NAME --class NAME [assert options]
 kb schema class property list   [--class ...] [--class-id ...] [--format table|json]
 kb schema class property update (--property ... | --property-id ...) [--name NEW] [--description NEW]
 kb schema class property delete (--property ... | --property-id ...) [--yes]
@@ -825,17 +843,20 @@ Mirrors `kb schema class` exactly, with `--relation`/`--relation-id` in place of
 
 ```
 kb schema relation add NAME DESCRIPTION [--domain CLASS] [--range CLASS]
+kb schema relation assert NAME --domain C... --range C... [--is-symmetric] [assert options]
 kb schema relation list [--format table|json]
 kb schema relation update (--relation ... | --relation-id ...) [--name NEW] [--description NEW]
 kb schema relation delete (--relation ... | --relation-id ...) [--yes]
 
 kb schema relation parent add/remove/list   (--relation ... | --relation-id ...) (--parent ... | --parent-id ...)
+kb schema relation parent assert CHILD PARENT [assert options]
 kb schema relation child  list              (--relation ... | --relation-id ...)
 
 kb schema relation domain attach/list       (--relation ... | --relation-id ...) (--class ... | --class-id ...)
 kb schema relation range  attach/list       (--relation ... | --relation-id ...) (--class ... | --class-id ...)
 
 kb schema relation property add/attach/list/update/delete   (same shape as class property)
+kb schema relation property assert NAME --relation NAME [assert options]
 ```
 
 **Example**
@@ -850,6 +871,7 @@ Added relation: WORKED_AT (id: ...)
 
 ```
 kb data list [--show-provenance] [--show-detailed] [--format table|json]
+kb data ingest FILE [--format table|json] [assert options]
 kb data export [--show-provenance] [--output|-o FILE]
 kb data import INPUT_FILE
 kb data search QUERY [--type entity|fact]... [--mode keyword|semantic] [--top-k N] [--format table|json]
@@ -857,6 +879,17 @@ kb data reindex
 ```
 
 `data list` prints entities, entity property values, facts, and fact property values. `--show-provenance` expands each row into one row per piece of evidence, with its own score, text, and source (via its `EXTRACTED_FROM` chain). `--show-detailed` adds each row's own `description`/`created`/`modified`, and a FACT's derived confidence; combined with `--show-provenance` it additionally shows the linked source's `original` date, after the Source column. `--format table` renders `created`/`modified` as human-readable local dates (via `arrow`, e.g. "Aug 7, 2026 5:48 PM"); `--format json` keeps raw ISO-8601 timestamps. `data export`/`data import` round-trip instance data (entities, facts, property values) as portable, ref-based JSON — schema isn't included (export/import that separately via `kb schema export`/`kb schema import` first, so `data import` has classes/relations/properties to resolve names against). `data reindex` rebuilds the BM25/vector index from the current graph contents; it errors if the database wasn't registered with `--search bm25`/`semantic`.
+
+The `assert` commands and `kb data ingest` are the ingest path's CLI surface. They share
+one option block — `[--description D] [--source NAME|--source-id ID] [--confidence F]
+[--extraction-type text_span|external_record|assertion]` (default `assertion`),
+`[--schema-creation-mode llm|none]` (default `llm`), `[--model M]` — and one output register:
+`Asserted <kind>: <label> (<outcome>, id: ...)` where the outcome is `created`, `reused,
+<match> match`, or `deduped, evidence attached`, followed by indented `created:` /
+`widened:` lines exposing the cascade (the `AssertResult` audit surface). Ambiguous names
+fail with the candidates listed in the error message and nothing written. `kb data ingest
+FILE` reads the ten-arm JSON payload (`-` for stdin), prints the report summary and a
+Failures table, or the full report as JSON under `--format json`.
 
 ---
 
@@ -884,6 +917,7 @@ Added source: resume_alice (id: ...)
 ```
 kb data entity add [--name NAME] (--class NAME | --class-id ID) [--description DESC]
                     [--text TEXT] (--source NAME | --source-id ID)
+kb data entity assert NAME [--class NAME] [assert options]
 kb data entity list [--show-provenance] [--format table|json]
 kb data entity update (--entity NAME | --entity-id ID) [--name NEW] [--description NEW]
 kb data entity delete (--entity NAME | --entity-id ID) [--cascade] [--yes]
@@ -894,6 +928,7 @@ kb data entity extraction add (--entity ... | --entity-id ...) --text TEXT (--so
 
 kb data entity property set VALUE (--entity ... | --entity-id ...) (--property ... | --property-id ...)
                                    [--type NUMBER|DATE|BOOLEAN|STRING] [--text TEXT] [--source ... | --source-id ...]
+kb data entity property assert --entity E --property P --value V [--type T] [assert options]
 kb data entity property list   (--entity ... | --entity-id ...) [--show-provenance] [--format table|json]
 kb data entity property update (--entity ... | --entity-id ...) (--property ... | --property-id ...)
                                 [--value NEW] [--name NEW] [--description NEW]
@@ -920,6 +955,7 @@ Set entity property (literal id: ...)
 ```
 kb data fact add (--head NAME | --head-id ID) (--relation NAME | --relation-id ID) (--tail NAME | --tail-id ID)
                   [--name NAME] [--description DESC] [--text TEXT] (--source ... | --source-id ...)
+kb data fact assert --head H --relation R --tail T [--name N] [assert options]
 kb data fact list [--show-provenance] [--format table|json]
 kb data fact update (--fact NAME | --fact-id ID) [--name NEW] [--description NEW]
 kb data fact delete (--fact NAME | --fact-id ID) [--yes]
@@ -928,6 +964,7 @@ kb data fact extraction add (--fact ... | --fact-id ...) --text TEXT (--source .
 
 kb data fact property set VALUE --fact-id ID (--property ... | --property-id ...)
                                  [--type NUMBER|DATE|BOOLEAN|STRING] [--text TEXT] [--source ... | --source-id ...]
+kb data fact property assert --head H --relation R --tail T --property P --value V [--type T] [assert options]
 kb data fact property list   --fact-id ID [--show-provenance] [--format table|json]
 kb data fact property update --fact-id ID (--property ... | --property-id ...)
                               [--value NEW] [--name NEW] [--description NEW]

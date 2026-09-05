@@ -368,6 +368,12 @@ async def test_meta_schema_lists_fact_confidence_attribute(kb):
     assert "confidence" in schema.entities["FACT"]["contents"]["attributes"]
 
 
+async def test_meta_schema_extends_extracted_from_to_schema_nodes(kb):
+    schema = await kb.fetch_meta_schema()
+    for source_label in ("CLASS", "RELATION", "PROPERTY"):
+        assert f"{source_label}__EXTRACTED_FROM__EXTRACTION" in schema.relations
+
+
 # ------------------------------------------------------------------ #
 # import_database_schema (round-trip)                                  #
 # ------------------------------------------------------------------ #

@@ -1,0 +1,13 @@
+id: wingspan_on_aircraft
+judge: placement
+description: >
+  Three-level ancestry; WINGSPAN is aircraft-specific, so neither VEHICLE nor
+  MACHINE should declare it.
+inputs:
+  classes:
+    - {id: c-air, name: AIRCRAFT, description: "A flying vehicle"}
+    - {id: c-veh, name: VEHICLE, description: "A machine that transports people or goods"}
+    - {id: c-mac, name: MACHINE, description: "A mechanical apparatus"}
+  property_name: WINGSPAN
+expected:
+  placed_on: [[AIRCRAFT]]

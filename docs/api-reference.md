@@ -142,6 +142,26 @@ Note: `declare_relation_type` wires the initial `DOMAIN`/`RANGE` edges inline (`
 
 Note: `add_extracted_from` is **not** a public `KBSource` method. To link an extraction to an item, pass `element_id` to `add_extraction` when creating it, or call `attach_extraction` for an extraction that already exists.
 
+### Ingest operations — assert and ingest
+
+Name-based, resolve-or-create counterparts to the knowledge write operations: resolution happens first (ambiguity raises `IngestionError` carrying the candidates, with nothing written), and anything unresolved is created — schema elements included, with LLM judges naming classes and writing descriptions.
+
+| Method | Returns | Description |
+|---|---|---|
+| `await assert_class(database, name, description?)` | `AssertResult` | Reuse a class when one resolves, create it otherwise |
+| `await assert_relation_type(database, name, domain, range, description?, is_symmetric?)` | `AssertResult` | Missing domain/range classes are created; an existing relation is widened, not rejected |
+| `await assert_class_property(database, name, class_name, description?)` | `AssertResult` | The owning class is created when missing |
+| `await assert_relation_property(database, name, relation_name, description?)` | `AssertResult` | The relation must already exist (it cannot be created without domain/range) |
+| `await assert_subclass(database, child, parent)` | `AssertResult` | Missing classes are created; the edge is idempotent |
+| `await assert_subrelation(database, child, parent)` | `AssertResult` | Both relations must already exist |
+| `await assert_entity(database, name, class_name?, description?)` | `AssertResult` | Resolves by name; a new or classless entity gets a judged class (`EVERYTHING` under `"none"`) |
+| `await assert_fact(database, head, relation, tail, name?, description?)` | `AssertResult` | Operands resolved or created; an existing triple dedupes with new evidence; non-conforming domain/range widens |
+| `await assert_entity_property(database, entity, property, value, literal_type?)` | `AssertResult` | Equal values dedupe; a new property's placement is judged over the entity's classes |
+| `await assert_fact_property(database, head, relation, tail, property, value, literal_type?)` | `AssertResult` | The fact is identified structurally by its triple, and created when missing |
+| `await ingest(database, payload)` | `IngestReport` | Runs a ten-arm payload of rows through the asserts in file order; rows may override `confidence`/`extraction_type`; failures collect into the report |
+
+Note: all eleven take the same trailing keyword options — `source_id?`, `confidence?`, `extraction_type?` (default `"assertion"`), `schema_creation_mode?` (`"llm"` default, requires `OPENAI_API_KEY`; or `"none"`), and `model?`.
+
 ### Extraction
 
 | Method | Returns | Description |
@@ -202,6 +222,11 @@ from blue_data_kb_source.types import (
 | `DataSearchResult` | `id`, `type` (`"ENTITY"`\|`"FACT"`), `name`, `description?`, `class_name?` (entities), `head_name?`/`relation_name?`/`tail_name?` (facts), `score?` |
 | `ValidationResult` | `supporting: list[dict]` (each `{fact, head, tail, relation}`), `counter: list[dict]` |
 | `EnrichmentResult` | `entity`, `relation`, `value`, `distance` |
+| `ResolutionCandidate` | `node_id`, `name`, `label`, `match_type` (`exact`\|`normalized`\|`alias`\|`search`\|`structural`), `score` |
+| `NodeRef` | `node_id`, `label`, `name`, `extraction_id` |
+| `AssertResult` | `node_id`, `created`, `match_type`, `extraction_id`, `created_nodes: list[NodeRef]`, `widened_relations: list[NodeRef]` |
+| `IngestFailure` | `arm`, `index`, `reason`, `candidates: list[ResolutionCandidate]` |
+| `IngestReport` | `written`, `deduped`, `skipped`, `failures`, `created: dict[label, count]`, `widened: list[str]` |
 
 > `answer()`'s structured-mode return value is a plain `list[dict]`, **not** a list of typed objects — each dict's keys are whatever the LLM agent chose (e.g. `{"entity", "relation", "value", "provenance"}`), not a fixed schema. `AnswerResult` is defined in `types.py` and re-exported, but no code path constructs it — treat it as vestigial.
 
@@ -223,6 +248,7 @@ All inherit from `KBError`.
 | `KnowledgeError` | Knowledge-layer write/query failures — an `entity_id` that doesn't exist or refers to the wrong node type, etc. |
 | `ExtractionError` | LLM extraction failures (e.g. `openai` not installed) |
 | `ProvenanceError` | Provenance-tracking failures |
+| `IngestionError` | An assert's resolve phase failed — ambiguity (candidates attached), a judge crash, a collapsed edge; nothing was written |
 
 Methods that take an id referencing an *existing* node (`class_id`, `entity_id`, `fact_id`, `source_id`, ...) validate the node exists and is the expected type before doing anything, raising with the offending id and expected type otherwise. Ids naming a *new* node being created (e.g. `class_id` passed to `declare_class` to force a specific id) aren't checked this way.
 

@@ -119,7 +119,8 @@ class SchemaManager:
             "Example: PERSON DEFINE_PROPERTY AGE"
         )
         _extracted_desc = (
-            "Links any schema element (entity, fact, or literal) to its originating extraction "
+            "Links an instance item (entity, fact, literal) or schema element (class, relation, "
+            "property) to its originating extraction "
             "record or source evidence. Example: Alice WORKED_AT IBM EXTRACTED_FROM Resume_Text_1. "
             "An element may have multiple EXTRACTED_FROM edges: as further evidence is found in "
             "new extractions or sources, additional edges accumulate rather than replacing prior ones."
@@ -141,6 +142,9 @@ class SchemaManager:
             (ENTITY,    EXTRACTED_FROM,  EXTRACTION, _extracted_desc),
             (LITERAL,   EXTRACTED_FROM,  EXTRACTION, _extracted_desc),
             (FACT,      EXTRACTED_FROM,  EXTRACTION, _extracted_desc),
+            (CLASS,     EXTRACTED_FROM,  EXTRACTION, _extracted_desc),
+            (RELATION,  EXTRACTED_FROM,  EXTRACTION, _extracted_desc),
+            (PROPERTY,  EXTRACTED_FROM,  EXTRACTION, _extracted_desc),
             (EXTRACTION, EXTRACTED_FROM, SOURCE,     "Links an extraction record to the source it was drawn from, "
                                                       "continuing the evidence chain from entity/fact/literal down to "
                                                       "origin. Example: Resume_Text_1 EXTRACTED_FROM Alices_Resume. "

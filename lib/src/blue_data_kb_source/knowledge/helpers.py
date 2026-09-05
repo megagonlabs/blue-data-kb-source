@@ -2,6 +2,7 @@
 
 Used by `KnowledgeManager` (compact data listing, `get_metadata`, `evidence_records`,
 the exact-name `find_entity`/`find_fact` lookups behind the extraction agent's tools),
+`IngestionManager` (resolution and dedupe reads),
 `QueryEngine` (the `get_metadata` LLM tool), and `ProvenanceTracker`
 (`recompute_fact_confidence`, which must run wherever an EXTRACTED_FROM edge is written)
 so the per-type logic lives in exactly one place.
@@ -91,6 +92,17 @@ def property_values(source: GraphSource, database: str, owner_id: str) -> list[d
         )
         results.append({"literal": literal, "property": prop_nbs[0]["node"] if prop_nbs else None})
     return results
+
+
+def find_literal(
+    source: GraphSource, database: str, owner_id: str, property_id: str
+) -> str | None:
+    """The owner's existing LITERAL for *property_id*, or None."""
+    for pv in property_values(source, database, owner_id):
+        prop = pv["property"]
+        if prop is not None and prop["id"] == property_id:
+            return pv["literal"]["id"]
+    return None
 
 
 def evidence_records(source: GraphSource, database: str, node_id: str) -> list[dict]:

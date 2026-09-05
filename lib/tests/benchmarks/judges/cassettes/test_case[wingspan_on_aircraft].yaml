@@ -1,0 +1,118 @@
+interactions:
+- request:
+    body: "{\"messages\":[{\"role\":\"system\",\"content\":\"You place a new property
+      on the right class in a knowledge-base schema. Given an entity's classes and
+      their ancestors, choose the class or classes that should declare the property:
+      the most specific ones where it genuinely belongs, not everything offered.\"},{\"role\":\"user\",\"content\":\"Property:
+      WINGSPAN\\n\\nCandidate classes:\\n- c-air: AIRCRAFT \u2014 A flying vehicle\\n-
+      c-veh: VEHICLE \u2014 A machine that transports people or goods\\n- c-mac: MACHINE
+      \u2014 A mechanical apparatus\"}],\"model\":\"gpt-4o\",\"tool_choice\":{\"type\":\"function\",\"function\":{\"name\":\"return_placement\"}},\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"return_placement\",\"description\":\"Return
+      the judged result via return_placement.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"class_ids\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"ids
+      of the candidate classes that should declare the property\"}},\"required\":[\"class_ids\"]}}}]}"
+    headers:
+      accept:
+      - application/json
+      accept-encoding:
+      - gzip, deflate
+      connection:
+      - keep-alive
+      content-length:
+      - '944'
+      content-type:
+      - application/json
+      host:
+      - api.openai.com
+      user-agent:
+      - AsyncOpenAI/Python 3.5.0
+      x-stainless-arch:
+      - arm64
+      x-stainless-async:
+      - async:asyncio
+      x-stainless-lang:
+      - python
+      x-stainless-os:
+      - MacOS
+      x-stainless-package-version:
+      - 3.5.0
+      x-stainless-read-timeout:
+      - '600'
+      x-stainless-retry-count:
+      - '0'
+      x-stainless-runtime:
+      - CPython
+      x-stainless-runtime-version:
+      - 3.10.20
+    method: POST
+    uri: https://api.openai.com/v1/chat/completions
+  response:
+    body:
+      string: !!binary |
+        H4sIAAAAAAAA/6rmUlBQykxRslJQSs5ILEnOLcjRdfXKT/b3SwIAAAD//4xTXW/bIBR9z6+oeI4n
+        O01ct29Tu0zTtK3S1uyhiRDB1w4bBgR4bRblvw9wYpw2k+oHC+65595zP/g0f/r7rVg82Lts+vN5
+        8eX6fTWnBo09Q65/AbVH1jsqHQ8sk6KDqQZiwUfNrori8jqbZXkAGlkC97Ra2WQqk0k6mSZpkaT5
+        gbiRjIJxHo/uenGxC38vUZTw7Mzp+GhpwBhSg7MdnZxRS+4tiBjDjCXConEEqRQWhFctWs4HgJWS
+        Y0o4j4m7bzc4xz45R5z/uL19eLqXi/VmO/+uZP31fv7RfPg8yNeF3qogqGoF7fszwHv7zYtkDhOk
+        CVwNttUCK04oNHBS08GT6Lr1iNePdktEuWsAZqVZoptHd00I00u02qMT4n507rwaNEZD1RrCX3eM
+        CCEt8cJDy1YHZN9Ph8taabk2L6ioYoKZDXb7YULRyFipOlleQkiO2pPBIheoURZb+RtCuiyfdfFQ
+        3LuIFgfMOoF8QLq6HJ8Jh0uwhIXB97tGCd1AGalx50hbMjkARoOiX4s5F7srnIn6LeEjQCko96Cw
+        0lAyelpwdNPgX+X/3PomB8HIgP7j3hq2DLQfRAkVaXm3XMhsjYUGu2nVoJVm4dWgSuGsyCbFbJan
+        KRrtR/8AAAD//wMAd+4feT4EAAA=
+    headers:
+      access-control-expose-headers:
+      - X-Request-ID
+      - CF-Ray
+      - CF-Ray
+      alt-svc:
+      - h3=":443"; ma=86400
+      cf-cache-status:
+      - DYNAMIC
+      cf-ray:
+      - a35045df1e485654-LAX
+      connection:
+      - keep-alive
+      content-encoding:
+      - gzip
+      content-type:
+      - application/json
+      date:
+      - Wed, 02 Sep 2026 23:25:16 GMT
+      openai-organization:
+      - megagonai
+      openai-processing-ms:
+      - '493'
+      openai-project:
+      - proj_puKemqU0b2ILXkxJnSwAMmtk
+      openai-version:
+      - '2020-10-01'
+      server:
+      - cloudflare
+      set-cookie:
+      - __cf_bm=sKNPdCsx9aCqyEzGRs1xH3bTLP2e6NjkDnsDro07QG8-1788391516.0162876-1.0.1.1-jRhja47B2YldjGTSRaQ1bfJ69ME_6B4yXELXe.tb7KpuOfzRlWndlYYLWLLLww3FZrNCGIMLNRGaL9digQBJfkN96EcGzl7TrcmlvMI26bEzn.9rotO2YcyekFogebYv;
+        HttpOnly; SameSite=None; Secure; Path=/; Domain=api.openai.com; Expires=Wed,
+        02 Sep 2026 23:55:16 GMT
+      strict-transport-security:
+      - max-age=31536000; includeSubDomains; preload
+      transfer-encoding:
+      - chunked
+      x-content-type-options:
+      - nosniff
+      x-openai-proxy-wasm:
+      - v0.1
+      x-ratelimit-limit-requests:
+      - '10000'
+      x-ratelimit-limit-tokens:
+      - '30000000'
+      x-ratelimit-remaining-requests:
+      - '9999'
+      x-ratelimit-remaining-tokens:
+      - '29999887'
+      x-ratelimit-reset-requests:
+      - 6ms
+      x-ratelimit-reset-tokens:
+      - 0s
+      x-request-id:
+      - req_1f41478e55d84503a411c87d2dda32ef
+    status:
+      code: 200
+      message: OK
+version: 1

@@ -1,0 +1,11 @@
+id: physician_reuses_doctor
+judge: class_name
+description: Pure synonym with zero lexical overlap; only meaning links them.
+inputs:
+  operand_name: "a physician"
+  triple_text: "Dr_Lee TREATED Bob"
+  existing_classes:
+    - {name: DOCTOR, description: "A medical practitioner"}
+    - {name: HOSPITAL, description: "A medical institution"}
+expected:
+  reuse: DOCTOR

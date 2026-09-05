@@ -1,0 +1,13 @@
+id: tail_number_distractor
+judge: placement
+description: >
+  REGISTERED_ASSET is a plausible-sounding distractor (tail numbers are
+  registry identifiers), but the property is aircraft-specific.
+inputs:
+  classes:
+    - {id: c-air, name: AIRCRAFT, description: "A flying vehicle"}
+    - {id: c-veh, name: VEHICLE, description: "A machine that transports people or goods"}
+    - {id: c-reg, name: REGISTERED_ASSET, description: "An asset recorded in an official registry"}
+  property_name: TAIL_NUMBER
+expected:
+  placed_on: [[AIRCRAFT]]

@@ -1,0 +1,12 @@
+id: name_on_person
+judge: placement
+description: >
+  NAME belongs at the most general level offered: every PERSON has one, not
+  just employees.
+inputs:
+  classes:
+    - {id: c-emp, name: EMPLOYEE, description: "A person employed by an organization"}
+    - {id: c-per, name: PERSON, description: "A human individual"}
+  property_name: NAME
+expected:
+  placed_on: [[PERSON]]

@@ -34,14 +34,18 @@ from blue_data_kb_source._constants import (
     TAIL,
 )
 from blue_data_kb_source.extraction.engine import ExtractionEngine
+from blue_data_kb_source.ingestion.manager import IngestionManager
 from blue_data_kb_source.knowledge.manager import KnowledgeManager
 from blue_data_kb_source.notification.notifier import ChangeNotifier
 from blue_data_kb_source.provenance.tracker import ProvenanceTracker
+from blue_data_kb_source.resolution.resolver import NodeResolver
 from blue_data_kb_source.schema.manager import SchemaManager
 from blue_data_kb_source.search.indexer import KBSearchIndexer
 from blue_data_kb_source.types import (
+    AssertResult,
     DataSearchResult,
     EnrichmentResult,
+    IngestReport,
     KBError,
     SchemaSearchResult,
     ValidationResult,
@@ -190,6 +194,10 @@ class KBSource(GraphSource, ABC):
         )
         self._extraction = ExtractionEngine(
             self, self._schema, self._knowledge, self._provenance, self._search_indexer
+        )
+        self._resolver = NodeResolver(self, self._search_indexer)
+        self._ingestion = IngestionManager(
+            self, self._schema, self._knowledge, self._provenance, self._resolver
         )
 
     # ------------------------------------------------------------------ #
@@ -786,6 +794,222 @@ class KBSource(GraphSource, ABC):
     ) -> str:
         return await self._knowledge.add_fact_property_value_extraction(
             database, fact_id, property_id, text, source_id, confidence, extraction_type
+        )
+
+    # ------------------------------------------------------------------ #
+    # Ingest operations -> IngestionManager                                #
+    # ------------------------------------------------------------------ #
+
+    async def assert_class(
+        self,
+        database: str,
+        name: str,
+        description: str | None = None,
+        *,
+        source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: Literal["text_span", "external_record", "assertion"] = "assertion",
+        schema_creation_mode: Literal["llm", "none"] = "llm",
+        model: str = "gpt-4o",
+    ) -> AssertResult:
+        return await self._ingestion.assert_class(
+            database, name, description,
+            source_id=source_id, confidence=confidence, extraction_type=extraction_type,
+            schema_creation_mode=schema_creation_mode, model=model,
+        )
+
+    async def assert_relation_type(
+        self,
+        database: str,
+        name: str,
+        domain: str | list[str],
+        range: str | list[str],
+        description: str | None = None,
+        is_symmetric: bool = False,
+        *,
+        source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: Literal["text_span", "external_record", "assertion"] = "assertion",
+        schema_creation_mode: Literal["llm", "none"] = "llm",
+        model: str = "gpt-4o",
+    ) -> AssertResult:
+        return await self._ingestion.assert_relation_type(
+            database, name, domain, range, description, is_symmetric,
+            source_id=source_id, confidence=confidence, extraction_type=extraction_type,
+            schema_creation_mode=schema_creation_mode, model=model,
+        )
+
+    async def assert_class_property(
+        self,
+        database: str,
+        name: str,
+        class_name: str,
+        description: str | None = None,
+        *,
+        source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: Literal["text_span", "external_record", "assertion"] = "assertion",
+        schema_creation_mode: Literal["llm", "none"] = "llm",
+        model: str = "gpt-4o",
+    ) -> AssertResult:
+        return await self._ingestion.assert_class_property(
+            database, name, class_name, description,
+            source_id=source_id, confidence=confidence, extraction_type=extraction_type,
+            schema_creation_mode=schema_creation_mode, model=model,
+        )
+
+    async def assert_relation_property(
+        self,
+        database: str,
+        name: str,
+        relation_name: str,
+        description: str | None = None,
+        *,
+        source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: Literal["text_span", "external_record", "assertion"] = "assertion",
+        schema_creation_mode: Literal["llm", "none"] = "llm",
+        model: str = "gpt-4o",
+    ) -> AssertResult:
+        return await self._ingestion.assert_relation_property(
+            database, name, relation_name, description,
+            source_id=source_id, confidence=confidence, extraction_type=extraction_type,
+            schema_creation_mode=schema_creation_mode, model=model,
+        )
+
+    async def assert_subclass(
+        self,
+        database: str,
+        child: str,
+        parent: str,
+        *,
+        source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: Literal["text_span", "external_record", "assertion"] = "assertion",
+        schema_creation_mode: Literal["llm", "none"] = "llm",
+        model: str = "gpt-4o",
+    ) -> AssertResult:
+        return await self._ingestion.assert_subclass(
+            database, child, parent,
+            source_id=source_id, confidence=confidence, extraction_type=extraction_type,
+            schema_creation_mode=schema_creation_mode, model=model,
+        )
+
+    async def assert_subrelation(
+        self,
+        database: str,
+        child: str,
+        parent: str,
+        *,
+        source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: Literal["text_span", "external_record", "assertion"] = "assertion",
+        schema_creation_mode: Literal["llm", "none"] = "llm",
+        model: str = "gpt-4o",
+    ) -> AssertResult:
+        return await self._ingestion.assert_subrelation(
+            database, child, parent,
+            source_id=source_id, confidence=confidence, extraction_type=extraction_type,
+            schema_creation_mode=schema_creation_mode, model=model,
+        )
+
+    async def assert_entity(
+        self,
+        database: str,
+        name: str,
+        class_name: str | None = None,
+        description: str | None = None,
+        *,
+        source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: Literal["text_span", "external_record", "assertion"] = "assertion",
+        schema_creation_mode: Literal["llm", "none"] = "llm",
+        model: str = "gpt-4o",
+    ) -> AssertResult:
+        return await self._ingestion.assert_entity(
+            database, name, class_name, description,
+            source_id=source_id, confidence=confidence, extraction_type=extraction_type,
+            schema_creation_mode=schema_creation_mode, model=model,
+        )
+
+    async def assert_fact(
+        self,
+        database: str,
+        head: str,
+        relation: str,
+        tail: str,
+        name: str | None = None,
+        description: str | None = None,
+        *,
+        source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: Literal["text_span", "external_record", "assertion"] = "assertion",
+        schema_creation_mode: Literal["llm", "none"] = "llm",
+        model: str = "gpt-4o",
+    ) -> AssertResult:
+        return await self._ingestion.assert_fact(
+            database, head, relation, tail, name, description,
+            source_id=source_id, confidence=confidence, extraction_type=extraction_type,
+            schema_creation_mode=schema_creation_mode, model=model,
+        )
+
+    async def assert_entity_property(
+        self,
+        database: str,
+        entity: str,
+        property: str,
+        value: str | int | float | bool,
+        literal_type: str | None = None,
+        *,
+        source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: Literal["text_span", "external_record", "assertion"] = "assertion",
+        schema_creation_mode: Literal["llm", "none"] = "llm",
+        model: str = "gpt-4o",
+    ) -> AssertResult:
+        return await self._ingestion.assert_entity_property(
+            database, entity, property, value, literal_type,
+            source_id=source_id, confidence=confidence, extraction_type=extraction_type,
+            schema_creation_mode=schema_creation_mode, model=model,
+        )
+
+    async def assert_fact_property(
+        self,
+        database: str,
+        head: str,
+        relation: str,
+        tail: str,
+        property: str,
+        value: str | int | float | bool,
+        literal_type: str | None = None,
+        *,
+        source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: Literal["text_span", "external_record", "assertion"] = "assertion",
+        schema_creation_mode: Literal["llm", "none"] = "llm",
+        model: str = "gpt-4o",
+    ) -> AssertResult:
+        return await self._ingestion.assert_fact_property(
+            database, head, relation, tail, property, value, literal_type,
+            source_id=source_id, confidence=confidence, extraction_type=extraction_type,
+            schema_creation_mode=schema_creation_mode, model=model,
+        )
+
+    async def ingest(
+        self,
+        database: str,
+        payload: dict,
+        *,
+        source_id: str | None = None,
+        confidence: float | None = None,
+        extraction_type: Literal["text_span", "external_record", "assertion"] = "assertion",
+        schema_creation_mode: Literal["llm", "none"] = "llm",
+        model: str = "gpt-4o",
+    ) -> IngestReport:
+        return await self._ingestion.ingest(
+            database, payload,
+            source_id=source_id, confidence=confidence, extraction_type=extraction_type,
+            schema_creation_mode=schema_creation_mode, model=model,
         )
 
     async def update_source(

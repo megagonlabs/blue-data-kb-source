@@ -184,6 +184,22 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `add_change_hook(database, fn)` | `None` | Register a hook to be called on every instance write to `database` |
 | `remove_change_hook(database, fn)` | `None` | Deregister a hook (no-op if not found) |
 
+#### Ingest operations (delegate to `IngestionManager`)
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `assert_class(database, name, description?)` | `AssertResult` | Ingest path: reuse a class when one resolves, create it otherwise (trailing options shared by all `assert_*` — see the `IngestionManager` section) |
+| `assert_relation_type(database, name, domain, range, description?, is_symmetric?)` | `AssertResult` | Missing domain/range classes created; an existing relation widened, not rejected |
+| `assert_class_property(database, name, class_name, description?)` | `AssertResult` | Owning class created when missing |
+| `assert_relation_property(database, name, relation_name, description?)` | `AssertResult` | Relation must already exist |
+| `assert_subclass(database, child, parent)` | `AssertResult` | Missing classes created; edge idempotent |
+| `assert_subrelation(database, child, parent)` | `AssertResult` | Both relations must already exist |
+| `assert_entity(database, name, class_name?, description?)` | `AssertResult` | Resolves by name; new or classless entities get a judged class (`EVERYTHING` under `"none"`) |
+| `assert_fact(database, head, relation, tail, name?, description?)` | `AssertResult` | Operands resolved or created; existing triples dedupe with new evidence; non-conformance widens |
+| `assert_entity_property(database, entity, property, value, literal_type?)` | `AssertResult` | Equal values dedupe; new-property placement judged |
+| `assert_fact_property(database, head, relation, tail, property, value, literal_type?)` | `AssertResult` | Fact identified structurally by its triple; created when missing |
+| `ingest(database, payload)` | `IngestReport` | Ten-arm payload through the asserts in file order; per-row failures collect into the report |
+
 #### Extraction (delegates to `ExtractionEngine`)
 
 | Method | Returns | Description |
@@ -521,6 +537,80 @@ All events also carry `type`, `database`, and `id`. Schema events (`class_declar
 
 ---
 
+## NodeResolver
+
+Label-scoped name resolution for the ingest path: answers "does something that may *mean* this name exist?", unlike the exact `find_*` lookups, which answer "does exactly this name exist?" and stay frozen. Returns ranked candidates and never picks a winner — callers own the pick-or-raise policy.
+
+### Constructor
+
+```python
+NodeResolver(source, search_indexer=None)
+```
+
+### Methods
+
+#### `resolve_class(database, name, k=5)` / `resolve_relation(database, name, k=5)` / `resolve_property(database, name, k=5)`
+
+Return up to `k` ranked `ResolutionCandidate`s for one label: exact name matches first, then normalized matches (equal after casefold, whitespace collapse, punctuation strip, NFKC + accent fold — deliberately no legal-suffix dropping), then search hits via the database's index when one is configured (semantic when available, else keyword; only semantic hits carry scores), falling back to an unranked name/description substring scan. A node is reported once, under its strongest match.
+
+#### `resolve_entity(database, name, class_id=None, k=5)`
+
+Same tiers over ENTITY nodes. `class_id` is an optional filter (applied before the `k` cap) restricting candidates to instances of that class — a convenience for direct callers; the assert path does not use it, since class expectations act as a confidence signal there, never a search filter.
+
+---
+
+## IngestionManager
+
+The ingest path: resolve-or-create over operands given by name. Every assert runs in two phases — phase 1 resolves all operands read-only and runs any needed judges, so any failure (ambiguity, a judge crash, a missing API key) raises before anything is written; phase 2 writes through the existing `declare_*`/`add_*`/`attach_*` operations, so change notification and search indexing fire exactly as for direct writes.
+
+### Constructor
+
+```python
+IngestionManager(source, schema_manager, knowledge_manager, provenance, resolver)
+```
+
+### Resolution policy
+
+One identity-certain candidate (`exact`, `alias`, `structural`) auto-resolves; two or more raise `IngestionError` with the candidates attached. With none, a single identity-uncertain candidate (`normalized`, `search`) auto-resolves — for entities, only when its class closure does not conflict with an expected class — and two or more raise. Judges run under `schema_creation_mode="llm"` (the default): class naming for untyped entities, property placement over an entity's classes and ancestors, and description generation for created elements. Under `"none"` no judges run: descriptions stay empty, untyped entities attach to the `EVERYTHING` catch-all class, and new properties land on the entity's direct classes. Every created node carries an EXTRACTION recording the serialized assertion (e.g. `"Alice WORKED_AT IBM"`), with the caller's `source_id`/`confidence`/`extraction_type` applied.
+
+### Methods
+
+All eleven take trailing `source_id=None, confidence=None, extraction_type="assertion", schema_creation_mode="llm", model="gpt-4o"` keyword options, elided below. `AssertResult` reports the subject (`node_id`, `created`, `match_type`, `extraction_id`) plus the full cascade (`created_nodes`) and any `widened_relations`.
+
+#### `assert_class(database, name, description=None)`
+
+Reuses a class when one resolves; creates it otherwise (judge-generated description when omitted).
+
+#### `assert_relation_type(database, name, domain, range, description=None, is_symmetric=False)`
+
+Resolves the relation and every domain/range class, creating missing classes. An existing relation is widened (`attach_relation_domain`/`attach_relation_range`) to cover new domain/range names instead of being rejected; `is_symmetric` applies only on creation.
+
+#### `assert_class_property(database, name, class_name, description=None)` / `assert_relation_property(database, name, relation_name, description=None)`
+
+Owner-scoped: an exact-named property already on the owner is reused. A missing class owner is created; a missing relation owner raises `IngestionError`, since a relation cannot be created without domain and range.
+
+#### `assert_subclass(database, child, parent)` / `assert_subrelation(database, child, parent)`
+
+Wire `IS_SUBCLASS_OF`, idempotently. Missing classes are created; missing relations raise. A child and parent resolving to the same node raise rather than writing a self-loop. `match_type` is always `None` for these two; `created` describes the edge.
+
+#### `assert_entity(database, name, class_name=None, description=None)`
+
+Resolves by name. A certain match with a class mismatch attaches a second `IS_INSTANCE_OF` edge (multi-class, no hierarchy inferred); an uncertain match with a class conflict raises. New or classless entities get a class via judge or `EVERYTHING`.
+
+#### `assert_fact(database, head, relation, tail, name=None, description=None)`
+
+Resolves or creates all three operands (a fresh relation takes its domain/range from the operands' classes). An existing `(head, relation, tail)` triple dedupes structurally: a new EXTRACTION is attached and the fact's derived confidence recomputed. A non-conforming existing relation is widened via `is_fact_allowed`'s verdict.
+
+#### `assert_entity_property(database, entity, property, value, literal_type=None)` / `assert_fact_property(database, head, relation, tail, property, value, literal_type=None)`
+
+Assert the owner first (entity by name; fact structurally by its triple, created when missing), then the property (inherited properties found through the class closure are reused), then the value: an equal value on the same owner/property dedupes structurally, a different value creates a second literal.
+
+#### `ingest(database, payload)`
+
+Runs a ten-arm payload (`classes`, `relations`, `subclasses`, `subrelations`, `class_properties`, `relation_properties`, `entities`, `facts`, `entity_properties`, `fact_properties`) through the per-item asserts in the payload's own order. Rows are assert kwargs and may override `confidence`/`extraction_type`; an unknown arm raises before any row runs; per-row failures (`KBError`s with candidates, malformed-row `TypeError`s) collect into the `IngestReport` (`written`/`deduped`/`skipped`/`failures`/`created`/`widened`) while later rows keep running.
+
+---
+
 ## KBSearchIndexer
 
 Maintains a keyword (BM25) or embedding-based (semantic) search index over schema elements and instance data. Constructed only when the parent `KBSource` is created with `properties["search"]["mode"]` in `("bm25", "semantic")` (or a live `vector_source` given directly); otherwise `KBSource.search_schema`/`search_data` fall back to `SchemaManager.find_schema`/`KnowledgeManager.find_data`.
@@ -572,8 +662,8 @@ Rebuilds the entire index for a database from scratch by iterating every CLASS, 
 
 Bridges free text and the structured knowledge base using an LLM agent loop. Unlike an earlier
 revision of this engine, it never declares schema — its tool set is fixed (no `schema_discovery_mode`-
-style conditional tool filtering) and contains no `declare_*` tool at all; growing the schema is
-`SchemaExpansionEngine`'s job exclusively (see below). A mention in the text with no matching
+style conditional tool filtering) and contains no `declare_*` tool at all; growing the schema from
+the given text is `SchemaExpansionEngine`'s job (see below). A mention in the text with no matching
 CLASS/RELATION/PROPERTY is simply skipped.
 
 ### Constructor
@@ -614,7 +704,7 @@ currently stands. Called directly by `ExtractionEngine`'s consumer — `KBSource
    - Return tool results to the LLM
 5. Exit when the LLM returns without further tool calls, or `max_turns` is reached
 
-**Where schema growth fits in:** `KBSource.import_text` (not `ExtractionEngine` itself) owns the two-phase orchestration — with `expand_schema=True` (the default), it calls `SchemaManager.expand_schema(...)` first, using `text`/`queries` (filtered by `schema_expansion_target`) as that call's grounding text, before calling `ExtractionEngine.import_text` above. Pass `expand_schema=False` to skip straight to extraction against whatever schema already exists.
+**Where the schema expansion pass fits in:** `KBSource.import_text` (not `ExtractionEngine` itself) owns the two-phase orchestration — with `expand_schema=True` (the default), it calls `SchemaManager.expand_schema(...)` first, using `text`/`queries` (filtered by `schema_expansion_target`) as that call's grounding text, before calling `ExtractionEngine.import_text` above. Pass `expand_schema=False` to skip straight to extraction against whatever schema already exists.
 
 ---
 
@@ -622,8 +712,8 @@ currently stands. Called directly by `ExtractionEngine`'s consumer — `KBSource
 
 Grows the schema — declares `CLASS`/`RELATION`/`PROPERTY` elements grounded by a text passage — using
 an LLM agent loop that calls back into `SchemaManager`. Never creates `ENTITY`/`FACT`/`LITERAL` nodes;
-that's `ExtractionEngine`'s job exclusively (above). Owned by `SchemaManager`, not exposed directly —
-callers reach it only through `SchemaManager.expand_schema`/`KBSource.expand_schema`.
+populating them from the given text is `ExtractionEngine`'s job (above). Owned by `SchemaManager`, not
+exposed directly — callers reach it only through `SchemaManager.expand_schema`/`KBSource.expand_schema`.
 
 ### Constructor
 

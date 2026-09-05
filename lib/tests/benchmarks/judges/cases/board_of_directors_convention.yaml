@@ -1,0 +1,13 @@
+id: board_of_directors_convention
+judge: class_name
+description: >
+  Multiword new name: tests the naming convention (uppercase, underscores)
+  on an operand with spaces and a preposition.
+inputs:
+  operand_name: "board of directors"
+  triple_text: "Board_of_Directors GOVERNS Initech"
+  existing_classes:
+    - {name: PERSON, description: "A human individual"}
+    - {name: COMPANY, description: "A business organization"}
+expected:
+  new: true
