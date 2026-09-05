@@ -70,6 +70,81 @@ async def test_add_extraction_no_source_edge_when_source_id_omitted(kb):
 
 
 # ------------------------------------------------------------------ #
+# confidence / extraction_type                                          #
+# ------------------------------------------------------------------ #
+
+async def test_add_extraction_stores_confidence(kb):
+    extraction_id = await kb.add_extraction("test", text="Alice joined IBM.", confidence=0.9)
+    node = kb.get_node("test", extraction_id)
+    assert node["properties"]["confidence"] == 0.9
+
+
+async def test_add_extraction_confidence_defaults_to_none(kb):
+    extraction_id = await kb.add_extraction("test", text="Alice joined IBM.")
+    node = kb.get_node("test", extraction_id)
+    assert node["properties"]["confidence"] is None
+
+
+async def test_add_extraction_stores_extraction_type(kb):
+    extraction_id = await kb.add_extraction(
+        "test", text="Q937: employer IBM", extraction_type="external_record"
+    )
+    node = kb.get_node("test", extraction_id)
+    assert node["properties"]["extraction_type"] == "external_record"
+
+
+async def test_add_extraction_extraction_type_defaults_to_text_span(kb):
+    extraction_id = await kb.add_extraction("test", text="Alice joined IBM.")
+    node = kb.get_node("test", extraction_id)
+    assert node["properties"]["extraction_type"] == "text_span"
+
+
+async def test_extraction_type_is_not_validated_at_runtime(kb):
+    # The Literal is advisory, as with literal_type: `inference` is reserved in the
+    # data model but not yet a member, and nothing rejects it at write time.
+    extraction_id = await kb.add_extraction(
+        "test",
+        text="Derived from two other facts.",
+        extraction_type="inference",  # type: ignore[arg-type]
+    )
+    node = kb.get_node("test", extraction_id)
+    assert node["properties"]["extraction_type"] == "inference"
+
+
+async def test_add_extraction_accepts_confidence_bounds(kb):
+    low_id  = await kb.add_extraction("test", text="Low.",  confidence=0.0)
+    high_id = await kb.add_extraction("test", text="High.", confidence=1.0)
+    assert kb.get_node("test", low_id)["properties"]["confidence"] == 0.0
+    assert kb.get_node("test", high_id)["properties"]["confidence"] == 1.0
+
+
+async def test_add_extraction_rejects_confidence_out_of_range(kb):
+    with pytest.raises(ProvenanceError, match=r"\[0\.0, 1\.0\]"):
+        await kb.add_extraction("test", text="Too high.", confidence=1.5)
+    with pytest.raises(ProvenanceError, match=r"\[0\.0, 1\.0\]"):
+        await kb.add_extraction("test", text="Too low.", confidence=-0.1)
+
+
+async def test_add_extraction_with_element_id_stamps_confidence_and_type(kb):
+    entity_id = await kb.add_entity("test", "Alice")
+    extraction_id = await kb.add_extraction(
+        "test", text="Alice joined IBM.", element_id=entity_id, confidence=0.7,
+        extraction_type="assertion",
+    )
+    node = kb.get_node("test", extraction_id)
+    assert node["properties"]["confidence"] == 0.7
+    assert node["properties"]["extraction_type"] == "assertion"
+
+
+async def test_add_entity_with_text_stamps_default_confidence_and_type(kb):
+    entity_id = await kb.add_entity("test", "Alice", text="Alice is a software engineer.")
+    nbs = kb.get_neighbors("test", entity_id, edge_type="EXTRACTED_FROM", direction="out")
+    props = nbs[0]["node"]["properties"]
+    assert props["confidence"] is None
+    assert props["extraction_type"] == "text_span"
+
+
+# ------------------------------------------------------------------ #
 # track (full provenance chain via add_entity text= argument)          #
 # ------------------------------------------------------------------ #
 

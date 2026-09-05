@@ -122,10 +122,10 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `add_entity(database, name, description?, entity_id?, class_id?, text?, source_id?)` | `str` | Create an ENTITY node; never idempotent — always creates a new node |
-| `add_fact(database, name?, description?, fact_id?, head_entity_id?, tail_entity_id?, relation_id?, text?, source_id?)` | `str` | Create a FACT node; `name` auto-synthesizes as `{head}_{relation}_{tail}` if omitted |
-| `add_entity_property_value(database, value, name?, description?, literal_type?, entity_id?, property_id?, text?, source_id?)` | `str` | Create a LITERAL and wire it to an entity |
-| `add_fact_property_value(database, value, name?, description?, literal_type?, fact_id?, property_id?, text?, source_id?)` | `str` | Create a LITERAL and wire it to a fact |
+| `add_entity(database, name, description?, entity_id?, class_id?, text?, source_id?, confidence?, extraction_type?)` | `str` | Create an ENTITY node; never idempotent — always creates a new node |
+| `add_fact(database, name?, description?, fact_id?, head_entity_id?, tail_entity_id?, relation_id?, text?, source_id?, confidence?, extraction_type?)` | `str` | Create a FACT node; `name` auto-synthesizes as `{head}_{relation}_{tail}` if omitted |
+| `add_entity_property_value(database, value, name?, description?, literal_type?, entity_id?, property_id?, text?, source_id?, confidence?, extraction_type?)` | `str` | Create a LITERAL and wire it to an entity |
+| `add_fact_property_value(database, value, name?, description?, literal_type?, fact_id?, property_id?, text?, source_id?, confidence?, extraction_type?)` | `str` | Create a LITERAL and wire it to a fact |
 | `update_entity(database, entity_id, name?, description?)` | `None` | Update an ENTITY node |
 | `update_fact(database, fact_id, name?, description?)` | `None` | Update a FACT node |
 | `update_entity_property_value(database, entity_id, property_id, value?, name?, description?)` | `None` | Update a LITERAL owned by an entity |
@@ -134,15 +134,15 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `delete_fact(database, fact_id)` | `None` | Delete a fact |
 | `delete_entity_property_value(database, entity_id, property_id)` | `None` | Delete a LITERAL owned by an entity |
 | `delete_fact_property_value(database, fact_id, property_id)` | `None` | Delete a LITERAL owned by a fact |
-| `add_entity_extraction(database, entity_id, text, source_id?)` | `str` | Attach *additional* evidence to an existing entity — doesn't touch name/description, doesn't create a duplicate; multiple calls accumulate multiple EXTRACTED_FROM edges |
-| `add_fact_extraction(database, fact_id, text, source_id?)` | `str` | Same, for an existing fact |
-| `add_entity_property_value_extraction(database, entity_id, property_id, text, source_id?)` | `str` | Same, for an existing entity's property value |
-| `add_fact_property_value_extraction(database, fact_id, property_id, text, source_id?)` | `str` | Same, for an existing fact's property value |
+| `add_entity_extraction(database, entity_id, text, source_id?, confidence?, extraction_type?)` | `str` | Attach *additional* evidence to an existing entity — doesn't touch name/description, doesn't create a duplicate; multiple calls accumulate multiple EXTRACTED_FROM edges |
+| `add_fact_extraction(database, fact_id, text, source_id?, confidence?, extraction_type?)` | `str` | Same, for an existing fact |
+| `add_entity_property_value_extraction(database, entity_id, property_id, text, source_id?, confidence?, extraction_type?)` | `str` | Same, for an existing entity's property value |
+| `add_fact_property_value_extraction(database, fact_id, property_id, text, source_id?, confidence?, extraction_type?)` | `str` | Same, for an existing fact's property value |
 | `attach_entity_class(database, entity_id, class_id)` | `None` | Attach an existing CLASS to an existing ENTITY via IS_INSTANCE_OF; deduplicated, and add-only — no detach counterpart. Supplies an entity's *additional* class; `add_entity(class_id=…)` wires the first at creation |
 | `fetch_database_data(database, include_provenance?, compact?, detailed?)` | `dict \| list` | Fetch all instance data in the database |
 | `export_database_data(database, include_provenance?)` | `dict` | Portable, `ref`-keyed JSON export of entities/facts/property values (schema not included — export/import schema separately first) |
 | `import_database_data(database, data)` | `None` | Import from `export_database_data`'s format; resolves CLASS/RELATION/PROPERTY **by name** against the target's current schema. **Not idempotent** — re-importing the same export duplicates every entity/fact/property value, unlike schema import |
-| `get_metadata(database, node_id)` | `dict` | Created/modified timestamps, extraction text, and source name/original date for one entity, fact, or property-value id; raises `KnowledgeError` for any other node type |
+| `get_metadata(database, node_id)` | `dict` | Metadata for one entity, fact, or property-value id: created/modified timestamps, `confidence` (a FACT's derived score, `None` on the other two), and `evidence`, one record per EXTRACTION; raises `KnowledgeError` for any other node type |
 | `get_entity_classes(database, entity_id)` | `list[dict]` | CLASS nodes the entity is an instance of, via IS_INSTANCE_OF |
 | `get_fact_parts(database, fact_id)` | `dict` | The fact's first HEAD / RELATION / TAIL nodes, as `{"head": ..., "relation": ..., "tail": ...}` with `None` for unwired parts |
 | `get_property_values(database, owner_id)` | `list[dict]` | LITERAL values on an ENTITY or FACT with each value's PROPERTY, as `[{"literal": ..., "property": ...}]` |
@@ -172,9 +172,9 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `add_source(database, source, name?, description?, node_id?, original?)` | `str` | Create a SOURCE node; `original` is a caller-supplied date (e.g. a document's publication date), distinct from the node's own `created` timestamp |
 | `update_source(database, source_id, name?, description?, original?)` | `None` | Update a SOURCE node |
 | `delete_source(database, source_id)` | `None` | Delete a SOURCE node |
-| `add_extraction(database, text, name?, description?, node_id?, source_id?, element_id?)` | `str` | Create an EXTRACTION node; wires EXTRACTED_FROM to `source_id` if given; if `element_id` is also given, additionally wires EXTRACTED_FROM from that existing entity/fact/literal to the new extraction in the same call |
+| `add_extraction(database, text, name?, description?, node_id?, source_id?, confidence?, extraction_type?, element_id?)` | `str` | Create an EXTRACTION node; `source_id` wires EXTRACTED_FROM from it to that SOURCE, `element_id` wires EXTRACTED_FROM from that existing entity/fact/literal to it — each link independently, only when its id is given |
 
-`add_extracted_from` is **not** a public `KBSource` method — it exists only as a private `ProvenanceTracker` helper, invoked internally by `add_extraction` when `element_id` is given. Use `add_extraction(..., element_id=...)` instead of calling it directly.
+`add_extracted_from` is **not** a public `KBSource` method; it is a private `ProvenanceTracker` helper that `add_extraction(element_id=...)` and `attach_extraction` both call, and where a FACT's derived `confidence` is refreshed. To link an extraction to an item, pass `element_id` to `add_extraction` when creating it, or call `attach_extraction` for an extraction that already exists.
 | `attach_extraction(database, element_id, extraction_id)` | `None` | Wire EXTRACTED_FROM from an ENTITY / FACT / LITERAL to an EXTRACTION that already exists — for an extraction created up front by `add_extraction` without an `element_id`, or re-wired on snapshot restore. Deduplicated and add-only. Not a way to share evidence: each item keeps its own EXTRACTION node (`10-data-model.md` §2.3) |
 
 #### Change hook operations (delegate to `ChangeNotifier`)
@@ -317,11 +317,11 @@ Creates an ENTITY node.
 
 1. Create ENTITY node with `name`, `description`, optional `entity_id`
 2. If `class_id` provided: wire IS_INSTANCE_OF edge to the CLASS node
-3. If `text` provided: call `ProvenanceTracker.add_extraction(database, text, source_id=source_id, element_id=entity_id)`
+3. If `text` provided: call `ProvenanceTracker.add_extraction(database, text, source_id=source_id, element_id=entity_id, confidence=confidence, extraction_type=extraction_type)` — which, for a FACT, also refreshes the fact's derived `confidence`
 4. Call `ChangeNotifier.fire({"type": "entity_added", ...})`
 5. Return entity ID
 
-`add_fact`/`add_entity_property_value`/`add_fact_property_value` follow the same shape. Attaching more evidence to an entity/fact/literal that already exists (without recreating it) goes through `add_entity_extraction`/`add_fact_extraction`/`add_entity_property_value_extraction`/`add_fact_property_value_extraction` instead — each just calls `ProvenanceTracker.add_extraction(element_id=…)` again against the existing id, requiring the target to already exist.
+`add_fact`/`add_entity_property_value`/`add_fact_property_value` follow the same shape. On all four, `confidence` and `extraction_type` are recorded on the EXTRACTION that `text` creates, so passing `confidence` without `text` raises `KnowledgeError` rather than dropping the score silently. Attaching more evidence to an entity/fact/literal that already exists (without recreating it) goes through `add_entity_extraction`/`add_fact_extraction`/`add_entity_property_value_extraction`/`add_fact_property_value_extraction` instead — each just calls `ProvenanceTracker.add_extraction(element_id=…)` again against the existing id, requiring the target to already exist.
 
 #### `find_data(database, query, type_filter=None)`
 
@@ -421,14 +421,14 @@ Output (partial):
 | `get_entity_properties` | All property values attached to an entity |
 | `get_fact_properties` | All property values attached to a fact |
 | `get_neighbors` | BFS from an entity through facts up to a given depth |
-| `get_metadata` | Created/modified timestamps, extraction text, and source name/original date for one entity/fact/property value — only offered when `include_metadata=True` |
+| `get_metadata` | Created/modified timestamps, a FACT's derived confidence, and per-extraction evidence for one entity/fact/property value — only offered when `include_metadata=True` |
 | `return_result` | Terminal tool — delivers the structured payload and ends the loop |
 
 ---
 
 ## ProvenanceTracker
 
-Records the origin of each piece of knowledge by creating and wiring EXTRACTION and SOURCE nodes.
+Records the origin of each piece of knowledge by creating and wiring EXTRACTION and SOURCE nodes, and keeps a FACT's derived `confidence` current whenever an item-to-EXTRACTION edge is written.
 
 ### Constructor
 
@@ -439,7 +439,7 @@ ProvenanceTracker(source, notifier=None)
 **Parameters**
 
 - `source` — the parent `KBSource` instance; used for all Graph Store access
-- `notifier` — the `ChangeNotifier` instance; fires `extraction_attached`, the tracker's only event. The creating writes (`add_source`, `add_extraction`, `link_extraction`) stay silent, so a change-hook listener sees provenance only when an existing extraction is wired to an item
+- `notifier` — the `ChangeNotifier` instance; fires `extraction_attached`, the tracker's only event. The creating writes (`add_source`, `add_extraction`) stay silent, so a change-hook listener sees provenance only when an existing extraction is wired to an item
 
 ### Methods
 
@@ -455,13 +455,13 @@ Updates an existing SOURCE node's fields.
 
 Deletes a SOURCE node.
 
-#### `add_extraction(database, text, name=None, description=None, node_id=None, source_id=None, element_id=None)`
+#### `add_extraction(database, text, name=None, description=None, node_id=None, source_id=None, confidence=None, extraction_type="text_span", element_id=None)`
 
-Creates an EXTRACTION node for `text` and, optionally, links it in the same call — the create-and-link counterpart of `attach_extraction` below. Both links are independent and each is wired only when its id is given: `source_id` adds an EXTRACTED_FROM edge from the new EXTRACTION to that SOURCE; `element_id` adds an EXTRACTED_FROM edge from that existing entity/fact/literal to the new EXTRACTION. With neither, the node is created detached, for `attach_extraction` to wire later. Returns the EXTRACTION node ID. One node per call: `KnowledgeManager` routes every `text=` shortcut and the `add_*_extraction` family through it, so repeated calls for the same element accumulate EXTRACTED_FROM edges rather than replacing the earlier one, and an item can carry evidence from several sources at once.
+Creates an EXTRACTION node for `text` and, optionally, links it in the same call — the create-and-link counterpart of `attach_extraction` below. Both links are independent and each is wired only when its id is given: `source_id` adds an EXTRACTED_FROM edge from the new EXTRACTION to that SOURCE; `element_id` adds an EXTRACTED_FROM edge from that existing entity/fact/literal to the new EXTRACTION. With neither, the node is created detached, for `attach_extraction` to wire later. Returns the EXTRACTION node ID. `confidence` scores the assertion in `[0.0, 1.0]` (`None` = unstated, which is not the same as `0.0`) — a value outside the range raises `ProvenanceError`. `extraction_type` (`"text_span"` default \| `"external_record"` \| `"assertion"`) records the form of the evidence. When `element_id` names a FACT, its derived `confidence` is recomputed as part of the call. One node per call: `KnowledgeManager` routes every `text=` shortcut and the `add_*_extraction` family through it, so repeated calls for the same element accumulate EXTRACTED_FROM edges rather than replacing the earlier one, and an item can carry evidence from several sources at once.
 
 #### `attach_extraction(database, element_id, extraction_id)`
 
-Wires an `EXTRACTED_FROM` edge from an existing ENTITY, FACT, or LITERAL (`element_id`) to an existing EXTRACTION (`extraction_id`). Idempotent — calling it again with the same pair is a no-op, not a duplicate edge. Raises `ProvenanceError` if `element_id` isn't an ENTITY/FACT/LITERAL or `extraction_id` isn't an EXTRACTION. Exists so an extraction created up front — by `add_extraction` without an `element_id`, or rebuilt when a snapshot is restored — can be wired to its item afterwards; it does not pool evidence across items, since each item still gets its own EXTRACTION node.
+Wires an `EXTRACTED_FROM` edge from an existing ENTITY, FACT, or LITERAL (`element_id`) to an existing EXTRACTION (`extraction_id`). Idempotent — calling it again with the same pair is a no-op, not a duplicate edge. Raises `ProvenanceError` if `element_id` isn't an ENTITY/FACT/LITERAL or `extraction_id` isn't an EXTRACTION. Exists so an extraction created up front — by `add_extraction` without an `element_id`, or rebuilt when a snapshot is restored — can be wired to its item afterwards; it does not pool evidence across items, since each item still gets its own EXTRACTION node. When `element_id` names a FACT, its derived `confidence` is recomputed as part of the call: this method and `add_extraction(element_id=…)` both wire the edge through the private `add_extracted_from`, which calls `recompute_fact_confidence`, so a FACT's derived `confidence` refreshes no matter which path attached the evidence.
 
 ---
 
@@ -517,7 +517,7 @@ Calls all hooks registered for `event["database"]`, then all global hooks, in re
 | `entity_deleted` / `fact_deleted` | — (`id` only) |
 | `entity_property_deleted` / `fact_property_deleted` | — (`id` only) |
 
-All events also carry `type`, `database`, and `id`. Schema events (`class_declared` through `relation_subclass`, plus their `*_updated`/`*_deleted` counterparts) are fired by `SchemaManager`, not `KnowledgeManager` — `ChangeNotifier` is shared infrastructure used by both layers, not scoped to one. Schema declaration events fire only on first creation; idempotent repeats of `declare_*` don't re-fire. Note also: `ProvenanceTracker`'s methods (`add_source`, `add_extraction`, `link_extraction`, `update_source`, `delete_source`) fire **no** change events at all — no notifier is wired into it.
+All events also carry `type`, `database`, and `id`. Schema events (`class_declared` through `relation_subclass`, plus their `*_updated`/`*_deleted` counterparts) are fired by `SchemaManager`, not `KnowledgeManager` — `ChangeNotifier` is shared infrastructure used by both layers, not scoped to one. Schema declaration events fire only on first creation; idempotent repeats of `declare_*` don't re-fire. Note also: `ProvenanceTracker` fires only one event, `extraction_attached`, from `attach_extraction`; its other methods (`add_source`, `add_extraction`, `update_source`, `delete_source`) fire no change events at all.
 
 ---
 

@@ -170,7 +170,8 @@ _TOOLS: list[dict[str, Any]] = [
             "name": "get_metadata",
             "description": (
                 "Return metadata for a specific entity, fact, or property-value id: created/modified "
-                "timestamps, extraction text, linked source name, and the source's original date (if any). "
+                "timestamps, a fact's derived confidence, and per-extraction evidence records "
+                "(text, confidence, source, dates). "
                 "Call this for each entity, fact, or property value you cite in your final answer when "
                 "metadata has been requested."
             ),

@@ -59,14 +59,14 @@ await kb.attach_property("main", target_id=company, property_id=person_name)  # 
 
 ## Adding data, with provenance
 
-Register a source, then add entities and facts referencing it via `text`/`source_id` — this creates a per-item `EXTRACTION` node capturing the verbatim span, distinct from a document-level note.
+Register a source, then add entities and facts referencing it via `text`/`source_id` — this creates a per-item `EXTRACTION` node capturing the verbatim span, distinct from a document-level note. `confidence` (optional, `[0.0, 1.0]`) scores the assertion and is stored on that `EXTRACTION`; it requires `text`.
 
 ```python
 src = await kb.add_source("main", source="resume_alice", name="Alice's résumé", original="2020-01-15")
 
 alice = await kb.add_entity(
     "main", name="Alice", class_id=employee,
-    text="Alice is a software engineer.", source_id=src,
+    text="Alice is a software engineer.", source_id=src, confidence=0.9,
 )
 ibm = await kb.add_entity("main", name="IBM", class_id=company)
 
@@ -94,8 +94,10 @@ await kb.add_entity_extraction("main", entity_id=ibm, text="...also mentioned IB
 ```python
 meta = await kb.get_metadata("main", alice)
 # {"id": ..., "type": "ENTITY", "name": "Alice", "class_name": "EMPLOYEE",
-#  "created": "...", "modified": "...", "extraction": "Alice is a software engineer.",
-#  "source": "Alice's résumé", "source_original": "2020-01-15"}
+#  "created": "...", "modified": "...", "confidence": None,   # facts only; None here
+#  "evidence": [{"text": "Alice is a software engineer.", "confidence": 0.9,
+#                "created": "...", "source": "Alice's résumé",
+#                "source_original": "2020-01-15"}]}
 ```
 
 ---
@@ -245,7 +247,7 @@ text = await kb.answer("main", "Where did Alice work?", natural_language=True)
 
 ```python
 results, metadata = await kb.answer("main", "Where did Alice work?", include_metadata=True)
-# metadata: dict[node_id, {created, modified, extraction, source, source_original, ...}]
+# metadata: dict[node_id, {created, modified, confidence, evidence, ...}]
 ```
 
 The agent calls `get_metadata` for each entity/fact/property it cites; the engine harvests every such call into `metadata`, regardless of whether the agent's own structured answer references the id. With `natural_language=True` as well, `results` is prose with a provenance section appended after the main answer, and `metadata` is still the raw dict.

@@ -45,7 +45,7 @@ Command-line interface built with Click and Rich. Thin wrapper over the Python l
 
 1. Caller requests an instance operation (add entity, fact, or property value)
 2. Knowledge Manager creates the instance node and wires its typed schema edges (class membership, relation, property)
-3. If `text` is provided: Provenance Tracker creates an EXTRACTION node capturing the verbatim span, wires it to the instance and optionally to a SOURCE node
+3. If `text` is provided: Provenance Tracker creates an EXTRACTION node recording the assertion (`text`: a verbatim span for `text_span` evidence, otherwise the submitted statement) with its `extraction_type` and `confidence`, wires it to the instance and optionally to a SOURCE node
 4. Change Notifier fires all registered hooks for the database with an enriched event describing the change
 5. The new instance ID is returned to the caller
 
@@ -177,8 +177,9 @@ The Knowledge Layer populates the knowledge base with instance data and answers 
 **Responsibilities**
 
 - Create entity, fact, and literal nodes; wire their typed schema edges
+- Attach a further class to an existing entity (`attach_entity_class`); `add_entity(class_id=…)` wires the first class at creation. Deduplicated and add-only
 - Update or delete entity, fact, and literal nodes (`update_entity`/`update_fact`/`update_entity_property_value`/`update_fact_property_value`, `delete_entity`/`delete_fact`/`delete_entity_property_value`/`delete_fact_property_value`) — `delete_entity` takes a `cascade` flag that also deletes facts referencing the entity
-- Look up per-item metadata (`get_metadata`) — created/modified timestamps, extraction text, and source name/original date for a single entity, fact, or property value
+- Look up per-item metadata (`get_metadata`) — created/modified timestamps, a FACT's derived confidence, and per-extraction evidence for a single entity, fact, or property value
 - Export instance data to a portable, `ref`-keyed JSON representation and import it into any database whose schema already has the referenced classes/relations/properties declared (`export_database_data`/`import_database_data`) — data import is **not** idempotent: re-importing the same export creates duplicate entities/facts, unlike schema import
 - Delegate answer, validate, and enrich queries to the Query Engine
 - Delegate provenance creation to the Provenance Tracker
@@ -223,7 +224,7 @@ The LLM agent has access to the following read-only tools during each query:
 | `get_entity_properties` | Return all property values attached to an entity |
 | `get_fact_properties` | Return all property values attached to a fact |
 | `get_neighbors` | BFS from an entity through facts up to a given depth |
-| `get_metadata` | Return created/modified timestamps, extraction text, and source name/original date for one entity, fact, or property value — only offered when the caller passed `include_metadata=True` |
+| `get_metadata` | Return created/modified timestamps, a FACT's derived confidence, and per-extraction evidence for one entity, fact, or property value — only offered when the caller passed `include_metadata=True` |
 | `return_result` | Terminal tool — delivers the final structured payload and ends the loop |
 
 Every `get_metadata` call the agent makes is harvested into the `metadata` dict returned alongside the result when `include_metadata=True` — the engine doesn't wait for the agent to reference an id in `return_result`'s own payload.
@@ -242,19 +243,21 @@ Every `get_metadata` call the agent makes is harvested into the `metadata` dict 
 
 **Responsibilities**
 
-- Create EXTRACTION nodes capturing verbatim text spans
+- Create EXTRACTION nodes recording assertions: `text` (a verbatim span for `text_span` evidence, otherwise the submitted statement), `extraction_type`, and `confidence`
 - Wire EXTRACTED_FROM edges from instances to their EXTRACTION nodes
 - Wire EXTRACTION nodes to SOURCE nodes when a source is provided
 - Attach *additional* evidence to an entity/fact/property value that already exists, without touching its name/description or creating a duplicate (`add_entity_extraction`, `add_fact_extraction`, `add_entity_property_value_extraction`, `add_fact_property_value_extraction`) — each call adds one more EXTRACTED_FROM edge; an item can accumulate several as more sources are found, none of them replacing a prior one
+- Wire an existing EXTRACTION to an entity, fact, or property value (`attach_extraction`); deduplicated, add-only, and the tracker's only write that fires a change event (`extraction_attached`)
 - Create SOURCE nodes with a caller-supplied `original` date (`add_source`), and update or delete them (`update_source`/`delete_source`)
 
 **Provenance Flow**
 
 When an instance is created with a `text` argument:
 
-1. Create an EXTRACTION node with the verbatim text span
+1. Create an EXTRACTION node with the assertion `text`, its `extraction_type`, and `confidence` (`None` = unstated)
 2. If `source_id` is provided: wire an EXTRACTED_FROM edge from the EXTRACTION to the SOURCE
 3. Wire an EXTRACTED_FROM edge from the instance to the EXTRACTION
+4. If the instance is a FACT: recompute its derived `confidence` (the highest score among its extractions that state one). This runs wherever an item-to-EXTRACTION edge is written, so `attach_extraction` refreshes it too
 
 One EXTRACTION node is created per item, giving per-item granularity. Multiple items can point to the same SOURCE but have distinct EXTRACTION nodes even when drawn from the same passage.
 
@@ -277,18 +280,22 @@ Every event carries `type`, `database`, and `id`. Additional fields by type — 
 | `class_property_declared` | `name`, `description`, `class_id`, `class_name` |
 | `relation_property_declared` | `name`, `description`, `relation_id`, `relation_name` |
 | `class_subclass` / `relation_subclass` | `child_id`, `child_name`, `parent_id`, `parent_name` |
+| `property_attached` | `target_id`, `target_label` (`"CLASS"`\|`"RELATION"`), `property_id` |
+| `relation_domain_attached` / `relation_range_attached` | `relation_id`, `relation_name`, `class_id`, `class_name` |
 | `class_updated` / `relation_updated` / `property_updated` | `id` only |
 | `class_deleted` / `relation_deleted` / `property_deleted` | `id` only |
 | `entity_added` | `name`, `class_id`, `class_name` |
 | `fact_added` | `head_entity_id`, `head_entity_name`, `tail_entity_id`, `tail_entity_name`, `relation_id`, `relation_name` |
 | `entity_property_added` | `entity_id`, `entity_name`, `property_id`, `property_name`, `value` |
 | `fact_property_added` | `fact_id`, `property_id`, `property_name`, `value`, `head_entity_name`, `tail_entity_name`, `relation_name` |
+| `entity_class_attached` | `entity_id`, `entity_name`, `class_id`, `class_name` |
+| `extraction_attached` | `element_id`, `extraction_id` |
 | `entity_updated` / `fact_updated` | `id` only |
 | `entity_property_updated` / `fact_property_updated` | `id` only |
 | `entity_deleted` / `fact_deleted` | `id` only |
 | `entity_property_deleted` / `fact_property_deleted` | `id` only |
 
-Note the schema-event category above (`class_declared` through `relation_subclass`) is fired by the **Schema Manager**, not the Knowledge Manager — the Change Notifier itself is shared infrastructure, not scoped to one layer. `add_source`/`add_extraction`/`update_source`/`delete_source` on the Provenance Tracker fire **no** change events at all — there's no notifier wired into it.
+Note the schema-event category above (`class_declared` through `relation_range_attached`) is fired by the **Schema Manager**, not the Knowledge Manager — the Change Notifier itself is shared infrastructure, not scoped to one layer. On the Provenance Tracker, only `attach_extraction` fires an event (`extraction_attached`); `add_source`, `add_extraction`, `update_source`, and `delete_source` fire no change events at all.
 
 Hooks are scoped to a single database: a hook registered on database `"main"` does not fire for writes to any other database. There is also an internal *global* hook mechanism (firing across all databases) used exclusively to keep the Search Indexer in sync — it is not exposed on `KBSource`.
 

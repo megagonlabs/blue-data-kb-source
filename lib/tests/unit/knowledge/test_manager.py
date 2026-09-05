@@ -383,8 +383,260 @@ async def test_add_fact_property_value_extraction_raises_when_no_value_set(kb):
 
 
 # ------------------------------------------------------------------ #
+# confidence / extraction_type threading                               #
+# ------------------------------------------------------------------ #
+
+def _extraction_props(kb, node_id: str) -> dict:
+    """Properties of the single EXTRACTION attached to node_id."""
+    nbs = kb.get_neighbors("test", node_id, edge_type="EXTRACTED_FROM", direction="out")
+    assert len(nbs) == 1
+    return nbs[0]["node"]["properties"]
+
+
+async def test_add_entity_threads_confidence_and_type(kb):
+    entity_id = await kb.add_entity(
+        "test", "Alice", text="Alice joined IBM.", confidence=0.9, extraction_type="assertion"
+    )
+    props = _extraction_props(kb, entity_id)
+    assert props["confidence"] == 0.9
+    assert props["extraction_type"] == "assertion"
+
+
+async def test_add_fact_threads_confidence_and_type(kb):
+    alice = await kb.add_entity("test", "Alice")
+    ibm   = await kb.add_entity("test", "IBM")
+    fact_id = await kb.add_fact(
+        "test", head_entity_id=alice, tail_entity_id=ibm,
+        text="Alice joined IBM.", confidence=0.8, extraction_type="external_record",
+    )
+    props = _extraction_props(kb, fact_id)
+    assert props["confidence"] == 0.8
+    assert props["extraction_type"] == "external_record"
+
+
+async def test_add_entity_property_value_threads_confidence_and_type(kb):
+    entity_id = await kb.add_entity("test", "Alice")
+    lit_id    = await kb.add_entity_property_value(
+        "test", "28", entity_id=entity_id, text="Alice is 28.",
+        confidence=0.6, extraction_type="external_record",
+    )
+    props = _extraction_props(kb, lit_id)
+    assert props["confidence"] == 0.6
+    assert props["extraction_type"] == "external_record"
+
+
+async def test_add_fact_property_value_threads_confidence_and_type(kb):
+    rel_id  = await _declare_worked_at(kb)
+    prop_id = await kb.declare_relation_property("test", "START_DATE", "", relation_id=rel_id)
+    fact_id = await kb.add_fact("test", relation_id=rel_id)
+    lit_id  = await kb.add_fact_property_value(
+        "test", "1998-06-01", fact_id=fact_id, property_id=prop_id,
+        text="Alice joined IBM in June 1998.", confidence=0.5, extraction_type="assertion",
+    )
+    props = _extraction_props(kb, lit_id)
+    assert props["confidence"] == 0.5
+    assert props["extraction_type"] == "assertion"
+
+
+async def test_extraction_adders_thread_confidence_and_type(kb):
+    entity_id = await kb.add_entity("test", "Alice")
+    fact_id   = await kb.add_fact("test", head_entity_id=entity_id)
+    ext_a = await kb.add_entity_extraction(
+        "test", entity_id, text="Alice is a software engineer.", confidence=0.7
+    )
+    ext_f = await kb.add_fact_extraction(
+        "test", fact_id, text="Alice joined IBM.", confidence=0.4, extraction_type="assertion"
+    )
+    assert kb.get_node("test", ext_a)["properties"]["confidence"] == 0.7
+    assert kb.get_node("test", ext_a)["properties"]["extraction_type"] == "text_span"
+    assert kb.get_node("test", ext_f)["properties"]["confidence"] == 0.4
+    assert kb.get_node("test", ext_f)["properties"]["extraction_type"] == "assertion"
+
+
+async def test_property_value_extraction_adders_thread_confidence_and_type(kb):
+    entity_id = await kb.add_entity("test", "Alice")
+    age_id    = await kb.declare_class_property("test", "AGE", "")
+    await kb.add_entity_property_value("test", "28", entity_id=entity_id, property_id=age_id)
+    ext_e = await kb.add_entity_property_value_extraction(
+        "test", entity_id, age_id, text="Alice is 28.",
+        confidence=0.3, extraction_type="external_record",
+    )
+    rel_id  = await _declare_worked_at(kb)
+    start   = await kb.declare_relation_property("test", "START_DATE", "", relation_id=rel_id)
+    fact_id = await kb.add_fact("test", relation_id=rel_id)
+    await kb.add_fact_property_value("test", "1998-06-01", fact_id=fact_id, property_id=start)
+    ext_f = await kb.add_fact_property_value_extraction(
+        "test", fact_id, start, text="Alice joined IBM in June 1998.", confidence=0.2
+    )
+    assert kb.get_node("test", ext_e)["properties"]["confidence"] == 0.3
+    assert kb.get_node("test", ext_e)["properties"]["extraction_type"] == "external_record"
+    assert kb.get_node("test", ext_f)["properties"]["confidence"] == 0.2
+    assert kb.get_node("test", ext_f)["properties"]["extraction_type"] == "text_span"
+
+
+async def test_creators_reject_confidence_without_text(kb):
+    entity_id = await kb.add_entity("test", "Alice")
+    fact_id   = await kb.add_fact("test", head_entity_id=entity_id)
+    with pytest.raises(KBError, match="confidence requires text"):
+        await kb.add_entity("test", "Bob", confidence=0.9)
+    with pytest.raises(KBError, match="confidence requires text"):
+        await kb.add_fact("test", head_entity_id=entity_id, confidence=0.9)
+    with pytest.raises(KBError, match="confidence requires text"):
+        await kb.add_entity_property_value("test", "28", entity_id=entity_id, confidence=0.9)
+    with pytest.raises(KBError, match="confidence requires text"):
+        await kb.add_fact_property_value("test", "1998", fact_id=fact_id, confidence=0.9)
+
+
+async def test_creator_confidence_range_is_validated(kb):
+    with pytest.raises(KBError, match=r"\[0\.0, 1\.0\]"):
+        await kb.add_entity("test", "Alice", text="Alice joined IBM.", confidence=1.5)
+
+
+# ------------------------------------------------------------------ #
+# FACT confidence derivation                                           #
+# ------------------------------------------------------------------ #
+
+async def _fact(kb, text=None, confidence=None):
+    """A fact between two entities, optionally created with scored evidence."""
+    alice = await kb.add_entity("test", "Alice")
+    ibm   = await kb.add_entity("test", "IBM")
+    return await kb.add_fact(
+        "test", head_entity_id=alice, tail_entity_id=ibm, text=text, confidence=confidence
+    )
+
+
+async def test_fact_confidence_is_the_max_of_its_extractions(kb):
+    fact_id = await _fact(kb, text="Alice joined IBM.", confidence=0.6)
+    assert kb.get_node("test", fact_id)["properties"]["confidence"] == 0.6
+    await kb.add_fact_extraction("test", fact_id, text="A surer source.", confidence=0.9)
+    assert kb.get_node("test", fact_id)["properties"]["confidence"] == 0.9
+    await kb.add_fact_extraction("test", fact_id, text="A shakier source.", confidence=0.2)
+    assert kb.get_node("test", fact_id)["properties"]["confidence"] == 0.9
+
+
+async def test_fact_confidence_ignores_extractions_that_state_none(kb):
+    fact_id = await _fact(kb, text="Alice joined IBM.", confidence=0.6)
+    await kb.add_fact_extraction("test", fact_id, text="No score stated.")
+    assert kb.get_node("test", fact_id)["properties"]["confidence"] == 0.6
+
+
+async def test_fact_confidence_is_none_when_no_extraction_states_one(kb):
+    fact_id = await _fact(kb)
+    assert kb.get_node("test", fact_id)["properties"]["confidence"] is None
+    await kb.add_fact_extraction("test", fact_id, text="Evidence with no score.")
+    assert kb.get_node("test", fact_id)["properties"]["confidence"] is None
+
+
+async def test_fact_confidence_of_zero_is_kept_not_treated_as_unstated(kb):
+    fact_id = await _fact(kb, text="A source that denies it.", confidence=0.0)
+    assert kb.get_node("test", fact_id)["properties"]["confidence"] == 0.0
+
+
+async def test_fact_confidence_recomputes_on_the_facade_extraction_path(kb):
+    fact_id = await _fact(kb)
+    await kb.add_extraction("test", text="Attached directly.", element_id=fact_id, confidence=0.75)
+    assert kb.get_node("test", fact_id)["properties"]["confidence"] == 0.75
+
+
+async def test_recompute_leaves_non_fact_owners_alone(kb):
+    entity_id = await kb.add_entity("test", "Bob", text="Bob exists.", confidence=0.5)
+    assert "confidence" not in kb.get_node("test", entity_id)["properties"]
+
+
+async def test_recompute_tolerates_an_element_that_does_not_exist(kb):
+    await kb.add_extraction("test", text="Attached to nothing.", element_id="no-such-id",
+                            confidence=0.5)
+    assert kb.get_node("test", "no-such-id") is None
+
+
+async def test_fact_confidence_change_refreshes_modified(kb):
+    fact_id = await _fact(kb)
+    before = kb.get_node("test", fact_id)["properties"]["modified"]
+    await kb.add_fact_extraction("test", fact_id, text="A scored source.", confidence=0.4)
+    assert kb.get_node("test", fact_id)["properties"]["modified"] > before
+
+
+async def test_unchanged_confidence_writes_nothing(kb):
+    fact_id = await _fact(kb, text="Alice joined IBM.", confidence=0.6)
+    before = kb.get_node("test", fact_id)["properties"]["modified"]
+    await kb.add_fact_extraction("test", fact_id, text="A shakier source.", confidence=0.2)
+    assert kb.get_node("test", fact_id)["properties"]["confidence"] == 0.6
+    assert kb.get_node("test", fact_id)["properties"]["modified"] == before
+
+
+# ------------------------------------------------------------------ #
+# get_metadata                                                         #
+# ------------------------------------------------------------------ #
+
+async def _fact_with_evidence(kb):
+    src = await kb.add_source("test", source="resume.pdf", name="Alice's resume",
+                              original="1998-06-01")
+    fact_id = await _fact(kb, text="Alice joined IBM.", confidence=0.9)
+    await kb.add_fact_extraction("test", fact_id, text="Per LinkedIn.", confidence=0.6,
+                                 source_id=src)
+    await kb.add_fact_extraction("test", fact_id, text="Unscored note.")
+    return fact_id
+
+
+async def test_metadata_carries_the_facts_derived_confidence(kb):
+    fact_id = await _fact_with_evidence(kb)
+    assert (await kb.get_metadata("test", fact_id))["confidence"] == 0.9
+
+
+async def test_metadata_evidence_lists_each_extraction_with_its_own_score(kb):
+    fact_id = await _fact_with_evidence(kb)
+    evidence = (await kb.get_metadata("test", fact_id))["evidence"]
+    assert [e["text"] for e in evidence] == [
+        "Alice joined IBM.", "Per LinkedIn.", "Unscored note."
+    ]
+    assert [e["confidence"] for e in evidence] == [0.9, 0.6, None]
+
+
+async def test_metadata_evidence_carries_each_extractions_own_source_and_date(kb):
+    fact_id = await _fact_with_evidence(kb)
+    evidence = (await kb.get_metadata("test", fact_id))["evidence"]
+    assert [e["source"] for e in evidence] == [None, "Alice's resume", None]
+    assert all(e["created"] for e in evidence)
+    assert evidence[1]["source_original"] == "1998-06-01"
+
+
+async def test_each_record_names_its_source_even_when_shared(kb):
+    src = await kb.add_source("test", source="resume.pdf", name="Alice's resume")
+    fact_id = await _fact(kb)
+    await kb.add_fact_extraction("test", fact_id, text="First span.", source_id=src)
+    await kb.add_fact_extraction("test", fact_id, text="Second span.", source_id=src)
+    meta = await kb.get_metadata("test", fact_id)
+    assert [e["source"] for e in meta["evidence"]] == ["Alice's resume", "Alice's resume"]
+
+
+async def test_metadata_without_evidence_is_empty_list_not_none(kb):
+    entity_id = await kb.add_entity("test", "Alice")
+    meta = await kb.get_metadata("test", entity_id)
+    assert meta["evidence"] == []
+    assert meta["confidence"] is None
+
+
+async def test_evidence_includes_an_extraction_with_empty_text(kb):
+    entity_id = await kb.add_entity("test", "Alice")
+    await kb.add_extraction("test", text="", element_id=entity_id, confidence=0.5)
+    meta = await kb.get_metadata("test", entity_id)
+    assert len(meta["evidence"]) == 1
+    assert meta["evidence"][0]["text"] == ""
+    assert meta["evidence"][0]["confidence"] == 0.5
+
+
+# ------------------------------------------------------------------ #
 # fetch_database_data                                                  #
 # ------------------------------------------------------------------ #
+
+async def test_detailed_rows_carry_the_facts_derived_confidence(kb):
+    fact_id = await _fact(kb, text="Alice joined IBM.", confidence=0.9)
+    rows = await kb.fetch_database_data("test", compact=True, detailed=True)
+    fact_rows = [r for r in rows if r.get("relation_type") == "REPRESENTS"]
+    assert fact_rows and all("confidence" in r for r in fact_rows)
+    assert fact_rows[0]["confidence"] == 0.9
+    assert kb.get_node("test", fact_id)["properties"]["confidence"] == 0.9
+
 
 async def test_fetch_database_data_returns_nodes_and_edges(populated_kb):
     data = await populated_kb.fetch_database_data("test")
@@ -434,8 +686,8 @@ async def test_fetch_database_data_compact_shows_all_evidence(populated_kb):
         if e["relation_type"] == "IS_INSTANCE_OF" and e["entity_name"] == "Alice"
     ]
     assert len(entries) == 1
-    assert "Alice is a software engineer." in entries[0]["extraction"]
-    assert "Alice was later promoted to team lead." in entries[0]["extraction"]
+    texts = [e["text"] for e in entries[0]["evidence"]]
+    assert texts == ["Alice is a software engineer.", "Alice was later promoted to team lead."]
 
 
 # ------------------------------------------------------------------ #
@@ -579,7 +831,7 @@ async def test_answer_include_metadata_returns_tuple(populated_kb):
     assert alice_id in metadata
     assert metadata[alice_id]["type"] == "ENTITY"
     assert metadata[alice_id]["name"] == "Alice"
-    assert metadata[alice_id]["source"] == "Alice's résumé"
+    assert metadata[alice_id]["evidence"][0]["source"] == "Alice's résumé"
     assert metadata[alice_id]["created"] is not None
 
 
@@ -595,7 +847,7 @@ async def test_validate_include_metadata_returns_tuple(populated_kb):
         result, metadata = await populated_kb.validate("test", "Alice worked at IBM", include_metadata=True)
     assert len(result.supporting) > 0
     assert alice_id in metadata
-    assert metadata[alice_id]["source"] == "Alice's résumé"
+    assert metadata[alice_id]["evidence"][0]["source"] == "Alice's résumé"
 
 
 _METADATA_NL_TEXT = "This was extracted from Alice's résumé, added on 2026-08-07."

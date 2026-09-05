@@ -83,10 +83,10 @@ Note: `declare_relation_type` wires the initial `DOMAIN`/`RANGE` edges inline (`
 
 | Method | Returns | Description |
 |---|---|---|
-| `await add_entity(database, name, description?, entity_id?, class_id?, text?, source_id?)` | `str` | Add an `ENTITY` node; optionally wires `IS_INSTANCE_OF`; `text` creates a per-item `EXTRACTION` linked to `source_id` |
-| `await add_fact(database, name?, description?, fact_id?, head_entity_id?, tail_entity_id?, relation_id?, text?, source_id?)` | `str` | Add a `FACT` node; auto-names from head/relation/tail if `name` omitted; wires `HEAD`/`TAIL`/`REPRESENTS` |
-| `await add_entity_property_value(database, value, name?, description?, literal_type?, entity_id?, property_id?, text?, source_id?)` | `str` | Create a `LITERAL`, wire `IS_VALUE_OF` and `HAS_PROPERTY` from an entity |
-| `await add_fact_property_value(database, value, name?, description?, literal_type?, fact_id?, property_id?, text?, source_id?)` | `str` | Create a `LITERAL`, wire `IS_VALUE_OF` and `HAS_PROPERTY` from a fact |
+| `await add_entity(database, name, description?, entity_id?, class_id?, text?, source_id?, confidence?, extraction_type?)` | `str` | Add an `ENTITY` node; optionally wires `IS_INSTANCE_OF`; `text` creates a per-item `EXTRACTION` linked to `source_id` |
+| `await add_fact(database, name?, description?, fact_id?, head_entity_id?, tail_entity_id?, relation_id?, text?, source_id?, confidence?, extraction_type?)` | `str` | Add a `FACT` node; auto-names from head/relation/tail if `name` omitted; wires `HEAD`/`TAIL`/`REPRESENTS` |
+| `await add_entity_property_value(database, value, name?, description?, literal_type?, entity_id?, property_id?, text?, source_id?, confidence?, extraction_type?)` | `str` | Create a `LITERAL`, wire `IS_VALUE_OF` and `HAS_PROPERTY` from an entity |
+| `await add_fact_property_value(database, value, name?, description?, literal_type?, fact_id?, property_id?, text?, source_id?, confidence?, extraction_type?)` | `str` | Create a `LITERAL`, wire `IS_VALUE_OF` and `HAS_PROPERTY` from a fact |
 | `await update_entity(database, entity_id, name?, description?)` | `None` | Update an entity's name/description |
 | `await update_fact(database, fact_id, name?, description?)` | `None` | Update a fact's name/description |
 | `await update_entity_property_value(database, entity_id, property_id, value?, name?, description?)` | `None` | Update a property value on an entity |
@@ -95,20 +95,20 @@ Note: `declare_relation_type` wires the initial `DOMAIN`/`RANGE` edges inline (`
 | `await delete_fact(database, fact_id)` | `None` | Delete a fact and its property values |
 | `await delete_entity_property_value(database, entity_id, property_id)` | `None` | Delete a property value from an entity |
 | `await delete_fact_property_value(database, fact_id, property_id)` | `None` | Delete a property value from a fact |
-| `await add_entity_extraction(database, entity_id, text, source_id?)` | `str` | Link a new text span to an *existing* entity — additional `EXTRACTED_FROM` edge, no duplicate node |
-| `await add_fact_extraction(database, fact_id, text, source_id?)` | `str` | Same, for an existing fact |
-| `await add_entity_property_value_extraction(database, entity_id, property_id, text, source_id?)` | `str` | Link a new text span to an entity's existing property value; raises if none exists |
-| `await add_fact_property_value_extraction(database, fact_id, property_id, text, source_id?)` | `str` | Same, for a fact's property value |
+| `await add_entity_extraction(database, entity_id, text, source_id?, confidence?, extraction_type?)` | `str` | Link a new text span to an *existing* entity — additional `EXTRACTED_FROM` edge, no duplicate node |
+| `await add_fact_extraction(database, fact_id, text, source_id?, confidence?, extraction_type?)` | `str` | Same, for an existing fact |
+| `await add_entity_property_value_extraction(database, entity_id, property_id, text, source_id?, confidence?, extraction_type?)` | `str` | Link a new text span to an entity's existing property value; raises if none exists |
+| `await add_fact_property_value_extraction(database, fact_id, property_id, text, source_id?, confidence?, extraction_type?)` | `str` | Same, for a fact's property value |
 | `await attach_entity_class(database, entity_id, class_id)` | `None` | Attach an existing CLASS to an existing ENTITY — deduplicated, add-only (no detach counterpart). An entity's *additional* class; `add_entity(class_id=…)` wires the first |
 
 ### Knowledge operations — read and export
 
 | Method | Returns | Description |
 |---|---|---|
-| `await fetch_database_data(database, include_provenance?, compact?, detailed?)` | `dict \| list` | `compact=False` (default): raw `{nodes, edges}` graph form. `compact=True`: flat denormalized rows. `include_provenance=True` adds each row's `extraction` text and linked `source` name. `detailed=True` adds each row's own `description`/`created`/`modified`; together with `include_provenance` also adds `source_original` |
+| `await fetch_database_data(database, include_provenance?, compact?, detailed?)` | `dict \| list` | `compact=False` (default): raw `{nodes, edges}` graph form. `compact=True`: flat denormalized rows. `include_provenance=True` adds each row's `evidence`, one record per EXTRACTION. `detailed=True` adds each row's own `description`/`created`/`modified`, plus confidence on fact rows |
 | `await export_database_data(database, include_provenance?)` | `dict` | Portable, ref-based export of entities/facts/property values; symmetric with `import_database_data` |
 | `await import_database_data(database, data)` | `None` | Populate *database* from an `export_database_data` dict; resolves classes/relations/properties **by name** against the target's current schema |
-| `await get_metadata(database, node_id)` | `dict` | `created`/`modified`/extraction/source metadata for a single entity, fact, or property-value (`LITERAL`) id — raises `KnowledgeError` for any other node type |
+| `await get_metadata(database, node_id)` | `dict` | Metadata for a single entity, fact, or property-value (`LITERAL`) id: `created`/`modified`, `confidence` (a FACT's derived score, `None` on the other two), and an `evidence` record per EXTRACTION — raises `KnowledgeError` for any other node type |
 | `await get_entity_classes(database, entity_id)` | `list[dict]` | `CLASS` nodes the entity is an instance of, via `IS_INSTANCE_OF` |
 | `await get_fact_parts(database, fact_id)` | `dict` | The fact's first `HEAD`/`RELATION`/`TAIL` nodes, as `{"head": ..., "relation": ..., "tail": ...}` with `None` for unwired parts |
 | `await get_property_values(database, owner_id)` | `list[dict]` | `LITERAL` values on an entity or fact with each value's `PROPERTY`, as `[{"literal": ..., "property": ...}]` |
@@ -137,10 +137,10 @@ Note: `declare_relation_type` wires the initial `DOMAIN`/`RANGE` edges inline (`
 | `await add_source(database, source, name?, description?, node_id?, original?)` | `str` | Add a `SOURCE` node; `name` defaults to `source`; `original` records the source's own date, separate from `created` |
 | `await update_source(database, source_id, name?, description?, original?)` | `None` | Update a source's name/description/original date |
 | `await delete_source(database, source_id)` | `None` | Delete a source and its `EXTRACTION` nodes; instance nodes are preserved |
-| `await add_extraction(database, text, name?, description?, node_id?, source_id?, element_id?)` | `str` | Add an `EXTRACTION` node; `element_id` wires `EXTRACTED_FROM` to an existing entity/fact/literal in the same call |
+| `await add_extraction(database, text, name?, description?, node_id?, source_id?, confidence?, extraction_type?, element_id?)` | `str` | Add an `EXTRACTION` node; `element_id` wires `EXTRACTED_FROM` to an existing entity/fact/literal in the same call |
 | `await attach_extraction(database, element_id, extraction_id)` | `None` | Wire `EXTRACTED_FROM` from an `ENTITY`/`FACT`/`LITERAL` to an EXTRACTION that already exists — created up front by `add_extraction` without an `element_id`, or re-wired on snapshot restore. Deduplicated, add-only. Each item still keeps its own EXTRACTION node; this does not share evidence between items |
 
-Note: `add_extracted_from` is **not** a public `KBSource` method — use `add_extraction(..., element_id=...)`.
+Note: `add_extracted_from` is **not** a public `KBSource` method. To link an extraction to an item, pass `element_id` to `add_extraction` when creating it, or call `attach_extraction` for an extraction that already exists.
 
 ### Extraction
 

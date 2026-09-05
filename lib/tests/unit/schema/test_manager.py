@@ -352,6 +352,23 @@ async def test_fetch_database_schema_empty_database(kb):
 
 
 # ------------------------------------------------------------------ #
+# fetch_meta_schema                                                    #
+# ------------------------------------------------------------------ #
+
+async def test_meta_schema_lists_extraction_confidence_attributes(kb):
+    schema = await kb.fetch_meta_schema()
+    attrs = schema.entities["EXTRACTION"]["contents"]["attributes"]
+    assert "text" in attrs
+    assert "extraction_type" in attrs
+    assert "confidence" in attrs
+
+
+async def test_meta_schema_lists_fact_confidence_attribute(kb):
+    schema = await kb.fetch_meta_schema()
+    assert "confidence" in schema.entities["FACT"]["contents"]["attributes"]
+
+
+# ------------------------------------------------------------------ #
 # import_database_schema (round-trip)                                  #
 # ------------------------------------------------------------------ #
 

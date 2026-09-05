@@ -74,10 +74,10 @@ class KBSource(GraphSource, ABC):
     def has_semantic_search(self) -> bool: ...
 
     # Knowledge — write
-    async def add_entity(self, database: str, name: str, description: str | None = None, entity_id: str | None = None, class_id: str | None = None, text: str | None = None, source_id: str | None = None) -> str: ...
-    async def add_fact(self, database: str, name: str | None = None, description: str | None = None, fact_id: str | None = None, head_entity_id: str | None = None, tail_entity_id: str | None = None, relation_id: str | None = None, text: str | None = None, source_id: str | None = None) -> str: ...
-    async def add_entity_property_value(self, database: str, value: str | int | float | bool, name: str | None = None, description: str | None = None, literal_type: str | None = None, entity_id: str | None = None, property_id: str | None = None, text: str | None = None, source_id: str | None = None) -> str: ...
-    async def add_fact_property_value(self, database: str, value: str | int | float | bool, name: str | None = None, description: str | None = None, literal_type: str | None = None, fact_id: str | None = None, property_id: str | None = None, text: str | None = None, source_id: str | None = None) -> str: ...
+    async def add_entity(self, database: str, name: str, description: str | None = None, entity_id: str | None = None, class_id: str | None = None, text: str | None = None, source_id: str | None = None, confidence: float | None = None, extraction_type: Literal["text_span", "external_record", "assertion"] = "text_span") -> str: ...
+    async def add_fact(self, database: str, name: str | None = None, description: str | None = None, fact_id: str | None = None, head_entity_id: str | None = None, tail_entity_id: str | None = None, relation_id: str | None = None, text: str | None = None, source_id: str | None = None, confidence: float | None = None, extraction_type: Literal["text_span", "external_record", "assertion"] = "text_span") -> str: ...
+    async def add_entity_property_value(self, database: str, value: str | int | float | bool, name: str | None = None, description: str | None = None, literal_type: str | None = None, entity_id: str | None = None, property_id: str | None = None, text: str | None = None, source_id: str | None = None, confidence: float | None = None, extraction_type: Literal["text_span", "external_record", "assertion"] = "text_span") -> str: ...
+    async def add_fact_property_value(self, database: str, value: str | int | float | bool, name: str | None = None, description: str | None = None, literal_type: str | None = None, fact_id: str | None = None, property_id: str | None = None, text: str | None = None, source_id: str | None = None, confidence: float | None = None, extraction_type: Literal["text_span", "external_record", "assertion"] = "text_span") -> str: ...
     async def update_entity(self, database: str, entity_id: str, name: str | None = None, description: str | None = None) -> None: ...
     async def update_fact(self, database: str, fact_id: str, name: str | None = None, description: str | None = None) -> None: ...
     async def update_entity_property_value(self, database: str, entity_id: str, property_id: str, value: str | int | float | bool | None = None, name: str | None = None, description: str | None = None) -> None: ...
@@ -94,7 +94,7 @@ class KBSource(GraphSource, ABC):
     async def import_database_data(self, database: str, data: dict) -> None: ...                          # resolves CLASS/RELATION/PROPERTY by name
 
     # Knowledge — metadata lookup
-    async def get_metadata(self, database: str, node_id: str) -> dict: ...   # created/modified/extraction/source for one entity, fact, or property-value (literal) id; raises KnowledgeError for any other node type
+    async def get_metadata(self, database: str, node_id: str) -> dict: ...   # created/modified/confidence/evidence for one entity, fact, or property-value (literal) id; raises KnowledgeError for any other node type
 
     # Knowledge — instance walks
     async def get_entity_classes(self, database: str, entity_id: str) -> list[dict]: ...
@@ -116,12 +116,12 @@ class KBSource(GraphSource, ABC):
 
     # Provenance
     async def add_source(self, database: str, source: str, name: str | None = None, description: str | None = None, node_id: str | None = None, original: str | None = None) -> str: ...
-    async def add_extraction(self, database: str, text: str, name: str | None = None, description: str | None = None, node_id: str | None = None, source_id: str | None = None, element_id: str | None = None) -> str: ...  # element_id wires EXTRACTED_FROM to an existing entity/fact/literal in the same call
+    async def add_extraction(self, database: str, text: str, name: str | None = None, description: str | None = None, node_id: str | None = None, source_id: str | None = None, confidence: float | None = None, extraction_type: Literal["text_span", "external_record", "assertion"] = "text_span", element_id: str | None = None) -> str: ...  # element_id wires EXTRACTED_FROM to an existing entity/fact/literal in the same call
     async def attach_extraction(self, database: str, element_id: str, extraction_id: str) -> None: ...   # wire an EXTRACTION that already exists to its item
-    async def add_entity_extraction(self, database: str, entity_id: str, text: str, source_id: str | None = None) -> str: ...       # additional text span for an *existing* entity
-    async def add_fact_extraction(self, database: str, fact_id: str, text: str, source_id: str | None = None) -> str: ...
-    async def add_entity_property_value_extraction(self, database: str, entity_id: str, property_id: str, text: str, source_id: str | None = None) -> str: ...
-    async def add_fact_property_value_extraction(self, database: str, fact_id: str, property_id: str, text: str, source_id: str | None = None) -> str: ...
+    async def add_entity_extraction(self, database: str, entity_id: str, text: str, source_id: str | None = None, confidence: float | None = None, extraction_type: Literal["text_span", "external_record", "assertion"] = "text_span") -> str: ...       # additional text span for an *existing* entity
+    async def add_fact_extraction(self, database: str, fact_id: str, text: str, source_id: str | None = None, confidence: float | None = None, extraction_type: Literal["text_span", "external_record", "assertion"] = "text_span") -> str: ...
+    async def add_entity_property_value_extraction(self, database: str, entity_id: str, property_id: str, text: str, source_id: str | None = None, confidence: float | None = None, extraction_type: Literal["text_span", "external_record", "assertion"] = "text_span") -> str: ...
+    async def add_fact_property_value_extraction(self, database: str, fact_id: str, property_id: str, text: str, source_id: str | None = None, confidence: float | None = None, extraction_type: Literal["text_span", "external_record", "assertion"] = "text_span") -> str: ...
     async def update_source(self, database: str, source_id: str, name: str | None = None, description: str | None = None, original: str | None = None) -> None: ...
     async def delete_source(self, database: str, source_id: str) -> None: ...
 
@@ -135,7 +135,9 @@ class KBSource(GraphSource, ABC):
 
 Notes:
 - `declare_relation_type` wires the initial `DOMAIN`/`RANGE` edges inline (`domain`/`range` are required there), and re-declaring never re-wires them — post-declaration widening is what `attach_relation_domain`/`attach_relation_range` (above) are for.
-- `add_extracted_from` is **not** a public `KBSource` method (it exists only as a private `ProvenanceTracker` helper, invoked internally by `add_extraction` when `element_id` is given) — use `add_extraction(..., element_id=...)` instead.
+- `add_extracted_from` is **not** a public `KBSource` method (it is a private `ProvenanceTracker` helper that `add_extraction(element_id=...)` and `attach_extraction` both call, and where a FACT's derived `confidence` is refreshed). To link an extraction to an item, pass `element_id` to `add_extraction` when creating it, or call `attach_extraction` for an extraction that already exists.
+- `add_extraction` takes `confidence` (`[0.0, 1.0]`), which scores the recorded assertion — an out-of-range value raises `ProvenanceError`. `None` confidence means unstated, which is not the same as `0.0`.
+- On the four `add_*` creators, where `text` is optional, `confidence` without `text` raises `KnowledgeError`: with no `text` no EXTRACTION is created, so the score would have nowhere to live. The four `add_*_extraction` methods require `text`, so the case cannot arise there.
 - `answer`/`validate` return a 2-tuple `(result, metadata)` only when `include_metadata=True`; `metadata` is `dict[node_id, dict]` (see "Metadata lookup" below). This composes with `natural_language`: with both flags set, the prose `result` has a natural-language provenance section appended after the main answer/assessment, and `metadata` (element 1) is still the raw structured dict.
 - `expand_schema` and `import_text` are two separate LLM passes (both OpenAI agents): `expand_schema` only ever creates `CLASS`/`RELATION`/`PROPERTY` nodes, grounded by a text passage; `import_text` only ever creates `ENTITY`/`FACT`/`LITERAL` nodes, against the schema as it currently stands (a mention with no matching schema element is skipped — it never declares new schema itself). `import_text`'s `expand_schema=True` default runs the former first; its `schema_expansion_*` params mirror `expand_schema`'s `depth`/`reference`/`mcp_servers`/`dedup_mode` one-to-one, and `schema_expansion_target` selects what of `text`/`queries` feeds that call. An `import_text(..., schema_discovery_mode=...)` parameter existed in an earlier revision of this spec — it no longer exists; see ADR in [13-decision-log.md](13-decision-log.md).
 - An is-a/type-of/kind-of/subclass-of hierarchy between two `CLASS`es or two `RELATION`s is *only* ever expressed with `add_is_subclass_of` — never a declared `RELATION`. `expand_schema` rejects a taxonomic name (`IS_A`, `TYPE_OF`, `SUBCLASS_OF`, ...) passed to `declare_relation_type`.
@@ -152,7 +154,11 @@ Notes:
     #   FACT:    "name", "head_name", "relation_name", "tail_name"
     #   LITERAL: "property_name", "value", "owner_label", "owner_name"
     "description": "...", "created": "...", "modified": "...",     # the node's own attributes
-    "extraction": "...", "source": "...", "source_original": "...",  # via its EXTRACTED_FROM chain, if any
+    "confidence": 0.9,                                              # a FACT's derived score; None for other labels
+    "evidence": [                                                   # one record per EXTRACTION, [] when there is none
+        {"text": "...", "confidence": 0.9, "created": "...",        # `created` is the extraction's own timestamp;
+         "source": "...", "source_original": "..."}, ...            # `source_original` the linked source's own date
+    ],
 }
 ```
 
@@ -402,6 +408,8 @@ Grow the schema (`CLASS`/`RELATION`/`PROPERTY` only — never entities/facts/pro
 
 ### Knowledge — write
 
+All four write bodies also accept `confidence` (`[0.0, 1.0]`, scoring the assertion; requires `text`) and `extraction_type` (`text_span` | `external_record` | `assertion`).
+
 #### `POST /databases/{database}/entities`
 
 Add an entity instance.
@@ -412,7 +420,9 @@ Add an entity instance.
   "name": "Alice",
   "class_id": "<class-id>",
   "text": "Alice is a software engineer.",
-  "source_id": "<source-id>"
+  "source_id": "<source-id>",
+  "confidence": 0.9,
+  "extraction_type": "text_span"
 }
 ```
 
@@ -434,7 +444,9 @@ Add a fact (relation instance).
   "head_entity_id": "<entity-id>",
   "tail_entity_id": "<entity-id>",
   "text": "Alice joined IBM in June 1998.",
-  "source_id": "<source-id>"
+  "source_id": "<source-id>",
+  "confidence": 0.9,
+  "extraction_type": "text_span"
 }
 ```
 
@@ -456,7 +468,9 @@ Add a property value to an entity.
   "value": "Alice",
   "literal_type": "STRING",
   "text": "Alice is a software engineer.",
-  "source_id": "<source-id>"
+  "source_id": "<source-id>",
+  "confidence": 0.9,
+  "extraction_type": "text_span"
 }
 ```
 
@@ -478,7 +492,9 @@ Add a property value to a fact.
   "value": "1998-06-01",
   "literal_type": "DATE",
   "text": "Alice joined IBM in June 1998.",
-  "source_id": "<source-id>"
+  "source_id": "<source-id>",
+  "confidence": 0.9,
+  "extraction_type": "text_span"
 }
 ```
 
@@ -840,7 +856,7 @@ kb data search QUERY [--type entity|fact]... [--mode keyword|semantic] [--top-k 
 kb data reindex
 ```
 
-`data list` prints entities, entity property values, facts, and fact property values. `--show-provenance` adds each row's extraction text and linked source name (via its `EXTRACTED_FROM` chain, if any). `--show-detailed` adds each row's own `description`/`created`/`modified`; combined with `--show-provenance` it additionally shows the linked source's `original` date, after the Source column. `--format table` renders `created`/`modified` as human-readable local dates (via `arrow`, e.g. "Aug 7, 2026 5:48 PM"); `--format json` keeps raw ISO-8601 timestamps. `data export`/`data import` round-trip instance data (entities, facts, property values) as portable, ref-based JSON — schema isn't included (export/import that separately via `kb schema export`/`kb schema import` first, so `data import` has classes/relations/properties to resolve names against). `data reindex` rebuilds the BM25/vector index from the current graph contents; it errors if the database wasn't registered with `--search bm25`/`semantic`.
+`data list` prints entities, entity property values, facts, and fact property values. `--show-provenance` expands each row into one row per piece of evidence, with its own score, text, and source (via its `EXTRACTED_FROM` chain). `--show-detailed` adds each row's own `description`/`created`/`modified`, and a FACT's derived confidence; combined with `--show-provenance` it additionally shows the linked source's `original` date, after the Source column. `--format table` renders `created`/`modified` as human-readable local dates (via `arrow`, e.g. "Aug 7, 2026 5:48 PM"); `--format json` keeps raw ISO-8601 timestamps. `data export`/`data import` round-trip instance data (entities, facts, property values) as portable, ref-based JSON — schema isn't included (export/import that separately via `kb schema export`/`kb schema import` first, so `data import` has classes/relations/properties to resolve names against). `data reindex` rebuilds the BM25/vector index from the current graph contents; it errors if the database wasn't registered with `--search bm25`/`semantic`.
 
 ---
 
@@ -944,7 +960,7 @@ kb data validate STATEMENT [--natural-language] [--model MODEL] [--include-metad
 
 All three require `OPENAI_API_KEY` (and the `openai` extra installed). `-v/--verbose` shows tool call arguments in the status line; `-l/--log` also prints each tool call and its result on its own persistent line; `--log-limit` sets the truncation length for verbose/log output (default 80). `extract` never declares new schema itself — it only resolves mentions against the schema as it currently stands, skipping anything with no match. `--expand-schema` (default: on) runs `kb schema expand` first, grounded by `--schema-expansion-target` (any combination of `text`/`queries`, default both); `--schema-expansion-depth`/`--schema-expansion-mode`/`--schema-expansion-mcp-server`/`--schema-expansion-dedup-mode` mirror `kb schema expand`'s `--depth`/`--reference`/`--mcp-server`/`--dedup-mode` one-to-one. Use `--no-expand-schema` to extract only, against a schema already expanded once via `kb schema expand`.
 
-`--include-metadata` (on `answer`/`validate`) has the agent additionally call `get_metadata` for each entity/fact/property value it cites, and surfaces created/modified/extraction/source info alongside the result: a second "Metadata" table (`--format table`, or unadorned `answer`/`validate` output), a `metadata` key alongside `result` (`--format json`), or folded into the prose as a follow-up section after the main answer (`--format nl` / `--natural-language`).
+`--include-metadata` (on `answer`/`validate`) has the agent additionally call `get_metadata` for each entity/fact/property value it cites, and surfaces created/modified/confidence/evidence info alongside the result: a second "Metadata" table (`--format table`, or unadorned `answer`/`validate` output), a `metadata` key alongside `result` (`--format json`), or folded into the prose as a follow-up section after the main answer (`--format nl` / `--natural-language`).
 
 **Example**
 ```

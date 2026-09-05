@@ -32,7 +32,7 @@ alice = await kb.add_entity(
 )
 ```
 
-Every node also carries `created`/`modified` timestamps automatically (no parameter to set — they're stamped by the write itself), and `SOURCE` nodes carry a caller-supplied `original` date distinct from `created` (e.g. when a document was originally published, vs. when it was added to the KB). `get_metadata(database, node_id)` returns all of this — timestamps, extraction text, source name, source original date — for a single entity, fact, or property value.
+Every node also carries `created`/`modified` timestamps automatically (no parameter to set — they're stamped by the write itself), and `SOURCE` nodes carry a caller-supplied `original` date distinct from `created` (e.g. when a document was originally published, vs. when it was added to the KB). `get_metadata(database, node_id)` returns all of this — timestamps, a fact's derived `confidence`, and one `evidence` record per extraction — for a single entity, fact, or property value.
 
 An item can accumulate evidence from multiple passages over time: `add_entity_extraction`/`add_fact_extraction`/etc. link an *additional* text span to something that already exists, rather than creating a duplicate.
 

@@ -331,8 +331,8 @@ that always runs, nothing gated behind credentials.
 
 > Along the way it surfaces a real gotcha: `export_database_data`/`import_database_data`
 > carry over extraction *text* but never the SOURCE node itself (name, `original` date) —
-> only entities/facts/property values are exported, so a migrated node's `extraction`
-> field survives but its `source`/`source_original` fields come back `None`.
+> only entities/facts/property values are exported, so a migrated node's evidence records
+> keep their `text` but come back with `source`/`source_original` set to `None`.
 
 ```bash
 python3 examples/integration-demos/full_lifecycle_demo.py
@@ -375,9 +375,9 @@ directory.
 entity+property doesn't replace the first, it coexists alongside it. Four people each get
 two conflicting `TITLE` values written out of chronological order, from sources with
 different `original` dates. A lookup with no notion of provenance can't tell which value
-is current and just returns whichever one it sees first; a lookup that checks
-`get_metadata`'s `source_original` field on every candidate resolves the conflict
-correctly.
+is current and just returns whichever one it sees first; a lookup that checks the
+`source_original` date on each candidate's evidence records (via `get_metadata`) resolves
+the conflict correctly.
 
 **Result:** naive lookup 0/4 correct → provenance-aware lookup 4/4 correct — computed
 live from real graph traversal and `get_metadata` calls, not scripted. No LLM involved in

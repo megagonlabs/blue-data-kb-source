@@ -11,7 +11,7 @@ The graph has two distinct layers that are kept strictly separate:
 
 A third layer records where knowledge came from:
 
-- **Provenance layer** — SOURCE and EXTRACTION nodes that link every instance item back to its originating document and text span
+- **Provenance layer** — SOURCE and EXTRACTION nodes that link every instance item back to the assertion it was drawn from and the origin of that assertion
 
 ---
 
@@ -144,15 +144,17 @@ A concrete instance of a RELATION, connecting two ENTITY nodes.
 | `id` | string | |
 | `name` | string \| null | Label for the fact. If not supplied, `add_fact` auto-synthesizes one as `{head_name}_{relation_name}_{tail_name}` — in practice a FACT's `name` is essentially never `null` |
 | `description` | string \| null | |
+| `confidence` | number \| null | Derived score in `[0.0, 1.0]`: the highest `confidence` among this fact's supporting EXTRACTION nodes, ignoring any whose confidence is `null`. `null` when no supporting extraction states one. Recomputed whenever an `EXTRACTED_FROM` edge is added to the fact; not set directly. A recomputation that changes the value refreshes `modified`; one that does not changes nothing |
 | `created` / `modified` | string (ISO-8601) | See §2 above |
 
 **Example:**
 ```
-label:    FACT
-id:       "fact-001"
-name:     "Alice_WORKED_AT_IBM"
-created:  "2026-06-01T09:00:00+00:00"
-modified: "2026-06-01T09:00:00+00:00"
+label:      FACT
+id:         "fact-001"
+name:       "Alice_WORKED_AT_IBM"
+confidence: 0.9
+created:    "2026-06-01T09:00:00+00:00"
+modified:   "2026-06-01T09:00:00+00:00"
 ```
 
 ---
@@ -189,13 +191,15 @@ modified:     "2026-06-01T09:00:00+00:00"
 
 Represents an originating document or data source. Serves as the top-level anchor for provenance chains.
 
+A SOURCE stands for one citable origin fixed at a point in time. For a document, that is the document itself. For a dataset or knowledge base ingested as a whole, it is one snapshot of that dataset: `source` names the dataset and `original` identifies the snapshot. Different snapshots of the same dataset are therefore distinct SOURCE nodes.
+
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | string | |
 | `name` | string | Human-readable name for the source (e.g., `"Alice's résumé"`) |
 | `source` | string | Opaque source identifier (e.g., filename, URL, session ID) |
 | `description` | string \| null | |
-| `original` | string \| null | Caller-supplied date for the source itself (e.g. a document's publication date) — distinct from `created` below, which is when the SOURCE node was added to the KB. Free text, not parsed or validated. Settable via `add_source`/`update_source` |
+| `original` | string \| null | Caller-supplied date or snapshot identifier for the source itself (e.g. a document's publication date, or `"2026-08-01 dump"` for a dataset snapshot) — distinct from `created` below, which is when the SOURCE node was added to the KB. Free text, not parsed or validated. Settable via `add_source`/`update_source` |
 | `created` / `modified` | string (ISO-8601) | See §2 above |
 
 **Example:**
@@ -214,23 +218,39 @@ modified:    "2026-06-01T09:00:00+00:00"
 
 #### EXTRACTION
 
-Captures a verbatim text span that an entity, fact, or literal was drawn from. Each instance item gets its own EXTRACTION node, even when multiple items share the same source passage.
+Captures one assertion that an entity, fact, or literal was drawn from, along with how confident that assertion is. Each instance item gets its own EXTRACTION node, even when several items come from the same assertion.
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | string | |
-| `text` | string | The verbatim text span |
+| `extraction_type` | string | One of the values in **Extraction types** below. Absent on nodes written before this field existed; absent reads as `text_span` |
+| `text` | string | What the source asserted, before any identity resolution was applied. A verbatim span when `extraction_type` is `text_span`; otherwise the submitted statement serialized to a single string |
+| `confidence` | number \| null | How confident this assertion is, in `[0.0, 1.0]`. `null` means unstated, which is not the same as `0.0` |
 | `name` | string \| null | |
-| `description` | string \| null | |
+| `description` | string \| null | Free text. Also the current home for an external record identifier, such as a Wikidata statement id, until a dedicated field exists |
 | `created` / `modified` | string (ISO-8601) | See §2 above |
+
+**Extraction types:**
+
+`extraction_type` describes the form of the evidence, not who supplied it. The supplier is recorded on the SOURCE, whose `source` field is an opaque identifier that holds `"wikidata"`, `"human:h-42"`, or `"agent:task-7"` equally well.
+
+| Value | Evidence is |
+|-------|-------------|
+| `text_span` | A verbatim quote from a document |
+| `external_record` | A record in another structured knowledge base or dataset |
+| `assertion` | A statement made directly, with no underlying artifact |
+
+`inference`, for facts derived from other facts already in the KB, is reserved but not implemented.
 
 **Example:**
 ```
-label:    EXTRACTION
-id:       "ext-001"
-text:     "Alice joined IBM as a software engineer in June 1998."
-created:  "2026-06-01T09:00:00+00:00"
-modified: "2026-06-01T09:00:00+00:00"
+label:           EXTRACTION
+id:              "ext-001"
+extraction_type: "text_span"
+text:            "Alice joined IBM as a software engineer in June 1998."
+confidence:      0.9
+created:         "2026-06-01T09:00:00+00:00"
+modified:        "2026-06-01T09:00:00+00:00"
 ```
 
 ---
@@ -288,17 +308,19 @@ All edges are directed. Source and target node labels constrain which connection
 
 | Edge type | Source label | Target label | Meaning |
 |-----------|-------------|-------------|---------|
-| `EXTRACTED_FROM` | ENTITY, FACT, or LITERAL | EXTRACTION | Instance was drawn from this text span |
-| `EXTRACTED_FROM` | EXTRACTION | SOURCE | Text span came from this source document |
+| `EXTRACTED_FROM` | ENTITY, FACT, or LITERAL | EXTRACTION | Instance was asserted by this extraction |
+| `EXTRACTED_FROM` | EXTRACTION | SOURCE | Assertion came from this source |
 
-One EXTRACTION node is created per instance item. The same SOURCE node may be the target of many EXTRACTION→SOURCE edges when multiple items are drawn from the same document.
+One EXTRACTION node is created per instance item. The same SOURCE node may be the target of many EXTRACTION→SOURCE edges when multiple items are drawn from the same source.
 
 **Example — provenance chain:**
 ```
 (Alice)    --[EXTRACTED_FROM]--> (ext-001:"Alice joined IBM...")
-(fact-001) --[EXTRACTED_FROM]--> (ext-001:"Alice joined IBM...")
-(lit-001)  --[EXTRACTED_FROM]--> (ext-001:"...in June 1998.")
+(fact-001) --[EXTRACTED_FROM]--> (ext-002:"Alice joined IBM...")
+(lit-001)  --[EXTRACTED_FROM]--> (ext-003:"...in June 1998.")
 (ext-001)  --[EXTRACTED_FROM]--> (src-001:"Alice's résumé")
+(ext-002)  --[EXTRACTED_FROM]--> (src-001:"Alice's résumé")
+(ext-003)  --[EXTRACTED_FROM]--> (src-001:"Alice's résumé")
 ```
 
 ---
@@ -319,8 +341,8 @@ It allows any agent or tool to inspect the structure of the KB graph itself with
 | `ENTITY` | An instance entity node |
 | `FACT` | An instance fact node |
 | `LITERAL` | A typed scalar value node |
-| `SOURCE` | A provenance source document node |
-| `EXTRACTION` | A provenance text span node |
+| `SOURCE` | A provenance source node |
+| `EXTRACTION` | A provenance assertion node |
 
 **Meta-schema relations (edge types as relations):**
 

@@ -100,6 +100,12 @@ def _humanize_date(iso_str: str | None) -> str:
         return iso_str
 
 
+def _render_confidence(value: float | None) -> str:
+    """Format a confidence for table display; `--` when unstated, so a blank cell
+    means only that the row continues the one above it."""
+    return "--" if value is None else str(value)
+
+
 def _metadata_display_name(meta: dict) -> str:
     """Human-readable identity string for a get_metadata entry, type-dependent."""
     if meta.get("type") == "LITERAL":
@@ -107,28 +113,58 @@ def _metadata_display_name(meta: dict) -> str:
     return meta.get("name") or ""
 
 
+def _evidence_columns(t: Table, text_header: str = "Provenance",
+                      with_original: bool = False) -> None:
+    """Per-evidence columns, added after an item's own columns."""
+    t.add_column("Ev.", style="dim")
+    t.add_column(text_header, style="dim")
+    t.add_column("Source", style="dim")
+    if with_original:
+        t.add_column("Source Original", style="dim")
+
+
+def _evidence_rows(base: list[str], records: list[dict] | None,
+                   with_original: bool = False) -> list[list[str]]:
+    """Expand one item into a row per evidence record.
+
+    The first row carries *base*; later rows blank those cells so the item reads
+    as one group. An item with no evidence yields one row built from an empty
+    record, so nothing disappears from a listing and the cell count cannot drift
+    from `_evidence_columns`.
+    """
+    blank = [""] * len(base)
+    rows: list[list[str]] = []
+    for i, record in enumerate(records or [{}]):
+        cells = (base if i == 0 else blank) + [
+            _render_confidence(record.get("confidence")),
+            record.get("text") or "",
+            record.get("source") or "",
+        ]
+        if with_original:
+            cells.append(record.get("source_original") or "")
+        rows.append(cells)
+    return rows
+
+
 def _print_metadata_table(metadata: dict) -> None:
     """Render a get_metadata dict (id -> metadata) as a 'Metadata' table, if non-empty."""
     if not metadata:
         return
-    t = Table(title="Metadata", show_header=True, header_style="bold")
-    t.add_column("Type",            style="dim")
-    t.add_column("Name",            style="bold")
-    t.add_column("Created",         style="dim")
-    t.add_column("Modified",        style="dim")
-    t.add_column("Extraction",      style="dim")
-    t.add_column("Source",          style="dim")
-    t.add_column("Source Original", style="dim")
+    t = Table(title="Metadata", show_header=True, header_style="bold", show_lines=True)
+    t.add_column("Type",     style="dim")
+    t.add_column("Name",     style="bold")
+    t.add_column("Created",  style="dim")
+    t.add_column("Modified", style="dim")
+    _evidence_columns(t, text_header="Extraction", with_original=True)
     for meta in metadata.values():
-        t.add_row(
+        base = [
             meta.get("type") or "",
             _metadata_display_name(meta),
             _humanize_date(meta.get("created")),
             _humanize_date(meta.get("modified")),
-            meta.get("extraction") or "",
-            meta.get("source") or "",
-            meta.get("source_original") or "",
-        )
+        ]
+        for row in _evidence_rows(base, meta.get("evidence"), with_original=True):
+            t.add_row(*row)
     console.print(t)
 
 
@@ -211,26 +247,26 @@ def _coerce_value(raw: str, literal_type: str | None) -> str | int | float | boo
     return raw
 
 
-def _provenance_detail(kb: FileKBSource, db: str, node_id: str) -> dict:
-    """Extraction text and linked source name(s) for node_id's EXTRACTED_FROM chain."""
-    nbs = kb.get_neighbors(db, node_id, edge_type=EXTRACTED_FROM, direction="out")
-    texts: list[str] = []
-    source_names: list[str] = []
-    seen_sources: set[str] = set()
-    for nb in nbs:
+def _evidence_records(kb: FileKBSource, db: str, node_id: str) -> list[dict]:
+    """One record per EXTRACTION on node_id, for the listing commands.
+
+    Deliberately narrower than `get_metadata`'s `evidence`: it omits `created`,
+    which no CLI surface displays. Not an oversight — add it here when something
+    renders it.
+    """
+    records: list[dict] = []
+    for nb in kb.get_neighbors(db, node_id, edge_type=EXTRACTED_FROM, direction="out"):
         extraction_node = nb["node"]
-        text = extraction_node.get("properties", {}).get("text")
-        if text:
-            texts.append(text)
-        for src_nb in kb.get_neighbors(db, extraction_node["id"], edge_type=EXTRACTED_FROM, direction="out"):
-            source_node = src_nb["node"]
-            if source_node["id"] in seen_sources:
-                continue
-            seen_sources.add(source_node["id"])
-            name = source_node.get("properties", {}).get("name")
-            if name:
-                source_names.append(name)
-    return {"extraction": " | ".join(texts), "source": " | ".join(source_names)}
+        props = extraction_node.get("properties", {})
+        src_nbs = kb.get_neighbors(db, extraction_node["id"], edge_type=EXTRACTED_FROM, direction="out")
+        source_props = src_nbs[0]["node"].get("properties", {}) if src_nbs else {}
+        records.append({
+            "text": props.get("text"),
+            "confidence": props.get("confidence"),
+            "source": source_props.get("name"),
+            "source_original": source_props.get("original"),
+        })
+    return records
 
 
 # ------------------------------------------------------------------ #
@@ -2066,6 +2102,15 @@ def entity_group() -> None:
 @click.option("--text",                        default=None, help="Source text span (creates provenance).")
 @click.option("--source",      "source_name",  default=None, help="Source name.")
 @click.option("--source-id",                   default=None, help="Source node ID (overrides --source).")
+@click.option("--confidence",      type=float, default=None,
+              help="Confidence in [0.0, 1.0] for the recorded assertion; requires --text.")
+@click.option(
+    "--extraction-type", "extraction_type",
+    type=click.Choice(["text_span", "external_record", "assertion"]),
+    default="text_span",
+    show_default=True,
+    help="Form of the evidence recorded for --text.",
+)
 @click.pass_obj
 def entity_add(
     obj: dict,
@@ -2076,6 +2121,8 @@ def entity_add(
     text: str | None,
     source_name: str | None,
     source_id: str | None,
+    confidence: float | None,
+    extraction_type: str,
 ) -> None:
     """Add an entity instance.
 
@@ -2093,6 +2140,7 @@ def entity_add(
         entity_id = _run(kb.add_entity(
             db, name, description=description,
             class_id=resolved_class_id, text=text, source_id=resolved_source_id,
+            confidence=confidence, extraction_type=extraction_type,
         ))
     except KBError as exc:
         raise click.ClickException(str(exc))
@@ -2126,9 +2174,7 @@ def entity_list(obj: dict, show_provenance: bool, fmt: str) -> None:
             "class": class_name,
         }
         if show_provenance:
-            prov = _provenance_detail(kb, db, nid)
-            row["provenance"] = prov["extraction"]
-            row["source"] = prov["source"]
+            row["evidence"] = _evidence_records(kb, db, nid)
         rows.append(row)
     if fmt == "json":
         console.print_json(json.dumps(rows))
@@ -2136,18 +2182,18 @@ def entity_list(obj: dict, show_provenance: bool, fmt: str) -> None:
         if not rows:
             console.print("[dim](no entities)[/dim]")
             return
-        t = Table(show_header=True, header_style="bold")
+        t = Table(show_header=True, header_style="bold", show_lines=show_provenance)
         t.add_column("Name",  style="bold")
         t.add_column("Class", style="dim")
         if show_provenance:
-            t.add_column("Provenance", style="dim")
-            t.add_column("Source",     style="dim")
+            _evidence_columns(t)
         for r in sorted(rows, key=lambda x: (x["class"], x["name"])):
-            row_cells = [r["name"], r["class"]]
-            if show_provenance:
-                row_cells.append(r.get("provenance", ""))
-                row_cells.append(r.get("source", ""))
-            t.add_row(*row_cells)
+            base = [r["name"], r["class"]]
+            if not show_provenance:
+                t.add_row(*base)
+                continue
+            for cells in _evidence_rows(base, r.get("evidence")):
+                t.add_row(*cells)
         console.print(t)
 
 
@@ -2293,11 +2339,22 @@ def entity_extraction_group() -> None:
 @click.option("--text",        required=True, help="New source text span.")
 @click.option("--source",      "source_name", default=None, help="Source name.")
 @click.option("--source-id",                  default=None, help="Source node ID (overrides --source).")
+@click.option("--confidence",     type=float, default=None,
+              help="Confidence in [0.0, 1.0] for the recorded assertion.")
+@click.option(
+    "--extraction-type", "extraction_type",
+    type=click.Choice(["text_span", "external_record", "assertion"]),
+    default="text_span",
+    show_default=True,
+    help="Form of the evidence recorded for --text.",
+)
 @click.pass_obj
 def entity_extraction_add(
     obj: dict,
     entity_name: str | None, entity_id: str | None,
     text: str, source_name: str | None, source_id: str | None,
+    confidence: float | None,
+    extraction_type: str,
 ) -> None:
     """Link additional source text to an existing entity.
 
@@ -2312,7 +2369,10 @@ def entity_extraction_add(
     if source_name or source_id:
         resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
     try:
-        extraction_id = _run(kb.add_entity_extraction(db, eid, text, source_id=resolved_source_id))
+        extraction_id = _run(kb.add_entity_extraction(
+            db, eid, text, source_id=resolved_source_id,
+            confidence=confidence, extraction_type=extraction_type,
+        ))
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(f"Added extraction (id: {extraction_id})")
@@ -2344,6 +2404,15 @@ def entity_property_group() -> None:
 @click.option("--text",                          default=None, help="Source text span (creates provenance).")
 @click.option("--source",       "source_name",   default=None, help="Source name.")
 @click.option("--source-id",                     default=None, help="Source node ID (overrides --source).")
+@click.option("--confidence",        type=float, default=None,
+              help="Confidence in [0.0, 1.0] for the recorded assertion; requires --text.")
+@click.option(
+    "--extraction-type", "extraction_type",
+    type=click.Choice(["text_span", "external_record", "assertion"]),
+    default="text_span",
+    show_default=True,
+    help="Form of the evidence recorded for --text.",
+)
 @click.pass_obj
 def entity_property_set(
     obj: dict,
@@ -2358,6 +2427,8 @@ def entity_property_set(
     text: str | None,
     source_name: str | None,
     source_id: str | None,
+    confidence: float | None,
+    extraction_type: str,
 ) -> None:
     """Set a property value on an entity.
 
@@ -2382,6 +2453,7 @@ def entity_property_set(
             name=name, description=description,
             entity_id=eid, property_id=pid, literal_type=literal_type,
             text=text, source_id=resolved_source_id,
+            confidence=confidence, extraction_type=extraction_type,
         ))
     except KBError as exc:
         raise click.ClickException(str(exc))
@@ -2421,26 +2493,24 @@ def entity_property_list(
             "id":       lit["id"],
         }
         if show_provenance:
-            prov = _provenance_detail(kb, db, lit["id"])
-            row["provenance"] = prov["extraction"]
-            row["source"] = prov["source"]
+            row["evidence"] = _evidence_records(kb, db, lit["id"])
         rows.append(row)
     if fmt == "json":
         console.print_json(json.dumps(rows))
     else:
-        t = Table(show_header=True, header_style="bold")
+        t = Table(show_header=True, header_style="bold", show_lines=show_provenance)
         t.add_column("Property", style="bold")
         t.add_column("Value")
         t.add_column("Type",     style="dim")
         if show_provenance:
-            t.add_column("Provenance", style="dim")
-            t.add_column("Source",     style="dim")
+            _evidence_columns(t)
         for r in rows:
-            row_cells = [r["property"], r["value"], r["type"]]
-            if show_provenance:
-                row_cells.append(r.get("provenance", ""))
-                row_cells.append(r.get("source", ""))
-            t.add_row(*row_cells)
+            base = [r["property"], r["value"], r["type"]]
+            if not show_provenance:
+                t.add_row(*base)
+                continue
+            for cells in _evidence_rows(base, r.get("evidence")):
+                t.add_row(*cells)
         console.print(t)
 
 
@@ -2521,12 +2591,23 @@ def entity_property_extraction_group() -> None:
 @click.option("--text",                          required=True, help="New source text span.")
 @click.option("--source",       "source_name",   default=None, help="Source name.")
 @click.option("--source-id",                     default=None, help="Source node ID (overrides --source).")
+@click.option("--confidence",        type=float, default=None,
+              help="Confidence in [0.0, 1.0] for the recorded assertion.")
+@click.option(
+    "--extraction-type", "extraction_type",
+    type=click.Choice(["text_span", "external_record", "assertion"]),
+    default="text_span",
+    show_default=True,
+    help="Form of the evidence recorded for --text.",
+)
 @click.pass_obj
 def entity_property_extraction_add(
     obj: dict,
     entity_name: str | None, entity_id: str | None,
     property_name: str | None, property_id: str | None,
     text: str, source_name: str | None, source_id: str | None,
+    confidence: float | None,
+    extraction_type: str,
 ) -> None:
     """Link additional source text to an entity's existing property value."""
     kb: FileKBSource = obj["kb"]
@@ -2538,7 +2619,10 @@ def entity_property_extraction_add(
         resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
     try:
         extraction_id = _run(
-            kb.add_entity_property_value_extraction(db, eid, pid, text, source_id=resolved_source_id)
+            kb.add_entity_property_value_extraction(
+                db, eid, pid, text, source_id=resolved_source_id,
+                confidence=confidence, extraction_type=extraction_type,
+            )
         )
     except KBError as exc:
         raise click.ClickException(str(exc))
@@ -2566,6 +2650,15 @@ def fact_group() -> None:
 @click.option("--text",                         default=None, help="Source text span (creates provenance).")
 @click.option("--source",      "source_name",   default=None, help="Source name.")
 @click.option("--source-id",                    default=None, help="Source node ID (overrides --source).")
+@click.option("--confidence",       type=float, default=None,
+              help="Confidence in [0.0, 1.0] for the recorded assertion; requires --text.")
+@click.option(
+    "--extraction-type", "extraction_type",
+    type=click.Choice(["text_span", "external_record", "assertion"]),
+    default="text_span",
+    show_default=True,
+    help="Form of the evidence recorded for --text.",
+)
 @click.pass_obj
 def fact_add(
     obj: dict,
@@ -2580,6 +2673,8 @@ def fact_add(
     text: str | None,
     source_name: str | None,
     source_id: str | None,
+    confidence: float | None,
+    extraction_type: str,
 ) -> None:
     """Add a fact (relation instance) between two entities.
 
@@ -2611,6 +2706,7 @@ def fact_add(
             tail_entity_id=tail_entity_id,
             relation_id=resolved_relation_id,
             text=text, source_id=resolved_source_id,
+            confidence=confidence, extraction_type=extraction_type,
         ))
     except KBError as exc:
         raise click.ClickException(str(exc))
@@ -2652,11 +2748,10 @@ def fact_list(obj: dict, show_provenance: bool, fmt: str) -> None:
             "head":     _name(head_id),
             "relation": _name(rel_id),
             "tail":     _name(tail_id),
+            "confidence": node.get("properties", {}).get("confidence"),
         }
         if show_provenance:
-            prov = _provenance_detail(kb, db, nid)
-            row["provenance"] = prov["extraction"]
-            row["source"] = prov["source"]
+            row["evidence"] = _evidence_records(kb, db, nid)
         rows.append(row)
     if fmt == "json":
         console.print_json(json.dumps(rows))
@@ -2664,19 +2759,20 @@ def fact_list(obj: dict, show_provenance: bool, fmt: str) -> None:
         if not rows:
             console.print("[dim](no facts)[/dim]")
             return
-        t = Table(show_header=True, header_style="bold")
-        t.add_column("Head",     style="bold")
-        t.add_column("Relation", style="dim")
-        t.add_column("Tail",     style="bold")
+        t = Table(show_header=True, header_style="bold", show_lines=show_provenance)
+        t.add_column("Head",       style="bold")
+        t.add_column("Relation",   style="dim")
+        t.add_column("Tail",       style="bold")
+        t.add_column("Conf.", style="dim")
         if show_provenance:
-            t.add_column("Provenance", style="dim")
-            t.add_column("Source",     style="dim")
+            _evidence_columns(t)
         for r in sorted(rows, key=lambda x: (x["relation"], x["head"])):
-            row_cells = [r["head"], r["relation"], r["tail"]]
-            if show_provenance:
-                row_cells.append(r.get("provenance", ""))
-                row_cells.append(r.get("source", ""))
-            t.add_row(*row_cells)
+            base = [r["head"], r["relation"], r["tail"], _render_confidence(r["confidence"])]
+            if not show_provenance:
+                t.add_row(*base)
+                continue
+            for cells in _evidence_rows(base, r.get("evidence")):
+                t.add_row(*cells)
         console.print(t)
 
 
@@ -2736,16 +2832,27 @@ def fact_extraction_group() -> None:
 
 
 @fact_extraction_group.command("add")
-@click.option("--fact",        "fact_name", default=None, help="Fact name.")
-@click.option("--fact-id",                  default=None, help="Fact node ID (overrides --fact).")
+@click.option("--fact",        "fact_name",   default=None, help="Fact name.")
+@click.option("--fact-id",                    default=None, help="Fact node ID (overrides --fact).")
 @click.option("--text",        required=True, help="New source text span.")
 @click.option("--source",      "source_name", default=None, help="Source name.")
 @click.option("--source-id",                  default=None, help="Source node ID (overrides --source).")
+@click.option("--confidence",     type=float, default=None,
+              help="Confidence in [0.0, 1.0] for the recorded assertion.")
+@click.option(
+    "--extraction-type", "extraction_type",
+    type=click.Choice(["text_span", "external_record", "assertion"]),
+    default="text_span",
+    show_default=True,
+    help="Form of the evidence recorded for --text.",
+)
 @click.pass_obj
 def fact_extraction_add(
     obj: dict,
     fact_name: str | None, fact_id: str | None,
     text: str, source_name: str | None, source_id: str | None,
+    confidence: float | None,
+    extraction_type: str,
 ) -> None:
     """Link additional source text to an existing fact.
 
@@ -2760,7 +2867,10 @@ def fact_extraction_add(
     if source_name or source_id:
         resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
     try:
-        extraction_id = _run(kb.add_fact_extraction(db, fid, text, source_id=resolved_source_id))
+        extraction_id = _run(kb.add_fact_extraction(
+            db, fid, text, source_id=resolved_source_id,
+            confidence=confidence, extraction_type=extraction_type,
+        ))
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(f"Added extraction (id: {extraction_id})")
@@ -2791,6 +2901,15 @@ def fact_property_group() -> None:
 @click.option("--text",                       default=None, help="Source text span (creates provenance).")
 @click.option("--source",    "source_name",   default=None, help="Source name.")
 @click.option("--source-id",                  default=None, help="Source node ID (overrides --source).")
+@click.option("--confidence",     type=float, default=None,
+              help="Confidence in [0.0, 1.0] for the recorded assertion; requires --text.")
+@click.option(
+    "--extraction-type", "extraction_type",
+    type=click.Choice(["text_span", "external_record", "assertion"]),
+    default="text_span",
+    show_default=True,
+    help="Form of the evidence recorded for --text.",
+)
 @click.pass_obj
 def fact_property_set(
     obj: dict,
@@ -2804,6 +2923,8 @@ def fact_property_set(
     text: str | None,
     source_name: str | None,
     source_id: str | None,
+    confidence: float | None,
+    extraction_type: str,
 ) -> None:
     """Set a property value on a fact.
 
@@ -2826,6 +2947,7 @@ def fact_property_set(
             name=name, description=description,
             fact_id=fact_id, property_id=pid, literal_type=literal_type,
             text=text, source_id=resolved_source_id,
+            confidence=confidence, extraction_type=extraction_type,
         ))
     except KBError as exc:
         raise click.ClickException(str(exc))
@@ -2861,26 +2983,24 @@ def fact_property_list(obj: dict, fact_id: str, show_provenance: bool, fmt: str)
             "id":       lit["id"],
         }
         if show_provenance:
-            prov = _provenance_detail(kb, db, lit["id"])
-            row["provenance"] = prov["extraction"]
-            row["source"] = prov["source"]
+            row["evidence"] = _evidence_records(kb, db, lit["id"])
         rows.append(row)
     if fmt == "json":
         console.print_json(json.dumps(rows))
     else:
-        t = Table(show_header=True, header_style="bold")
+        t = Table(show_header=True, header_style="bold", show_lines=show_provenance)
         t.add_column("Property", style="bold")
         t.add_column("Value")
         t.add_column("Type",     style="dim")
         if show_provenance:
-            t.add_column("Provenance", style="dim")
-            t.add_column("Source",     style="dim")
+            _evidence_columns(t)
         for r in rows:
-            row_cells = [r["property"], r["value"], r["type"]]
-            if show_provenance:
-                row_cells.append(r.get("provenance", ""))
-                row_cells.append(r.get("source", ""))
-            t.add_row(*row_cells)
+            base = [r["property"], r["value"], r["type"]]
+            if not show_provenance:
+                t.add_row(*base)
+                continue
+            for cells in _evidence_rows(base, r.get("evidence")):
+                t.add_row(*cells)
         console.print(t)
 
 
@@ -2961,12 +3081,23 @@ def fact_property_extraction_group() -> None:
 @click.option("--text",                          required=True, help="New source text span.")
 @click.option("--source",       "source_name",   default=None, help="Source name.")
 @click.option("--source-id",                     default=None, help="Source node ID (overrides --source).")
+@click.option("--confidence",        type=float, default=None,
+              help="Confidence in [0.0, 1.0] for the recorded assertion.")
+@click.option(
+    "--extraction-type", "extraction_type",
+    type=click.Choice(["text_span", "external_record", "assertion"]),
+    default="text_span",
+    show_default=True,
+    help="Form of the evidence recorded for --text.",
+)
 @click.pass_obj
 def fact_property_extraction_add(
     obj: dict,
     fact_name: str | None, fact_id: str | None,
     property_name: str | None, property_id: str | None,
     text: str, source_name: str | None, source_id: str | None,
+    confidence: float | None,
+    extraction_type: str,
 ) -> None:
     """Link additional source text to a fact's existing property value."""
     kb: FileKBSource = obj["kb"]
@@ -2978,7 +3109,10 @@ def fact_property_extraction_add(
         resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
     try:
         extraction_id = _run(
-            kb.add_fact_property_value_extraction(db, fid, pid, text, source_id=resolved_source_id)
+            kb.add_fact_property_value_extraction(
+                db, fid, pid, text, source_id=resolved_source_id,
+                confidence=confidence, extraction_type=extraction_type,
+            )
         )
     except KBError as exc:
         raise click.ClickException(str(exc))
@@ -2992,7 +3126,8 @@ def fact_property_extraction_add(
 @data_group.command("list")
 @click.option("--show-provenance", "show_provenance", is_flag=True, help="Include provenance text.")
 @click.option("--show-detailed", "show_detailed", is_flag=True,
-              help="Include each row's node attributes: description, created, modified.")
+              help="Include each row's node attributes: description, created, modified, "
+                   "and confidence on fact rows.")
 @click.option(
     "--format", "fmt",
     type=click.Choice(["table", "json"]),
@@ -3029,86 +3164,69 @@ def list_cmd(obj: dict, show_provenance: bool, show_detailed: bool, fmt: str) ->
     def _detail_row(r: dict) -> list[str]:
         return [r.get("description") or "", _humanize_date(r.get("created")), _humanize_date(r.get("modified"))]
 
-    def _provenance_columns(t: Table) -> None:
-        t.add_column("Provenance", style="dim")
-        t.add_column("Source",     style="dim")
-
-    def _provenance_row(r: dict) -> list[str]:
-        return [r.get("extraction", "") or "", r.get("source", "") or ""]
-
-    def _source_original_column(t: Table) -> None:
-        t.add_column("Source Original", style="dim")
-
-    def _source_original_row(r: dict) -> list[str]:
-        return [r.get("source_original") or ""]
+    def _add_rows(t: Table, base: list[str], r: dict) -> None:
+        """One row per evidence record when provenance is shown, else a single row."""
+        if not show_provenance:
+            t.add_row(*base)
+            return
+        for cells in _evidence_rows(base, r.get("evidence"), with_original=show_detailed):
+            t.add_row(*cells)
 
     if entities:
-        t = Table(title="Entities", show_header=True, header_style="bold")
+        t = Table(title="Entities", show_header=True, header_style="bold",
+                  show_lines=show_provenance)
         t.add_column("Name",  style="bold")
         t.add_column("Class", style="dim")
         if show_detailed:
             _detail_columns(t)
         if show_provenance:
-            _provenance_columns(t)
-        if show_detailed and show_provenance:
-            _source_original_column(t)
+            _evidence_columns(t, with_original=show_detailed)
         for r in sorted(entities, key=lambda x: (x.get("class_name") or "", x.get("entity_name") or "")):
-            row = [r.get("entity_name") or "", r.get("class_name") or ""]
+            base = [r.get("entity_name") or "", r.get("class_name") or ""]
             if show_detailed:
-                row += _detail_row(r)
-            if show_provenance:
-                row += _provenance_row(r)
-            if show_detailed and show_provenance:
-                row += _source_original_row(r)
-            t.add_row(*row)
+                base += _detail_row(r)
+            _add_rows(t, base, r)
         console.print(t)
 
     if ent_props:
-        t = Table(title="Entity Property Values", show_header=True, header_style="bold")
+        t = Table(title="Entity Property Values", show_header=True, header_style="bold",
+                  show_lines=show_provenance)
         t.add_column("Entity",   style="bold")
         t.add_column("Property", style="dim")
         t.add_column("Value")
         if show_detailed:
             _detail_columns(t)
         if show_provenance:
-            _provenance_columns(t)
-        if show_detailed and show_provenance:
-            _source_original_column(t)
+            _evidence_columns(t, with_original=show_detailed)
         for r in sorted(ent_props, key=lambda x: (x.get("entity_name") or "", x.get("property_name") or "")):
-            row = [r.get("entity_name") or "", r.get("property_name") or "", str(r.get("property_value", ""))]
+            base = [r.get("entity_name") or "", r.get("property_name") or "", str(r.get("property_value", ""))]
             if show_detailed:
-                row += _detail_row(r)
-            if show_provenance:
-                row += _provenance_row(r)
-            if show_detailed and show_provenance:
-                row += _source_original_row(r)
-            t.add_row(*row)
+                base += _detail_row(r)
+            _add_rows(t, base, r)
         console.print(t)
 
     if facts:
-        t = Table(title="Facts", show_header=True, header_style="bold")
+        t = Table(title="Facts", show_header=True, header_style="bold",
+                  show_lines=show_provenance)
         t.add_column("Head",     style="bold")
         t.add_column("Relation", style="dim")
         t.add_column("Tail",     style="bold")
         if show_detailed:
+            t.add_column("Conf.", style="dim")
             _detail_columns(t)
         if show_provenance:
-            _provenance_columns(t)
-        if show_detailed and show_provenance:
-            _source_original_column(t)
+            _evidence_columns(t, with_original=show_detailed)
         for r in sorted(facts, key=lambda x: (x.get("relation_name") or "", x.get("source_name") or "")):
-            row = [r.get("source_name") or "", r.get("relation_name") or "", r.get("target_name") or ""]
+            base = [r.get("source_name") or "", r.get("relation_name") or "", r.get("target_name") or ""]
             if show_detailed:
-                row += _detail_row(r)
-            if show_provenance:
-                row += _provenance_row(r)
-            if show_detailed and show_provenance:
-                row += _source_original_row(r)
-            t.add_row(*row)
+                base += [_render_confidence(r.get("confidence"))]
+                base += _detail_row(r)
+            _add_rows(t, base, r)
         console.print(t)
 
     if fact_props:
-        t = Table(title="Fact Property Values", show_header=True, header_style="bold")
+        t = Table(title="Fact Property Values", show_header=True, header_style="bold",
+                  show_lines=show_provenance)
         t.add_column("Head",     style="bold")
         t.add_column("Relation", style="dim")
         t.add_column("Tail",     style="bold")
@@ -3117,11 +3235,9 @@ def list_cmd(obj: dict, show_provenance: bool, show_detailed: bool, fmt: str) ->
         if show_detailed:
             _detail_columns(t)
         if show_provenance:
-            _provenance_columns(t)
-        if show_detailed and show_provenance:
-            _source_original_column(t)
+            _evidence_columns(t, with_original=show_detailed)
         for r in sorted(fact_props, key=lambda x: (x.get("relation_name") or "", x.get("head_name") or "", x.get("property_name") or "")):
-            row = [
+            base = [
                 r.get("head_name") or "",
                 r.get("relation_name") or "",
                 r.get("tail_name") or "",
@@ -3129,12 +3245,8 @@ def list_cmd(obj: dict, show_provenance: bool, show_detailed: bool, fmt: str) ->
                 str(r.get("property_value", "")),
             ]
             if show_detailed:
-                row += _detail_row(r)
-            if show_provenance:
-                row += _provenance_row(r)
-            if show_detailed and show_provenance:
-                row += _source_original_row(r)
-            t.add_row(*row)
+                base += _detail_row(r)
+            _add_rows(t, base, r)
         console.print(t)
 
     if not entities and not all_props and not facts:
@@ -3303,7 +3415,7 @@ def extract_cmd(
 )
 @click.option("--model", default="gpt-4o", show_default=True, help="OpenAI model.")
 @click.option("--include-metadata", "include_metadata", is_flag=True, default=False,
-              help="Also collect created/modified/extraction/source metadata for cited entities/facts/properties.")
+              help="Also collect created/modified/confidence/evidence metadata for cited entities/facts/properties.")
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Show tool call arguments in the status line.")
 @click.option("--log", "-l", is_flag=True, default=False, help="Also log each tool call and its result on its own line (in addition to the status line).")
 @click.option("--log-limit", type=int, default=80, show_default=True, help="Max characters to show per truncated verbose/log line.")
@@ -3354,7 +3466,7 @@ def answer_cmd(
               help="Return a prose assessment instead of supporting/counter lists.")
 @click.option("--model", default="gpt-4o", show_default=True, help="OpenAI model.")
 @click.option("--include-metadata", "include_metadata", is_flag=True, default=False,
-              help="Also collect created/modified/extraction/source metadata for cited entities/facts/properties.")
+              help="Also collect created/modified/confidence/evidence metadata for cited entities/facts/properties.")
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Show tool call arguments in the status line.")
 @click.option("--log", "-l", is_flag=True, default=False, help="Also log each tool call and its result on its own line (in addition to the status line).")
 @click.option("--log-limit", type=int, default=80, show_default=True, help="Max characters to show per truncated verbose/log line.")

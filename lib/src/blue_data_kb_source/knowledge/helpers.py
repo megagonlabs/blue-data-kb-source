@@ -1,8 +1,10 @@
-"""Shared lookup and metadata helpers for ENTITY/FACT/LITERAL nodes.
+"""Shared lookup, metadata, and derived-value helpers for ENTITY/FACT/LITERAL nodes.
 
-Used by both `KnowledgeManager` (compact data listing, `get_metadata`, the exact-name
-`find_entity`/`find_fact` lookups behind the extraction agent's tools) and `QueryEngine`
-(the `get_metadata` LLM tool) so the per-type lookup logic lives in exactly one place.
+Used by `KnowledgeManager` (compact data listing, `get_metadata`, `evidence_records`,
+the exact-name `find_entity`/`find_fact` lookups behind the extraction agent's tools),
+`QueryEngine` (the `get_metadata` LLM tool), and `ProvenanceTracker`
+(`recompute_fact_confidence`, which must run wherever an EXTRACTED_FROM edge is written)
+so the per-type logic lives in exactly one place.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from blue_data_kb_source._constants import (
     REPRESENTS,
     TAIL,
 )
+from blue_data_kb_source.timestamps import touched
 
 
 def node_name(node: dict) -> str:
@@ -28,12 +31,13 @@ def node_name(node: dict) -> str:
 
 
 def detail_attrs(node: dict) -> dict:
-    """description/created/modified for a node's own properties."""
+    """description/created/modified/confidence for a node's own properties."""
     props = node.get("properties", {})
     return {
         "description": props.get("description"),
         "created": props.get("created"),
         "modified": props.get("modified"),
+        "confidence": props.get("confidence"),
     }
 
 
@@ -89,39 +93,28 @@ def property_values(source: GraphSource, database: str, owner_id: str) -> list[d
     return results
 
 
-def provenance_detail(source: GraphSource, database: str, node_id: str) -> dict:
-    """Extraction text and linked source name/original for node_id's EXTRACTED_FROM chain."""
-    ext_nbs = source.get_neighbors(database, node_id, edge_type=EXTRACTED_FROM, direction="out")
-    texts: list[str] = []
-    source_names: list[str] = []
-    source_originals: list[str] = []
-    seen_sources: set[str] = set()
-    for nb in ext_nbs:
+def evidence_records(source: GraphSource, database: str, node_id: str) -> list[dict]:
+    """One record per EXTRACTION on node_id, each with its own score, date, and source."""
+    records: list[dict] = []
+    for nb in source.get_neighbors(database, node_id, edge_type=EXTRACTED_FROM, direction="out"):
         extraction_node = nb["node"]
-        text = extraction_node.get("properties", {}).get("text")
-        if text:
-            texts.append(text)
-        for src_nb in source.get_neighbors(
+        eprops = extraction_node.get("properties", {})
+        src_nbs = source.get_neighbors(
             database, extraction_node["id"], edge_type=EXTRACTED_FROM, direction="out"
-        ):
-            source_node = src_nb["node"]
-            if source_node["id"] in seen_sources:
-                continue
-            seen_sources.add(source_node["id"])
-            sprops = source_node.get("properties", {})
-            if sprops.get("name"):
-                source_names.append(sprops["name"])
-            if sprops.get("original"):
-                source_originals.append(sprops["original"])
-    return {
-        "extraction": " | ".join(texts) or None,
-        "source": " | ".join(source_names) or None,
-        "source_original": " | ".join(source_originals) or None,
-    }
+        )
+        own_source = src_nbs[0]["node"].get("properties", {}) if src_nbs else {}
+        records.append({
+            "text": eprops.get("text"),
+            "confidence": eprops.get("confidence"),
+            "created": eprops.get("created"),
+            "source": own_source.get("name"),
+            "source_original": own_source.get("original"),
+        })
+    return records
 
 
 def fetch_node_metadata(source: GraphSource, database: str, node_id: str) -> dict:
-    """created/modified/extraction/source metadata for an ENTITY, FACT, or LITERAL (property value) node.
+    """created/modified, derived confidence, and `evidence` records for an ENTITY, FACT, or LITERAL (property value) node.
 
     Raises KeyError if node_id doesn't exist or isn't one of those three types.
     """
@@ -163,5 +156,25 @@ def fetch_node_metadata(source: GraphSource, database: str, node_id: str) -> dic
         "type": label,
         **identity,
         **detail_attrs(node),
-        **provenance_detail(source, database, node_id),
+        "evidence": evidence_records(source, database, node_id),
     }
+
+
+def recompute_fact_confidence(source: GraphSource, database: str, fact_id: str) -> None:
+    """Refresh a FACT's derived `confidence` from its supporting EXTRACTION nodes.
+
+    The highest confidence among them, ignoring those that state none, and `None`
+    when none do. A no-op for non-FACT nodes; writes nothing when unchanged.
+    """
+    node = source.get_node(database, fact_id)
+    if node is None or node.get("label") != FACT:
+        return
+    scores: list[float] = []
+    for nb in source.get_neighbors(database, fact_id, edge_type=EXTRACTED_FROM, direction="out"):
+        score = nb["node"].get("properties", {}).get("confidence")
+        if score is not None:
+            scores.append(score)
+    recomputed = max(scores) if scores else None
+    if node.get("properties", {}).get("confidence") == recomputed:
+        return
+    source.update_node(database, fact_id, touched({"confidence": recomputed}))

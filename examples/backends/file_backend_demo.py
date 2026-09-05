@@ -104,7 +104,7 @@ async def main():
 
     meta = await kb2.get_metadata("main", alice)
     print("Alice's metadata:")
-    for k in ("type", "name", "class_name", "created", "modified", "extraction", "source", "source_original"):
+    for k in ("type", "name", "class_name", "created", "modified", "evidence"):
         print(f"  {k}: {meta.get(k)}")
 
     # ---------------------------------------------------------------- #

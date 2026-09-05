@@ -183,9 +183,10 @@ async def main():
 
     ibm_id = next(hit.id for hit in migrated_hits if hit.name == "IBM")
     meta = await migrated.get_metadata("main", ibm_id)
-    print(f"IBM's extraction text survived the migration: {meta['extraction']!r}")
-    print(f"But its SOURCE-node link did not: source={meta['source']!r}, "
-          f"source_original={meta['source_original']!r}")
+    texts = [e["text"] for e in meta["evidence"]]
+    sources = [(e["source"], e["source_original"]) for e in meta["evidence"]]
+    print(f"IBM's extraction text survived the migration: {texts!r}")
+    print(f"But its SOURCE-node link did not -- (source, source_original) per record: {sources!r}")
     print("Gotcha: export_database_data/import_database_data carry over extraction *text*")
     print("(re-linked via a fresh EXTRACTED_FROM edge on import) but SOURCE nodes themselves")
     print("are never exported -- only entities/facts/property values are. If you need the")

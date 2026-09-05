@@ -47,9 +47,9 @@ async def main():
         text="Alice is a software engineer.", source_id=resume,
     )
     meta = await kb.get_metadata("main", alice)
-    print(f"get_metadata after one write: extraction={meta['extraction']!r}")
-    print(f"                              source={meta['source']!r}")
-    print(f"                              source_original={meta['source_original']!r}")
+    print("get_metadata after one write -- one evidence record:")
+    for e in meta["evidence"]:
+        print(f"  text={e['text']!r} source={e['source']!r} source_original={e['source_original']!r}")
 
     print()
     print(DIVIDER)
@@ -62,10 +62,10 @@ async def main():
         "main", alice, text="Alice currently works as a senior engineer.", source_id=linkedin
     )
     meta = await kb.get_metadata("main", alice)
-    print(f"get_metadata after two extractions: extraction={meta['extraction']!r}")
-    print(f"                                    source={meta['source']!r}")
-    print(f"                                    source_original={meta['source_original']!r}")
-    print("Both texts and both sources are pipe-joined -- neither call replaced the other.")
+    print("get_metadata after two extractions -- one evidence record each:")
+    for e in meta["evidence"]:
+        print(f"  text={e['text']!r} source={e['source']!r} source_original={e['source_original']!r}")
+    print("Each extraction is its own record with its own source -- neither call replaced the other.")
 
     print()
     print(DIVIDER)
@@ -80,7 +80,7 @@ async def main():
         "main", alice, title_prop, text="Confirmed via a phone call on 2024-03-01.", source_id=None
     )
     title_meta = await kb.get_metadata("main", title_literal)
-    print(f"TITLE literal's accumulated extraction: {title_meta['extraction']!r}")
+    print(f"TITLE literal's evidence texts: {[e['text'] for e in title_meta['evidence']]!r}")
 
     print()
     print(DIVIDER)
@@ -99,8 +99,8 @@ async def main():
         "main", fact, text="LinkedIn confirms Alice's employment at IBM.", source_id=linkedin
     )
     fact_meta = await kb.get_metadata("main", fact)
-    print(f"WORKED_AT fact's accumulated extraction: {fact_meta['extraction']!r}")
-    print(f"WORKED_AT fact's accumulated source:      {fact_meta['source']!r}")
+    print(f"WORKED_AT fact's evidence texts:   {[e['text'] for e in fact_meta['evidence']]!r}")
+    print(f"WORKED_AT fact's evidence sources: {[e['source'] for e in fact_meta['evidence']]!r}")
 
     print()
     print("Demo complete.")

@@ -181,3 +181,75 @@ async def test_attaching_a_property_reindexes_its_new_owner():
     before = _indexed_text(kb, "test", worked)
     await kb.attach_property("test", worked, start)
     assert _indexed_text(kb, "test", worked) == before + " START_DATE: Start of employment"
+
+
+# ------------------------------------------------------------------ #
+# execute_query — confidence / extraction_type forwarding              #
+# ------------------------------------------------------------------ #
+
+def test_execute_query_add_extraction_forwards_confidence_and_type(kb):
+    extraction_id = kb.execute_query(
+        {"op": "KB.ADD_EXTRACTION", "text": "Alice joined IBM.",
+          "confidence": 0.8, "extraction_type": "assertion"},
+        database="test",
+    )
+    props = kb.get_node("test", extraction_id)["properties"]
+    assert props["confidence"] == 0.8
+    assert props["extraction_type"] == "assertion"
+
+
+def test_execute_query_add_extraction_defaults_match_the_method(kb):
+    extraction_id = kb.execute_query(
+        {"op": "KB.ADD_EXTRACTION", "text": "Alice joined IBM."}, database="test"
+    )
+    props = kb.get_node("test", extraction_id)["properties"]
+    assert props["confidence"] is None
+    assert props["extraction_type"] == "text_span"
+
+
+def test_execute_query_creator_ops_forward_confidence_and_type(kb):
+    def q(**kw):
+        return kb.execute_query(kw, database="test")
+
+    prop_id   = q(op="KB.DECLARE_CLASS_PROPERTY", name="AGE", description="")
+    entity_id = q(op="KB.ADD_ENTITY", name="Alice", text="Alice joined IBM.",
+                  confidence=0.9, extraction_type="assertion")
+    fact_id   = q(op="KB.ADD_FACT", head_entity_id=entity_id, text="Alice joined IBM.",
+                  confidence=0.8, extraction_type="external_record")
+    lit_e     = q(op="KB.ADD_ENTITY_PROPERTY", value="28", entity_id=entity_id,
+                  property_id=prop_id, text="Alice is 28.", confidence=0.7)
+    lit_f     = q(op="KB.ADD_FACT_PROPERTY", value="1998", fact_id=fact_id,
+                  property_id=prop_id, text="In 1998.", confidence=0.6)
+
+    expected = {entity_id: (0.9, "assertion"), fact_id: (0.8, "external_record"),
+                lit_e: (0.7, "text_span"), lit_f: (0.6, "text_span")}
+    for node_id, (confidence, extraction_type) in expected.items():
+        nbs = kb.get_neighbors("test", node_id, edge_type="EXTRACTED_FROM", direction="out")
+        props = nbs[0]["node"]["properties"]
+        assert props["confidence"] == confidence
+        assert props["extraction_type"] == extraction_type
+
+
+def test_execute_query_extraction_ops_forward_confidence_and_type(kb):
+    def q(**kw):
+        return kb.execute_query(kw, database="test")
+
+    prop_id   = q(op="KB.DECLARE_CLASS_PROPERTY", name="AGE", description="")
+    entity_id = q(op="KB.ADD_ENTITY", name="Alice")
+    fact_id   = q(op="KB.ADD_FACT", head_entity_id=entity_id)
+    q(op="KB.ADD_ENTITY_PROPERTY", value="28", entity_id=entity_id, property_id=prop_id)
+    q(op="KB.ADD_FACT_PROPERTY", value="1998", fact_id=fact_id, property_id=prop_id)
+
+    cases = [
+        dict(op="KB.ADD_ENTITY_EXTRACTION", entity_id=entity_id, text="Alice is an engineer."),
+        dict(op="KB.ADD_FACT_EXTRACTION", fact_id=fact_id, text="Alice joined IBM."),
+        dict(op="KB.ADD_ENTITY_PROPERTY_EXTRACTION", entity_id=entity_id,
+             property_id=prop_id, text="Alice is 28."),
+        dict(op="KB.ADD_FACT_PROPERTY_EXTRACTION", fact_id=fact_id,
+             property_id=prop_id, text="It was 1998."),
+    ]
+    for case in cases:
+        ext_id = q(confidence=0.42, extraction_type="assertion", **case)
+        props = kb.get_node("test", ext_id)["properties"]
+        assert props["confidence"] == 0.42, case["op"]
+        assert props["extraction_type"] == "assertion", case["op"]
