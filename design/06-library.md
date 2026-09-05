@@ -214,7 +214,7 @@ SchemaManager(source, notifier=None, search_indexer=None)
 **Parameters**
 
 - `source` — the parent `KBSource` instance; used for all Graph Store access
-- `notifier` — the `ChangeNotifier` instance; fires `class_declared`/`relation_declared`/`class_property_declared`/`relation_property_declared`/`class_subclass`/`relation_subclass` and the corresponding `*_updated`/`*_deleted` events
+- `notifier` — the `ChangeNotifier` instance; fires `class_declared`/`relation_declared`/`class_property_declared`/`relation_property_declared`/`class_subclass`/`relation_subclass`, the corresponding `*_updated`/`*_deleted` events, and `property_attached`/`relation_domain_attached`/`relation_range_attached` on a real attach
 - `search_indexer` — forwarded straight through to the `SchemaExpansionEngine` this constructor creates internally (`self._expansion = SchemaExpansionEngine(source, self, search_indexer)`); backs `expand_schema`'s `search_schema` tool the same way it backs `KBSource.search_schema` itself
 
 ### Methods
@@ -550,7 +550,7 @@ A BM25 corpus is always maintained in memory (optionally persisted to `corpus_di
 
 #### `on_change(event)`
 
-Global change-hook entry point, registered by `KBSource` at construction time. Dispatches added/updated/deleted events for classes, relations, properties, entities, and facts to the appropriate indexing helper, keeping the index incrementally in sync without a full rebuild.
+Global change-hook entry point, registered by `KBSource` at construction time. Dispatches added/attached/updated/deleted events for classes, relations, properties, entities, and facts to the appropriate indexing helper, keeping the index incrementally in sync without a full rebuild.
 
 #### `search_schema(database, query, k=5, mode="keyword", type_filter=None)`
 

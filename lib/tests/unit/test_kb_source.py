@@ -157,3 +157,27 @@ async def test_attaching_an_extraction_reindexes_the_element():
     assert _indexed_text(kb, "test", ann) == "Ann PERSON"
     await kb.attach_extraction("test", ann, extraction)
     assert _indexed_text(kb, "test", ann) == "Ann PERSON Ann performs oboe recitals."
+
+
+async def test_attaching_a_property_reindexes_its_new_owner():
+    """A class's or relation's indexed text lists its properties, so `attach_property`
+    has to reindex the owner it was attached to — `declare_*_property` already does."""
+    kb = MemoryKBSource(name="t", properties={"search": {"mode": "bm25"}})
+    kb.create_database("test")
+    person  = await kb.declare_class("test", "PERSON", "A human individual")
+    company = await kb.declare_class("test", "COMPANY", "A business organization")
+    worked  = await kb.declare_relation_type(
+        "test", "WORKED_AT", "Employment", domain="PERSON", range="COMPANY"
+    )
+    start = await kb.declare_class_property("test", "START_DATE", "Start of employment",
+                                            class_id=person)
+
+    assert _indexed_text(kb, "test", company) == "COMPANY CLASS A business organization"
+    await kb.attach_property("test", company, start)
+    assert _indexed_text(kb, "test", company) == (
+        "COMPANY CLASS A business organization START_DATE: Start of employment"
+    )
+
+    before = _indexed_text(kb, "test", worked)
+    await kb.attach_property("test", worked, start)
+    assert _indexed_text(kb, "test", worked) == before + " START_DATE: Start of employment"
