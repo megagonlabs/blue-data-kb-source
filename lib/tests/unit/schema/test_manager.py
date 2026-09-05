@@ -363,6 +363,11 @@ async def test_meta_schema_lists_extraction_confidence_attributes(kb):
     assert "confidence" in attrs
 
 
+async def test_meta_schema_lists_fact_confidence_attribute(kb):
+    schema = await kb.fetch_meta_schema()
+    assert "confidence" in schema.entities["FACT"]["contents"]["attributes"]
+
+
 # ------------------------------------------------------------------ #
 # import_database_schema (round-trip)                                  #
 # ------------------------------------------------------------------ #

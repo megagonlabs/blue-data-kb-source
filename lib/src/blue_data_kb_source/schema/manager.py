@@ -85,6 +85,9 @@ class SchemaManager:
             ENTITY:     [("name", "name of the entity"), ("description", "description of the entity"),
                          *_timestamp_attrs],
             FACT:       [("name", "name of the fact"), ("description", "description of the fact"),
+                         ("confidence", "derived: the highest confidence among the fact's "
+                                        "extractions, from 0.0 to 1.0; unset when none "
+                                        "states one"),
                          *_timestamp_attrs],
             LITERAL:    [("name", "name of the literal"), ("description", "description of the literal"),
                          ("value", "value of the property"), ("type", "type of the value"),
