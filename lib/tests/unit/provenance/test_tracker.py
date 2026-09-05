@@ -189,6 +189,21 @@ async def test_add_extraction_with_element_id_and_source_id_links_both(kb):
     assert any(nb["node"]["id"] == src_id for nb in src_nbs)
 
 
+async def test_tracker_add_extraction_wires_element_and_source_itself(kb):
+    # the tracker owns both links now; the facade only delegates
+    entity_id = await kb.add_entity("test", "Alice")
+    src_id = await kb.add_source("test", source="doc3")
+    tracker = ProvenanceTracker(kb)
+    extraction_id = await tracker.add_extraction(
+        "test", "Direct evidence.", source_id=src_id, element_id=entity_id
+    )
+    def out(n):
+        return {nb["node"]["id"] for nb in kb.get_neighbors(
+            "test", n, edge_type="EXTRACTED_FROM", direction="out")}
+    assert extraction_id in out(entity_id)
+    assert src_id in out(extraction_id)
+
+
 # ------------------------------------------------------------------ #
 # attach_extraction                                                    #
 # ------------------------------------------------------------------ #

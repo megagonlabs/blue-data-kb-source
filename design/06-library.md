@@ -317,11 +317,11 @@ Creates an ENTITY node.
 
 1. Create ENTITY node with `name`, `description`, optional `entity_id`
 2. If `class_id` provided: wire IS_INSTANCE_OF edge to the CLASS node
-3. If `text` provided: call `ProvenanceTracker.link_extraction(database, entity_id, text, source_id)`
+3. If `text` provided: call `ProvenanceTracker.add_extraction(database, text, source_id=source_id, element_id=entity_id)`
 4. Call `ChangeNotifier.fire({"type": "entity_added", ...})`
 5. Return entity ID
 
-`add_fact`/`add_entity_property_value`/`add_fact_property_value` follow the same shape. Attaching more evidence to an entity/fact/literal that already exists (without recreating it) goes through `add_entity_extraction`/`add_fact_extraction`/`add_entity_property_value_extraction`/`add_fact_property_value_extraction` instead — each just calls `ProvenanceTracker.link_extraction` again against the existing id, requiring the target to already exist.
+`add_fact`/`add_entity_property_value`/`add_fact_property_value` follow the same shape. Attaching more evidence to an entity/fact/literal that already exists (without recreating it) goes through `add_entity_extraction`/`add_fact_extraction`/`add_entity_property_value_extraction`/`add_fact_property_value_extraction` instead — each just calls `ProvenanceTracker.add_extraction(element_id=…)` again against the existing id, requiring the target to already exist.
 
 #### `find_data(database, query, type_filter=None)`
 
@@ -457,17 +457,11 @@ Deletes a SOURCE node.
 
 #### `add_extraction(database, text, name=None, description=None, node_id=None, source_id=None, element_id=None)`
 
-Creates an EXTRACTION node. If `source_id` is provided, wires an EXTRACTED_FROM edge from the EXTRACTION to the SOURCE. If `element_id` is also provided, additionally wires EXTRACTED_FROM from that existing entity/fact/literal to the new extraction (via the private `add_extracted_from` helper) in the same call. Returns the EXTRACTION node ID.
+Creates an EXTRACTION node for `text` and, optionally, links it in the same call — the create-and-link counterpart of `attach_extraction` below. Both links are independent and each is wired only when its id is given: `source_id` adds an EXTRACTED_FROM edge from the new EXTRACTION to that SOURCE; `element_id` adds an EXTRACTED_FROM edge from that existing entity/fact/literal to the new EXTRACTION. With neither, the node is created detached, for `attach_extraction` to wire later. Returns the EXTRACTION node ID. One node per call: `KnowledgeManager` routes every `text=` shortcut and the `add_*_extraction` family through it, so repeated calls for the same element accumulate EXTRACTED_FROM edges rather than replacing the earlier one, and an item can carry evidence from several sources at once.
 
 #### `attach_extraction(database, element_id, extraction_id)`
 
 Wires an `EXTRACTED_FROM` edge from an existing ENTITY, FACT, or LITERAL (`element_id`) to an existing EXTRACTION (`extraction_id`). Idempotent — calling it again with the same pair is a no-op, not a duplicate edge. Raises `ProvenanceError` if `element_id` isn't an ENTITY/FACT/LITERAL or `extraction_id` isn't an EXTRACTION. Exists so an extraction created up front — by `add_extraction` without an `element_id`, or rebuilt when a snapshot is restored — can be wired to its item afterwards; it does not pool evidence across items, since each item still gets its own EXTRACTION node.
-
-#### `link_extraction(database, element_id, text, source_id=None)`
-
-Creates a per-item EXTRACTION node for `text`, optionally wires it to `source_id`, and wires an EXTRACTED_FROM edge from `element_id` to the EXTRACTION.
-
-This is called internally by `KnowledgeManager` whenever `text` is provided on an instance-creation call, and again by the `add_*_extraction` family (`add_entity_extraction`, etc.) to attach more evidence to an item that already exists. One EXTRACTION node is created per call — multiple calls against the same `element_id` accumulate multiple EXTRACTED_FROM edges rather than replacing the previous one, so an item can carry evidence from several sources at once.
 
 ---
 
@@ -616,7 +610,7 @@ currently stands. Called directly by `ExtractionEngine`'s consumer — `KBSource
 4. Loop (up to `max_turns` turns):
    - Receive tool calls from the LLM
    - For instance creation calls: dispatch to `KnowledgeManager`, passing `text=<verbatim span>` and `source_id=source_id`
-   - For `link_extraction` calls (item already exists): dispatch to `ProvenanceTracker.link_extraction`, attaching the new span as further evidence rather than creating a duplicate
+   - For `link_extraction` calls (item already exists): dispatch to `ProvenanceTracker.add_extraction(element_id=…)`, attaching the new span as further evidence rather than creating a duplicate
    - Return tool results to the LLM
 5. Exit when the LLM returns without further tool calls, or `max_turns` is reached
 

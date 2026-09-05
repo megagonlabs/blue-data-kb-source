@@ -710,12 +710,9 @@ class KBSource(GraphSource, ABC):
         existing entity/fact/literal (element_id), so a single call can both
         create the extraction and link it in place.
         """
-        extraction_id = await self._provenance.add_extraction(
-            database, text, name, description, node_id, source_id
+        return await self._provenance.add_extraction(
+            database, text, name, description, node_id, source_id, element_id
         )
-        if element_id is not None:
-            await self._provenance.add_extracted_from(database, element_id, extraction_id)
-        return extraction_id
 
     async def attach_extraction(
         self, database: str, element_id: str, extraction_id: str

@@ -136,7 +136,9 @@ class KnowledgeManager:
         if class_id is not None:
             self._source.add_edge(database, node_id, IS_INSTANCE_OF, class_id, properties=edge_stamped())
         if text is not None:
-            await self._provenance.link_extraction(database, node_id, text, source_id)
+            await self._provenance.add_extraction(
+                database, text, source_id=source_id, element_id=node_id
+            )
         self._notifier.fire({
             "type": "entity_added",
             "database": database,
@@ -182,7 +184,9 @@ class KnowledgeManager:
         if relation_id is not None:
             self._source.add_edge(database, node_id, REPRESENTS, relation_id, properties=edge_stamped())
         if text is not None:
-            await self._provenance.link_extraction(database, node_id, text, source_id)
+            await self._provenance.add_extraction(
+                database, text, source_id=source_id, element_id=node_id
+            )
         self._notifier.fire({
             "type": "fact_added",
             "database": database,
@@ -252,7 +256,9 @@ class KnowledgeManager:
         if entity_id is not None:
             self._source.add_edge(database, entity_id, HAS_PROPERTY, literal_id, properties=edge_stamped())
         if text is not None:
-            await self._provenance.link_extraction(database, literal_id, text, source_id)
+            await self._provenance.add_extraction(
+                database, text, source_id=source_id, element_id=literal_id
+            )
         self._notifier.fire({
             "type": "entity_property_added",
             "database": database,
@@ -288,7 +294,9 @@ class KnowledgeManager:
         if fact_id is not None:
             self._source.add_edge(database, fact_id, HAS_PROPERTY, literal_id, properties=edge_stamped())
         if text is not None:
-            await self._provenance.link_extraction(database, literal_id, text, source_id)
+            await self._provenance.add_extraction(
+                database, text, source_id=source_id, element_id=literal_id
+            )
         self._notifier.fire({
             "type": "fact_property_added",
             "database": database,
@@ -318,7 +326,9 @@ class KnowledgeManager:
         require_node_type(self._source, database, entity_id, ENTITY, "entity_id", KnowledgeError)
         if source_id is not None:
             require_node_type(self._source, database, source_id, SOURCE, "source_id", KnowledgeError)
-        return await self._provenance.link_extraction(database, entity_id, text, source_id)
+        return await self._provenance.add_extraction(
+            database, text, source_id=source_id, element_id=entity_id
+        )
 
     async def add_fact_extraction(
         self,
@@ -337,7 +347,9 @@ class KnowledgeManager:
         require_node_type(self._source, database, fact_id, FACT, "fact_id", KnowledgeError)
         if source_id is not None:
             require_node_type(self._source, database, source_id, SOURCE, "source_id", KnowledgeError)
-        return await self._provenance.link_extraction(database, fact_id, text, source_id)
+        return await self._provenance.add_extraction(
+            database, text, source_id=source_id, element_id=fact_id
+        )
 
     async def add_entity_property_value_extraction(
         self,
@@ -355,7 +367,9 @@ class KnowledgeManager:
         lit_id = self._find_literal(database, entity_id, property_id)
         if lit_id is None:
             raise KnowledgeError("No property value found for the given entity and property.")
-        return await self._provenance.link_extraction(database, lit_id, text, source_id)
+        return await self._provenance.add_extraction(
+            database, text, source_id=source_id, element_id=lit_id
+        )
 
     async def add_fact_property_value_extraction(
         self,
@@ -373,7 +387,9 @@ class KnowledgeManager:
         lit_id = self._find_literal(database, fact_id, property_id)
         if lit_id is None:
             raise KnowledgeError("No property value found for the given fact and property.")
-        return await self._provenance.link_extraction(database, lit_id, text, source_id)
+        return await self._provenance.add_extraction(
+            database, text, source_id=source_id, element_id=lit_id
+        )
 
     # ------------------------------------------------------------------ #
     # Attach operations                                                    #

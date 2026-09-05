@@ -50,7 +50,12 @@ class ProvenanceTracker:
         description: str | None = None,
         node_id: str | None = None,
         source_id: str | None = None,
+        element_id: str | None = None,
     ) -> str:
+        """Create an EXTRACTION node for `text`, wired to its SOURCE and/or to the item it
+        supports when those ids are given. One node per call: repeated calls for the same
+        element_id accumulate EXTRACTED_FROM edges rather than replacing the earlier one.
+        """
         if name is None:
             name = text
         n = self._source.add_node(
@@ -61,24 +66,11 @@ class ProvenanceTracker:
         )
         if source_id is not None:
             self._source.add_edge(database, n, EXTRACTED_FROM, source_id, properties=edge_stamped())
+        if element_id is not None:
+            self._source.add_edge(
+                database, element_id, EXTRACTED_FROM, n, properties=edge_stamped()
+            )
         return n
-
-    async def link_extraction(
-        self,
-        database: str,
-        element_id: str,
-        text: str,
-        source_id: str | None = None,
-    ) -> str:
-        """Create an EXTRACTION node and wire element_id -[EXTRACTED_FROM]-> extraction.
-
-        Elements may accumulate multiple EXTRACTED_FROM edges over time as
-        additional text spans are found; calling this again for the same
-        element_id adds a new edge rather than replacing the existing one.
-        """
-        extraction_id = await self.add_extraction(database, text=text, source_id=source_id)
-        self._source.add_edge(database, element_id, EXTRACTED_FROM, extraction_id, properties=edge_stamped())
-        return extraction_id
 
     async def add_extracted_from(
         self,

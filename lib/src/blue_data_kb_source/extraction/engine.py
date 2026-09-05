@@ -457,11 +457,11 @@ class ExtractionEngine:
             return {"id": lit_id}
 
         if fn == "link_extraction":
-            extraction_id = await self._provenance.link_extraction(
+            extraction_id = await self._provenance.add_extraction(
                 database,
-                element_id=args["element_id"],
                 text=args["text"],
                 source_id=source_id,
+                element_id=args["element_id"],
             )
             return {"id": extraction_id}
 

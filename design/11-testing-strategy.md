@@ -36,7 +36,7 @@ lib/tests/
     schema/       test_manager.py       # declare, update, delete, hierarchy, search, consolidate, import/export
                   test_expansion.py     # expand_schema: tool dispatch, dedup_mode, CLASS-vs-entity/taxonomic-relation rejection, MCP wiring (OpenAI + MCP client mocked)
     knowledge/    test_manager.py       # add/update/delete entity/fact/property, get_metadata, export/import, answer/validate/enrich (QueryEngine mocked)
-    provenance/   test_tracker.py       # add_source, add_extraction, link_extraction, update/delete_source
+    provenance/   test_tracker.py       # add_source, add_extraction, attach_extraction, update/delete_source
     notification/ test_notifier.py      # hook registration, event delivery, database scoping
     extraction/   test_engine.py        # import_text: tool dispatch (no schema-declaration tool), provenance wiring (OpenAI mocked)
   benchmarks/
