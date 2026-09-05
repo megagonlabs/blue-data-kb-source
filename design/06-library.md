@@ -172,9 +172,9 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `add_source(database, source, name?, description?, node_id?, original?)` | `str` | Create a SOURCE node; `original` is a caller-supplied date (e.g. a document's publication date), distinct from the node's own `created` timestamp |
 | `update_source(database, source_id, name?, description?, original?)` | `None` | Update a SOURCE node |
 | `delete_source(database, source_id)` | `None` | Delete a SOURCE node |
-| `add_extraction(database, text, name?, description?, node_id?, source_id?, element_id?)` | `str` | Create an EXTRACTION node; wires EXTRACTED_FROM to `source_id` if given; if `element_id` is also given, additionally wires EXTRACTED_FROM from that existing entity/fact/literal to the new extraction in the same call |
+| `add_extraction(database, text, name?, description?, node_id?, source_id?, element_id?)` | `str` | Create an EXTRACTION node; `source_id` wires EXTRACTED_FROM from it to that SOURCE, `element_id` wires EXTRACTED_FROM from that existing entity/fact/literal to it — each link independently, only when its id is given |
 
-`add_extracted_from` is **not** a public `KBSource` method — it exists only as a private `ProvenanceTracker` helper, invoked internally by `add_extraction` when `element_id` is given. Use `add_extraction(..., element_id=...)` instead of calling it directly.
+`add_extracted_from` is **not** a public `KBSource` method; it is a private `ProvenanceTracker` helper that `attach_extraction` calls. To link an extraction to an item, pass `element_id` to `add_extraction` when creating it, or call `attach_extraction` for an extraction that already exists.
 | `attach_extraction(database, element_id, extraction_id)` | `None` | Wire EXTRACTED_FROM from an ENTITY / FACT / LITERAL to an EXTRACTION that already exists — for an extraction created up front by `add_extraction` without an `element_id`, or re-wired on snapshot restore. Deduplicated and add-only. Not a way to share evidence: each item keeps its own EXTRACTION node (`10-data-model.md` §2.3) |
 
 #### Change hook operations (delegate to `ChangeNotifier`)
@@ -439,7 +439,7 @@ ProvenanceTracker(source, notifier=None)
 **Parameters**
 
 - `source` — the parent `KBSource` instance; used for all Graph Store access
-- `notifier` — the `ChangeNotifier` instance; fires `extraction_attached`, the tracker's only event. The creating writes (`add_source`, `add_extraction`, `link_extraction`) stay silent, so a change-hook listener sees provenance only when an existing extraction is wired to an item
+- `notifier` — the `ChangeNotifier` instance; fires `extraction_attached`, the tracker's only event. The creating writes (`add_source`, `add_extraction`) stay silent, so a change-hook listener sees provenance only when an existing extraction is wired to an item
 
 ### Methods
 
@@ -517,7 +517,7 @@ Calls all hooks registered for `event["database"]`, then all global hooks, in re
 | `entity_deleted` / `fact_deleted` | — (`id` only) |
 | `entity_property_deleted` / `fact_property_deleted` | — (`id` only) |
 
-All events also carry `type`, `database`, and `id`. Schema events (`class_declared` through `relation_subclass`, plus their `*_updated`/`*_deleted` counterparts) are fired by `SchemaManager`, not `KnowledgeManager` — `ChangeNotifier` is shared infrastructure used by both layers, not scoped to one. Schema declaration events fire only on first creation; idempotent repeats of `declare_*` don't re-fire. Note also: `ProvenanceTracker`'s methods (`add_source`, `add_extraction`, `link_extraction`, `update_source`, `delete_source`) fire **no** change events at all — no notifier is wired into it.
+All events also carry `type`, `database`, and `id`. Schema events (`class_declared` through `relation_subclass`, plus their `*_updated`/`*_deleted` counterparts) are fired by `SchemaManager`, not `KnowledgeManager` — `ChangeNotifier` is shared infrastructure used by both layers, not scoped to one. Schema declaration events fire only on first creation; idempotent repeats of `declare_*` don't re-fire. Note also: `ProvenanceTracker` fires only one event, `extraction_attached`, from `attach_extraction`; its other methods (`add_source`, `add_extraction`, `update_source`, `delete_source`) fire no change events at all.
 
 ---
 

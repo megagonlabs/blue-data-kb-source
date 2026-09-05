@@ -177,6 +177,7 @@ The Knowledge Layer populates the knowledge base with instance data and answers 
 **Responsibilities**
 
 - Create entity, fact, and literal nodes; wire their typed schema edges
+- Attach a further class to an existing entity (`attach_entity_class`); `add_entity(class_id=…)` wires the first class at creation. Deduplicated and add-only
 - Update or delete entity, fact, and literal nodes (`update_entity`/`update_fact`/`update_entity_property_value`/`update_fact_property_value`, `delete_entity`/`delete_fact`/`delete_entity_property_value`/`delete_fact_property_value`) — `delete_entity` takes a `cascade` flag that also deletes facts referencing the entity
 - Look up per-item metadata (`get_metadata`) — created/modified timestamps, extraction text, and source name/original date for a single entity, fact, or property value
 - Export instance data to a portable, `ref`-keyed JSON representation and import it into any database whose schema already has the referenced classes/relations/properties declared (`export_database_data`/`import_database_data`) — data import is **not** idempotent: re-importing the same export creates duplicate entities/facts, unlike schema import
@@ -246,6 +247,7 @@ Every `get_metadata` call the agent makes is harvested into the `metadata` dict 
 - Wire EXTRACTED_FROM edges from instances to their EXTRACTION nodes
 - Wire EXTRACTION nodes to SOURCE nodes when a source is provided
 - Attach *additional* evidence to an entity/fact/property value that already exists, without touching its name/description or creating a duplicate (`add_entity_extraction`, `add_fact_extraction`, `add_entity_property_value_extraction`, `add_fact_property_value_extraction`) — each call adds one more EXTRACTED_FROM edge; an item can accumulate several as more sources are found, none of them replacing a prior one
+- Wire an existing EXTRACTION to an entity, fact, or property value (`attach_extraction`); deduplicated, add-only, and the tracker's only write that fires a change event (`extraction_attached`)
 - Create SOURCE nodes with a caller-supplied `original` date (`add_source`), and update or delete them (`update_source`/`delete_source`)
 
 **Provenance Flow**
@@ -277,18 +279,22 @@ Every event carries `type`, `database`, and `id`. Additional fields by type — 
 | `class_property_declared` | `name`, `description`, `class_id`, `class_name` |
 | `relation_property_declared` | `name`, `description`, `relation_id`, `relation_name` |
 | `class_subclass` / `relation_subclass` | `child_id`, `child_name`, `parent_id`, `parent_name` |
+| `property_attached` | `target_id`, `target_label` (`"CLASS"`\|`"RELATION"`), `property_id` |
+| `relation_domain_attached` / `relation_range_attached` | `relation_id`, `relation_name`, `class_id`, `class_name` |
 | `class_updated` / `relation_updated` / `property_updated` | `id` only |
 | `class_deleted` / `relation_deleted` / `property_deleted` | `id` only |
 | `entity_added` | `name`, `class_id`, `class_name` |
 | `fact_added` | `head_entity_id`, `head_entity_name`, `tail_entity_id`, `tail_entity_name`, `relation_id`, `relation_name` |
 | `entity_property_added` | `entity_id`, `entity_name`, `property_id`, `property_name`, `value` |
 | `fact_property_added` | `fact_id`, `property_id`, `property_name`, `value`, `head_entity_name`, `tail_entity_name`, `relation_name` |
+| `entity_class_attached` | `entity_id`, `entity_name`, `class_id`, `class_name` |
+| `extraction_attached` | `element_id`, `extraction_id` |
 | `entity_updated` / `fact_updated` | `id` only |
 | `entity_property_updated` / `fact_property_updated` | `id` only |
 | `entity_deleted` / `fact_deleted` | `id` only |
 | `entity_property_deleted` / `fact_property_deleted` | `id` only |
 
-Note the schema-event category above (`class_declared` through `relation_subclass`) is fired by the **Schema Manager**, not the Knowledge Manager — the Change Notifier itself is shared infrastructure, not scoped to one layer. `add_source`/`add_extraction`/`update_source`/`delete_source` on the Provenance Tracker fire **no** change events at all — there's no notifier wired into it.
+Note the schema-event category above (`class_declared` through `relation_range_attached`) is fired by the **Schema Manager**, not the Knowledge Manager — the Change Notifier itself is shared infrastructure, not scoped to one layer. On the Provenance Tracker, only `attach_extraction` fires an event (`extraction_attached`); `add_source`, `add_extraction`, `update_source`, and `delete_source` fire no change events at all.
 
 Hooks are scoped to a single database: a hook registered on database `"main"` does not fire for writes to any other database. There is also an internal *global* hook mechanism (firing across all databases) used exclusively to keep the Search Indexer in sync — it is not exposed on `KBSource`.
 

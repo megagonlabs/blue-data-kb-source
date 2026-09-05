@@ -140,7 +140,7 @@ Note: `declare_relation_type` wires the initial `DOMAIN`/`RANGE` edges inline (`
 | `await add_extraction(database, text, name?, description?, node_id?, source_id?, element_id?)` | `str` | Add an `EXTRACTION` node; `element_id` wires `EXTRACTED_FROM` to an existing entity/fact/literal in the same call |
 | `await attach_extraction(database, element_id, extraction_id)` | `None` | Wire `EXTRACTED_FROM` from an `ENTITY`/`FACT`/`LITERAL` to an EXTRACTION that already exists — created up front by `add_extraction` without an `element_id`, or re-wired on snapshot restore. Deduplicated, add-only. Each item still keeps its own EXTRACTION node; this does not share evidence between items |
 
-Note: `add_extracted_from` is **not** a public `KBSource` method — use `add_extraction(..., element_id=...)`.
+Note: `add_extracted_from` is **not** a public `KBSource` method. To link an extraction to an item, pass `element_id` to `add_extraction` when creating it, or call `attach_extraction` for an extraction that already exists.
 
 ### Extraction
 
