@@ -97,6 +97,18 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `add_is_subclass_of(database, child_id, parent_id)` | `None` | Wire IS_SUBCLASS_OF edge; not deduplicated — calling twice adds two edges. The only way to express an is-a/type-of/kind-of hierarchy between two CLASSes or two RELATIONs — never a declared RELATION |
 | `remove_is_subclass_of(database, child_id, parent_id)` | `None` | Remove an IS_SUBCLASS_OF edge |
 | `attach_property(database, target_id, property_id)` | `None` | Wire DEFINE_PROPERTY from an existing CLASS/RELATION to an existing PROPERTY (idempotent) — reuse a property across classes/relations instead of declaring a same-meaning duplicate under a new name |
+| `attach_relation_domain(database, relation_id, class_id)` | `None` | Attach a CLASS to the relation's DOMAIN; deduplicated, and add-only — no detach counterpart, domains only widen |
+| `attach_relation_range(database, relation_id, class_id)` | `None` | Same, for RANGE |
+| `get_class_ancestors(database, class_id, max_hops?)` | `list[dict]` | Ancestor CLASS nodes via IS_SUBCLASS_OF, breadth-first with cycle protection, ordered nearest-first (order within a depth is backend-dependent); `max_hops` defaults to 5, `None` = unbounded |
+| `get_class_descendants(database, class_id, max_hops?)` | `list[dict]` | Descendant CLASS nodes, same walk in the other direction |
+| `get_relation_ancestors(database, relation_id, max_hops?)` | `list[dict]` | Ancestor RELATION nodes — RELATION also carries IS_SUBCLASS_OF |
+| `get_relation_descendants(database, relation_id, max_hops?)` | `list[dict]` | Descendant RELATION nodes |
+| `get_class_entities(database, class_id, limit?)` | `list[dict]` | ENTITY instances of a class via IS_INSTANCE_OF; `limit` defaults to 10, `None` = unbounded |
+| `get_relation_domain_range(database, relation_id)` | `dict` | The relation's DOMAIN and RANGE CLASS nodes, as `{"domain": [...], "range": [...]}` |
+| `get_allowed_relations_between_classes(database, head_class_id, tail_class_id, expand?, max_hops?)` | `list[dict]` | RELATION nodes whose domain/range accept the two classes; `expand` defaults to true and lets an ancestor class satisfy the constraint |
+| `find_class(database, name)` | `dict \| None` | CLASS node by exact, case-sensitive name |
+| `find_relation_type(database, name)` | `dict \| None` | RELATION node by exact name |
+| `find_property(database, name)` | `dict \| None` | PROPERTY node by exact name |
 | `fetch_database_schema(database)` | `DataSchema` | Assemble a `DataSchema` object from the current graph |
 | `export_database_schema(database)` | `dict` | `fetch_database_schema(database).to_json()` — portable JSON form |
 | `fetch_meta_schema()` | `DataSchema` | Return the fixed KBDB meta-schema |
@@ -104,7 +116,7 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `consolidate_schema(database, operation, source_names, target_name, predicate?)` | `None` | Only `operation="merge"` is implemented; any other value raises `SchemaError`. `predicate` is accepted but unused. See SchemaManager below for what merge actually does — it does not remove source elements. |
 | `expand_schema(database, text, depth?, reference?, mcp_servers?, dedup_mode?, model?, on_tool_call?, on_tool_result?, max_turns?)` | `None` | LLM agent that grows the schema (CLASS/RELATION/PROPERTY only) grounded by `text` — never touches entities/facts/property values. See SchemaExpansionEngine below |
 
-`add_domain`/`add_range` do **not** exist as separate methods — `domain`/`range` are wired inline as part of `declare_relation_type` and are required there, not optional add-ons.
+`declare_relation_type` wires the initial DOMAIN/RANGE edges inline (`domain`/`range` are required there), and re-declaring never re-wires them — post-declaration widening is what `attach_relation_domain`/`attach_relation_range` are for.
 
 #### Knowledge operations (delegate to `KnowledgeManager`)
 
@@ -126,13 +138,23 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `add_fact_extraction(database, fact_id, text, source_id?)` | `str` | Same, for an existing fact |
 | `add_entity_property_value_extraction(database, entity_id, property_id, text, source_id?)` | `str` | Same, for an existing entity's property value |
 | `add_fact_property_value_extraction(database, fact_id, property_id, text, source_id?)` | `str` | Same, for an existing fact's property value |
+| `attach_entity_class(database, entity_id, class_id)` | `None` | Attach an existing CLASS to an existing ENTITY via IS_INSTANCE_OF; deduplicated, and add-only — no detach counterpart. Supplies an entity's *additional* class; `add_entity(class_id=…)` wires the first at creation |
 | `fetch_database_data(database, include_provenance?, compact?, detailed?)` | `dict \| list` | Fetch all instance data in the database |
 | `export_database_data(database, include_provenance?)` | `dict` | Portable, `ref`-keyed JSON export of entities/facts/property values (schema not included — export/import schema separately first) |
 | `import_database_data(database, data)` | `None` | Import from `export_database_data`'s format; resolves CLASS/RELATION/PROPERTY **by name** against the target's current schema. **Not idempotent** — re-importing the same export duplicates every entity/fact/property value, unlike schema import |
 | `get_metadata(database, node_id)` | `dict` | Created/modified timestamps, extraction text, and source name/original date for one entity, fact, or property-value id; raises `KnowledgeError` for any other node type |
+| `get_entity_classes(database, entity_id)` | `list[dict]` | CLASS nodes the entity is an instance of, via IS_INSTANCE_OF |
+| `get_fact_parts(database, fact_id)` | `dict` | The fact's first HEAD / RELATION / TAIL nodes, as `{"head": ..., "relation": ..., "tail": ...}` with `None` for unwired parts |
+| `get_property_values(database, owner_id)` | `list[dict]` | LITERAL values on an ENTITY or FACT with each value's PROPERTY, as `[{"literal": ..., "property": ...}]` |
+| `is_fact_allowed(database, head_entity_id, relation_id, tail_entity_id, max_hops?)` | `dict` | Whether the relation's domain/range accept the two entities' classes, subclass-aware via ancestors; returns `{ok, reason, details}` with reasons `ALLOWED` \| `UNTYPED_ENTITY` \| `DOMAIN_RANGE_MISMATCH`. Direction-exact — `is_symmetric` is not consulted |
+| `is_property_allowed(database, owner_id, property_id, max_hops?)` | `dict` | Whether the property is DEFINE_PROPERTY-owned by the entity's classes or their ancestors (entity owner), or by the fact's relation or its ancestors (fact owner); adds reasons `FACT_HAS_NO_RELATION` \| `NOT_DEFINED_FOR_OWNER` |
+| `find_entity(database, name)` | `dict \| None` | First ENTITY with exactly this name — entity names are not unique, so this is a convenience, not identity resolution |
+| `find_fact(database, head_entity_id, relation_id, tail_entity_id)` | `dict \| None` | First FACT matching the exact directed triple |
 | `answer(database, question, model?, natural_language?, include_metadata?, on_tool_call?, on_tool_result?)` | `list[dict] \| str \| tuple[list[dict] \| str, dict]` | Answer a natural language question using an LLM agent over the instance graph; each dict is a flat `{entity, relation, value, provenance}`-shaped row (keys vary by question); returns prose when `natural_language=True`; returns a `(result, metadata)` tuple when `include_metadata=True` |
 | `validate(database, statement, model?, natural_language?, include_metadata?, on_tool_call?, on_tool_result?)` | `ValidationResult \| str \| tuple[ValidationResult \| str, dict]` | Return supporting and counter evidence for a statement using an LLM agent; same `natural_language`/`include_metadata` variance as `answer` |
 | `enrich(database, query, depth?, model?, on_tool_call?, on_tool_result?)` | `list[EnrichmentResult]` | Return related knowledge bearing on a query using an LLM agent; no `natural_language`/`include_metadata` variance |
+
+`declare_*` and `add_<node>` create a node (idempotently by name for schema, never for instances); `attach_*` and `add_is_subclass_of` only add an edge between nodes that already exist, so a node's *additional* links come from them while its first ones come with creation — the verb table is in [08-coding-style.md](08-coding-style.md), the rule in [13-decision-log.md](13-decision-log.md) ADR-024.
 
 #### Search operations (delegate to `KBSearchIndexer` when search is enabled, otherwise served unranked by `SchemaManager`/`KnowledgeManager`)
 
@@ -153,6 +175,7 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `add_extraction(database, text, name?, description?, node_id?, source_id?, element_id?)` | `str` | Create an EXTRACTION node; wires EXTRACTED_FROM to `source_id` if given; if `element_id` is also given, additionally wires EXTRACTED_FROM from that existing entity/fact/literal to the new extraction in the same call |
 
 `add_extracted_from` is **not** a public `KBSource` method — it exists only as a private `ProvenanceTracker` helper, invoked internally by `add_extraction` when `element_id` is given. Use `add_extraction(..., element_id=...)` instead of calling it directly.
+| `attach_extraction(database, element_id, extraction_id)` | `None` | Wire EXTRACTED_FROM from an ENTITY / FACT / LITERAL to an EXTRACTION that already exists — for an extraction created up front by `add_extraction` without an `element_id`, or re-wired on snapshot restore. Deduplicated and add-only. Not a way to share evidence: each item keeps its own EXTRACTION node (`10-data-model.md` §2.3) |
 
 #### Change hook operations (delegate to `ChangeNotifier`)
 
@@ -191,7 +214,7 @@ SchemaManager(source, notifier=None, search_indexer=None)
 **Parameters**
 
 - `source` — the parent `KBSource` instance; used for all Graph Store access
-- `notifier` — the `ChangeNotifier` instance; fires `class_declared`/`relation_declared`/`class_property_declared`/`relation_property_declared`/`class_subclass`/`relation_subclass` and the corresponding `*_updated`/`*_deleted` events
+- `notifier` — the `ChangeNotifier` instance; fires `class_declared`/`relation_declared`/`class_property_declared`/`relation_property_declared`/`class_subclass`/`relation_subclass`, the corresponding `*_updated`/`*_deleted` events, and `property_attached`/`relation_domain_attached`/`relation_range_attached` on a real attach
 - `search_indexer` — forwarded straight through to the `SchemaExpansionEngine` this constructor creates internally (`self._expansion = SchemaExpansionEngine(source, self, search_indexer)`); backs `expand_schema`'s `search_schema` tool the same way it backs `KBSource.search_schema` itself
 
 ### Methods
@@ -294,11 +317,11 @@ Creates an ENTITY node.
 
 1. Create ENTITY node with `name`, `description`, optional `entity_id`
 2. If `class_id` provided: wire IS_INSTANCE_OF edge to the CLASS node
-3. If `text` provided: call `ProvenanceTracker.link_extraction(database, entity_id, text, source_id)`
+3. If `text` provided: call `ProvenanceTracker.add_extraction(database, text, source_id=source_id, element_id=entity_id)`
 4. Call `ChangeNotifier.fire({"type": "entity_added", ...})`
 5. Return entity ID
 
-`add_fact`/`add_entity_property_value`/`add_fact_property_value` follow the same shape. Attaching more evidence to an entity/fact/literal that already exists (without recreating it) goes through `add_entity_extraction`/`add_fact_extraction`/`add_entity_property_value_extraction`/`add_fact_property_value_extraction` instead — each just calls `ProvenanceTracker.link_extraction` again against the existing id, requiring the target to already exist.
+`add_fact`/`add_entity_property_value`/`add_fact_property_value` follow the same shape. Attaching more evidence to an entity/fact/literal that already exists (without recreating it) goes through `add_entity_extraction`/`add_fact_extraction`/`add_entity_property_value_extraction`/`add_fact_property_value_extraction` instead — each just calls `ProvenanceTracker.add_extraction(element_id=…)` again against the existing id, requiring the target to already exist.
 
 #### `find_data(database, query, type_filter=None)`
 
@@ -410,8 +433,13 @@ Records the origin of each piece of knowledge by creating and wiring EXTRACTION 
 ### Constructor
 
 ```python
-ProvenanceTracker(source)
+ProvenanceTracker(source, notifier=None)
 ```
+
+**Parameters**
+
+- `source` — the parent `KBSource` instance; used for all Graph Store access
+- `notifier` — the `ChangeNotifier` instance; fires `extraction_attached`, the tracker's only event. The creating writes (`add_source`, `add_extraction`, `link_extraction`) stay silent, so a change-hook listener sees provenance only when an existing extraction is wired to an item
 
 ### Methods
 
@@ -429,13 +457,11 @@ Deletes a SOURCE node.
 
 #### `add_extraction(database, text, name=None, description=None, node_id=None, source_id=None, element_id=None)`
 
-Creates an EXTRACTION node. If `source_id` is provided, wires an EXTRACTED_FROM edge from the EXTRACTION to the SOURCE. If `element_id` is also provided, additionally wires EXTRACTED_FROM from that existing entity/fact/literal to the new extraction (via the private `add_extracted_from` helper) in the same call. Returns the EXTRACTION node ID.
+Creates an EXTRACTION node for `text` and, optionally, links it in the same call — the create-and-link counterpart of `attach_extraction` below. Both links are independent and each is wired only when its id is given: `source_id` adds an EXTRACTED_FROM edge from the new EXTRACTION to that SOURCE; `element_id` adds an EXTRACTED_FROM edge from that existing entity/fact/literal to the new EXTRACTION. With neither, the node is created detached, for `attach_extraction` to wire later. Returns the EXTRACTION node ID. One node per call: `KnowledgeManager` routes every `text=` shortcut and the `add_*_extraction` family through it, so repeated calls for the same element accumulate EXTRACTED_FROM edges rather than replacing the earlier one, and an item can carry evidence from several sources at once.
 
-#### `link_extraction(database, element_id, text, source_id=None)`
+#### `attach_extraction(database, element_id, extraction_id)`
 
-Creates a per-item EXTRACTION node for `text`, optionally wires it to `source_id`, and wires an EXTRACTED_FROM edge from `element_id` to the EXTRACTION.
-
-This is called internally by `KnowledgeManager` whenever `text` is provided on an instance-creation call, and again by the `add_*_extraction` family (`add_entity_extraction`, etc.) to attach more evidence to an item that already exists. One EXTRACTION node is created per call — multiple calls against the same `element_id` accumulate multiple EXTRACTED_FROM edges rather than replacing the previous one, so an item can carry evidence from several sources at once.
+Wires an `EXTRACTED_FROM` edge from an existing ENTITY, FACT, or LITERAL (`element_id`) to an existing EXTRACTION (`extraction_id`). Idempotent — calling it again with the same pair is a no-op, not a duplicate edge. Raises `ProvenanceError` if `element_id` isn't an ENTITY/FACT/LITERAL or `extraction_id` isn't an EXTRACTION. Exists so an extraction created up front — by `add_extraction` without an `element_id`, or rebuilt when a snapshot is restored — can be wired to its item afterwards; it does not pool evidence across items, since each item still gets its own EXTRACTION node.
 
 ---
 
@@ -518,7 +544,7 @@ A BM25 corpus is always maintained in memory (optionally persisted to `corpus_di
 
 #### `on_change(event)`
 
-Global change-hook entry point, registered by `KBSource` at construction time. Dispatches added/updated/deleted events for classes, relations, properties, entities, and facts to the appropriate indexing helper, keeping the index incrementally in sync without a full rebuild.
+Global change-hook entry point, registered by `KBSource` at construction time. Dispatches added/attached/updated/deleted events for classes, relations, properties, entities, and facts to the appropriate indexing helper, keeping the index incrementally in sync without a full rebuild.
 
 #### `search_schema(database, query, k=5, mode="keyword", type_filter=None)`
 
@@ -584,7 +610,7 @@ currently stands. Called directly by `ExtractionEngine`'s consumer — `KBSource
 4. Loop (up to `max_turns` turns):
    - Receive tool calls from the LLM
    - For instance creation calls: dispatch to `KnowledgeManager`, passing `text=<verbatim span>` and `source_id=source_id`
-   - For `link_extraction` calls (item already exists): dispatch to `ProvenanceTracker.link_extraction`, attaching the new span as further evidence rather than creating a duplicate
+   - For `link_extraction` calls (item already exists): dispatch to `ProvenanceTracker.add_extraction(element_id=…)`, attaching the new span as further evidence rather than creating a duplicate
    - Return tool results to the LLM
 5. Exit when the LLM returns without further tool calls, or `max_turns` is reached
 

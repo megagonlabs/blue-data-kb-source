@@ -804,42 +804,6 @@ def schema_class_update(
 # kb schema class parent / child                                       #
 # ------------------------------------------------------------------ #
 
-def _class_ancestors(kb: FileKBSource, db: str, class_id: str, visited: set[str] | None = None) -> list[dict]:
-    """Return all ancestor classes via IS_SUBCLASS_OF, breadth-first."""
-    if visited is None:
-        visited = set()
-    results: list[dict] = []
-    queue = [class_id]
-    while queue:
-        current = queue.pop(0)
-        for nb in kb.get_neighbors(db, current, edge_type=IS_SUBCLASS_OF, direction="out"):
-            node = nb["node"]
-            nid = node["id"]
-            if nid not in visited:
-                visited.add(nid)
-                results.append(node)
-                queue.append(nid)
-    return results
-
-
-def _class_descendants(kb: FileKBSource, db: str, class_id: str, visited: set[str] | None = None) -> list[dict]:
-    """Return all descendant classes via IS_SUBCLASS_OF, breadth-first."""
-    if visited is None:
-        visited = set()
-    results: list[dict] = []
-    queue = [class_id]
-    while queue:
-        current = queue.pop(0)
-        for nb in kb.get_neighbors(db, current, edge_type=IS_SUBCLASS_OF, direction="in"):
-            node = nb["node"]
-            nid = node["id"]
-            if nid not in visited:
-                visited.add(nid)
-                results.append(node)
-                queue.append(nid)
-    return results
-
-
 def _build_parent_tree(kb: FileKBSource, db: str, class_id: str, label: str, tree: Tree, visited: set[str]) -> None:
     """Recursively attach parent nodes to a Rich Tree."""
     for nb in kb.get_neighbors(db, class_id, edge_type=IS_SUBCLASS_OF, direction="out"):
@@ -937,7 +901,7 @@ def schema_class_parent_list(
     resolved_id = _resolve_node(kb, db, CLASS, class_name, class_id, "class")
     root_label  = class_name or class_id
     if recursive:
-        nodes = _class_ancestors(kb, db, resolved_id)
+        nodes = _run(kb.get_class_ancestors(db, resolved_id, max_hops=None))
     else:
         nodes = [nb["node"] for nb in kb.get_neighbors(db, resolved_id, edge_type=IS_SUBCLASS_OF, direction="out")]
     if fmt == "json":
@@ -986,7 +950,7 @@ def schema_class_child_list(
     resolved_id = _resolve_node(kb, db, CLASS, class_name, class_id, "class")
     root_label  = class_name or class_id
     if recursive:
-        nodes = _class_descendants(kb, db, resolved_id)
+        nodes = _run(kb.get_class_descendants(db, resolved_id, max_hops=None))
     else:
         nodes = [nb["node"] for nb in kb.get_neighbors(db, resolved_id, edge_type=IS_SUBCLASS_OF, direction="in")]
     if fmt == "json":
@@ -1291,42 +1255,6 @@ def schema_relation_update(
 # kb schema relation parent / child                                    #
 # ------------------------------------------------------------------ #
 
-def _relation_ancestors(kb: FileKBSource, db: str, relation_id: str, visited: set[str] | None = None) -> list[dict]:
-    """Return all ancestor relations via IS_SUBCLASS_OF, breadth-first."""
-    if visited is None:
-        visited = set()
-    results: list[dict] = []
-    queue = [relation_id]
-    while queue:
-        current = queue.pop(0)
-        for nb in kb.get_neighbors(db, current, edge_type=IS_SUBCLASS_OF, direction="out"):
-            node = nb["node"]
-            nid = node["id"]
-            if nid not in visited:
-                visited.add(nid)
-                results.append(node)
-                queue.append(nid)
-    return results
-
-
-def _relation_descendants(kb: FileKBSource, db: str, relation_id: str, visited: set[str] | None = None) -> list[dict]:
-    """Return all descendant relations via IS_SUBCLASS_OF, breadth-first."""
-    if visited is None:
-        visited = set()
-    results: list[dict] = []
-    queue = [relation_id]
-    while queue:
-        current = queue.pop(0)
-        for nb in kb.get_neighbors(db, current, edge_type=IS_SUBCLASS_OF, direction="in"):
-            node = nb["node"]
-            nid = node["id"]
-            if nid not in visited:
-                visited.add(nid)
-                results.append(node)
-                queue.append(nid)
-    return results
-
-
 def _build_relation_parent_tree(kb: FileKBSource, db: str, relation_id: str, tree: Tree, visited: set[str]) -> None:
     for nb in kb.get_neighbors(db, relation_id, edge_type=IS_SUBCLASS_OF, direction="out"):
         node = nb["node"]
@@ -1424,7 +1352,7 @@ def schema_relation_parent_list(
     resolved_id = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
     root_label  = relation_name or relation_id
     if recursive:
-        nodes = _relation_ancestors(kb, db, resolved_id)
+        nodes = _run(kb.get_relation_ancestors(db, resolved_id, max_hops=None))
     else:
         nodes = [nb["node"] for nb in kb.get_neighbors(db, resolved_id, edge_type=IS_SUBCLASS_OF, direction="out")]
     if fmt == "json":
@@ -1473,7 +1401,7 @@ def schema_relation_child_list(
     resolved_id = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
     root_label  = relation_name or relation_id
     if recursive:
-        nodes = _relation_descendants(kb, db, resolved_id)
+        nodes = _run(kb.get_relation_descendants(db, resolved_id, max_hops=None))
     else:
         nodes = [nb["node"] for nb in kb.get_neighbors(db, resolved_id, edge_type=IS_SUBCLASS_OF, direction="in")]
     if fmt == "json":
@@ -1488,6 +1416,149 @@ def schema_relation_child_list(
     else:
         if not nodes:
             console.print("[dim](no children)[/dim]")
+            return
+        t = Table(show_header=True, header_style="bold")
+        t.add_column("Name", style="bold", min_width=14)
+        t.add_column("ID",   style="dim")
+        for n in nodes:
+            t.add_row(n.get("properties", {}).get("name", n["id"]), n["id"])
+        console.print(t)
+
+
+# ------------------------------------------------------------------ #
+# kb schema relation domain / range                                    #
+# ------------------------------------------------------------------ #
+
+
+@schema_relation_group.group("domain")
+def schema_relation_domain_group() -> None:
+    """Relation domain management (attach and list only — no detach counterpart by design)."""
+
+
+@schema_relation_domain_group.command("attach")
+@click.option("--relation",    "relation_name", default=None, required=False, help="Relation name.")
+@click.option("--relation-id",                  default=None, required=False, help="Relation node ID.")
+@click.option("--class",       "class_name",    default=None, required=False, help="Class name to attach.")
+@click.option("--class-id",                     default=None, required=False, help="Class node ID to attach.")
+@click.pass_obj
+def schema_relation_domain_attach(
+    obj: dict, relation_name: str | None, relation_id: str | None,
+    class_name: str | None, class_id: str | None,
+) -> None:
+    """Attach a class to the relation's domain (deduplicated; no detach counterpart by design)."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    resolved_rel   = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
+    resolved_class = _resolve_node(kb, db, CLASS,    class_name,    class_id,    "class")
+    try:
+        _run(kb.attach_relation_domain(db, resolved_rel, resolved_class))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(
+        f"[bold]{class_name or class_id}[/bold] attached to domain of "
+        f"[bold]{relation_name or relation_id}[/bold]"
+    )
+
+
+@schema_relation_domain_group.command("list")
+@click.option("--relation",    "relation_name", default=None, required=False, help="Relation name.")
+@click.option("--relation-id",                  default=None, required=False, help="Relation node ID.")
+@click.option(
+    "--format", "fmt",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    show_default=True,
+)
+@click.pass_obj
+def schema_relation_domain_list(
+    obj: dict, relation_name: str | None, relation_id: str | None, fmt: str,
+) -> None:
+    """List the relation's domain classes."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    resolved_id = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
+    try:
+        dr = _run(kb.get_relation_domain_range(db, resolved_id))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    nodes = dr["domain"]
+    if fmt == "json":
+        console.print_json(json.dumps([
+            {"name": n.get("properties", {}).get("name", n["id"]), "id": n["id"]}
+            for n in nodes
+        ]))
+    else:
+        if not nodes:
+            console.print("[dim](no domain classes)[/dim]")
+            return
+        t = Table(show_header=True, header_style="bold")
+        t.add_column("Name", style="bold", min_width=14)
+        t.add_column("ID",   style="dim")
+        for n in nodes:
+            t.add_row(n.get("properties", {}).get("name", n["id"]), n["id"])
+        console.print(t)
+
+
+@schema_relation_group.group("range")
+def schema_relation_range_group() -> None:
+    """Relation range management (attach and list only — no detach counterpart by design)."""
+
+
+@schema_relation_range_group.command("attach")
+@click.option("--relation",    "relation_name", default=None, required=False, help="Relation name.")
+@click.option("--relation-id",                  default=None, required=False, help="Relation node ID.")
+@click.option("--class",       "class_name",    default=None, required=False, help="Class name to attach.")
+@click.option("--class-id",                     default=None, required=False, help="Class node ID to attach.")
+@click.pass_obj
+def schema_relation_range_attach(
+    obj: dict, relation_name: str | None, relation_id: str | None,
+    class_name: str | None, class_id: str | None,
+) -> None:
+    """Attach a class to the relation's range (deduplicated; no detach counterpart by design)."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    resolved_rel   = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
+    resolved_class = _resolve_node(kb, db, CLASS,    class_name,    class_id,    "class")
+    try:
+        _run(kb.attach_relation_range(db, resolved_rel, resolved_class))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(
+        f"[bold]{class_name or class_id}[/bold] attached to range of "
+        f"[bold]{relation_name or relation_id}[/bold]"
+    )
+
+
+@schema_relation_range_group.command("list")
+@click.option("--relation",    "relation_name", default=None, required=False, help="Relation name.")
+@click.option("--relation-id",                  default=None, required=False, help="Relation node ID.")
+@click.option(
+    "--format", "fmt",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    show_default=True,
+)
+@click.pass_obj
+def schema_relation_range_list(
+    obj: dict, relation_name: str | None, relation_id: str | None, fmt: str,
+) -> None:
+    """List the relation's range classes."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    resolved_id = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
+    try:
+        dr = _run(kb.get_relation_domain_range(db, resolved_id))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    nodes = dr["range"]
+    if fmt == "json":
+        console.print_json(json.dumps([
+            {"name": n.get("properties", {}).get("name", n["id"]), "id": n["id"]}
+            for n in nodes
+        ]))
+    else:
+        if not nodes:
+            console.print("[dim](no range classes)[/dim]")
             return
         t = Table(show_header=True, header_style="bold")
         t.add_column("Name", style="bold", min_width=14)
@@ -2126,6 +2197,85 @@ def entity_delete(
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(f"Deleted entity: [bold]{label}[/bold]")
+
+
+# ------------------------------------------------------------------ #
+# kb data entity class                                                 #
+# ------------------------------------------------------------------ #
+
+
+@entity_group.group("class")
+def entity_class_group() -> None:
+    """Entity class (IS_INSTANCE_OF) membership (attach and list only — no detach
+    counterpart by design)."""
+
+
+@entity_class_group.command("attach")
+@click.option("--entity",    "entity_name", default=None, help="Entity name.")
+@click.option("--entity-id",                default=None, help="Entity node ID.")
+@click.option("--class",     "class_name",  default=None, help="Class name to attach.")
+@click.option("--class-id",                 default=None, help="Class node ID to attach.")
+@click.pass_obj
+def entity_class_attach(
+    obj: dict,
+    entity_name: str | None, entity_id: str | None,
+    class_name: str | None, class_id: str | None,
+) -> None:
+    """Attach a class to an existing entity (deduplicated; no detach counterpart by design).
+
+    `entity add --class` wires an entity's first class at creation; this adds a
+    further one to an entity that already exists.
+    """
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    eid = _resolve_node(kb, db, ENTITY, entity_name, entity_id, "entity")
+    cid = _resolve_node(kb, db, CLASS,  class_name,  class_id,  "class")
+    try:
+        _run(kb.attach_entity_class(db, eid, cid))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    console.print(
+        f"[bold]{class_name or class_id}[/bold] attached to "
+        f"[bold]{entity_name or entity_id}[/bold]"
+    )
+
+
+@entity_class_group.command("list")
+@click.option("--entity",    "entity_name", default=None, help="Entity name.")
+@click.option("--entity-id",                default=None, help="Entity node ID.")
+@click.option(
+    "--format", "fmt",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    show_default=True,
+)
+@click.pass_obj
+def entity_class_list(
+    obj: dict, entity_name: str | None, entity_id: str | None, fmt: str,
+) -> None:
+    """List the classes an entity is an instance of."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
+    eid = _resolve_node(kb, db, ENTITY, entity_name, entity_id, "entity")
+    try:
+        nodes = _run(kb.get_entity_classes(db, eid))
+    except KBError as exc:
+        raise click.ClickException(str(exc))
+    if fmt == "json":
+        console.print_json(json.dumps([
+            {"name": n.get("properties", {}).get("name", n["id"]), "id": n["id"]}
+            for n in nodes
+        ]))
+    else:
+        if not nodes:
+            console.print("[dim](no classes)[/dim]")
+            return
+        t = Table(show_header=True, header_style="bold")
+        t.add_column("Name", style="bold", min_width=14)
+        t.add_column("ID",   style="dim")
+        for n in nodes:
+            t.add_row(n.get("properties", {}).get("name", n["id"]), n["id"])
+        console.print(t)
 
 
 # ------------------------------------------------------------------ #

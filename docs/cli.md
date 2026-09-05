@@ -294,6 +294,10 @@ Deleted database: main
 | `kb schema relation parent remove [--relation NAME\|--relation-id ID] [--parent NAME\|--parent-id ID]` | Remove IS_SUBCLASS_OF edge between relations |
 | `kb schema relation parent list [--relation NAME\|--relation-id ID] [--recursive] [--format table\|json\|tree]` | List parent relations (direct or all ancestors) |
 | `kb schema relation child list [--relation NAME\|--relation-id ID] [--recursive] [--format table\|json\|tree]` | List child relations (direct sub-relations or all descendants) |
+| `kb schema relation domain attach [--relation NAME\|--relation-id ID] [--class NAME\|--class-id ID]` | Attach a class to the relation's domain (deduplicated; add-only by design — no detach counterpart) |
+| `kb schema relation domain list [--relation NAME\|--relation-id ID] [--format table\|json]` | List the relation's domain classes |
+| `kb schema relation range attach [--relation NAME\|--relation-id ID] [--class NAME\|--class-id ID]` | Attach a class to the relation's range (deduplicated; add-only by design — no detach counterpart) |
+| `kb schema relation range list [--relation NAME\|--relation-id ID] [--format table\|json]` | List the relation's range classes |
 | `kb schema relation property add NAME DESC [--relation NAME\|--relation-id ID]` | Declare a property on a relation |
 | `kb schema relation property attach [--property NAME\|--property-id ID] [--relation NAME\|--relation-id ID]` | Attach an existing property to a relation (idempotent) — reuse it instead of declaring a same-meaning duplicate |
 | `kb schema relation property list [--relation NAME\|--relation-id ID] [--format table\|json]` | List relation properties (optionally filtered by relation) |
@@ -313,6 +317,8 @@ Deleted database: main
 | `kb data entity list [--show-provenance] [--format table\|json]` | List all entity instances; `--show-provenance` adds extraction text and linked source name (if any) |
 | `kb data entity update --entity NAME\|--entity-id ID [--name N] [--description D]` | Update the name and/or description of an entity |
 | `kb data entity delete --entity NAME\|--entity-id ID [--cascade] [--yes]` | Delete an entity and its property values; with --cascade also deletes referencing facts |
+| `kb data entity class attach [--entity NAME\|--entity-id ID] [--class NAME\|--class-id ID]` | Attach a class to an existing entity (deduplicated; add-only by design — no detach counterpart) |
+| `kb data entity class list [--entity NAME\|--entity-id ID] [--format table\|json]` | List the classes an entity is an instance of |
 | `kb data entity extraction add --entity NAME\|--entity-id ID --text T [--source NAME\|--source-id ID]` | Link additional source text (a new `EXTRACTED_FROM` edge) to an existing entity |
 | `kb data entity property set VALUE [--name N] [--description D] --entity NAME\|--entity-id ID --property NAME [--type T] [--source NAME\|--source-id ID]` | Set a property value on an entity |
 | `kb data entity property list --entity NAME\|--entity-id ID [--show-provenance] [--format table\|json]` | List property values for an entity; `--show-provenance` adds extraction text and linked source name (if any) |

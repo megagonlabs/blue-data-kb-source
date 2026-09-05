@@ -144,7 +144,7 @@ class KBSource(GraphSource, ABC):
     def __init__(self, name: str, properties: dict[str, Any] | None = None) -> None:
         super().__init__(name, properties=properties)
         self._notifier = ChangeNotifier()
-        self._provenance = ProvenanceTracker(self)
+        self._provenance = ProvenanceTracker(self, self._notifier)
 
         # Search/vector/embedding config lives entirely under properties["search"] —
         # matching DataSource.__init__(name, properties=None): no extra constructor
@@ -314,6 +314,80 @@ class KBSource(GraphSource, ABC):
             on_tool_result=on_tool_result,
             max_turns=max_turns,
         )
+
+    async def attach_relation_domain(self, database: str, relation_id: str, class_id: str) -> None:
+        await self._schema.attach_relation_domain(database, relation_id, class_id)
+
+    async def attach_relation_range(self, database: str, relation_id: str, class_id: str) -> None:
+        await self._schema.attach_relation_range(database, relation_id, class_id)
+
+    async def get_class_ancestors(
+        self,
+        database: str,
+        class_id: str,
+        max_hops: int | None = 5,
+    ) -> list[dict]:
+        return await self._schema.get_class_ancestors(database, class_id, max_hops)
+
+    async def get_class_descendants(
+        self,
+        database: str,
+        class_id: str,
+        max_hops: int | None = 5,
+    ) -> list[dict]:
+        return await self._schema.get_class_descendants(database, class_id, max_hops)
+
+    async def get_relation_ancestors(
+        self,
+        database: str,
+        relation_id: str,
+        max_hops: int | None = 5,
+    ) -> list[dict]:
+        return await self._schema.get_relation_ancestors(database, relation_id, max_hops)
+
+    async def get_relation_descendants(
+        self,
+        database: str,
+        relation_id: str,
+        max_hops: int | None = 5,
+    ) -> list[dict]:
+        return await self._schema.get_relation_descendants(database, relation_id, max_hops)
+
+    async def get_class_entities(
+        self,
+        database: str,
+        class_id: str,
+        limit: int | None = 10,
+    ) -> list[dict]:
+        return await self._schema.get_class_entities(database, class_id, limit)
+
+    async def get_relation_domain_range(
+        self,
+        database: str,
+        relation_id: str,
+    ) -> dict[str, list[dict]]:
+        return await self._schema.get_relation_domain_range(database, relation_id)
+
+    async def get_allowed_relations_between_classes(
+        self,
+        database: str,
+        head_class_id: str,
+        tail_class_id: str,
+        expand: bool = True,
+        max_hops: int | None = 5,
+    ) -> list[dict]:
+        return await self._schema.get_allowed_relations_between_classes(
+            database, head_class_id, tail_class_id, expand, max_hops
+        )
+
+    async def find_class(self, database: str, name: str) -> dict | None:
+        return await self._schema.find_class(database, name)
+
+    async def find_relation_type(self, database: str, name: str) -> dict | None:
+        return await self._schema.find_relation_type(database, name)
+
+    async def find_property(self, database: str, name: str) -> dict | None:
+        return await self._schema.find_property(database, name)
 
     async def fetch_database_schema(self, database: str) -> DataSchema:
         return await self._schema.fetch_database_schema(database)
@@ -494,6 +568,9 @@ class KBSource(GraphSource, ABC):
     ) -> None:
         await self._knowledge.delete_fact_property_value(database, fact_id, property_id)
 
+    async def attach_entity_class(self, database: str, entity_id: str, class_id: str) -> None:
+        await self._knowledge.attach_entity_class(database, entity_id, class_id)
+
     async def fetch_database_data(
         self,
         database: str,
@@ -511,6 +588,50 @@ class KBSource(GraphSource, ABC):
 
     async def get_metadata(self, database: str, node_id: str) -> dict:
         return await self._knowledge.get_metadata(database, node_id)
+
+    async def get_entity_classes(self, database: str, entity_id: str) -> list[dict]:
+        return await self._knowledge.get_entity_classes(database, entity_id)
+
+    async def get_fact_parts(self, database: str, fact_id: str) -> dict:
+        return await self._knowledge.get_fact_parts(database, fact_id)
+
+    async def get_property_values(self, database: str, owner_id: str) -> list[dict]:
+        return await self._knowledge.get_property_values(database, owner_id)
+
+    async def is_fact_allowed(
+        self,
+        database: str,
+        head_entity_id: str,
+        relation_id: str,
+        tail_entity_id: str,
+        max_hops: int | None = 5,
+    ) -> dict:
+        return await self._knowledge.is_fact_allowed(
+            database, head_entity_id, relation_id, tail_entity_id, max_hops
+        )
+
+    async def is_property_allowed(
+        self,
+        database: str,
+        owner_id: str,
+        property_id: str,
+        max_hops: int | None = 5,
+    ) -> dict:
+        return await self._knowledge.is_property_allowed(database, owner_id, property_id, max_hops)
+
+    async def find_entity(self, database: str, name: str) -> dict | None:
+        return await self._knowledge.find_entity(database, name)
+
+    async def find_fact(
+        self,
+        database: str,
+        head_entity_id: str,
+        relation_id: str,
+        tail_entity_id: str,
+    ) -> dict | None:
+        return await self._knowledge.find_fact(
+            database, head_entity_id, relation_id, tail_entity_id
+        )
 
     async def answer(
         self,
@@ -589,12 +710,14 @@ class KBSource(GraphSource, ABC):
         existing entity/fact/literal (element_id), so a single call can both
         create the extraction and link it in place.
         """
-        extraction_id = await self._provenance.add_extraction(
-            database, text, name, description, node_id, source_id
+        return await self._provenance.add_extraction(
+            database, text, name, description, node_id, source_id, element_id
         )
-        if element_id is not None:
-            await self._provenance.add_extracted_from(database, element_id, extraction_id)
-        return extraction_id
+
+    async def attach_extraction(
+        self, database: str, element_id: str, extraction_id: str
+    ) -> None:
+        await self._provenance.attach_extraction(database, element_id, extraction_id)
 
     async def add_entity_extraction(
         self, database: str, entity_id: str, text: str, source_id: str | None = None

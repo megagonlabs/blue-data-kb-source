@@ -1,16 +1,28 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from blue_data.source.graph.graph_source import GraphSource
 
-from blue_data_kb_source._constants import EXTRACTED_FROM, EXTRACTION, SOURCE
+from blue_data_kb_source._constants import ENTITY, EXTRACTED_FROM, EXTRACTION, FACT, LITERAL, SOURCE
+from blue_data_kb_source.checks import require_node_type, require_node_type_one_of
 from blue_data_kb_source.timestamps import edge_stamped, stamped, touched
+from blue_data_kb_source.types import ProvenanceError
+
+if TYPE_CHECKING:
+    from blue_data_kb_source.notification.notifier import ChangeNotifier
 
 
 class ProvenanceTracker:
     """Creates and wires SOURCE and EXTRACTION provenance nodes."""
 
-    def __init__(self, source: GraphSource) -> None:
+    def __init__(self, source: GraphSource, notifier: ChangeNotifier | None = None) -> None:
         self._source = source
+        self._notifier = notifier
+
+    def _fire(self, event: dict) -> None:
+        if self._notifier is not None:
+            self._notifier.fire(event)
 
     async def add_source(
         self,
@@ -38,7 +50,12 @@ class ProvenanceTracker:
         description: str | None = None,
         node_id: str | None = None,
         source_id: str | None = None,
+        element_id: str | None = None,
     ) -> str:
+        """Create an EXTRACTION node for `text`, wired to its SOURCE and/or to the item it
+        supports when those ids are given. One node per call: repeated calls for the same
+        element_id accumulate EXTRACTED_FROM edges rather than replacing the earlier one.
+        """
         if name is None:
             name = text
         n = self._source.add_node(
@@ -49,24 +66,11 @@ class ProvenanceTracker:
         )
         if source_id is not None:
             self._source.add_edge(database, n, EXTRACTED_FROM, source_id, properties=edge_stamped())
+        if element_id is not None:
+            self._source.add_edge(
+                database, element_id, EXTRACTED_FROM, n, properties=edge_stamped()
+            )
         return n
-
-    async def link_extraction(
-        self,
-        database: str,
-        element_id: str,
-        text: str,
-        source_id: str | None = None,
-    ) -> str:
-        """Create an EXTRACTION node and wire element_id -[EXTRACTED_FROM]-> extraction.
-
-        Elements may accumulate multiple EXTRACTED_FROM edges over time as
-        additional text spans are found; calling this again for the same
-        element_id adds a new edge rather than replacing the existing one.
-        """
-        extraction_id = await self.add_extraction(database, text=text, source_id=source_id)
-        self._source.add_edge(database, element_id, EXTRACTED_FROM, extraction_id, properties=edge_stamped())
-        return extraction_id
 
     async def add_extracted_from(
         self,
@@ -75,6 +79,36 @@ class ProvenanceTracker:
         extraction_id: str,
     ) -> None:
         self._source.add_edge(database, element_id, EXTRACTED_FROM, extraction_id, properties=edge_stamped())
+
+    async def attach_extraction(
+        self, database: str, element_id: str, extraction_id: str
+    ) -> None:
+        """Attach an existing EXTRACTION to an ENTITY, FACT, or LITERAL (idempotent).
+
+        Use when the extraction already exists — created up front by add_extraction with
+        no element_id, or rebuilt on snapshot restore. Not a way to pool evidence: each
+        item still gets its own EXTRACTION node.
+        """
+        require_node_type_one_of(
+            self._source, database, element_id, (ENTITY, FACT, LITERAL),
+            "element_id", ProvenanceError,
+        )
+        require_node_type(
+            self._source, database, extraction_id, EXTRACTION, "extraction_id", ProvenanceError
+        )
+        nbs = self._source.get_neighbors(
+            database, element_id, edge_type=EXTRACTED_FROM, direction="out"
+        )
+        if any(nb["node"]["id"] == extraction_id for nb in nbs):
+            return
+        await self.add_extracted_from(database, element_id, extraction_id)
+        self._fire({
+            "type": "extraction_attached",
+            "database": database,
+            "id": element_id,
+            "element_id":    element_id,
+            "extraction_id": extraction_id,
+        })
 
     async def update_source(
         self,

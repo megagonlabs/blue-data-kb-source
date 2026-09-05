@@ -13,6 +13,15 @@ def _collect_events(kb, database: str) -> list[dict]:
     return events
 
 
+async def _class_chain(kb) -> tuple[str, str, str]:
+    person   = await kb.declare_class("test", "PERSON", "")
+    employee = await kb.declare_class("test", "EMPLOYEE", "")
+    intern   = await kb.declare_class("test", "INTERN", "")
+    await kb.add_is_subclass_of("test", employee, person)
+    await kb.add_is_subclass_of("test", intern, employee)
+    return person, employee, intern
+
+
 # ------------------------------------------------------------------ #
 # declare_class                                                        #
 # ------------------------------------------------------------------ #
@@ -117,6 +126,18 @@ async def test_declare_relation_type_raises_on_missing_range_arg(kb):
         await kb.declare_relation_type("test", "WORKS_AT", "", domain="PERSON", range=None)
 
 
+async def test_declare_relation_type_raises_on_unknown_domain_class(kb):
+    await kb.declare_class("test", "COMPANY", "")
+    with pytest.raises(SchemaError, match="domain class 'GHOST'"):
+        await kb.declare_relation_type("test", "WORKS_AT", "", domain="GHOST", range="COMPANY")
+
+
+async def test_declare_relation_type_raises_on_unknown_range_class(kb):
+    await kb.declare_class("test", "PERSON", "")
+    with pytest.raises(SchemaError, match="range class 'GHOST'"):
+        await kb.declare_relation_type("test", "WORKS_AT", "", domain="PERSON", range="GHOST")
+
+
 async def test_declare_relation_type_is_idempotent(kb):
     await kb.declare_class("test", "PERSON", "")
     await kb.declare_class("test", "COMPANY", "")
@@ -167,6 +188,12 @@ async def test_declare_class_property_without_class_id(kb):
     assert node["label"] == "PROPERTY"
 
 
+async def test_declare_class_property_without_class_id_is_idempotent(kb):
+    id1 = await kb.declare_class_property("test", "NAME", "A name property")
+    id2 = await kb.declare_class_property("test", "NAME", "A name property")
+    assert id1 == id2
+
+
 # ------------------------------------------------------------------ #
 # declare_relation_property                                            #
 # ------------------------------------------------------------------ #
@@ -210,6 +237,94 @@ async def test_add_is_subclass_of_wires_edge(kb):
     await kb.add_is_subclass_of("test", child_id, parent_id)
     nbs = kb.get_neighbors("test", child_id, edge_type="IS_SUBCLASS_OF", direction="out")
     assert any(nb["node"]["id"] == parent_id for nb in nbs)
+
+
+# ------------------------------------------------------------------ #
+# Domain / range widening                                              #
+# ------------------------------------------------------------------ #
+
+async def test_attach_relation_domain_widens(kb):
+    await kb.declare_class("test", "EMPLOYEE", "")
+    await kb.declare_class("test", "COMPANY", "")
+    contractor = await kb.declare_class("test", "CONTRACTOR", "")
+    worked = await kb.declare_relation_type(
+        "test", "WORKED_AT", "", domain="EMPLOYEE", range="COMPANY"
+    )
+    await kb.attach_relation_domain("test", worked, contractor)
+    dr = await kb.get_relation_domain_range("test", worked)
+    assert {c["properties"]["name"] for c in dr["domain"]} == {"EMPLOYEE", "CONTRACTOR"}
+    assert {c["properties"]["name"] for c in dr["range"]} == {"COMPANY"}
+
+
+async def test_attach_relation_range_widens(kb):
+    await kb.declare_class("test", "PERSON", "")
+    await kb.declare_class("test", "COMPANY", "")
+    uni = await kb.declare_class("test", "UNIVERSITY", "")
+    worked = await kb.declare_relation_type(
+        "test", "WORKED_AT", "", domain="PERSON", range="COMPANY"
+    )
+    await kb.attach_relation_range("test", worked, uni)
+    dr = await kb.get_relation_domain_range("test", worked)
+    assert {c["properties"]["name"] for c in dr["domain"]} == {"PERSON"}
+    assert {c["properties"]["name"] for c in dr["range"]} == {"COMPANY", "UNIVERSITY"}
+
+
+async def test_attach_relation_domain_deduplicates(kb):
+    person = await kb.declare_class("test", "PERSON", "")
+    await kb.declare_class("test", "COMPANY", "")
+    worked = await kb.declare_relation_type(
+        "test", "WORKED_AT", "", domain="PERSON", range="COMPANY"
+    )
+    await kb.attach_relation_domain("test", worked, person)
+    dr = await kb.get_relation_domain_range("test", worked)
+    assert [c["properties"]["name"] for c in dr["domain"]] == ["PERSON"]
+
+
+async def test_widened_domain_extends_allowed_relations(kb):
+    await kb.declare_class("test", "EMPLOYEE", "")
+    company = await kb.declare_class("test", "COMPANY", "")
+    contractor = await kb.declare_class("test", "CONTRACTOR", "")
+    worked = await kb.declare_relation_type(
+        "test", "WORKED_AT", "", domain="EMPLOYEE", range="COMPANY"
+    )
+    assert await kb.get_allowed_relations_between_classes("test", contractor, company) == []
+    await kb.attach_relation_domain("test", worked, contractor)
+    after = await kb.get_allowed_relations_between_classes("test", contractor, company)
+    assert [r["properties"]["name"] for r in after] == ["WORKED_AT"]
+
+
+async def test_widening_flips_is_fact_allowed(kb):
+    await kb.declare_class("test", "EMPLOYEE", "")
+    company = await kb.declare_class("test", "COMPANY", "")
+    contractor = await kb.declare_class("test", "CONTRACTOR", "")
+    worked = await kb.declare_relation_type(
+        "test", "WORKED_AT", "", domain="EMPLOYEE", range="COMPANY"
+    )
+    bob = await kb.add_entity("test", "Bob", class_id=contractor)
+    ibm = await kb.add_entity("test", "IBM", class_id=company)
+    before = await kb.is_fact_allowed("test", bob, worked, ibm)
+    assert before["ok"] is False
+    assert before["reason"] == "DOMAIN_RANGE_MISMATCH"
+    await kb.attach_relation_domain("test", worked, contractor)
+    after = await kb.is_fact_allowed("test", bob, worked, ibm)
+    assert after["ok"] is True
+    assert after["reason"] == "ALLOWED"
+
+
+async def test_widening_guards_reject_wrong_labels(kb):
+    person = await kb.declare_class("test", "PERSON", "")
+    await kb.declare_class("test", "COMPANY", "")
+    worked = await kb.declare_relation_type(
+        "test", "WORKED_AT", "", domain="PERSON", range="COMPANY"
+    )
+    with pytest.raises(SchemaError):
+        await kb.attach_relation_domain("test", person, person)
+    with pytest.raises(SchemaError):
+        await kb.attach_relation_domain("test", worked, worked)
+    with pytest.raises(SchemaError):
+        await kb.attach_relation_range("test", worked, worked)
+    with pytest.raises(SchemaError):
+        await kb.attach_relation_range("test", person, person)
 
 
 # ------------------------------------------------------------------ #
@@ -433,8 +548,238 @@ async def test_add_is_subclass_of_relation_fires_hook(kb):
     assert ev["parent_name"] == "WORKS_FOR"
 
 
+async def test_attach_relation_domain_fires_hook(kb):
+    await kb.declare_class("test", "EMPLOYEE", "")
+    await kb.declare_class("test", "COMPANY", "")
+    contractor = await kb.declare_class("test", "CONTRACTOR", "")
+    worked = await kb.declare_relation_type(
+        "test", "WORKED_AT", "", domain="EMPLOYEE", range="COMPANY"
+    )
+    events = _collect_events(kb, "test")
+    await kb.attach_relation_domain("test", worked, contractor)
+    ev = next(e for e in events if e["type"] == "relation_domain_attached")
+    assert ev["relation_name"] == "WORKED_AT"
+    assert ev["class_name"] == "CONTRACTOR"
+    await kb.attach_relation_domain("test", worked, contractor)
+    assert len([e for e in events if e["type"] == "relation_domain_attached"]) == 1
+
+
+async def test_attach_relation_range_fires_hook(kb):
+    await kb.declare_class("test", "PERSON", "")
+    await kb.declare_class("test", "COMPANY", "")
+    uni = await kb.declare_class("test", "UNIVERSITY", "")
+    worked = await kb.declare_relation_type(
+        "test", "WORKED_AT", "", domain="PERSON", range="COMPANY"
+    )
+    events = _collect_events(kb, "test")
+    await kb.attach_relation_range("test", worked, uni)
+    ev = next(e for e in events if e["type"] == "relation_range_attached")
+    assert ev["relation_name"] == "WORKED_AT"
+    assert ev["class_name"] == "UNIVERSITY"
+    await kb.attach_relation_range("test", worked, uni)
+    assert len([e for e in events if e["type"] == "relation_range_attached"]) == 1
+
+
 async def test_schema_hooks_scoped_to_database(kb):
     kb.create_database("other")
     events = _collect_events(kb, "test")
     await kb.declare_class("other", "THING", "")
     assert not any(e["type"] == "class_declared" for e in events)
+
+
+
+
+# ------------------------------------------------------------------ #
+# Hierarchy reads                                                      #
+# ------------------------------------------------------------------ #
+
+async def test_get_class_ancestors_walks_transitively(kb):
+    _, _, intern = await _class_chain(kb)
+    ancestors = await kb.get_class_ancestors("test", intern)
+    assert [n["properties"]["name"] for n in ancestors] == ["EMPLOYEE", "PERSON"]
+
+
+async def test_get_class_descendants_walks_transitively(kb):
+    person, _, _ = await _class_chain(kb)
+    descendants = await kb.get_class_descendants("test", person)
+    assert [n["properties"]["name"] for n in descendants] == ["EMPLOYEE", "INTERN"]
+
+
+async def test_get_class_ancestors_respects_max_hops(kb):
+    _, _, intern = await _class_chain(kb)
+    capped = await kb.get_class_ancestors("test", intern, max_hops=1)
+    assert {n["properties"]["name"] for n in capped} == {"EMPLOYEE"}
+
+
+async def test_get_class_ancestors_survives_cycle(kb):
+    a = await kb.declare_class("test", "A", "")
+    b = await kb.declare_class("test", "B", "")
+    await kb.add_is_subclass_of("test", a, b)
+    await kb.add_is_subclass_of("test", b, a)
+    unbounded = await kb.get_class_ancestors("test", a, max_hops=None)
+    assert {n["properties"]["name"] for n in unbounded} == {"B"}
+
+
+async def test_get_class_ancestors_dedupes_diamond(kb):
+    a = await kb.declare_class("test", "A", "")
+    b = await kb.declare_class("test", "B", "")
+    c = await kb.declare_class("test", "C", "")
+    d = await kb.declare_class("test", "D", "")
+    await kb.add_is_subclass_of("test", d, b)
+    await kb.add_is_subclass_of("test", d, c)
+    await kb.add_is_subclass_of("test", b, a)
+    await kb.add_is_subclass_of("test", c, a)
+    ancestors = await kb.get_class_ancestors("test", d)
+    assert len(ancestors) == 3
+    assert {n["properties"]["name"] for n in ancestors} == {"A", "B", "C"}
+
+
+async def test_get_class_ancestors_default_caps_at_five_hops(kb):
+    ids = [await kb.declare_class("test", f"C{i}", "") for i in range(7)]
+    for child, parent in zip(ids, ids[1:]):
+        await kb.add_is_subclass_of("test", child, parent)
+    capped = await kb.get_class_ancestors("test", ids[0])
+    assert [n["properties"]["name"] for n in capped] == ["C1", "C2", "C3", "C4", "C5"]
+
+
+async def test_get_relation_hierarchy_reads(kb):
+    await kb.declare_class("test", "PERSON", "")
+    await kb.declare_class("test", "COMPANY", "")
+    parent = await kb.declare_relation_type(
+        "test", "WORKS_FOR", "", domain="PERSON", range="COMPANY"
+    )
+    child = await kb.declare_relation_type(
+        "test", "CONTRACTED_BY", "", domain="PERSON", range="COMPANY"
+    )
+    await kb.add_is_subclass_of("test", child, parent)
+    up   = {n["properties"]["name"] for n in await kb.get_relation_ancestors("test", child)}
+    down = {n["properties"]["name"] for n in await kb.get_relation_descendants("test", parent)}
+    assert up == {"WORKS_FOR"}
+    assert down == {"CONTRACTED_BY"}
+
+
+async def test_hierarchy_reads_reject_bad_ids(kb):
+    with pytest.raises(SchemaError):
+        await kb.get_class_ancestors("test", "no-such-id")
+    with pytest.raises(SchemaError):
+        await kb.get_class_descendants("test", "no-such-id")
+    entity_id = await kb.add_entity("test", "Alice")
+    with pytest.raises(SchemaError):
+        await kb.get_class_ancestors("test", entity_id)
+    class_id = await kb.declare_class("test", "PERSON", "")
+    with pytest.raises(SchemaError):
+        await kb.get_relation_ancestors("test", class_id)
+    with pytest.raises(SchemaError):
+        await kb.get_relation_descendants("test", class_id)
+
+
+# ------------------------------------------------------------------ #
+# Domain / range and membership reads                                  #
+# ------------------------------------------------------------------ #
+
+async def test_get_class_entities_lists_instances(kb):
+    person  = await kb.declare_class("test", "PERSON", "")
+    company = await kb.declare_class("test", "COMPANY", "")
+    await kb.add_entity("test", "Alice", class_id=person)
+    await kb.add_entity("test", "Bob", class_id=person)
+    await kb.add_entity("test", "IBM", class_id=company)
+    names = {n["properties"]["name"] for n in await kb.get_class_entities("test", person)}
+    assert names == {"Alice", "Bob"}
+
+
+async def test_get_class_entities_respects_limit(kb):
+    person = await kb.declare_class("test", "PERSON", "")
+    for name in ("A", "B", "C"):
+        await kb.add_entity("test", name, class_id=person)
+    assert len(await kb.get_class_entities("test", person, limit=2)) == 2
+    assert len(await kb.get_class_entities("test", person, limit=None)) == 3
+
+
+async def test_get_class_entities_default_limit_is_ten(kb):
+    person = await kb.declare_class("test", "PERSON", "")
+    for i in range(11):
+        await kb.add_entity("test", f"E{i}", class_id=person)
+    assert len(await kb.get_class_entities("test", person)) == 10
+
+
+async def test_get_relation_domain_range_returns_both_sides(kb):
+    await kb.declare_class("test", "PERSON", "")
+    await kb.declare_class("test", "EMPLOYEE", "")
+    await kb.declare_class("test", "COMPANY", "")
+    rel = await kb.declare_relation_type(
+        "test", "WORKED_AT", "", domain=["PERSON", "EMPLOYEE"], range="COMPANY"
+    )
+    dr = await kb.get_relation_domain_range("test", rel)
+    assert {n["properties"]["name"] for n in dr["domain"]} == {"PERSON", "EMPLOYEE"}
+    assert {n["properties"]["name"] for n in dr["range"]} == {"COMPANY"}
+
+
+async def test_get_allowed_relations_between_classes_matches(kb):
+    employee = await kb.declare_class("test", "EMPLOYEE", "")
+    company  = await kb.declare_class("test", "COMPANY", "")
+    await kb.declare_class("test", "CITY", "")
+    await kb.declare_relation_type("test", "WORKED_AT", "", domain="EMPLOYEE", range="COMPANY")
+    await kb.declare_relation_type("test", "HIRED_BY", "", domain="EMPLOYEE", range="COMPANY")
+    await kb.declare_relation_type("test", "LOCATED_IN", "", domain="COMPANY", range="CITY")
+    hit = await kb.get_allowed_relations_between_classes("test", employee, company)
+    assert len(hit) == 2
+    assert {r["properties"]["name"] for r in hit} == {"WORKED_AT", "HIRED_BY"}
+
+
+async def test_get_allowed_relations_expands_ancestors(kb):
+    _, _, intern = await _class_chain(kb)
+    company = await kb.declare_class("test", "COMPANY", "")
+    await kb.declare_relation_type("test", "WORKED_AT", "", domain="EMPLOYEE", range="COMPANY")
+    hit = await kb.get_allowed_relations_between_classes("test", intern, company)
+    assert [r["properties"]["name"] for r in hit] == ["WORKED_AT"]
+    miss = await kb.get_allowed_relations_between_classes("test", intern, company, expand=False)
+    assert miss == []
+
+
+async def test_get_allowed_relations_expands_tail_ancestors(kb):
+    person       = await kb.declare_class("test", "PERSON", "")
+    organization = await kb.declare_class("test", "ORGANIZATION", "")
+    company      = await kb.declare_class("test", "COMPANY", "")
+    await kb.add_is_subclass_of("test", company, organization)
+    await kb.declare_relation_type("test", "WORKED_AT", "", domain="PERSON", range="ORGANIZATION")
+    hit = await kb.get_allowed_relations_between_classes("test", person, company)
+    assert [r["properties"]["name"] for r in hit] == ["WORKED_AT"]
+    miss = await kb.get_allowed_relations_between_classes("test", person, company, expand=False)
+    assert miss == []
+
+
+async def test_domain_range_reads_reject_bad_ids(kb):
+    person = await kb.declare_class("test", "PERSON", "")
+    with pytest.raises(SchemaError):
+        await kb.get_class_entities("test", "no-such-id")
+    with pytest.raises(SchemaError):
+        await kb.get_relation_domain_range("test", person)
+    with pytest.raises(SchemaError):
+        await kb.get_allowed_relations_between_classes("test", person, "no-such-id")
+    with pytest.raises(SchemaError):
+        await kb.get_allowed_relations_between_classes("test", "no-such-id", person)
+
+
+# ------------------------------------------------------------------ #
+# Exact-name lookups                                                   #
+# ------------------------------------------------------------------ #
+
+async def test_find_class_by_exact_name(kb):
+    person = await kb.declare_class("test", "PERSON", "A human")
+    node = await kb.find_class("test", "PERSON")
+    assert node is not None and node["id"] == person
+    assert await kb.find_class("test", "person") is None
+    assert await kb.find_class("test", "MISSING") is None
+
+
+async def test_find_relation_type_and_property_by_name(kb):
+    await kb.declare_class("test", "PERSON", "")
+    await kb.declare_class("test", "COMPANY", "")
+    rel = await kb.declare_relation_type("test", "WORKED_AT", "", domain="PERSON", range="COMPANY")
+    prop = await kb.declare_relation_property("test", "START_DATE", "", relation_id=rel)
+    found_rel = await kb.find_relation_type("test", "WORKED_AT")
+    found_prop = await kb.find_property("test", "START_DATE")
+    assert found_rel is not None and found_rel["id"] == rel
+    assert found_prop is not None and found_prop["id"] == prop
+    assert await kb.find_relation_type("test", "MISSING") is None
+    assert await kb.find_property("test", "MISSING") is None

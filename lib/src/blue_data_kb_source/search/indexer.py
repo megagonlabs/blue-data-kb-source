@@ -112,7 +112,8 @@ class KBSearchIndexer:
 
         # ---- updates ----
         elif etype in ("class_updated", "relation_updated", "property_updated",
-                       "entity_updated", "fact_updated"):
+                       "entity_updated", "fact_updated",
+                       "entity_class_attached", "extraction_attached"):
             if node_id:
                 self.reindex_node(database, node_id)
         elif etype == "entity_property_updated":
@@ -123,6 +124,10 @@ class KBSearchIndexer:
             fact_id = event.get("fact_id")
             if fact_id:
                 self.reindex_node(database, fact_id)
+        elif etype == "property_attached":
+            target_id = event.get("target_id")
+            if target_id:
+                self.reindex_node(database, target_id)
 
         # ---- deletes ----
         elif etype in ("class_deleted", "relation_deleted", "property_deleted",

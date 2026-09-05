@@ -256,7 +256,7 @@ pip install "blue-data-kb-source[openai,mcp]"  # for reference="mcp"
 
 Register a callback on the KB instance to be notified whenever the schema or instance data changes in a specific database. Hooks cover both schema declarations and instance writes. Multiple hooks can be registered for the same database; all fire in registration order. Hooks are synchronous (`def`, not `async def`).
 
-Schema events fire only when a new element is actually created — idempotent repeated declarations do not re-fire.
+Schema events fire only when something is actually created — a repeated call that creates nothing (an idempotent re-declaration, a deduplicated attach) does not re-fire.
 
 ```python
 def on_kb_change(event: dict) -> None:
@@ -276,6 +276,10 @@ def on_kb_change(event: dict) -> None:
         print(f"subrelation {event['child_name']} IS_SUBCLASS_OF {event['parent_name']}")
     elif t == "property_attached":
         print(f"attach     property {event['property_id']}  to {event['target_label']} {event['target_id']}")
+    elif t == "relation_domain_attached":
+        print(f"domain     {event['relation_name']} now accepts {event['class_name']}")
+    elif t == "relation_range_attached":
+        print(f"range      {event['relation_name']} now accepts {event['class_name']}")
     # --- instance events ---
     elif t == "entity_added":
         print(f"entity     {event['name']!r}  (class: {event['class_name']})")
@@ -333,6 +337,8 @@ Each event dict always contains `type`, `database`, and `id`. Extra fields by ty
 | `class_subclass` | `child_id`, `child_name`, `parent_id`, `parent_name` |
 | `relation_subclass` | `child_id`, `child_name`, `parent_id`, `parent_name` |
 | `property_attached` | `target_id`, `target_label` (`"CLASS"`\|`"RELATION"`), `property_id` |
+| `relation_domain_attached` | `relation_id`, `relation_name`, `class_id`, `class_name` |
+| `relation_range_attached` | `relation_id`, `relation_name`, `class_id`, `class_name` |
 
 **Instance events**
 
@@ -342,6 +348,8 @@ Each event dict always contains `type`, `database`, and `id`. Extra fields by ty
 | `fact_added` | `name`, `head_entity_id`, `head_entity_name`, `tail_entity_id`, `tail_entity_name`, `relation_id`, `relation_name` |
 | `entity_property_added` | `entity_id`, `entity_name`, `property_id`, `property_name`, `value` |
 | `fact_property_added` | `fact_id`, `fact_name`, `property_id`, `property_name`, `value`, `head_entity_id`, `head_entity_name`, `tail_entity_id`, `tail_entity_name`, `relation_id`, `relation_name` |
+| `entity_class_attached` | `entity_id`, `entity_name`, `class_id`, `class_name` |
+| `extraction_attached` | `element_id`, `extraction_id` |
 
 Name and id fields are `None` when the corresponding node was not provided.
 
@@ -399,6 +407,18 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | `await declare_relation_property(database, name, description, property_id?, relation_id?)` | `str` | Add a `:PROPERTY` node; optionally wires `DEFINE_PROPERTY` from a relation |
 | `await add_is_subclass_of(database, child_id, parent_id)` | `None` | Wire `IS_SUBCLASS_OF` between two CLASS or RELATION nodes (both must be the same kind) |
 | `await attach_property(database, target_id, property_id)` | `None` | Wire `DEFINE_PROPERTY` from an existing CLASS or RELATION to an existing PROPERTY (idempotent) — reuse a property across classes/relations instead of declaring a same-meaning duplicate under a new name |
+| `await attach_relation_domain(database, relation_id, class_id)` | `None` | Attach a CLASS to an existing relation's `DOMAIN` — deduplicated, and add-only (no detach counterpart; domains only widen) |
+| `await attach_relation_range(database, relation_id, class_id)` | `None` | Same, for `RANGE` |
+| `await get_class_ancestors(database, class_id, max_hops?)` | `list[dict]` | Ancestor CLASS nodes via `IS_SUBCLASS_OF`, breadth-first with cycle protection, ordered nearest-first; `max_hops` defaults to `5`, `None` = unbounded |
+| `await get_class_descendants(database, class_id, max_hops?)` | `list[dict]` | Descendant CLASS nodes, same walk downward |
+| `await get_relation_ancestors(database, relation_id, max_hops?)` | `list[dict]` | Ancestor RELATION nodes, same walk over the relation hierarchy |
+| `await get_relation_descendants(database, relation_id, max_hops?)` | `list[dict]` | Descendant RELATION nodes |
+| `await get_class_entities(database, class_id, limit?)` | `list[dict]` | ENTITY nodes that are instances of the class; `limit` defaults to `10`, `None` = all |
+| `await get_relation_domain_range(database, relation_id)` | `dict` | The relation's DOMAIN and RANGE CLASS nodes, as `{"domain": [...], "range": [...]}` |
+| `await get_allowed_relations_between_classes(database, head_class_id, tail_class_id, expand?, max_hops?)` | `list[dict]` | RELATION nodes whose domain/range accept the two classes; `expand` defaults to `True` and lets an ancestor class satisfy the constraint |
+| `await find_class(database, name)` | `dict \| None` | CLASS node by exact, case-sensitive name |
+| `await find_relation_type(database, name)` | `dict \| None` | RELATION node by exact name |
+| `await find_property(database, name)` | `dict \| None` | PROPERTY node by exact name |
 | `await fetch_database_schema(database)` | `DataSchema` | Build a `DataSchema` from the `:CLASS` and `:RELATION` nodes declared in *database* |
 | `await fetch_meta_schema()` | `DataSchema` | Return the fixed `DataSchema` describing the KB graph schema itself (node and edge type taxonomy) |
 | `await export_database_schema(database)` | `dict` | `fetch_database_schema(database).to_json()` — portable JSON, symmetric with `import_database_schema` |
@@ -421,10 +441,18 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | `await add_fact_extraction(database, fact_id, text, source_id?)` | `str` | Link a new text span to an *existing* fact, same as above |
 | `await add_entity_property_value_extraction(database, entity_id, property_id, text, source_id?)` | `str` | Link a new text span to an entity's existing property value (resolved via `entity_id`+`property_id`); raises if no such value exists |
 | `await add_fact_property_value_extraction(database, fact_id, property_id, text, source_id?)` | `str` | Link a new text span to a fact's existing property value (resolved via `fact_id`+`property_id`); raises if no such value exists |
+| `await attach_entity_class(database, entity_id, class_id)` | `None` | Attach an existing CLASS to an existing ENTITY — deduplicated, add-only (no detach counterpart). An entity's *additional* class; `add_entity(class_id=…)` wires the first |
 | `await fetch_database_data(database, include_provenance?, compact?, detailed?)` | `dict \| list` | `compact=False` (default): raw `{nodes, edges}` graph form (already includes each node's full `properties`, so `detailed` has no effect here). `compact=True`: flat denormalized rows (entity/class, property/value, fact head/relation/tail), the shape `kb data list`/`kb data list --format json` uses; `include_provenance=True` adds each row's `extraction` text and linked `source` name (via its EXTRACTED_FROM chain, if any); `detailed=True` adds each row's own `description`/`created`/`modified` (the entity for entity rows, the literal for property rows, the fact for fact rows); `include_provenance=True` and `detailed=True` together additionally add `source_original` (the linked source's `original` attribute, if any) |
 | `await export_database_data(database, include_provenance?)` | `dict` | Portable, name-based export of entities/facts/property values (schema not included — export/import that separately first); symmetric with `import_database_data` |
 | `await import_database_data(database, data)` | `None` | Populate *database* from an `export_database_data` dict; resolves classes/relations/properties **by name** against the target database's current schema, raising `KnowledgeError` if a reference can't be resolved |
 | `await get_metadata(database, node_id)` | `dict` | created/modified/extraction/source metadata for a single entity, fact, or property-value (literal) id — raises `KnowledgeError` if `node_id` isn't one of those three types |
+| `await get_entity_classes(database, entity_id)` | `list[dict]` | CLASS nodes the entity is an instance of, via `IS_INSTANCE_OF` |
+| `await get_fact_parts(database, fact_id)` | `dict` | The fact's first HEAD / RELATION / TAIL nodes, as `{"head": ..., "relation": ..., "tail": ...}` with `None` for unwired parts |
+| `await get_property_values(database, owner_id)` | `list[dict]` | LITERAL values on an ENTITY or FACT with each value's PROPERTY, as `[{"literal": ..., "property": ...}]` |
+| `await is_fact_allowed(database, head_entity_id, relation_id, tail_entity_id, max_hops?)` | `dict` | Whether the relation's domain/range accept the two entities' classes, subclass-aware via ancestors; returns `{ok, reason, details}` with reasons `ALLOWED` \| `UNTYPED_ENTITY` \| `DOMAIN_RANGE_MISMATCH`. Direction-exact — `is_symmetric` is not consulted |
+| `await is_property_allowed(database, owner_id, property_id, max_hops?)` | `dict` | Whether the property is `DEFINE_PROPERTY`-owned by the entity's classes or their ancestors (entity owner), or by the fact's relation or its ancestors (fact owner); adds reasons `FACT_HAS_NO_RELATION` \| `NOT_DEFINED_FOR_OWNER` |
+| `await find_entity(database, name)` | `dict \| None` | First ENTITY with exactly *name* — entity names are not unique |
+| `await find_fact(database, head_entity_id, relation_id, tail_entity_id)` | `dict \| None` | First FACT matching the exact directed (head, relation, tail) triple |
 | `await answer(database, question, model?, natural_language?, include_metadata?, on_tool_call?, max_turns?)` | `list[dict] \| str \| tuple[..., dict]` | LLM agent answers a natural language question by traversing the instance graph. `include_metadata=True` has the agent call `get_metadata` for entities/facts/properties it cites and returns `(result, metadata)` instead of just `result` — `metadata` is a `dict[node_id, dict]`. With `natural_language=True` too, the prose answer gets a natural-language provenance section appended after the main answer (still paired with the raw `metadata` dict as element 1). `max_turns` (default `25`) caps agent turns; hitting the limit stops the loop silently and returns an empty/default result |
 | `await validate(database, statement, model?, natural_language?, include_metadata?, on_tool_call?, max_turns?)` | `ValidationResult \| str \| tuple[..., dict]` | LLM agent returns supporting and counter evidence for a statement; `include_metadata`/`natural_language`/`max_turns` behave as in `answer` |
 | `await enrich(database, query, depth?, model?, on_tool_call?, max_turns?)` | `list[EnrichmentResult]` | LLM agent traverses the graph up to *depth* hops from seed entities and returns related knowledge; `max_turns` (default `25`) behaves as in `answer` |
@@ -437,6 +465,7 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 |---|---|---|
 | `await add_source(database, source, name?, description?, node_id?, original?)` | `str` | Add a `:SOURCE` node; `name` defaults to `source` if omitted; `original` records the source's original date (e.g. publication date), separate from `created` (when it was added to the KB) |
 | `await add_extraction(database, text, name?, description?, node_id?, source_id?, element_id?)` | `str` | Add an `:EXTRACTION` node; optionally wires `EXTRACTED_FROM` to a source (`source_id`) and/or links it to an existing entity/fact/literal (`element_id`) in the same call |
+| `await attach_extraction(database, element_id, extraction_id)` | `None` | Wire `EXTRACTED_FROM` from an `ENTITY`/`FACT`/`LITERAL` to an EXTRACTION that already exists — created up front by `add_extraction` without an `element_id`, or re-wired on snapshot restore. Deduplicated, add-only. Each item still keeps its own EXTRACTION node; this does not share evidence between items |
 
 ---
 
@@ -476,7 +505,7 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | `ExtractionError` | LLM extraction failures (e.g. missing `openai` package) |
 | `ProvenanceError` | Provenance-tracking failures |
 
-`SchemaManager`/`KnowledgeManager` write methods that take an id parameter referencing an existing node
+`SchemaManager`/`KnowledgeManager` methods that take an id parameter referencing an existing node
 (`class_id`, `relation_id`, `property_id`, `entity_id`, `fact_id`, `source_id`, ...) validate that the
 node exists and is the expected type before doing anything, raising `SchemaError`/`KnowledgeError` with
 the offending id and expected type otherwise. Ids that name a *new* node being created (e.g. `class_id`

@@ -6,6 +6,7 @@ from blue_data.source.graph.graph_source import GraphSource
 
 from blue_data_kb_source._constants import (
     CLASS,
+    DEFINE_PROPERTY,
     ENTITY,
     EXTRACTED_FROM,
     FACT,
@@ -25,8 +26,13 @@ from blue_data_kb_source.checks import require_node_type, require_node_type_one_
 from blue_data_kb_source.knowledge.engine import QueryEngine
 from blue_data_kb_source.knowledge.helpers import (
     detail_attrs,
+    entity_classes,
+    fact_parts,
     fetch_node_metadata,
+    find_entity,
+    find_fact,
     node_name,
+    property_values,
     provenance_detail,
 )
 from blue_data_kb_source.timestamps import edge_stamped, stamped, touched
@@ -58,6 +64,7 @@ class KnowledgeManager:
         self._source = source
         self._provenance = provenance_tracker
         self._notifier = change_notifier
+        self._schema = schema_manager
         self._query = QueryEngine(source, schema_manager, search_indexer)
 
     # ------------------------------------------------------------------ #
@@ -72,12 +79,6 @@ class KnowledgeManager:
             return None
         return node.get("properties", {}).get("name")
 
-    def _first_neighbor(
-        self, database: str, node_id: str, edge_type: str, direction: str = "out"
-    ) -> str | None:
-        nbs = self._source.get_neighbors(database, node_id, edge_type=edge_type, direction=direction)
-        return nbs[0]["node"]["id"] if nbs else None
-
     def _fact_context(self, database: str, fact_id: str | None) -> dict:
         if fact_id is None:
             return {
@@ -87,17 +88,20 @@ class KnowledgeManager:
                 "relation_id": None,   "relation_name": None,
             }
         fact_node = self._source.get_node(database, fact_id)
-        head_id = self._first_neighbor(database, fact_id, HEAD)
-        tail_id = self._first_neighbor(database, fact_id, TAIL)
-        rel_id  = self._first_neighbor(database, fact_id, REPRESENTS)
+        parts = fact_parts(self._source, database, fact_id)
+        head, tail, rel = parts["head"], parts["tail"], parts["relation"]
+
+        def _name(node: dict | None) -> str | None:
+            return node.get("properties", {}).get("name") if node else None
+
         return {
             "fact_name":       (fact_node or {}).get("properties", {}).get("name"),
-            "head_entity_id":  head_id,
-            "head_entity_name": self._node_name(database, head_id),
-            "tail_entity_id":  tail_id,
-            "tail_entity_name": self._node_name(database, tail_id),
-            "relation_id":     rel_id,
-            "relation_name":   self._node_name(database, rel_id),
+            "head_entity_id":  head["id"] if head else None,
+            "head_entity_name": _name(head),
+            "tail_entity_id":  tail["id"] if tail else None,
+            "tail_entity_name": _name(tail),
+            "relation_id":     rel["id"] if rel else None,
+            "relation_name":   _name(rel),
         }
 
     def _provenance_text(self, database: str, node_id: str) -> str | None:
@@ -132,7 +136,9 @@ class KnowledgeManager:
         if class_id is not None:
             self._source.add_edge(database, node_id, IS_INSTANCE_OF, class_id, properties=edge_stamped())
         if text is not None:
-            await self._provenance.link_extraction(database, node_id, text, source_id)
+            await self._provenance.add_extraction(
+                database, text, source_id=source_id, element_id=node_id
+            )
         self._notifier.fire({
             "type": "entity_added",
             "database": database,
@@ -178,7 +184,9 @@ class KnowledgeManager:
         if relation_id is not None:
             self._source.add_edge(database, node_id, REPRESENTS, relation_id, properties=edge_stamped())
         if text is not None:
-            await self._provenance.link_extraction(database, node_id, text, source_id)
+            await self._provenance.add_extraction(
+                database, text, source_id=source_id, element_id=node_id
+            )
         self._notifier.fire({
             "type": "fact_added",
             "database": database,
@@ -248,7 +256,9 @@ class KnowledgeManager:
         if entity_id is not None:
             self._source.add_edge(database, entity_id, HAS_PROPERTY, literal_id, properties=edge_stamped())
         if text is not None:
-            await self._provenance.link_extraction(database, literal_id, text, source_id)
+            await self._provenance.add_extraction(
+                database, text, source_id=source_id, element_id=literal_id
+            )
         self._notifier.fire({
             "type": "entity_property_added",
             "database": database,
@@ -284,7 +294,9 @@ class KnowledgeManager:
         if fact_id is not None:
             self._source.add_edge(database, fact_id, HAS_PROPERTY, literal_id, properties=edge_stamped())
         if text is not None:
-            await self._provenance.link_extraction(database, literal_id, text, source_id)
+            await self._provenance.add_extraction(
+                database, text, source_id=source_id, element_id=literal_id
+            )
         self._notifier.fire({
             "type": "fact_property_added",
             "database": database,
@@ -314,7 +326,9 @@ class KnowledgeManager:
         require_node_type(self._source, database, entity_id, ENTITY, "entity_id", KnowledgeError)
         if source_id is not None:
             require_node_type(self._source, database, source_id, SOURCE, "source_id", KnowledgeError)
-        return await self._provenance.link_extraction(database, entity_id, text, source_id)
+        return await self._provenance.add_extraction(
+            database, text, source_id=source_id, element_id=entity_id
+        )
 
     async def add_fact_extraction(
         self,
@@ -333,7 +347,9 @@ class KnowledgeManager:
         require_node_type(self._source, database, fact_id, FACT, "fact_id", KnowledgeError)
         if source_id is not None:
             require_node_type(self._source, database, source_id, SOURCE, "source_id", KnowledgeError)
-        return await self._provenance.link_extraction(database, fact_id, text, source_id)
+        return await self._provenance.add_extraction(
+            database, text, source_id=source_id, element_id=fact_id
+        )
 
     async def add_entity_property_value_extraction(
         self,
@@ -351,7 +367,9 @@ class KnowledgeManager:
         lit_id = self._find_literal(database, entity_id, property_id)
         if lit_id is None:
             raise KnowledgeError("No property value found for the given entity and property.")
-        return await self._provenance.link_extraction(database, lit_id, text, source_id)
+        return await self._provenance.add_extraction(
+            database, text, source_id=source_id, element_id=lit_id
+        )
 
     async def add_fact_property_value_extraction(
         self,
@@ -369,7 +387,44 @@ class KnowledgeManager:
         lit_id = self._find_literal(database, fact_id, property_id)
         if lit_id is None:
             raise KnowledgeError("No property value found for the given fact and property.")
-        return await self._provenance.link_extraction(database, lit_id, text, source_id)
+        return await self._provenance.add_extraction(
+            database, text, source_id=source_id, element_id=lit_id
+        )
+
+    # ------------------------------------------------------------------ #
+    # Attach operations                                                    #
+    # ------------------------------------------------------------------ #
+
+    async def attach_entity_class(self, database: str, entity_id: str, class_id: str) -> None:
+        """Attach an existing ENTITY to an existing CLASS via IS_INSTANCE_OF (idempotent).
+
+        Supplies an entity's *additional* class — `add_entity(class_id=...)` wires
+        the first one at creation. Re-attaching a class the entity already has is a
+        silent no-op that fires no event.
+        """
+        entity_node = require_node_type(
+            self._source, database, entity_id, ENTITY, "entity_id", KnowledgeError
+        )
+        class_node = require_node_type(
+            self._source, database, class_id, CLASS, "class_id", KnowledgeError
+        )
+        nbs = self._source.get_neighbors(
+            database, entity_id, edge_type=IS_INSTANCE_OF, direction="out"
+        )
+        if any(nb["node"]["id"] == class_id for nb in nbs):
+            return
+        self._source.add_edge(
+            database, entity_id, IS_INSTANCE_OF, class_id, properties=edge_stamped()
+        )
+        self._notifier.fire({
+            "type": "entity_class_attached",
+            "database": database,
+            "id": entity_id,
+            "entity_id":   entity_id,
+            "entity_name": entity_node.get("properties", {}).get("name"),
+            "class_id":    class_id,
+            "class_name":  class_node.get("properties", {}).get("name"),
+        })
 
     # ------------------------------------------------------------------ #
     # Update operations                                                    #
@@ -404,11 +459,10 @@ class KnowledgeManager:
         self._notifier.fire({"type": "fact_updated", "database": database, "id": fact_id})
 
     def _find_literal(self, database: str, owner_id: str, property_id: str) -> str | None:
-        for lit_nb in self._source.get_neighbors(database, owner_id, edge_type=HAS_PROPERTY, direction="out"):
-            lit_id = lit_nb["node"]["id"]
-            for prop_nb in self._source.get_neighbors(database, lit_id, edge_type=IS_VALUE_OF, direction="out"):
-                if prop_nb["node"]["id"] == property_id:
-                    return lit_id
+        for pv in property_values(self._source, database, owner_id):
+            prop = pv["property"]
+            if prop is not None and prop["id"] == property_id:
+                return pv["literal"]["id"]
         return None
 
     async def update_entity_property_value(
@@ -606,11 +660,11 @@ class KnowledgeManager:
 
         for entity_node in self._source.match_nodes(database, label=ENTITY):
             nid = entity_node["id"]
-            for nb in self._source.get_neighbors(database, nid, edge_type=IS_INSTANCE_OF, direction="out"):
+            for cls in entity_classes(self._source, database, nid):
                 entry: dict = {
                     "relation_type": IS_INSTANCE_OF,
                     "entity_name": _name(entity_node),
-                    "class_name": _name(nb["node"]),
+                    "class_name": _name(cls),
                 }
                 prov = _provenance_detail(nid) if (include_provenance or detailed) else None
                 if detailed:
@@ -645,15 +699,13 @@ class KnowledgeManager:
                 if detailed:
                     entry.update(_detail_attrs(literal_node))
                 if owner_label == FACT and owner_id:
-                    for h in self._source.get_neighbors(database, owner_id, edge_type=HEAD, direction="out"):
-                        entry["head_name"] = _name(h["node"])
-                        break
-                    for t in self._source.get_neighbors(database, owner_id, edge_type=TAIL, direction="out"):
-                        entry["tail_name"] = _name(t["node"])
-                        break
-                    for r in self._source.get_neighbors(database, owner_id, edge_type=REPRESENTS, direction="out"):
-                        entry["relation_name"] = _name(r["node"])
-                        break
+                    parts = fact_parts(self._source, database, owner_id)
+                    if parts["head"]:
+                        entry["head_name"] = _name(parts["head"])
+                    if parts["tail"]:
+                        entry["tail_name"] = _name(parts["tail"])
+                    if parts["relation"]:
+                        entry["relation_name"] = _name(parts["relation"])
                 if include_provenance:
                     entry["extraction"] = prov["extraction"]
                     entry["source"] = prov["source"]
@@ -663,18 +715,10 @@ class KnowledgeManager:
 
         for fact_node in self._source.match_nodes(database, label=FACT):
             nid = fact_node["id"]
-            relation_name: str | None = None
-            head_name: str | None = None
-            tail_name: str | None = None
-            for nb in self._source.get_neighbors(database, nid, edge_type=REPRESENTS, direction="out"):
-                relation_name = _name(nb["node"])
-                break
-            for nb in self._source.get_neighbors(database, nid, edge_type=HEAD, direction="out"):
-                head_name = _name(nb["node"])
-                break
-            for nb in self._source.get_neighbors(database, nid, edge_type=TAIL, direction="out"):
-                tail_name = _name(nb["node"])
-                break
+            parts = fact_parts(self._source, database, nid)
+            relation_name = _name(parts["relation"]) if parts["relation"] else None
+            head_name = _name(parts["head"]) if parts["head"] else None
+            tail_name = _name(parts["tail"]) if parts["tail"] else None
             entry = {
                 "relation_type": REPRESENTS,
                 "entity_name": _name(fact_node),
@@ -722,7 +766,8 @@ class KnowledgeManager:
         for node in self._source.match_nodes(database, label=ENTITY):
             nid = node["id"]
             props = node.get("properties", {})
-            cls = _first(self._source.get_neighbors(database, nid, edge_type=IS_INSTANCE_OF, direction="out"))
+            classes = entity_classes(self._source, database, nid)
+            cls = classes[0] if classes else None
             entry = {
                 "ref": nid,
                 "name": props.get("name"),
@@ -737,9 +782,8 @@ class KnowledgeManager:
         for node in self._source.match_nodes(database, label=FACT):
             nid = node["id"]
             props = node.get("properties", {})
-            rel  = _first(self._source.get_neighbors(database, nid, edge_type=REPRESENTS, direction="out"))
-            head = _first(self._source.get_neighbors(database, nid, edge_type=HEAD, direction="out"))
-            tail = _first(self._source.get_neighbors(database, nid, edge_type=TAIL, direction="out"))
+            parts = fact_parts(self._source, database, nid)
+            rel, head, tail = parts["relation"], parts["head"], parts["tail"]
             entry = {
                 "ref": nid,
                 "name": props.get("name"),
@@ -780,13 +824,26 @@ class KnowledgeManager:
             "fact_properties": fact_properties,
         }
 
-    def _resolve_schema_ref(self, database: str, label: str, name: str | None, what: str) -> str | None:
+    async def _resolve_schema_ref(
+        self,
+        database: str,
+        label: str,
+        name: str | None,
+        what: str,
+    ) -> str | None:
         if not name:
             return None
-        nodes = self._source.match_nodes(database, label=label, properties={"name": name})
-        if not nodes:
-            raise KnowledgeError(f"import_database_data: {what} {name!r} not found in database {database!r}")
-        return nodes[0]["id"]
+        if label == CLASS:
+            node = await self._schema.find_class(database, name)
+        elif label == RELATION:
+            node = await self._schema.find_relation_type(database, name)
+        else:
+            node = await self._schema.find_property(database, name)
+        if node is None:
+            raise KnowledgeError(
+                f"import_database_data: {what} {name!r} not found in database {database!r}"
+            )
+        return node["id"]
 
     def _resolve_data_ref(self, ref_to_id: dict[str, str], ref: str | None, what: str) -> str | None:
         if ref is None:
@@ -806,7 +863,7 @@ class KnowledgeManager:
         ref_to_id: dict[str, str] = {}
 
         for ent in data.get("entities", []):
-            class_id = self._resolve_schema_ref(database, CLASS, ent.get("class"), "class")
+            class_id = await self._resolve_schema_ref(database, CLASS, ent.get("class"), "class")
             new_id = await self.add_entity(
                 database, ent.get("name"), description=ent.get("description"),
                 class_id=class_id, text=ent.get("extraction"),
@@ -815,7 +872,9 @@ class KnowledgeManager:
                 ref_to_id[ent["ref"]] = new_id
 
         for fact in data.get("facts", []):
-            relation_id = self._resolve_schema_ref(database, RELATION, fact.get("relation"), "relation")
+            relation_id = await self._resolve_schema_ref(
+                database, RELATION, fact.get("relation"), "relation"
+            )
             head_id = self._resolve_data_ref(ref_to_id, fact.get("head_ref"), "fact head_ref")
             tail_id = self._resolve_data_ref(ref_to_id, fact.get("tail_ref"), "fact tail_ref")
             new_id = await self.add_fact(
@@ -828,7 +887,9 @@ class KnowledgeManager:
 
         for prop in data.get("entity_properties", []):
             owner_id = self._resolve_data_ref(ref_to_id, prop.get("owner_ref"), "entity property owner_ref")
-            property_id = self._resolve_schema_ref(database, PROPERTY, prop.get("name"), "property")
+            property_id = await self._resolve_schema_ref(
+                database, PROPERTY, prop.get("name"), "property"
+            )
             await self.add_entity_property_value(
                 database, prop.get("value"), literal_type=prop.get("literal_type"),
                 entity_id=owner_id, property_id=property_id, text=prop.get("extraction"),
@@ -836,7 +897,9 @@ class KnowledgeManager:
 
         for prop in data.get("fact_properties", []):
             owner_id = self._resolve_data_ref(ref_to_id, prop.get("owner_ref"), "fact property owner_ref")
-            property_id = self._resolve_schema_ref(database, PROPERTY, prop.get("name"), "property")
+            property_id = await self._resolve_schema_ref(
+                database, PROPERTY, prop.get("name"), "property"
+            )
             await self.add_fact_property_value(
                 database, prop.get("value"), literal_type=prop.get("literal_type"),
                 fact_id=owner_id, property_id=property_id, text=prop.get("extraction"),
@@ -850,6 +913,158 @@ class KnowledgeManager:
         """created/modified/extraction/source metadata for an entity, fact, or property value id."""
         require_node_type_one_of(self._source, database, node_id, (ENTITY, FACT, LITERAL), "node_id", KnowledgeError)
         return fetch_node_metadata(self._source, database, node_id)
+
+    # ------------------------------------------------------------------ #
+    # Instance walks                                                       #
+    # ------------------------------------------------------------------ #
+
+    async def get_entity_classes(self, database: str, entity_id: str) -> list[dict]:
+        """CLASS nodes *entity_id* is an instance of, via IS_INSTANCE_OF."""
+        require_node_type(self._source, database, entity_id, ENTITY, "entity_id", KnowledgeError)
+        return entity_classes(self._source, database, entity_id)
+
+    async def get_fact_parts(self, database: str, fact_id: str) -> dict:
+        """First HEAD / RELATION / TAIL nodes of *fact_id*, as {"head", "relation", "tail"}."""
+        require_node_type(self._source, database, fact_id, FACT, "fact_id", KnowledgeError)
+        return fact_parts(self._source, database, fact_id)
+
+    async def get_property_values(self, database: str, owner_id: str) -> list[dict]:
+        """LITERAL values with their PROPERTY nodes for an ENTITY or FACT owner."""
+        require_node_type_one_of(
+            self._source, database, owner_id, (ENTITY, FACT), "owner_id", KnowledgeError
+        )
+        return property_values(self._source, database, owner_id)
+
+    # ------------------------------------------------------------------ #
+    # Conformance checks                                                   #
+    # ------------------------------------------------------------------ #
+
+    async def is_fact_allowed(
+        self,
+        database: str,
+        head_entity_id: str,
+        relation_id: str,
+        tail_entity_id: str,
+        max_hops: int | None = 5,
+    ) -> dict:
+        """Whether DOMAIN/RANGE accept the entities' classes, as {ok, reason, details}."""
+        require_node_type(
+            self._source, database, head_entity_id, ENTITY, "head_entity_id", KnowledgeError
+        )
+        require_node_type(
+            self._source, database, tail_entity_id, ENTITY, "tail_entity_id", KnowledgeError
+        )
+        require_node_type(
+            self._source, database, relation_id, RELATION, "relation_id", KnowledgeError
+        )
+        head_classes = entity_classes(self._source, database, head_entity_id)
+        tail_classes = entity_classes(self._source, database, tail_entity_id)
+        detail_names = {
+            "head_classes": [node_name(c) for c in head_classes],
+            "tail_classes": [node_name(c) for c in tail_classes],
+        }
+        if not head_classes or not tail_classes:
+            untyped = []
+            if not head_classes:
+                untyped.append("head")
+            if not tail_classes:
+                untyped.append("tail")
+            return {
+                "ok": False,
+                "reason": "UNTYPED_ENTITY",
+                "details": {**detail_names, "untyped": untyped},
+            }
+        dr = await self._schema.get_relation_domain_range(database, relation_id)
+        head_ok_ids = {c["id"] for c in head_classes}
+        tail_ok_ids = {c["id"] for c in tail_classes}
+        for c in head_classes:
+            anc = await self._schema.get_class_ancestors(database, c["id"], max_hops)
+            head_ok_ids |= {a["id"] for a in anc}
+        for c in tail_classes:
+            anc = await self._schema.get_class_ancestors(database, c["id"], max_hops)
+            tail_ok_ids |= {a["id"] for a in anc}
+        head_in_domain = bool({c["id"] for c in dr["domain"]} & head_ok_ids)
+        tail_in_range = bool({c["id"] for c in dr["range"]} & tail_ok_ids)
+        details = {
+            **detail_names,
+            "domain": [node_name(c) for c in dr["domain"]],
+            "range": [node_name(c) for c in dr["range"]],
+            "head_in_domain": head_in_domain,
+            "tail_in_range": tail_in_range,
+        }
+        if head_in_domain and tail_in_range:
+            return {"ok": True, "reason": "ALLOWED", "details": details}
+        return {"ok": False, "reason": "DOMAIN_RANGE_MISMATCH", "details": details}
+
+    async def is_property_allowed(
+        self,
+        database: str,
+        owner_id: str,
+        property_id: str,
+        max_hops: int | None = 5,
+    ) -> dict:
+        """Whether PROPERTY is defined for the owner's classes (entity) or relation (fact)."""
+        owner = require_node_type_one_of(
+            self._source, database, owner_id, (ENTITY, FACT), "owner_id", KnowledgeError
+        )
+        require_node_type(
+            self._source, database, property_id, PROPERTY, "property_id", KnowledgeError
+        )
+        owner_nbs = self._source.get_neighbors(
+            database, property_id, edge_type=DEFINE_PROPERTY, direction="in"
+        )
+        defined_on_ids = {nb["node"]["id"] for nb in owner_nbs}
+        defined_on_names = [node_name(nb["node"]) for nb in owner_nbs]
+        if owner.get("label") == ENTITY:
+            classes = entity_classes(self._source, database, owner_id)
+            if not classes:
+                return {
+                    "ok": False,
+                    "reason": "UNTYPED_ENTITY",
+                    "details": {"defined_on": defined_on_names},
+                }
+            ok_ids = {c["id"] for c in classes}
+            for c in classes:
+                anc = await self._schema.get_class_ancestors(database, c["id"], max_hops)
+                ok_ids |= {a["id"] for a in anc}
+            details = {
+                "owner_classes": [node_name(c) for c in classes],
+                "defined_on": defined_on_names,
+            }
+        else:
+            parts = fact_parts(self._source, database, owner_id)
+            rel = parts["relation"]
+            if rel is None:
+                return {
+                    "ok": False,
+                    "reason": "FACT_HAS_NO_RELATION",
+                    "details": {"defined_on": defined_on_names},
+                }
+            ok_ids = {rel["id"]}
+            anc = await self._schema.get_relation_ancestors(database, rel["id"], max_hops)
+            ok_ids |= {a["id"] for a in anc}
+            details = {"owner_relation": node_name(rel), "defined_on": defined_on_names}
+        if defined_on_ids & ok_ids:
+            return {"ok": True, "reason": "ALLOWED", "details": details}
+        return {"ok": False, "reason": "NOT_DEFINED_FOR_OWNER", "details": details}
+
+    # ------------------------------------------------------------------ #
+    # Exact-name lookups                                                   #
+    # ------------------------------------------------------------------ #
+
+    async def find_entity(self, database: str, name: str) -> dict | None:
+        """First ENTITY node with exactly *name*, or None — entity names are not unique."""
+        return find_entity(self._source, database, name)
+
+    async def find_fact(
+        self,
+        database: str,
+        head_entity_id: str,
+        relation_id: str,
+        tail_entity_id: str,
+    ) -> dict | None:
+        """First FACT matching the exact directed (head, relation, tail) triple, or None."""
+        return find_fact(self._source, database, head_entity_id, relation_id, tail_entity_id)
 
     # ------------------------------------------------------------------ #
     # Find (substring scan)                                                #
@@ -877,8 +1092,8 @@ class KnowledgeManager:
                 name = props.get("name", "")
                 desc = props.get("description", "") or ""
                 if q in name.lower() or q in desc.lower():
-                    cls_nbs = self._source.get_neighbors(database, node["id"], edge_type=IS_INSTANCE_OF, direction="out")
-                    class_name = cls_nbs[0]["node"].get("properties", {}).get("name") if cls_nbs else None
+                    classes = entity_classes(self._source, database, node["id"])
+                    class_name = classes[0].get("properties", {}).get("name") if classes else None
                     results.append(DataSearchResult(
                         id=node["id"], type=ENTITY, name=name, description=desc or None,
                         class_name=class_name,
@@ -889,12 +1104,14 @@ class KnowledgeManager:
                 props = node.get("properties", {})
                 name = props.get("name", "")
                 desc = props.get("description", "") or ""
-                rel_nbs  = self._source.get_neighbors(database, node["id"], edge_type=REPRESENTS, direction="out")
-                head_nbs = self._source.get_neighbors(database, node["id"], edge_type=HEAD, direction="out")
-                tail_nbs = self._source.get_neighbors(database, node["id"], edge_type=TAIL, direction="out")
-                head_name = head_nbs[0]["node"].get("properties", {}).get("name") if head_nbs else None
-                rel_name  = rel_nbs[0]["node"].get("properties", {}).get("name") if rel_nbs else None
-                tail_name = tail_nbs[0]["node"].get("properties", {}).get("name") if tail_nbs else None
+                parts = fact_parts(self._source, database, node["id"])
+
+                def _name(n: dict | None) -> str | None:
+                    return n.get("properties", {}).get("name") if n else None
+
+                head_name = _name(parts["head"])
+                rel_name  = _name(parts["relation"])
+                tail_name = _name(parts["tail"])
                 searchable = " ".join(s for s in [name, desc, head_name, rel_name, tail_name] if s).lower()
                 if q in searchable:
                     results.append(DataSearchResult(

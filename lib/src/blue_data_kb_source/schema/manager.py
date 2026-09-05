@@ -155,9 +155,9 @@ class SchemaManager:
         description: str,
         class_id: str | None = None,
     ) -> str:
-        existing = self._source.match_nodes(database, label=CLASS, properties={"name": name})
-        if existing:
-            return existing[0]["id"]
+        node = await self.find_class(database, name)
+        if node:
+            return node["id"]
         node_id = self._source.add_node(
             database,
             CLASS,
@@ -191,25 +191,25 @@ class SchemaManager:
                 "range is required when declaring a relation type: pass the name of at least one "
                 "existing CLASS (or a list of names). A relation cannot be declared without a range."
             )
-        existing = self._source.match_nodes(database, label=RELATION, properties={"name": name})
-        if existing:
-            return existing[0]["id"]
+        node = await self.find_relation_type(database, name)
+        if node:
+            return node["id"]
         # Resolve every domain/range class *before* creating the RELATION node, so a
         # missing class raises without leaving a half-wired (domain-less) node behind —
         # a later retry with a valid domain would otherwise hit the idempotency check
         # above and silently reuse that broken node instead of wiring it.
         domain_ids: list[str] = []
         for class_name in domain_names:
-            classes = self._source.match_nodes(database, label=CLASS, properties={"name": class_name})
-            if not classes:
+            cls = await self.find_class(database, class_name)
+            if cls is None:
                 raise SchemaError(f"domain class '{class_name}' not found in '{database}'")
-            domain_ids.append(classes[0]["id"])
+            domain_ids.append(cls["id"])
         range_ids: list[str] = []
         for class_name in range_names:
-            classes = self._source.match_nodes(database, label=CLASS, properties={"name": class_name})
-            if not classes:
+            cls = await self.find_class(database, class_name)
+            if cls is None:
                 raise SchemaError(f"range class '{class_name}' not found in '{database}'")
-            range_ids.append(classes[0]["id"])
+            range_ids.append(cls["id"])
         rid = self._source.add_node(
             database,
             RELATION,
@@ -239,9 +239,9 @@ class SchemaManager:
                 if nb["node"].get("properties", {}).get("name") == name:
                     return nb["node"]["id"]
         else:
-            existing = self._source.match_nodes(database, label=PROPERTY, properties={"name": name})
-            if existing:
-                return existing[0]["id"]
+            node = await self.find_property(database, name)
+            if node:
+                return node["id"]
         node_id = self._source.add_node(
             database,
             PROPERTY,
@@ -273,9 +273,9 @@ class SchemaManager:
                 if nb["node"].get("properties", {}).get("name") == name:
                     return nb["node"]["id"]
         else:
-            existing = self._source.match_nodes(database, label=PROPERTY, properties={"name": name})
-            if existing:
-                return existing[0]["id"]
+            node = await self.find_property(database, name)
+            if node:
+                return node["id"]
         node_id = self._source.add_node(
             database,
             PROPERTY,
@@ -418,6 +418,60 @@ class SchemaManager:
             "parent_name": parent_node.get("properties", {}).get("name"),
         })
 
+    async def attach_relation_domain(self, database: str, relation_id: str, class_id: str) -> None:
+        """Attach an existing CLASS to a relation's DOMAIN via DOMAIN (idempotent).
+
+        Use to widen a relation after declaration (e.g. a WORKED_AT declared over EMPLOYEE,
+        later also holding for CONTRACTOR) — `declare_relation_type` wires DOMAIN only on
+        first declaration. Add-only: there is no detach counterpart.
+        """
+        rel_node = require_node_type(
+            self._source, database, relation_id, RELATION, "relation_id", SchemaError
+        )
+        class_node = require_node_type(
+            self._source, database, class_id, CLASS, "class_id", SchemaError
+        )
+        nbs = self._source.get_neighbors(database, relation_id, edge_type=DOMAIN, direction="out")
+        if any(nb["node"]["id"] == class_id for nb in nbs):
+            return
+        self._source.add_edge(database, relation_id, DOMAIN, class_id, properties=edge_stamped())
+        self._fire({
+            "type": "relation_domain_attached",
+            "database": database,
+            "id": relation_id,
+            "relation_id":   relation_id,
+            "relation_name": rel_node.get("properties",   {}).get("name"),
+            "class_id":      class_id,
+            "class_name":    class_node.get("properties", {}).get("name"),
+        })
+
+    async def attach_relation_range(self, database: str, relation_id: str, class_id: str) -> None:
+        """Attach an existing CLASS to a relation's RANGE via RANGE (idempotent).
+
+        Use to widen a relation after declaration (e.g. a WORKED_AT declared over EMPLOYEE,
+        later also holding for CONTRACTOR) — `declare_relation_type` wires RANGE only on
+        first declaration. Add-only: there is no detach counterpart.
+        """
+        rel_node = require_node_type(
+            self._source, database, relation_id, RELATION, "relation_id", SchemaError
+        )
+        class_node = require_node_type(
+            self._source, database, class_id, CLASS, "class_id", SchemaError
+        )
+        nbs = self._source.get_neighbors(database, relation_id, edge_type=RANGE, direction="out")
+        if any(nb["node"]["id"] == class_id for nb in nbs):
+            return
+        self._source.add_edge(database, relation_id, RANGE, class_id, properties=edge_stamped())
+        self._fire({
+            "type": "relation_range_attached",
+            "database": database,
+            "id": relation_id,
+            "relation_id":   relation_id,
+            "relation_name": rel_node.get("properties",   {}).get("name"),
+            "class_id":      class_id,
+            "class_name":    class_node.get("properties", {}).get("name"),
+        })
+
     # ------------------------------------------------------------------ #
     # Expansion                                                            #
     # ------------------------------------------------------------------ #
@@ -454,6 +508,172 @@ class SchemaManager:
             on_tool_result=on_tool_result,
             max_turns=max_turns,
         )
+
+    # ------------------------------------------------------------------ #
+    # Hierarchy reads                                                      #
+    # ------------------------------------------------------------------ #
+
+    def _hierarchy_walk(
+        self,
+        database: str,
+        node_id: str,
+        direction: str,
+        max_hops: int | None,
+    ) -> list[dict]:
+        # The start node is seeded into visited so a malformed cycle can never
+        # re-add it or hang the walk.
+        visited: set[str] = {node_id}
+        results: list[dict] = []
+        queue: list[tuple[str, int]] = [(node_id, 0)]
+        while queue:
+            current, depth = queue.pop(0)
+            if max_hops is not None and depth >= max_hops:
+                continue
+            neighbors = self._source.get_neighbors(
+                database, current, edge_type=IS_SUBCLASS_OF, direction=direction
+            )
+            for nb in neighbors:
+                node = nb["node"]
+                nid = node["id"]
+                if nid not in visited:
+                    visited.add(nid)
+                    results.append(node)
+                    queue.append((nid, depth + 1))
+        return results
+
+    async def get_class_ancestors(
+        self,
+        database: str,
+        class_id: str,
+        max_hops: int | None = 5,
+    ) -> list[dict]:
+        """CLASS ancestors via IS_SUBCLASS_OF, up to *max_hops* edges (None = unbounded)."""
+        require_node_type(self._source, database, class_id, CLASS, "class_id", SchemaError)
+        return self._hierarchy_walk(database, class_id, "out", max_hops)
+
+    async def get_class_descendants(
+        self,
+        database: str,
+        class_id: str,
+        max_hops: int | None = 5,
+    ) -> list[dict]:
+        """CLASS descendants via IS_SUBCLASS_OF, up to *max_hops* edges (None = unbounded)."""
+        require_node_type(self._source, database, class_id, CLASS, "class_id", SchemaError)
+        return self._hierarchy_walk(database, class_id, "in", max_hops)
+
+    async def get_relation_ancestors(
+        self,
+        database: str,
+        relation_id: str,
+        max_hops: int | None = 5,
+    ) -> list[dict]:
+        """RELATION ancestors via IS_SUBCLASS_OF, up to *max_hops* edges (None = unbounded)."""
+        require_node_type(
+            self._source, database, relation_id, RELATION, "relation_id", SchemaError
+        )
+        return self._hierarchy_walk(database, relation_id, "out", max_hops)
+
+    async def get_relation_descendants(
+        self,
+        database: str,
+        relation_id: str,
+        max_hops: int | None = 5,
+    ) -> list[dict]:
+        """RELATION descendants via IS_SUBCLASS_OF, up to *max_hops* edges (None = unbounded)."""
+        require_node_type(
+            self._source, database, relation_id, RELATION, "relation_id", SchemaError
+        )
+        return self._hierarchy_walk(database, relation_id, "in", max_hops)
+
+    # ------------------------------------------------------------------ #
+    # Domain / range and membership reads                                  #
+    # ------------------------------------------------------------------ #
+
+    async def get_class_entities(
+        self,
+        database: str,
+        class_id: str,
+        limit: int | None = 10,
+    ) -> list[dict]:
+        """ENTITY instances of *class_id* via IS_INSTANCE_OF, up to *limit* (None = unbounded)."""
+        require_node_type(self._source, database, class_id, CLASS, "class_id", SchemaError)
+        neighbors = self._source.get_neighbors(
+            database, class_id, edge_type=IS_INSTANCE_OF, direction="in"
+        )
+        nodes = [nb["node"] for nb in neighbors]
+        return nodes if limit is None else nodes[:limit]
+
+    async def get_relation_domain_range(
+        self,
+        database: str,
+        relation_id: str,
+    ) -> dict[str, list[dict]]:
+        """DOMAIN and RANGE CLASS nodes of *relation_id* as {"domain": [...], "range": [...]}."""
+        require_node_type(
+            self._source, database, relation_id, RELATION, "relation_id", SchemaError
+        )
+        dom_nbs = self._source.get_neighbors(
+            database, relation_id, edge_type=DOMAIN, direction="out"
+        )
+        rng_nbs = self._source.get_neighbors(
+            database, relation_id, edge_type=RANGE, direction="out"
+        )
+        return {
+            "domain": [nb["node"] for nb in dom_nbs],
+            "range": [nb["node"] for nb in rng_nbs],
+        }
+
+    async def get_allowed_relations_between_classes(
+        self,
+        database: str,
+        head_class_id: str,
+        tail_class_id: str,
+        expand: bool = True,
+        max_hops: int | None = 5,
+    ) -> list[dict]:
+        """RELATION nodes accepting the head/tail classes; *expand* lets ancestors satisfy."""
+        require_node_type(
+            self._source, database, head_class_id, CLASS, "head_class_id", SchemaError
+        )
+        require_node_type(
+            self._source, database, tail_class_id, CLASS, "tail_class_id", SchemaError
+        )
+        head_ok = {head_class_id}
+        tail_ok = {tail_class_id}
+        if expand:
+            head_anc = await self.get_class_ancestors(database, head_class_id, max_hops)
+            tail_anc = await self.get_class_ancestors(database, tail_class_id, max_hops)
+            head_ok |= {n["id"] for n in head_anc}
+            tail_ok |= {n["id"] for n in tail_anc}
+        allowed: list[dict] = []
+        for rel in self._source.match_nodes(database, label=RELATION):
+            rid = rel["id"]
+            dom_nbs = self._source.get_neighbors(database, rid, edge_type=DOMAIN, direction="out")
+            rng_nbs = self._source.get_neighbors(database, rid, edge_type=RANGE, direction="out")
+            dom = {nb["node"]["id"] for nb in dom_nbs}
+            rng = {nb["node"]["id"] for nb in rng_nbs}
+            if dom & head_ok and rng & tail_ok:
+                allowed.append(rel)
+        return allowed
+
+    # ------------------------------------------------------------------ #
+    # Exact-name lookups                                                   #
+    # ------------------------------------------------------------------ #
+
+    async def find_class(self, database: str, name: str) -> dict | None:
+        """CLASS node with exactly *name*, or None."""
+        nodes = self._source.match_nodes(database, label=CLASS, properties={"name": name})
+        return nodes[0] if nodes else None
+
+    async def find_relation_type(self, database: str, name: str) -> dict | None:
+        """RELATION node with exactly *name*, or None."""
+        nodes = self._source.match_nodes(database, label=RELATION, properties={"name": name})
+        return nodes[0] if nodes else None
+
+    async def find_property(self, database: str, name: str) -> dict | None:
+        """PROPERTY node with exactly *name*, or None."""
+        nodes = self._source.match_nodes(database, label=PROPERTY, properties={"name": name})
+        return nodes[0] if nodes else None
 
     # ------------------------------------------------------------------ #
     # Schema export / import                                               #
