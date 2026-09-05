@@ -10,7 +10,8 @@ returns whichever one it happens to see first.
 
 Solution: every write is provenance-tagged with a source and an externally
 supplied `original` date (add_source(..., original=...)). A lookup that
-checks get_metadata's source_original field on every candidate value can
+checks the source_original date on each candidate value's evidence records
+(via get_metadata) can
 resolve the conflict correctly -- pick the value backed by the most recent
 source -- instead of guessing.
 
@@ -63,13 +64,14 @@ async def naive_lookup(kb: MemoryKBSource, entity_id: str) -> str:
 
 
 async def provenance_aware_lookup(kb: MemoryKBSource, entity_id: str) -> str:
-    """Check every candidate value's source_original date via get_metadata,
-    and return the one backed by the most recently dated source."""
+    """Check the source_original date on every candidate value's evidence records
+    (via get_metadata), and return the one backed by the most recently dated source."""
     nbs = kb.get_neighbors("main", entity_id, edge_type="HAS_PROPERTY", direction="out")
     candidates = []
     for nb in nbs:
         meta = await kb.get_metadata("main", nb["node"]["id"])
-        candidates.append((meta["source_original"], meta["value"]))
+        newest = max((e["source_original"] for e in meta["evidence"] if e["source_original"]), default="")
+        candidates.append((newest, meta["value"]))
     candidates.sort(key=lambda c: c[0])
     return candidates[-1][1]
 
@@ -138,7 +140,8 @@ async def main():
     print()
     print("The naive lookup isn't wrong by chance -- it doesn't know a conflict exists at")
     print("all, so it just returns the first HAS_PROPERTY edge it walks. The provenance-aware")
-    print("lookup used nothing but get_metadata's source_original field, no LLM involved.")
+    print("lookup used nothing but the source_original dates on get_metadata's evidence")
+    print("records, no LLM involved.")
 
     print()
     print(STEP)
