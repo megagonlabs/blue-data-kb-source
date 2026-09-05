@@ -519,11 +519,12 @@ async def fetch_data(
         database:            Target database (default 'default').
         compact:              Flat, denormalized rows (default True) — the readable
                               shape. False returns the raw {nodes, edges} graph form.
-        include_provenance:  Include each row's extraction text and source name (compact
-                              form only).
-        detailed:             Include each row's own description/created/modified, plus
-                              (together with include_provenance) the linked source's
-                              original date (compact form only).
+        include_provenance:  Include each row's evidence records, one per extraction
+                              with its text, confidence, and source (compact form only).
+        detailed:             Include each row's own description/created/modified, a
+                              fact's derived confidence, and (together with
+                              include_provenance) the linked source's original date
+                              (compact form only).
     """
     try:
         data = await get_kb().fetch_database_data(database, include_provenance, compact, detailed)
@@ -534,8 +535,9 @@ async def fetch_data(
 
 @mcp.tool()
 async def get_metadata(node_id: str, database: str = "default") -> str:
-    """Return created/modified timestamps and provenance (extraction text, source
-    name, source original date) for a specific entity, fact, or property value id.
+    """Return created/modified timestamps, a fact's derived confidence, and evidence
+    records (one per extraction: text, confidence, source, dates) for a specific entity,
+    fact, or property value id.
 
     Args:
         node_id:  Id of an entity, fact, or property value (literal).
