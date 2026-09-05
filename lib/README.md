@@ -537,7 +537,7 @@ passed to `declare_class` to force a specific id) are not checked this way.
 
 ### Literal types
 
-`literal_type` must be one of: `"NUMBER"`, `"DATE"`, `"BOOLEAN"`, `"STRING"`. When omitted, it is inferred from the Python type of `value` (`bool` → `BOOLEAN`, `int`/`float` → `NUMBER`, everything else → `STRING`).
+`literal_type` must be one of: `"NUMBER"`, `"DATE"`, `"BOOLEAN"`, `"STRING"`. When omitted, it is inferred from the Python type of `value` (`bool` → `BOOLEAN`, `int`/`float` → `NUMBER`, everything else → `STRING`). When given explicitly, `value` is cast to match — a string `"42"` with `literal_type="NUMBER"` is stored as the `int` `42`, not the string — so callers that only produce text (CLI, MCP, the extraction agent) still get a properly typed `LITERAL`. An unparsable `NUMBER`/`BOOLEAN` string raises `KnowledgeError`.
 
 ## Running tests
 

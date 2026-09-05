@@ -25,6 +25,44 @@ from blue_data_kb_source._constants import (
     TAIL,
 )
 from blue_data_kb_source.timestamps import touched
+from blue_data_kb_source.types import KnowledgeError
+
+
+def cast_literal_value(value, literal_type: str):
+    """Cast *value* to the Python type `literal_type` implies, tolerating an
+    already-typed input (idempotent when *value* already matches).
+
+    Callers that only ever see raw text — the CLI, the MCP server, the
+    extraction agent's tool calls — pass `value` as a string alongside an
+    explicit `literal_type`; without this, that string was stored verbatim
+    instead of the NUMBER/BOOLEAN it names. STRING and DATE values are
+    normalized to `str` but otherwise left alone. Raises KnowledgeError if a
+    NUMBER or BOOLEAN value can't be parsed as such.
+    """
+    if literal_type == "NUMBER":
+        if isinstance(value, bool):
+            raise KnowledgeError(f"value {value!r} is not a valid NUMBER")
+        if isinstance(value, (int, float)):
+            return value
+        text = str(value).strip()
+        for cast in (int, float):
+            try:
+                return cast(text)
+            except ValueError:
+                continue
+        raise KnowledgeError(f"value {value!r} is not a valid NUMBER")
+    if literal_type == "BOOLEAN":
+        if isinstance(value, bool):
+            return value
+        text = str(value).strip().lower()
+        if text in ("true", "1"):
+            return True
+        if text in ("false", "0"):
+            return False
+        raise KnowledgeError(f"value {value!r} is not a valid BOOLEAN")
+    if literal_type in ("STRING", "DATE"):
+        return value if isinstance(value, str) else str(value)
+    return value
 
 
 def node_name(node: dict) -> str:

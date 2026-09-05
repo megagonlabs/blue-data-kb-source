@@ -25,6 +25,7 @@ from blue_data_kb_source._constants import (
 from blue_data_kb_source.checks import require_node_type, require_node_type_one_of
 from blue_data_kb_source.knowledge.engine import QueryEngine
 from blue_data_kb_source.knowledge.helpers import (
+    cast_literal_value,
     detail_attrs,
     entity_classes,
     fact_parts,
@@ -250,6 +251,8 @@ class KnowledgeManager:
                 literal_type = "NUMBER"
             else:
                 literal_type = "STRING"
+        else:
+            value = cast_literal_value(value, literal_type)
         lid = self._source.add_node(
             database,
             LITERAL,

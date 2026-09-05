@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from blue_data_kb_source.types import KBError
+from blue_data_kb_source.types import KBError, KnowledgeError
 
 
 def _agent_response(result_payload):
@@ -230,6 +230,59 @@ async def test_explicit_literal_type_overrides_inference(kb):
     lit_id = await kb._knowledge.add_literal("test", "2024-01-01", literal_type="DATE")
     node = kb.get_node("test", lit_id)
     assert node["properties"]["type"] == "DATE"
+
+
+# ------------------------------------------------------------------ #
+# literal value casting (explicit literal_type coerces string input)  #
+# ------------------------------------------------------------------ #
+
+async def test_number_string_is_cast_to_int(kb):
+    lit_id = await kb._knowledge.add_literal("test", "42", literal_type="NUMBER")
+    node = kb.get_node("test", lit_id)
+    assert node["properties"]["value"] == 42
+    assert isinstance(node["properties"]["value"], int)
+
+
+async def test_number_string_is_cast_to_float(kb):
+    lit_id = await kb._knowledge.add_literal("test", "3.14", literal_type="NUMBER")
+    node = kb.get_node("test", lit_id)
+    assert node["properties"]["value"] == 3.14
+    assert isinstance(node["properties"]["value"], float)
+
+
+async def test_boolean_string_is_cast_to_bool(kb):
+    lit_id = await kb._knowledge.add_literal("test", "true", literal_type="BOOLEAN")
+    node = kb.get_node("test", lit_id)
+    assert node["properties"]["value"] is True
+
+
+async def test_boolean_string_false_is_cast_to_bool(kb):
+    lit_id = await kb._knowledge.add_literal("test", "false", literal_type="BOOLEAN")
+    node = kb.get_node("test", lit_id)
+    assert node["properties"]["value"] is False
+
+
+async def test_already_typed_value_passes_through_cast(kb):
+    lit_id = await kb._knowledge.add_literal("test", 42, literal_type="NUMBER")
+    node = kb.get_node("test", lit_id)
+    assert node["properties"]["value"] == 42
+
+
+async def test_string_value_is_cast_to_str_for_string_type(kb):
+    lit_id = await kb._knowledge.add_literal("test", 42, literal_type="STRING")
+    node = kb.get_node("test", lit_id)
+    assert node["properties"]["value"] == "42"
+    assert isinstance(node["properties"]["value"], str)
+
+
+async def test_invalid_number_string_raises(kb):
+    with pytest.raises(KnowledgeError):
+        await kb._knowledge.add_literal("test", "not-a-number", literal_type="NUMBER")
+
+
+async def test_invalid_boolean_string_raises(kb):
+    with pytest.raises(KnowledgeError):
+        await kb._knowledge.add_literal("test", "maybe", literal_type="BOOLEAN")
 
 
 # ------------------------------------------------------------------ #
