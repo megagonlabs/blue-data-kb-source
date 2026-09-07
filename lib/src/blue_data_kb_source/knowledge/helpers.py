@@ -10,6 +10,9 @@ so the per-type logic lives in exactly one place.
 
 from __future__ import annotations
 
+import re
+from datetime import datetime
+
 from blue_data.source.graph.graph_source import GraphSource
 
 from blue_data_kb_source._constants import (
@@ -27,6 +30,42 @@ from blue_data_kb_source._constants import (
 from blue_data_kb_source.timestamps import touched
 from blue_data_kb_source.types import KnowledgeError
 
+_ISO_DATE = re.compile(r"^\d{4}(-\d{2}(-\d{2})?)?$")
+_ORDINAL_SUFFIX = re.compile(r"(?<=\d)(st|nd|rd|th)\b", re.IGNORECASE)
+_EXTRA_WHITESPACE = re.compile(r"\s+")
+_DATE_FORMATS_WITH_DAY = ("%B %d %Y", "%d %B %Y", "%b %d %Y", "%d %b %Y")
+_DATE_FORMATS_MONTH_ONLY = ("%B %Y", "%b %Y")
+
+
+def normalize_date(value: str) -> str:
+    """Best-effort normalize *value* to ISO-8601 (`YYYY`, `YYYY-MM`, or `YYYY-MM-DD`).
+
+    Only handles unambiguous input: a string already in one of those three ISO
+    shapes is returned as-is, and textual-month formats ("June 1998", "June 1,
+    1998", "1 June 1998", "June 1st 1998", and their abbreviated-month
+    equivalents) are converted. Purely numeric day-first/month-first formats
+    ("06/07/1998") are genuinely ambiguous — US vs. international convention —
+    and anything else unrecognized (a quarter, a decade, "circa 1998") is
+    returned unchanged rather than guessed, since a wrong guess would corrupt
+    the value silently.
+    """
+    text = value.strip()
+    if _ISO_DATE.match(text):
+        return text
+    cleaned = _ORDINAL_SUFFIX.sub("", text.replace(",", " "))
+    cleaned = _EXTRA_WHITESPACE.sub(" ", cleaned).strip()
+    for fmt in _DATE_FORMATS_WITH_DAY:
+        try:
+            return datetime.strptime(cleaned, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    for fmt in _DATE_FORMATS_MONTH_ONLY:
+        try:
+            return datetime.strptime(cleaned, fmt).strftime("%Y-%m")
+        except ValueError:
+            continue
+    return text
+
 
 def cast_literal_value(value, literal_type: str):
     """Cast *value* to the Python type `literal_type` implies, tolerating an
@@ -35,9 +74,10 @@ def cast_literal_value(value, literal_type: str):
     Callers that only ever see raw text — the CLI, the MCP server, the
     extraction agent's tool calls — pass `value` as a string alongside an
     explicit `literal_type`; without this, that string was stored verbatim
-    instead of the NUMBER/BOOLEAN it names. STRING and DATE values are
-    normalized to `str` but otherwise left alone. Raises KnowledgeError if a
-    NUMBER or BOOLEAN value can't be parsed as such.
+    instead of the NUMBER/BOOLEAN it names. STRING values are normalized to
+    `str` but otherwise left alone; DATE values additionally run through
+    `normalize_date`. Raises KnowledgeError if a NUMBER or BOOLEAN value can't
+    be parsed as such.
     """
     if literal_type == "NUMBER":
         if isinstance(value, bool):
@@ -60,7 +100,9 @@ def cast_literal_value(value, literal_type: str):
         if text in ("false", "0"):
             return False
         raise KnowledgeError(f"value {value!r} is not a valid BOOLEAN")
-    if literal_type in ("STRING", "DATE"):
+    if literal_type == "DATE":
+        return normalize_date(value if isinstance(value, str) else str(value))
+    if literal_type == "STRING":
         return value if isinstance(value, str) else str(value)
     return value
 

@@ -171,7 +171,7 @@ A typed scalar value attached to an ENTITY or FACT via a PROPERTY.
 | `literal_type` | string | One of `STRING`, `NUMBER`, `DATE`, `BOOLEAN` |
 | `created` / `modified` | string (ISO-8601) | See §2 above |
 
-`literal_type` is inferred from the Python value type when not supplied: `int`/`float` → `NUMBER`, `bool` → `BOOLEAN`, everything else → `STRING`. When supplied explicitly, `value` is cast to match it — callers that only ever produce text (the CLI, the MCP server, the extraction agent's tool calls) can pass a numeric/boolean value as a string alongside `literal_type="NUMBER"`/`"BOOLEAN"` and have it stored as an actual `int`/`float`/`bool`, not the literal string. An unparsable NUMBER/BOOLEAN string raises `KnowledgeError`. STRING and DATE values are normalized to `str`.
+`literal_type` is inferred from the Python value type when not supplied: `int`/`float` → `NUMBER`, `bool` → `BOOLEAN`, everything else → `STRING`. When supplied explicitly, `value` is cast to match it — callers that only ever produce text (the CLI, the MCP server, the extraction agent's tool calls) can pass a numeric/boolean value as a string alongside `literal_type="NUMBER"`/`"BOOLEAN"` and have it stored as an actual `int`/`float`/`bool`, not the literal string. An unparsable NUMBER/BOOLEAN string raises `KnowledgeError`. STRING values are normalized to `str`. DATE values are normalized to ISO-8601 (`YYYY`, `YYYY-MM`, or `YYYY-MM-DD`) when the input is an unambiguous textual-month format ("June 1998", "June 1, 1998") — an already-ISO value passes through unchanged, and anything genuinely ambiguous (numeric-only formats like `"06/07/1998"`, imprecise ones like `"circa 1998"`) is left as-is rather than guessed.
 
 **Example:**
 ```

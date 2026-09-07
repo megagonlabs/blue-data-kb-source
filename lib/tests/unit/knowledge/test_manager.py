@@ -341,6 +341,30 @@ async def test_invalid_boolean_string_raises(kb):
         await kb._knowledge.add_literal("test", "maybe", literal_type="BOOLEAN")
 
 
+async def test_date_textual_month_is_normalized_to_iso(kb):
+    lit_id = await kb._knowledge.add_literal("test", "June 1998", literal_type="DATE")
+    node = kb.get_node("test", lit_id)
+    assert node["properties"]["value"] == "1998-06"
+
+
+async def test_date_full_textual_date_is_normalized_to_iso(kb):
+    lit_id = await kb._knowledge.add_literal("test", "June 1, 1998", literal_type="DATE")
+    node = kb.get_node("test", lit_id)
+    assert node["properties"]["value"] == "1998-06-01"
+
+
+async def test_date_already_iso_passes_through_unchanged(kb):
+    lit_id = await kb._knowledge.add_literal("test", "1998-06-01", literal_type="DATE")
+    node = kb.get_node("test", lit_id)
+    assert node["properties"]["value"] == "1998-06-01"
+
+
+async def test_date_ambiguous_numeric_format_is_not_guessed(kb):
+    lit_id = await kb._knowledge.add_literal("test", "06/07/1998", literal_type="DATE")
+    node = kb.get_node("test", lit_id)
+    assert node["properties"]["value"] == "06/07/1998"
+
+
 # ------------------------------------------------------------------ #
 # add_entity_property_value                                            #
 # ------------------------------------------------------------------ #
