@@ -151,10 +151,10 @@ async def test_add_fact_creates_node(kb):
 
 
 async def test_add_fact_auto_names_from_head_tail_relation(kb):
-    alice_id = await kb.add_entity("test", "Alice")
-    ibm_id   = await kb.add_entity("test", "IBM")
-    await kb.declare_class("test", "PERSON", "")
-    await kb.declare_class("test", "COMPANY", "")
+    person   = await kb.declare_class("test", "PERSON", "")
+    company  = await kb.declare_class("test", "COMPANY", "")
+    alice_id = await kb.add_entity("test", "Alice", class_id=person)
+    ibm_id   = await kb.add_entity("test", "IBM", class_id=company)
     rel_id   = await kb.declare_relation_type("test", "WORKED_AT", "", domain="PERSON", range="COMPANY")
     fact_id  = await kb.add_fact("test",
                                   head_entity_id=alice_id,
@@ -174,10 +174,10 @@ async def test_add_fact_uses_explicit_name(kb):
 
 
 async def test_add_fact_wires_head_tail_represents(kb):
-    alice_id = await kb.add_entity("test", "Alice")
-    ibm_id   = await kb.add_entity("test", "IBM")
-    await kb.declare_class("test", "PERSON", "")
-    await kb.declare_class("test", "COMPANY", "")
+    person   = await kb.declare_class("test", "PERSON", "")
+    company  = await kb.declare_class("test", "COMPANY", "")
+    alice_id = await kb.add_entity("test", "Alice", class_id=person)
+    ibm_id   = await kb.add_entity("test", "IBM", class_id=company)
     rel_id   = await kb.declare_relation_type("test", "WORKED_AT", "", domain="PERSON", range="COMPANY")
     fact_id  = await kb.add_fact("test",
                                   head_entity_id=alice_id,
@@ -189,6 +189,62 @@ async def test_add_fact_wires_head_tail_represents(kb):
     assert heads[0]["node"]["id"]      == alice_id
     assert tails[0]["node"]["id"]      == ibm_id
     assert represents[0]["node"]["id"] == rel_id
+
+
+# ------------------------------------------------------------------ #
+# add_fact — domain/range conformance                                  #
+# ------------------------------------------------------------------ #
+
+async def test_add_fact_rejects_head_outside_domain(kb):
+    person  = await kb.declare_class("test", "PERSON", "")
+    company = await kb.declare_class("test", "COMPANY", "")
+    ibm     = await kb.add_entity("test", "IBM", class_id=company)
+    other   = await kb.add_entity("test", "Other Corp", class_id=company)
+    rel_id  = await kb.declare_relation_type("test", "WORKED_AT", "", domain="PERSON", range="COMPANY")
+    with pytest.raises(KnowledgeError, match="DOMAIN_RANGE_MISMATCH"):
+        await kb.add_fact("test", head_entity_id=ibm, tail_entity_id=other, relation_id=rel_id)
+    assert not kb.match_nodes("test", label="FACT")
+
+
+async def test_add_fact_rejects_tail_outside_range(kb):
+    person  = await kb.declare_class("test", "PERSON", "")
+    company = await kb.declare_class("test", "COMPANY", "")
+    alice   = await kb.add_entity("test", "Alice", class_id=person)
+    bob     = await kb.add_entity("test", "Bob", class_id=person)
+    rel_id  = await kb.declare_relation_type("test", "WORKED_AT", "", domain="PERSON", range="COMPANY")
+    with pytest.raises(KnowledgeError, match="DOMAIN_RANGE_MISMATCH"):
+        await kb.add_fact("test", head_entity_id=alice, tail_entity_id=bob, relation_id=rel_id)
+
+
+async def test_add_fact_rejects_untyped_head(kb):
+    company = await kb.declare_class("test", "COMPANY", "")
+    person  = await kb.declare_class("test", "PERSON", "")
+    alice   = await kb.add_entity("test", "Alice")  # no class
+    ibm     = await kb.add_entity("test", "IBM", class_id=company)
+    rel_id  = await kb.declare_relation_type("test", "WORKED_AT", "", domain="PERSON", range="COMPANY")
+    with pytest.raises(KnowledgeError, match="UNTYPED_ENTITY"):
+        await kb.add_fact("test", head_entity_id=alice, tail_entity_id=ibm, relation_id=rel_id)
+
+
+async def test_add_fact_allows_subclass_of_domain(kb):
+    person   = await kb.declare_class("test", "PERSON", "")
+    employee = await kb.declare_class("test", "EMPLOYEE", "")
+    company  = await kb.declare_class("test", "COMPANY", "")
+    await kb.add_is_subclass_of("test", employee, person)
+    alice   = await kb.add_entity("test", "Alice", class_id=employee)
+    ibm     = await kb.add_entity("test", "IBM", class_id=company)
+    rel_id  = await kb.declare_relation_type("test", "WORKED_AT", "", domain="PERSON", range="COMPANY")
+    fact_id = await kb.add_fact("test", head_entity_id=alice, tail_entity_id=ibm, relation_id=rel_id)
+    node = kb.get_node("test", fact_id)
+    assert node is not None
+
+
+async def test_add_fact_skips_check_when_head_tail_or_relation_missing(kb):
+    person = await kb.declare_class("test", "PERSON", "")
+    alice  = await kb.add_entity("test", "Alice", class_id=person)
+    # No relation_id/tail given at all -- nothing to check against, must not raise.
+    fact_id = await kb.add_fact("test", head_entity_id=alice)
+    assert kb.get_node("test", fact_id) is not None
 
 
 # ------------------------------------------------------------------ #
@@ -1000,14 +1056,14 @@ async def test_find_fact_matches_exact_triple(kb):
 
 async def test_import_database_data_round_trip(kb):
     person = await kb.declare_class("test", "PERSON", "")
-    await kb.declare_class("test", "COMPANY", "")
+    company = await kb.declare_class("test", "COMPANY", "")
     worked = await kb.declare_relation_type(
         "test", "WORKED_AT", "", domain="PERSON", range="COMPANY"
     )
     age   = await kb.declare_class_property("test", "AGE", "", class_id=person)
     start = await kb.declare_relation_property("test", "START_DATE", "", relation_id=worked)
     alice = await kb.add_entity("test", "Alice", class_id=person)
-    ibm   = await kb.add_entity("test", "IBM")
+    ibm   = await kb.add_entity("test", "IBM", class_id=company)
     fact  = await kb.add_fact("test", head_entity_id=alice, tail_entity_id=ibm, relation_id=worked)
     await kb.add_entity_property_value("test", 30, entity_id=alice, property_id=age)
     await kb.add_fact_property_value("test", "1998-06-01", fact_id=fact, property_id=start)

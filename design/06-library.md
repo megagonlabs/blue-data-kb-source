@@ -123,7 +123,7 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `add_entity(database, name, description?, entity_id?, class_id?, text?, source_id?, confidence?, extraction_type?)` | `str` | Create an ENTITY node; never idempotent — always creates a new node |
-| `add_fact(database, name?, description?, fact_id?, head_entity_id?, tail_entity_id?, relation_id?, text?, source_id?, confidence?, extraction_type?)` | `str` | Create a FACT node; `name` auto-synthesizes as `{head}_{relation}_{tail}` if omitted |
+| `add_fact(database, name?, description?, fact_id?, head_entity_id?, tail_entity_id?, relation_id?, text?, source_id?, confidence?, extraction_type?)` | `str` | Create a FACT node; `name` auto-synthesizes as `{head}_{relation}_{tail}` if omitted. When head/tail/relation are all given, checks conformance via `is_fact_allowed` and raises `KnowledgeError` if it isn't `ALLOWED` — unlike `assert_fact`, this never widens the relation's domain/range |
 | `add_entity_property_value(database, value, name?, description?, literal_type?, entity_id?, property_id?, text?, source_id?, confidence?, extraction_type?)` | `str` | Create a LITERAL and wire it to an entity |
 | `add_fact_property_value(database, value, name?, description?, literal_type?, fact_id?, property_id?, text?, source_id?, confidence?, extraction_type?)` | `str` | Create a LITERAL and wire it to a fact |
 | `update_entity(database, entity_id, name?, description?)` | `None` | Update an ENTITY node |

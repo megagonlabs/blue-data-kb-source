@@ -84,7 +84,7 @@ Note: `declare_relation_type` wires the initial `DOMAIN`/`RANGE` edges inline (`
 | Method | Returns | Description |
 |---|---|---|
 | `await add_entity(database, name, description?, entity_id?, class_id?, text?, source_id?, confidence?, extraction_type?)` | `str` | Add an `ENTITY` node; optionally wires `IS_INSTANCE_OF`; `text` creates a per-item `EXTRACTION` linked to `source_id` |
-| `await add_fact(database, name?, description?, fact_id?, head_entity_id?, tail_entity_id?, relation_id?, text?, source_id?, confidence?, extraction_type?)` | `str` | Add a `FACT` node; auto-names from head/relation/tail if `name` omitted; wires `HEAD`/`TAIL`/`REPRESENTS` |
+| `await add_fact(database, name?, description?, fact_id?, head_entity_id?, tail_entity_id?, relation_id?, text?, source_id?, confidence?, extraction_type?)` | `str` | Add a `FACT` node; auto-names from head/relation/tail if `name` omitted; wires `HEAD`/`TAIL`/`REPRESENTS`. When head/tail/relation are all given, raises `KnowledgeError` unless `is_fact_allowed` reports `ALLOWED` — it never widens the relation's domain/range the way `assert_fact` does |
 | `await add_entity_property_value(database, value, name?, description?, literal_type?, entity_id?, property_id?, text?, source_id?, confidence?, extraction_type?)` | `str` | Create a `LITERAL`, wire `IS_VALUE_OF` and `HAS_PROPERTY` from an entity |
 | `await add_fact_property_value(database, value, name?, description?, literal_type?, fact_id?, property_id?, text?, source_id?, confidence?, extraction_type?)` | `str` | Create a `LITERAL`, wire `IS_VALUE_OF` and `HAS_PROPERTY` from a fact |
 | `await update_entity(database, entity_id, name?, description?)` | `None` | Update an entity's name/description |

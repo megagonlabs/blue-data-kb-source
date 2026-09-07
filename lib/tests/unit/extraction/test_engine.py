@@ -205,12 +205,12 @@ async def test_find_fact_tool_miss_returns_null_id(kb):
 
 async def test_all_find_tools_honor_result_contract(kb):
     person = await kb.declare_class("test", "PERSON", "")
-    await kb.declare_class("test", "COMPANY", "")
+    company = await kb.declare_class("test", "COMPANY", "")
     worked = await kb.declare_relation_type(
         "test", "WORKED_AT", "", domain="PERSON", range="COMPANY"
     )
     alice = await kb.add_entity("test", "Alice", class_id=person)
-    ibm   = await kb.add_entity("test", "IBM")
+    ibm   = await kb.add_entity("test", "IBM", class_id=company)
     fact  = await kb.add_fact("test", head_entity_id=alice, tail_entity_id=ibm, relation_id=worked)
     factory = _mock_openai_sequence(
         _tool_call_response("find_class", {"name": "PERSON"}),

@@ -193,6 +193,13 @@ class KnowledgeManager:
             require_node_type(self._source, database, relation_id, RELATION, "relation_id", KnowledgeError)
         if source_id is not None:
             require_node_type(self._source, database, source_id, SOURCE, "source_id", KnowledgeError)
+        if head_entity_id is not None and tail_entity_id is not None and relation_id is not None:
+            allowed = await self.is_fact_allowed(database, head_entity_id, relation_id, tail_entity_id)
+            if not allowed["ok"]:
+                raise KnowledgeError(
+                    f"fact does not conform to relation domain/range ({allowed['reason']}): "
+                    f"{allowed['details']}"
+                )
         if name is None:
             head_name = self._node_name(database, head_entity_id) or "?"
             tail_name = self._node_name(database, tail_entity_id) or "?"
