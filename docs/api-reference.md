@@ -44,10 +44,10 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 
 | Method | Returns | Description |
 |---|---|---|
-| `await declare_class(database, name, description, class_id?)` | `str` | Add a `CLASS` node |
-| `await declare_relation_type(database, name, description, is_symmetric?, relation_id?, *, domain, range)` | `str` | Add a `RELATION` node; `domain`/`range` are required (keyword-only), accept a class name or list of names, and wire `DOMAIN`/`RANGE` edges |
-| `await declare_class_property(database, name, description, property_id?, class_id?)` | `str` | Add a `PROPERTY` node; optionally wires `DEFINE_PROPERTY` from a class |
-| `await declare_relation_property(database, name, description, property_id?, relation_id?)` | `str` | Add a `PROPERTY` node; optionally wires `DEFINE_PROPERTY` from a relation |
+| `await declare_class(database, name, description, class_id?)` | `str` | Add a `CLASS` node; `name` is canonicalized to `UPPER_SNAKE_CASE` first, so `"Person"` and `"PERSON"` resolve to the same node |
+| `await declare_relation_type(database, name, description, is_symmetric?, relation_id?, *, domain, range)` | `str` | Add a `RELATION` node; `domain`/`range` are required (keyword-only), accept a class name or list of names, and wire `DOMAIN`/`RANGE` edges; `name` and every `domain`/`range` name are canonicalized to `UPPER_SNAKE_CASE` first |
+| `await declare_class_property(database, name, description, property_id?, class_id?)` | `str` | Add a `PROPERTY` node; optionally wires `DEFINE_PROPERTY` from a class; `name` is canonicalized to `UPPER_SNAKE_CASE` first |
+| `await declare_relation_property(database, name, description, property_id?, relation_id?)` | `str` | Add a `PROPERTY` node; optionally wires `DEFINE_PROPERTY` from a relation; `name` is canonicalized to `UPPER_SNAKE_CASE` first |
 | `await update_class(database, class_id, name?, description?)` | `None` | Update a class's name/description (refreshes `modified`) |
 | `await update_relation(database, relation_id, name?, description?)` | `None` | Update a relation's name/description |
 | `await update_property(database, property_id, name?, description?)` | `None` | Update a property's name/description |

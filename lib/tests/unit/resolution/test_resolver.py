@@ -100,6 +100,18 @@ async def test_substring_fallback_matches_descriptions(kb):
     assert [(h.node_id, h.match_type) for h in hits] == [(entity_id, "search")]
 
 
+async def test_include_search_false_suppresses_search_tier(kb):
+    await kb.add_entity("test", "IBM Research")
+    hits = await NodeResolver(kb).resolve_entity("test", "IBM", include_search=False)
+    assert hits == []
+
+
+async def test_include_search_false_still_returns_normalized_tier(kb):
+    entity_id = await kb.add_entity("test", "IBM")
+    hits = await NodeResolver(kb).resolve_entity("test", "ibm", include_search=False)
+    assert [(h.node_id, h.match_type) for h in hits] == [(entity_id, "normalized")]
+
+
 async def test_search_tier_never_repeats_an_exact_hit(kb):
     exact_id = await kb.add_entity("test", "IBM")
     sub_id = await kb.add_entity("test", "IBM Research")

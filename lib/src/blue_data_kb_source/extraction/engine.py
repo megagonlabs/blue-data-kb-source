@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from blue_data.source.graph.graph_source import GraphSource
 
+from blue_data_kb_source.resolution.resolver import NodeResolver
 from blue_data_kb_source.types import ExtractionError
 
 if TYPE_CHECKING:
@@ -279,6 +280,7 @@ class ExtractionEngine:
         self._knowledge = knowledge_manager
         self._provenance = provenance_tracker
         self._search_indexer = search_indexer
+        self._resolver = NodeResolver(source, search_indexer)
 
     async def import_text(
         self,
@@ -400,6 +402,17 @@ class ExtractionEngine:
 
         if fn == "find_entity":
             node = await self._knowledge.find_entity(database, args["name"])
+            if node is None:
+                # find_entity is a deliberately frozen exact-match lookup (see
+                # resolution/resolver.py); fall back here to a case/whitespace/
+                # punctuation-insensitive match so "ibm" resolves to an existing
+                # "IBM" instead of creating a duplicate. Exclude the search tier —
+                # a semantically similar but distinct entity is not the same entity.
+                candidates = await self._resolver.resolve_entity(
+                    database, args["name"], k=1, include_search=False
+                )
+                if candidates:
+                    node = self._source.get_node(database, candidates[0].node_id)
             if node:
                 p = node.get("properties", {})
                 return {"id": node["id"], "name": p.get("name"), "description": p.get("description")}

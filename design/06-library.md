@@ -84,10 +84,10 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `declare_class(database, name, description, class_id?)` | `str` | Declare a CLASS node (idempotent) |
-| `declare_relation_type(database, name, description, is_symmetric?, relation_id?, *, domain, range)` | `str` | Declare a RELATION node; `domain`/`range` are required (keyword-only); wires DOMAIN/RANGE edges inline |
-| `declare_class_property(database, name, description, property_id?, class_id?)` | `str` | Declare a PROPERTY node; wires DEFINE_PROPERTY from a class |
-| `declare_relation_property(database, name, description, property_id?, relation_id?)` | `str` | Declare a PROPERTY node; wires DEFINE_PROPERTY from a relation |
+| `declare_class(database, name, description, class_id?)` | `str` | Declare a CLASS node (idempotent); `name` is canonicalized to `UPPER_SNAKE_CASE` |
+| `declare_relation_type(database, name, description, is_symmetric?, relation_id?, *, domain, range)` | `str` | Declare a RELATION node; `domain`/`range` are required (keyword-only); wires DOMAIN/RANGE edges inline; `name` and every `domain`/`range` class name are canonicalized to `UPPER_SNAKE_CASE` |
+| `declare_class_property(database, name, description, property_id?, class_id?)` | `str` | Declare a PROPERTY node; wires DEFINE_PROPERTY from a class; `name` is canonicalized to `UPPER_SNAKE_CASE` |
+| `declare_relation_property(database, name, description, property_id?, relation_id?)` | `str` | Declare a PROPERTY node; wires DEFINE_PROPERTY from a relation; `name` is canonicalized to `UPPER_SNAKE_CASE` |
 | `update_class(database, class_id, name?, description?)` | `None` | Update a CLASS node's name/description; not idempotent |
 | `update_relation(database, relation_id, name?, description?)` | `None` | Update a RELATION node |
 | `update_property(database, property_id, name?, description?)` | `None` | Update a PROPERTY node |
@@ -241,9 +241,10 @@ Declares a CLASS node.
 
 **Algorithm**
 
-1. Look up existing CLASS node by `name` in the Graph Store
-2. If found: return existing ID
-3. If not found: create CLASS node with `name`, `description`, optional `class_id`; return new ID
+1. Canonicalize `name` to `UPPER_SNAKE_CASE` (see below)
+2. Look up existing CLASS node by the canonicalized `name` in the Graph Store
+3. If found: return existing ID
+4. If not found: create CLASS node with the canonicalized `name`, `description`, optional `class_id`; return new ID
 
 #### `declare_relation_type(database, name, description, is_symmetric=False, relation_id=None, *, domain, range)`
 
@@ -253,10 +254,13 @@ no wildcard/universal relation.
 
 **Algorithm**
 
-1. Raise `SchemaError` if `domain` or `range` is `None` or empty
-2. Look up existing RELATION node by `name`
-3. If found: return existing ID (DOMAIN/RANGE edges are not re-wired)
-4. If not found: create RELATION node; resolve each name in `domain` and `range` to a CLASS ID via name lookup (raising `SchemaError` if a name doesn't match an existing CLASS); wire DOMAIN and RANGE edges; return new ID
+1. Canonicalize `name` and every name in `domain`/`range` to `UPPER_SNAKE_CASE` (see below)
+2. Raise `SchemaError` if `domain` or `range` is `None` or empty
+3. Look up existing RELATION node by the canonicalized `name`
+4. If found: return existing ID (DOMAIN/RANGE edges are not re-wired)
+5. If not found: create RELATION node; resolve each canonicalized name in `domain` and `range` to a CLASS ID via name lookup (raising `SchemaError` if a name doesn't match an existing CLASS); wire DOMAIN and RANGE edges; return new ID
+
+**Schema name canonicalization:** `declare_class`, `declare_relation_type`, `declare_class_property`, and `declare_relation_property` all canonicalize their `name` (and, for relations, every `domain`/`range` class name) to `UPPER_SNAKE_CASE` before the idempotency lookup and before storing — splitting camelCase at lower/digit→upper boundaries, then collapsing any run of spaces/hyphens/underscores into one `_`. `declare_class("Person", ...)` and `declare_class("PERSON", ...)` therefore return the same CLASS rather than creating two. This does not apply to ENTITY/FACT names or LITERAL values, which keep whatever casing the caller gives them — there's no canonical casing for a proper noun. The exact-match `find_class`/`find_relation_type`/`find_property` lookups are unaffected and stay case-sensitive; only the `declare_*` write path canonicalizes.
 
 #### `fetch_database_schema(database)`
 

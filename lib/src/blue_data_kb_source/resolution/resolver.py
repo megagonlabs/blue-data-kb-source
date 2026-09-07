@@ -69,6 +69,7 @@ class NodeResolver:
         name: str,
         class_id: str | None = None,
         k: int = 5,
+        include_search: bool = True,
     ) -> list[ResolutionCandidate]:
         keep = None
         if class_id is not None:
@@ -77,7 +78,7 @@ class NodeResolver:
                     database, node_id, edge_type=IS_INSTANCE_OF, direction="out"
                 )
                 return any(nb["node"]["id"] == class_id for nb in nbs)
-        return self._resolve(database, ENTITY, name, k, keep=keep)
+        return self._resolve(database, ENTITY, name, k, keep=keep, include_search=include_search)
 
     # ------------------------------------------------------------------ #
     # Internals                                                            #
@@ -90,6 +91,7 @@ class NodeResolver:
         name: str,
         k: int,
         keep: Callable[[str], bool] | None = None,
+        include_search: bool = True,
     ) -> list[ResolutionCandidate]:
         exact: list[ResolutionCandidate] = []
         normalized: list[ResolutionCandidate] = []
@@ -109,13 +111,14 @@ class NodeResolver:
                 match_type="exact" if tier is exact else "normalized",
             ))
         candidates = exact + normalized
-        for node_id, node_name, score in self._search_hits(database, label, name, k):
-            if node_id in seen:
-                continue
-            seen.add(node_id)
-            candidates.append(ResolutionCandidate(
-                node_id=node_id, name=node_name, label=label, match_type="search", score=score,
-            ))
+        if include_search:
+            for node_id, node_name, score in self._search_hits(database, label, name, k):
+                if node_id in seen:
+                    continue
+                seen.add(node_id)
+                candidates.append(ResolutionCandidate(
+                    node_id=node_id, name=node_name, label=label, match_type="search", score=score,
+                ))
         if keep is not None:
             candidates = [c for c in candidates if keep(c.node_id)]
         return candidates[:k]

@@ -185,6 +185,38 @@ async def test_find_entity_tool_returns_id_name_description(kb):
     assert ("find_entity", {"id": alice, "name": "Alice", "description": "An engineer"}) in results
 
 
+async def test_find_entity_tool_falls_back_to_normalized_match(kb):
+    ibm = await kb.add_entity("test", "IBM", description="A company")
+    factory = _mock_openai_sequence(
+        _tool_call_response("find_entity", {"name": "ibm"}),
+        _text_response("done"),
+    )
+    results = []
+    with patch("openai.AsyncOpenAI", factory):
+        await kb.import_text(
+            "test", "irrelevant",
+            expand_schema=False,
+            on_tool_result=lambda name, args, res: results.append((name, res)),
+        )
+    assert ("find_entity", {"id": ibm, "name": "IBM", "description": "A company"}) in results
+
+
+async def test_find_entity_tool_unrelated_name_still_returns_null_id(kb):
+    await kb.add_entity("test", "IBM")
+    factory = _mock_openai_sequence(
+        _tool_call_response("find_entity", {"name": "Nobody"}),
+        _text_response("done"),
+    )
+    results = []
+    with patch("openai.AsyncOpenAI", factory):
+        await kb.import_text(
+            "test", "irrelevant",
+            expand_schema=False,
+            on_tool_result=lambda name, args, res: results.append((name, res)),
+        )
+    assert ("find_entity", {"id": None}) in results
+
+
 async def test_find_fact_tool_miss_returns_null_id(kb):
     factory = _mock_openai_sequence(
         _tool_call_response(

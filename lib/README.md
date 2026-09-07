@@ -401,10 +401,10 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 
 | Method | Returns | Description |
 |---|---|---|
-| `await declare_class(database, name, description, class_id?)` | `str` | Add a `:CLASS` node |
-| `await declare_relation_type(database, name, description, is_symmetric?, relation_id?, *, domain, range)` | `str` | Add a `:RELATION` node; `domain`/`range` are required (keyword-only), accept a class name or list of class names, and wire `DOMAIN`/`RANGE` edges |
-| `await declare_class_property(database, name, description, property_id?, class_id?)` | `str` | Add a `:PROPERTY` node; optionally wires `DEFINE_PROPERTY` from a class |
-| `await declare_relation_property(database, name, description, property_id?, relation_id?)` | `str` | Add a `:PROPERTY` node; optionally wires `DEFINE_PROPERTY` from a relation |
+| `await declare_class(database, name, description, class_id?)` | `str` | Add a `:CLASS` node; `name` is canonicalized to `UPPER_SNAKE_CASE` first, so `"Person"` and `"PERSON"` resolve to the same node |
+| `await declare_relation_type(database, name, description, is_symmetric?, relation_id?, *, domain, range)` | `str` | Add a `:RELATION` node; `domain`/`range` are required (keyword-only), accept a class name or list of class names, and wire `DOMAIN`/`RANGE` edges; `name` and every `domain`/`range` name are canonicalized to `UPPER_SNAKE_CASE` first |
+| `await declare_class_property(database, name, description, property_id?, class_id?)` | `str` | Add a `:PROPERTY` node; optionally wires `DEFINE_PROPERTY` from a class; `name` is canonicalized to `UPPER_SNAKE_CASE` first |
+| `await declare_relation_property(database, name, description, property_id?, relation_id?)` | `str` | Add a `:PROPERTY` node; optionally wires `DEFINE_PROPERTY` from a relation; `name` is canonicalized to `UPPER_SNAKE_CASE` first |
 | `await add_is_subclass_of(database, child_id, parent_id)` | `None` | Wire `IS_SUBCLASS_OF` between two CLASS or RELATION nodes (both must be the same kind) |
 | `await attach_property(database, target_id, property_id)` | `None` | Wire `DEFINE_PROPERTY` from an existing CLASS or RELATION to an existing PROPERTY (idempotent) — reuse a property across classes/relations instead of declaring a same-meaning duplicate under a new name |
 | `await attach_relation_domain(database, relation_id, class_id)` | `None` | Attach a CLASS to an existing relation's `DOMAIN` — deduplicated, and add-only (no detach counterpart; domains only widen) |

@@ -47,6 +47,46 @@ async def test_declare_class_with_explicit_id(kb):
 
 
 # ------------------------------------------------------------------ #
+# declare_* name canonicalization (UPPER_SNAKE_CASE)                   #
+# ------------------------------------------------------------------ #
+
+async def test_declare_class_canonicalizes_name(kb):
+    class_id = await kb.declare_class("test", "Person", "A human individual")
+    node = kb.get_node("test", class_id)
+    assert node["properties"]["name"] == "PERSON"
+
+
+async def test_declare_class_canonicalizes_camel_case(kb):
+    class_id = await kb.declare_class("test", "businessOrg", "")
+    node = kb.get_node("test", class_id)
+    assert node["properties"]["name"] == "BUSINESS_ORG"
+
+
+async def test_declare_class_dedupes_across_casing(kb):
+    id1 = await kb.declare_class("test", "Person", "first")
+    id2 = await kb.declare_class("test", "PERSON", "second")
+    id3 = await kb.declare_class("test", "  person  ", "third")
+    assert id1 == id2 == id3
+    assert len(kb.match_nodes("test", label="CLASS")) == 1
+
+
+async def test_declare_class_property_canonicalizes_name(kb):
+    person = await kb.declare_class("test", "PERSON", "")
+    prop_id = await kb.declare_class_property("test", "full name", "", class_id=person)
+    node = kb.get_node("test", prop_id)
+    assert node["properties"]["name"] == "FULL_NAME"
+
+
+async def test_declare_relation_property_canonicalizes_name(kb):
+    person = await kb.declare_class("test", "PERSON", "")
+    company = await kb.declare_class("test", "COMPANY", "")
+    rel = await kb.declare_relation_type("test", "WORKED_AT", "", domain="PERSON", range="COMPANY")
+    prop_id = await kb.declare_relation_property("test", "start-date", "", relation_id=rel)
+    node = kb.get_node("test", prop_id)
+    assert node["properties"]["name"] == "START_DATE"
+
+
+# ------------------------------------------------------------------ #
 # declare_relation_type                                                #
 # ------------------------------------------------------------------ #
 
@@ -85,6 +125,20 @@ async def test_declare_relation_type_multiple_domains(kb):
     domain_ids = {nb["node"]["id"] for nb in domain_nbs}
     assert p1 in domain_ids
     assert p2 in domain_ids
+
+
+async def test_declare_relation_type_canonicalizes_name_and_domain_range(kb):
+    person_id  = await kb.declare_class("test", "PERSON",  "")
+    company_id = await kb.declare_class("test", "COMPANY", "")
+    rel_id = await kb.declare_relation_type(
+        "test", "worksAt", "", domain="Person", range="company"
+    )
+    node = kb.get_node("test", rel_id)
+    assert node["properties"]["name"] == "WORKS_AT"
+    domain_nbs = kb.get_neighbors("test", rel_id, edge_type="DOMAIN", direction="out")
+    range_nbs  = kb.get_neighbors("test", rel_id, edge_type="RANGE",  direction="out")
+    assert any(nb["node"]["id"] == person_id  for nb in domain_nbs)
+    assert any(nb["node"]["id"] == company_id for nb in range_nbs)
 
 
 async def test_declare_relation_type_raises_on_missing_domain(kb):

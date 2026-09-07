@@ -29,10 +29,29 @@ from blue_data_kb_source.schema.expansion import SchemaExpansionEngine
 from blue_data_kb_source.timestamps import edge_stamped, stamped, touched
 from blue_data_kb_source.types import SchemaError, SchemaSearchResult
 
+import re
 from typing import TYPE_CHECKING, Any, Callable, Literal
 
 if TYPE_CHECKING:
     from blue_data_kb_source.notification.notifier import ChangeNotifier
+
+_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+_NON_ALNUM_RUN = re.compile(r"[^0-9A-Za-z]+")
+
+
+def _canonicalize_schema_name(name: str) -> str:
+    """Canonicalize a CLASS/RELATION/PROPERTY name to UPPER_SNAKE_CASE.
+
+    Splits camelCase at lower/digit->upper boundaries ("worksAt" -> "works_At"),
+    then collapses every run of non-alphanumeric characters (spaces, hyphens,
+    existing underscores) into a single underscore and uppercases the result.
+    Idempotent — an already-canonical name passes through unchanged. Keeps
+    declare_class/declare_relation_type/declare_*_property from creating a
+    second schema element that differs from an existing one only by casing
+    or separator style.
+    """
+    split = _CAMEL_BOUNDARY.sub("_", name)
+    return _NON_ALNUM_RUN.sub("_", split).strip("_").upper()
     from blue_data_kb_source.search.indexer import KBSearchIndexer
 
 
@@ -167,6 +186,7 @@ class SchemaManager:
         description: str,
         class_id: str | None = None,
     ) -> str:
+        name = _canonicalize_schema_name(name)
         node = await self.find_class(database, name)
         if node:
             return node["id"]
@@ -191,8 +211,13 @@ class SchemaManager:
         domain: str | list[str],
         range: str | list[str],
     ) -> str:
-        domain_names: list[str] = [domain] if isinstance(domain, str) else list(domain or [])
-        range_names: list[str] = [range] if isinstance(range, str) else list(range or [])
+        name = _canonicalize_schema_name(name)
+        domain_names: list[str] = [
+            _canonicalize_schema_name(d) for d in ([domain] if isinstance(domain, str) else (domain or []))
+        ]
+        range_names: list[str] = [
+            _canonicalize_schema_name(r) for r in ([range] if isinstance(range, str) else (range or []))
+        ]
         if not domain_names:
             raise SchemaError(
                 "domain is required when declaring a relation type: pass the name of at least one "
@@ -245,6 +270,7 @@ class SchemaManager:
         property_id: str | None = None,
         class_id: str | None = None,
     ) -> str:
+        name = _canonicalize_schema_name(name)
         if class_id is not None:
             require_node_type(self._source, database, class_id, CLASS, "class_id", SchemaError)
             for nb in self._source.get_neighbors(database, class_id, edge_type=DEFINE_PROPERTY, direction="out"):
@@ -279,6 +305,7 @@ class SchemaManager:
         property_id: str | None = None,
         relation_id: str | None = None,
     ) -> str:
+        name = _canonicalize_schema_name(name)
         if relation_id is not None:
             require_node_type(self._source, database, relation_id, RELATION, "relation_id", SchemaError)
             for nb in self._source.get_neighbors(database, relation_id, edge_type=DEFINE_PROPERTY, direction="out"):
