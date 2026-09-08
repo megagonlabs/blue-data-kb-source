@@ -1,5 +1,7 @@
+import asyncio
 import itertools
 import json
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -51,6 +53,19 @@ def _mock_openai_endless(response):
     mock_client = MagicMock()
     mock_client.chat.completions.create = AsyncMock(side_effect=itertools.repeat(response))
     return MagicMock(return_value=mock_client), mock_client
+
+
+def _mock_openai_with_delay(delay):
+    """Patch openai.AsyncOpenAI so every call sleeps `delay` seconds before
+    returning a 'done' response — used to prove concurrent chunks actually
+    overlap in wall-clock time rather than running one after another."""
+    async def _delayed(*args, **kwargs):
+        await asyncio.sleep(delay)
+        return _text_response("done")
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(side_effect=_delayed)
+    return MagicMock(return_value=mock_client)
 
 
 async def _seed_worked_at_with_start_date(kb):
@@ -546,3 +561,61 @@ async def test_effort_second_pass_related_data_sees_entities_from_first_pass():
 
     pass2_entity_prompt = factory.return_value.chat.completions.create.call_args_list[5].kwargs["messages"][0]["content"]
     assert "Alice (PERSON)" in pass2_entity_prompt
+
+
+# ------------------------------------------------------------------ #
+# max_concurrency: chunk a long text and run chunks concurrently      #
+# ------------------------------------------------------------------ #
+
+def test_split_into_chunks_single_block_is_never_split():
+    from blue_data_kb_source.extraction.engine import _split_into_chunks
+
+    text = "Alice joined IBM in 1998."
+    assert _split_into_chunks(text, 1) == [text]
+    assert _split_into_chunks(text, 5) == [text]  # no paragraph breaks to split on
+
+
+def test_split_into_chunks_respects_max_chunks_one():
+    from blue_data_kb_source.extraction.engine import _split_into_chunks
+
+    text = "Para one.\n\nPara two.\n\nPara three.\n\nPara four."
+    assert _split_into_chunks(text, 1) == [text]
+
+
+def test_split_into_chunks_splits_contiguous_paragraphs_evenly():
+    from blue_data_kb_source.extraction.engine import _split_into_chunks
+
+    text = "Para one.\n\nPara two.\n\nPara three.\n\nPara four."
+    chunks = _split_into_chunks(text, 2)
+    assert chunks == ["Para one.\n\nPara two.", "Para three.\n\nPara four."]
+
+
+def test_split_into_chunks_caps_at_paragraph_count():
+    from blue_data_kb_source.extraction.engine import _split_into_chunks
+
+    text = "Para one.\n\nPara two."
+    chunks = _split_into_chunks(text, 10)
+    assert chunks == ["Para one.", "Para two."]
+
+
+async def test_max_concurrency_one_is_unchanged_from_default(kb):
+    responses = _mock_openai_sequence(*[_text_response("done")] * 4)
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Some text.", expand_schema=False, max_concurrency=1)
+    assert factory.return_value.chat.completions.create.call_count == 4
+
+
+async def test_max_concurrency_runs_chunks_concurrently_not_sequentially(kb):
+    # 3 paragraphs -> 3 chunks x 4 stages x 1 pass = 12 calls if fully
+    # sequential, but each chunk's 4 stages run one after another within that
+    # chunk while chunks themselves overlap. If sequential end-to-end, 12
+    # calls x delay would take ~0.6s; concurrent chunks should land close to
+    # one chunk's own 4-call critical path (~0.2s).
+    text = "Para one.\n\nPara two.\n\nPara three."
+    delay = 0.05
+    responses = _mock_openai_with_delay(delay)
+    with patch("openai.AsyncOpenAI", responses):
+        start = time.monotonic()
+        await kb.import_text("test", text, expand_schema=False, max_concurrency=3)
+        elapsed = time.monotonic() - start
+    assert elapsed < 8 * delay  # well under the 12x-delay fully-sequential bound

@@ -1078,6 +1078,7 @@ class KBSource(GraphSource, ABC):
         max_turns: int = 25,
         related_data_k: int = 10,
         effort: Literal["low", "medium", "high"] = "low",
+        max_concurrency: int = 1,
     ) -> None:
         if expand_schema:
             target = set(schema_expansion_target) if schema_expansion_target else {"text", "queries"}
@@ -1102,7 +1103,7 @@ class KBSource(GraphSource, ABC):
         await self._extraction.import_text(
             database, text, queries, model, source_id,
             on_tool_call, on_tool_result, max_turns=max_turns, related_data_k=related_data_k,
-            effort=effort,
+            effort=effort, max_concurrency=max_concurrency,
         )
 
     # ------------------------------------------------------------------ #

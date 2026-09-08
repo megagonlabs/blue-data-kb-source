@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import re
 from typing import TYPE_CHECKING, Any, Callable, Literal
 
 from blue_data.source.graph.graph_source import GraphSource
@@ -391,6 +393,34 @@ def _describe_related_data(results: list[DataSearchResult]) -> str:
     return "\n".join(lines)
 
 
+_PARAGRAPH_BREAK = re.compile(r"\n\s*\n")
+
+
+def _split_into_chunks(text: str, max_chunks: int) -> list[str]:
+    """Split *text* into up to `max_chunks` contiguous, paragraph-aligned chunks.
+
+    Splits on blank lines; a text with `max_chunks <= 1` or no paragraph
+    breaks (a single unbroken block) is returned as one chunk — this is a
+    simple heuristic, not a guarantee of exactly `max_chunks` pieces.
+    """
+    if max_chunks <= 1:
+        return [text]
+    paragraphs = [p for p in _PARAGRAPH_BREAK.split(text) if p.strip()]
+    if len(paragraphs) <= 1:
+        return [text]
+    n = min(max_chunks, len(paragraphs))
+    avg = len(paragraphs) / n
+    chunks: list[str] = []
+    start = 0.0
+    for i in range(n):
+        end = start + avg
+        group = paragraphs[round(start):round(end)]
+        if group:
+            chunks.append("\n\n".join(group))
+        start = end
+    return chunks or [text]
+
+
 class ExtractionEngine:
     """LLM-powered extraction engine that populates the KB from raw text."""
 
@@ -421,6 +451,7 @@ class ExtractionEngine:
         max_turns: int = 25,
         related_data_k: int = 10,
         effort: Literal["low", "medium", "high"] = "low",
+        max_concurrency: int = 1,
     ) -> None:
         """Run the staged extraction pipeline: entities, then relations, then
         entity property values, then fact property values. Each stage is its
@@ -431,6 +462,22 @@ class ExtractionEngine:
         low/medium/high = 1/2/3 passes — each later pass told a prior pass
         already ran, so it hunts for what got missed rather than re-deriving
         what's there.
+
+        `max_concurrency` (default 1: today's behavior, unchanged) splits
+        `text` into up to that many paragraph-aligned chunks and runs a full
+        pipeline (all `effort` passes) per chunk *concurrently* — the LLM
+        round-trips overlap, which is where the wall-clock time actually
+        goes. Each tool dispatch is still serialized by a lock, so two
+        chunks can never corrupt shared graph state by writing at the exact
+        same instant — but the lock cannot see across a chunk's separate
+        find_*-then-add_* turns, so it does NOT prevent two chunks that both
+        mention the same entity/fact from each independently deciding it
+        doesn't exist yet and creating it twice; that race is only impossible
+        today because everything runs sequentially. Best suited to long text
+        whose chunks cover mostly distinct content (independent sections,
+        different topics) rather than one narrative that repeats the same
+        entities throughout — a single unbroken block of text can't be split
+        at all and always runs as one chunk regardless of `max_concurrency`.
         """
         try:
             import openai
@@ -443,12 +490,18 @@ class ExtractionEngine:
 
         client = openai.AsyncOpenAI()
         total_passes = EFFORT_PASSES[effort]
-        for pass_num in range(1, total_passes + 1):
-            await self._run_pipeline_pass(
-                database, client, text, queries, model, source_id,
-                on_tool_call, on_tool_result, max_turns, related_data_k,
-                pass_num=pass_num, total_passes=total_passes,
-            )
+        chunks = _split_into_chunks(text, max_concurrency)
+        write_lock = asyncio.Lock()
+
+        async def run_chunk(chunk_text: str) -> None:
+            for pass_num in range(1, total_passes + 1):
+                await self._run_pipeline_pass(
+                    database, client, chunk_text, queries, model, source_id,
+                    on_tool_call, on_tool_result, max_turns, related_data_k,
+                    pass_num=pass_num, total_passes=total_passes, write_lock=write_lock,
+                )
+
+        await asyncio.gather(*(run_chunk(c) for c in chunks))
 
     async def _run_pipeline_pass(
         self,
@@ -464,6 +517,7 @@ class ExtractionEngine:
         related_data_k: int,
         pass_num: int,
         total_passes: int,
+        write_lock: asyncio.Lock,
     ) -> None:
         """One full run of the 4-stage pipeline over `text`."""
         schema_str = (await self._schema.fetch_database_schema(database)).to_str(simplified=True)
@@ -496,7 +550,7 @@ class ExtractionEngine:
             )
 
         entity_calls = await self._run_stage(
-            database, client, model, max_turns, source_id, on_tool_call, on_tool_result,
+            database, client, model, max_turns, source_id, on_tool_call, on_tool_result, write_lock,
             tools=_tools_for(STAGE_ENTITIES),
             system_prompt=build_prompt(_STAGE_WORKFLOWS[STAGE_ENTITIES]),
             text=text,
@@ -504,7 +558,7 @@ class ExtractionEngine:
         entities = self._resolved_entities(database, entity_calls)
 
         relation_calls = await self._run_stage(
-            database, client, model, max_turns, source_id, on_tool_call, on_tool_result,
+            database, client, model, max_turns, source_id, on_tool_call, on_tool_result, write_lock,
             tools=_tools_for(STAGE_RELATIONS),
             system_prompt=build_prompt(
                 _STAGE_WORKFLOWS[STAGE_RELATIONS].format(entities=_render_resolved_entities(entities))
@@ -514,7 +568,7 @@ class ExtractionEngine:
         facts = self._resolved_facts(database, relation_calls)
 
         await self._run_stage(
-            database, client, model, max_turns, source_id, on_tool_call, on_tool_result,
+            database, client, model, max_turns, source_id, on_tool_call, on_tool_result, write_lock,
             tools=_tools_for(STAGE_ENTITY_PROPERTIES),
             system_prompt=build_prompt(
                 _STAGE_WORKFLOWS[STAGE_ENTITY_PROPERTIES].format(entities=_render_resolved_entities(entities))
@@ -523,7 +577,7 @@ class ExtractionEngine:
         )
 
         await self._run_stage(
-            database, client, model, max_turns, source_id, on_tool_call, on_tool_result,
+            database, client, model, max_turns, source_id, on_tool_call, on_tool_result, write_lock,
             tools=_tools_for(STAGE_FACT_PROPERTIES),
             system_prompt=build_prompt(
                 _STAGE_WORKFLOWS[STAGE_FACT_PROPERTIES].format(facts=_render_resolved_facts(facts))
@@ -540,6 +594,7 @@ class ExtractionEngine:
         source_id: str | None,
         on_tool_call: Callable[[str, dict[str, Any]], None] | None,
         on_tool_result: Callable[[str, dict[str, Any], Any], None] | None,
+        write_lock: asyncio.Lock,
         *,
         tools: list[dict[str, Any]],
         system_prompt: str,
@@ -549,6 +604,14 @@ class ExtractionEngine:
 
         Returns every (tool_name, args, result) triple from this pass, so the
         caller can harvest which entities/facts it resolved for the next stage.
+        `write_lock` is held for the duration of each tool dispatch, so a
+        concurrent chunk (see import_text's max_concurrency) can't interleave
+        a single dispatch's own reads/writes with this one's — only the LLM
+        round-trip itself runs unlocked, which is the actual point of running
+        chunks concurrently. This does not make cross-chunk extraction fully
+        race-free: two chunks can still each independently call find_entity,
+        both see "not found", and both call add_entity, since that decision
+        spans two separate (unlocked) LLM turns the lock can't reach across.
         """
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": system_prompt},
@@ -588,7 +651,8 @@ class ExtractionEngine:
                 if on_tool_call:
                     on_tool_call(tc.function.name, args)
                 try:
-                    result = await self._dispatch_tool(database, tc.function.name, args, source_id)
+                    async with write_lock:
+                        result = await self._dispatch_tool(database, tc.function.name, args, source_id)
                 except Exception as exc:
                     result = {"error": str(exc)}
                 if on_tool_result:
