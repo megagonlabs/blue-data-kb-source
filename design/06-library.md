@@ -204,7 +204,7 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `import_text(database, text, queries?, model?, source_id?, expand_schema?, schema_expansion_target?, schema_expansion_depth?, schema_expansion_mode?, schema_expansion_mcp_servers?, schema_expansion_dedup_mode?, on_tool_call?, on_tool_result?, max_turns?)` | `None` | Extract entities, facts, and property values from free text using an LLM, against the schema as it currently stands — never declares new schema itself (a mention with no matching element is skipped). `expand_schema` (default `True`) runs `expand_schema()` first; the `schema_expansion_*` params mirror that method's `depth`/`reference`/`mcp_servers`/`dedup_mode` one-to-one — see ExtractionEngine and SchemaExpansionEngine below |
+| `import_text(database, text, queries?, model?, source_id?, expand_schema?, schema_expansion_target?, schema_expansion_depth?, schema_expansion_mode?, schema_expansion_mcp_servers?, schema_expansion_dedup_mode?, on_tool_call?, on_tool_result?, max_turns?, related_data_k?)` | `None` | Extract entities, facts, and property values from free text using an LLM, against the schema as it currently stands — never declares new schema itself (a mention with no matching element is skipped). `expand_schema` (default `True`) runs `expand_schema()` first; the `schema_expansion_*` params mirror that method's `depth`/`reference`/`mcp_servers`/`dedup_mode` one-to-one. `related_data_k` (default `10`) surfaces that many existing-entity/fact search hits in the prompt as unconfirmed leads; `0` disables it — see ExtractionEngine and SchemaExpansionEngine below |
 
 #### Sync convenience methods
 
@@ -680,7 +680,7 @@ ExtractionEngine(source, schema_manager, knowledge_manager, provenance_tracker, 
 
 ### Methods
 
-#### `import_text(database, text, queries=None, model="gpt-4o", source_id=None, on_tool_call=None, on_tool_result=None, max_turns=25)`
+#### `import_text(database, text, queries=None, model="gpt-4o", source_id=None, on_tool_call=None, on_tool_result=None, max_turns=25, related_data_k=10)`
 
 Extracts entities, facts, and property values from `text` into `database`, against the schema as it
 currently stands. Called directly by `ExtractionEngine`'s consumer — `KBSource.import_text` (see the
@@ -695,18 +695,20 @@ currently stands. Called directly by `ExtractionEngine`'s consumer — `KBSource
 - `source_id` — ID of an existing SOURCE node; passed through to each instance creation call
 - `on_tool_call` / `on_tool_result` — optional callbacks invoked with `(tool_name, arguments)` / `(tool_name, arguments, result)` for each tool call the agent makes
 - `max_turns` (default `25`) — caps the number of agent turns; hitting the limit stops the loop silently rather than raising
+- `related_data_k` (default `10`) — number of existing ENTITY/FACT hits from `KBSearchIndexer.search_data(database, text, k=related_data_k)` to surface in the system prompt as "potentially related existing data"; `0` disables the lookup. A no-op when the database has no search indexer configured (`properties["search"]["mode"]` is `"none"`, the default) — the prompt says so explicitly rather than silently omitting the section
 
 **Algorithm**
 
 1. Call `SchemaManager.fetch_database_schema(database)` and serialize it as context for the LLM
-2. Fixed tool set: schema inspection (`get_schema`, `find_class`, `find_relation_type`, `find_entity`, `find_fact`, `search_schema`), instance creation (`add_entity`, `add_fact`, `add_entity_property_value`, `add_fact_property_value`), and `link_extraction` (attach evidence to an existing item instead of duplicating it) — no schema-declaration tool is offered
-3. Submit `text`, `queries`, and schema context to the LLM with the tool set — the system prompt instructs the agent to resolve each mention via `find_entity`/`find_fact`/`search_schema` against the existing schema, and to skip anything with no match rather than invent new schema
-4. Loop (up to `max_turns` turns):
+2. When a search indexer is configured and `related_data_k > 0`: call `KBSearchIndexer.search_data(database, text, k=related_data_k)` and render the hits (entity name + class; fact head/relation/tail) as additional context
+3. Fixed tool set: schema inspection (`get_schema`, `find_class`, `find_relation_type`, `find_entity`, `find_fact`, `search_schema`), instance creation (`add_entity`, `add_fact`, `add_entity_property_value`, `add_fact_property_value`), and `link_extraction` (attach evidence to an existing item instead of duplicating it) — no schema-declaration tool is offered
+4. Submit `text`, `queries`, schema context, and the related-data context to the LLM with the tool set — the system prompt instructs the agent to resolve each mention via `find_entity`/`find_fact`/`search_schema` against the existing schema, treating the related-data hits as unconfirmed leads to verify (not to reuse blindly), and to skip anything with no match rather than invent new schema
+5. Loop (up to `max_turns` turns):
    - Receive tool calls from the LLM
    - For instance creation calls: dispatch to `KnowledgeManager`, passing `text=<verbatim span>` and `source_id=source_id`
    - For `link_extraction` calls (item already exists): dispatch to `ProvenanceTracker.add_extraction(element_id=…)`, attaching the new span as further evidence rather than creating a duplicate
    - Return tool results to the LLM
-5. Exit when the LLM returns without further tool calls, or `max_turns` is reached
+6. Exit when the LLM returns without further tool calls, or `max_turns` is reached
 
 **Where the schema expansion pass fits in:** `KBSource.import_text` (not `ExtractionEngine` itself) owns the two-phase orchestration — with `expand_schema=True` (the default), it calls `SchemaManager.expand_schema(...)` first, using `text`/`queries` (filtered by `schema_expansion_target`) as that call's grounding text, before calling `ExtractionEngine.import_text` above. Pass `expand_schema=False` to skip straight to extraction against whatever schema already exists.
 

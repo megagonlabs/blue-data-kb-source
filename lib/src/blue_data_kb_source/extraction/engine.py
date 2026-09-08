@@ -5,8 +5,9 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from blue_data.source.graph.graph_source import GraphSource
 
+from blue_data_kb_source._constants import ENTITY
 from blue_data_kb_source.resolution.resolver import NodeResolver
-from blue_data_kb_source.types import ExtractionError
+from blue_data_kb_source.types import DataSearchResult, ExtractionError
 
 if TYPE_CHECKING:
     from blue_data_kb_source.knowledge.manager import KnowledgeManager
@@ -245,6 +246,12 @@ Source of this text: {source}
 Current schema:
 {schema}
 
+Potentially related existing data (found by searching the KB with this text;
+these are hints from a keyword/semantic match, not confirmed — always verify
+with find_entity/find_fact before reusing one, exactly as you would for any
+other candidate):
+{related_data}
+
 Extraction queries:
 {queries}
 
@@ -262,6 +269,20 @@ def _describe_source(node: dict[str, Any] | None) -> str:
     if name and description:
         return f"{name} — {description}"
     return name or description or "(not specified)"
+
+
+def _describe_related_data(results: list[DataSearchResult]) -> str:
+    """Render search_data hits (existing ENTITY/FACT nodes) for the system prompt."""
+    if not results:
+        return "(none found)"
+    lines: list[str] = []
+    for r in results:
+        if r.type == ENTITY:
+            suffix = f" ({r.class_name})" if r.class_name else ""
+            lines.append(f"- {r.name}{suffix}")
+        else:  # FACT
+            lines.append(f"- {r.head_name} —{r.relation_name}→ {r.tail_name}")
+    return "\n".join(lines)
 
 
 class ExtractionEngine:
@@ -292,6 +313,7 @@ class ExtractionEngine:
         on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
         on_tool_result: Callable[[str, dict[str, Any], Any], None] | None = None,
         max_turns: int = 25,
+        related_data_k: int = 10,
     ) -> None:
         try:
             import openai
@@ -308,7 +330,15 @@ class ExtractionEngine:
         )
         source_node = self._source.get_node(database, source_id) if source_id is not None else None
         source_str = _describe_source(source_node)
-        system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(schema=schema_str, queries=queries_str, source=source_str)
+        if self._search_indexer is not None and related_data_k > 0:
+            related_data_str = _describe_related_data(
+                self._search_indexer.search_data(database, text, k=related_data_k)
+            )
+        else:
+            related_data_str = "(search not configured for this database)"
+        system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(
+            schema=schema_str, queries=queries_str, source=source_str, related_data=related_data_str
+        )
 
         client = openai.AsyncOpenAI()
         messages: list[dict[str, Any]] = [

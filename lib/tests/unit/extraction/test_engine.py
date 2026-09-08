@@ -86,6 +86,50 @@ def test_system_prompt_instructs_skipping_unmatched_items():
 
 
 # ------------------------------------------------------------------ #
+# related-data context injection                                      #
+# ------------------------------------------------------------------ #
+
+async def test_related_data_absent_without_search_indexer(kb):
+    """No search_indexer configured (the default `kb` fixture): the system
+    prompt says so plainly rather than silently omitting the section."""
+    responses = _mock_openai_sequence(_text_response("done"))
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Alice joined IBM.", expand_schema=False)
+    system_prompt = factory.return_value.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+    assert "search not configured" in system_prompt
+
+
+async def test_related_data_injects_matching_existing_entities():
+    from blue_data_kb_source import MemoryKBSource
+
+    kb = MemoryKBSource(name="related-data-test", properties={"search": {"mode": "bm25"}})
+    kb.create_database("test")
+    company = await kb.declare_class("test", "COMPANY", "A business organization")
+    await kb.add_entity("test", "IBM", class_id=company)
+
+    responses = _mock_openai_sequence(_text_response("done"))
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "IBM reported strong earnings.", expand_schema=False)
+    system_prompt = factory.return_value.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+    assert "IBM (COMPANY)" in system_prompt
+
+
+async def test_related_data_k_zero_skips_the_search_call():
+    from blue_data_kb_source import MemoryKBSource
+
+    kb = MemoryKBSource(name="related-data-k0-test", properties={"search": {"mode": "bm25"}})
+    kb.create_database("test")
+    company = await kb.declare_class("test", "COMPANY", "A business organization")
+    await kb.add_entity("test", "IBM", class_id=company)
+
+    responses = _mock_openai_sequence(_text_response("done"))
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "IBM reported strong earnings.", expand_schema=False, related_data_k=0)
+    system_prompt = factory.return_value.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+    assert "search not configured" in system_prompt
+
+
+# ------------------------------------------------------------------ #
 # max_turns                                                            #
 # ------------------------------------------------------------------ #
 

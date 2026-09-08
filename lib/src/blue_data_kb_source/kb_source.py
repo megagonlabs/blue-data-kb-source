@@ -1076,6 +1076,7 @@ class KBSource(GraphSource, ABC):
         on_tool_call: Callable[[str, dict], None] | None = None,
         on_tool_result: Callable[[str, dict, Any], None] | None = None,
         max_turns: int = 25,
+        related_data_k: int = 10,
     ) -> None:
         if expand_schema:
             target = set(schema_expansion_target) if schema_expansion_target else {"text", "queries"}
@@ -1099,7 +1100,7 @@ class KBSource(GraphSource, ABC):
             )
         await self._extraction.import_text(
             database, text, queries, model, source_id,
-            on_tool_call, on_tool_result, max_turns=max_turns,
+            on_tool_call, on_tool_result, max_turns=max_turns, related_data_k=related_data_k,
         )
 
     # ------------------------------------------------------------------ #
