@@ -211,15 +211,21 @@ def test_execute_query_creator_ops_forward_confidence_and_type(kb):
     def q(**kw):
         return kb.execute_query(kw, database="test")
 
-    prop_id   = q(op="KB.DECLARE_CLASS_PROPERTY", name="AGE", description="")
-    entity_id = q(op="KB.ADD_ENTITY", name="Alice", text="Alice joined IBM.",
+    person_id  = q(op="KB.DECLARE_CLASS", name="PERSON", description="")
+    company_id = q(op="KB.DECLARE_CLASS", name="COMPANY", description="")
+    rel_id     = q(op="KB.DECLARE_RELATION", name="WORKED_AT", description="",
+                   domain="PERSON", range="COMPANY")
+    age_id     = q(op="KB.DECLARE_CLASS_PROPERTY", name="AGE", description="", class_id=person_id)
+    start_id   = q(op="KB.DECLARE_RELATION_PROPERTY", name="START_DATE", description="", relation_id=rel_id)
+    tail_id    = q(op="KB.ADD_ENTITY", name="IBM", class_id=company_id)
+    entity_id = q(op="KB.ADD_ENTITY", name="Alice", class_id=person_id, text="Alice joined IBM.",
                   confidence=0.9, extraction_type="assertion")
-    fact_id   = q(op="KB.ADD_FACT", head_entity_id=entity_id, text="Alice joined IBM.",
-                  confidence=0.8, extraction_type="external_record")
+    fact_id   = q(op="KB.ADD_FACT", head_entity_id=entity_id, tail_entity_id=tail_id, relation_id=rel_id,
+                  text="Alice joined IBM.", confidence=0.8, extraction_type="external_record")
     lit_e     = q(op="KB.ADD_ENTITY_PROPERTY", value="28", entity_id=entity_id,
-                  property_id=prop_id, text="Alice is 28.", confidence=0.7)
+                  property_id=age_id, text="Alice is 28.", confidence=0.7)
     lit_f     = q(op="KB.ADD_FACT_PROPERTY", value="1998", fact_id=fact_id,
-                  property_id=prop_id, text="In 1998.", confidence=0.6)
+                  property_id=start_id, text="In 1998.", confidence=0.6)
 
     expected = {entity_id: (0.9, "assertion"), fact_id: (0.8, "external_record"),
                 lit_e: (0.7, "text_span"), lit_f: (0.6, "text_span")}
@@ -234,19 +240,25 @@ def test_execute_query_extraction_ops_forward_confidence_and_type(kb):
     def q(**kw):
         return kb.execute_query(kw, database="test")
 
-    prop_id   = q(op="KB.DECLARE_CLASS_PROPERTY", name="AGE", description="")
-    entity_id = q(op="KB.ADD_ENTITY", name="Alice")
-    fact_id   = q(op="KB.ADD_FACT", head_entity_id=entity_id)
-    q(op="KB.ADD_ENTITY_PROPERTY", value="28", entity_id=entity_id, property_id=prop_id)
-    q(op="KB.ADD_FACT_PROPERTY", value="1998", fact_id=fact_id, property_id=prop_id)
+    person_id = q(op="KB.DECLARE_CLASS", name="PERSON", description="")
+    company_id = q(op="KB.DECLARE_CLASS", name="COMPANY", description="")
+    rel_id = q(op="KB.DECLARE_RELATION", name="WORKED_AT", description="",
+               domain="PERSON", range="COMPANY")
+    age_id = q(op="KB.DECLARE_CLASS_PROPERTY", name="AGE", description="", class_id=person_id)
+    start_id = q(op="KB.DECLARE_RELATION_PROPERTY", name="START_DATE", description="", relation_id=rel_id)
+    tail_id = q(op="KB.ADD_ENTITY", name="IBM", class_id=company_id)
+    entity_id = q(op="KB.ADD_ENTITY", name="Alice", class_id=person_id)
+    fact_id   = q(op="KB.ADD_FACT", head_entity_id=entity_id, tail_entity_id=tail_id, relation_id=rel_id)
+    q(op="KB.ADD_ENTITY_PROPERTY", value="28", entity_id=entity_id, property_id=age_id)
+    q(op="KB.ADD_FACT_PROPERTY", value="1998", fact_id=fact_id, property_id=start_id)
 
     cases = [
         dict(op="KB.ADD_ENTITY_EXTRACTION", entity_id=entity_id, text="Alice is an engineer."),
         dict(op="KB.ADD_FACT_EXTRACTION", fact_id=fact_id, text="Alice joined IBM."),
         dict(op="KB.ADD_ENTITY_PROPERTY_EXTRACTION", entity_id=entity_id,
-             property_id=prop_id, text="Alice is 28."),
+             property_id=age_id, text="Alice is 28."),
         dict(op="KB.ADD_FACT_PROPERTY_EXTRACTION", fact_id=fact_id,
-             property_id=prop_id, text="It was 1998."),
+             property_id=start_id, text="It was 1998."),
     ]
     for case in cases:
         ext_id = q(confidence=0.42, extraction_type="assertion", **case)

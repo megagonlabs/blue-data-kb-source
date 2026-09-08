@@ -89,13 +89,23 @@ def test_system_prompt_instructs_skipping_unmatched_items():
 # related-data context injection                                      #
 # ------------------------------------------------------------------ #
 
+def _four_stage_done():
+    """One immediate 'done' per extraction stage (entities/relations/
+    entity-properties/fact-properties) — nothing to do in any of them."""
+    return _mock_openai_sequence(
+        _text_response("done"), _text_response("done"),
+        _text_response("done"), _text_response("done"),
+    )
+
+
 async def test_related_data_absent_without_search_indexer(kb):
     """No search_indexer configured (the default `kb` fixture): the system
     prompt says so plainly rather than silently omitting the section."""
-    responses = _mock_openai_sequence(_text_response("done"))
+    responses = _four_stage_done()
     with patch("openai.AsyncOpenAI", responses) as factory:
         await kb.import_text("test", "Alice joined IBM.", expand_schema=False)
-    system_prompt = factory.return_value.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+    # Every stage's prompt carries the same related-data section; check stage 1's.
+    system_prompt = factory.return_value.chat.completions.create.call_args_list[0].kwargs["messages"][0]["content"]
     assert "search not configured" in system_prompt
 
 
@@ -107,10 +117,10 @@ async def test_related_data_injects_matching_existing_entities():
     company = await kb.declare_class("test", "COMPANY", "A business organization")
     await kb.add_entity("test", "IBM", class_id=company)
 
-    responses = _mock_openai_sequence(_text_response("done"))
+    responses = _four_stage_done()
     with patch("openai.AsyncOpenAI", responses) as factory:
         await kb.import_text("test", "IBM reported strong earnings.", expand_schema=False)
-    system_prompt = factory.return_value.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+    system_prompt = factory.return_value.chat.completions.create.call_args_list[0].kwargs["messages"][0]["content"]
     assert "IBM (COMPANY)" in system_prompt
 
 
@@ -122,10 +132,10 @@ async def test_related_data_k_zero_skips_the_search_call():
     company = await kb.declare_class("test", "COMPANY", "A business organization")
     await kb.add_entity("test", "IBM", class_id=company)
 
-    responses = _mock_openai_sequence(_text_response("done"))
+    responses = _four_stage_done()
     with patch("openai.AsyncOpenAI", responses) as factory:
         await kb.import_text("test", "IBM reported strong earnings.", expand_schema=False, related_data_k=0)
-    system_prompt = factory.return_value.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+    system_prompt = factory.return_value.chat.completions.create.call_args_list[0].kwargs["messages"][0]["content"]
     assert "search not configured" in system_prompt
 
 
@@ -134,11 +144,13 @@ async def test_related_data_k_zero_skips_the_search_call():
 # ------------------------------------------------------------------ #
 
 async def test_import_text_stops_after_max_turns(kb):
+    # get_schema is offered in every stage, so an endless get_schema loop hits
+    # max_turns once per stage: 4 stages x max_turns=3 = 12 calls total.
     response = _tool_call_response("get_schema", {})
     factory, mock_client = _mock_openai_endless(response)
     with patch("openai.AsyncOpenAI", factory):
         await kb.import_text("test", "Some text.", expand_schema=False, max_turns=3)
-    assert mock_client.chat.completions.create.call_count == 3
+    assert mock_client.chat.completions.create.call_count == 12
 
 
 # ------------------------------------------------------------------ #
@@ -149,9 +161,12 @@ async def test_search_schema_finds_existing_property_by_description(kb):
     _, prop_id = await _seed_worked_at_with_start_date(kb)
 
     calls = []
+    # search_schema is offered in every stage; call it once in stage 1, then
+    # let the remaining 3 stages end immediately (no tool calls).
     responses = _mock_openai_sequence(
         _tool_call_response("search_schema", {"query": "Start of employment", "type": "property"}),
         _text_response("done"),
+        _text_response("done"), _text_response("done"), _text_response("done"),
     )
     with patch("openai.AsyncOpenAI", responses):
         await kb.import_text(
@@ -174,6 +189,7 @@ async def test_search_schema_no_match_returns_empty(kb):
     responses = _mock_openai_sequence(
         _tool_call_response("search_schema", {"query": "zzz_unrelated_zzz", "type": "property"}),
         _text_response("done"),
+        _text_response("done"), _text_response("done"), _text_response("done"),
     )
     with patch("openai.AsyncOpenAI", responses):
         await kb.import_text(
@@ -192,7 +208,11 @@ async def test_search_schema_no_match_returns_empty(kb):
 async def test_import_text_runs_expand_schema_by_default(kb):
     calls = []
     with patch.object(kb._schema, "expand_schema", AsyncMock()) as mock_expand:
-        responses = _mock_openai_sequence(_text_response("done"))
+        # One immediate "done" per stage (4 stages), each ending with no tool calls.
+        responses = _mock_openai_sequence(
+            _text_response("done"), _text_response("done"),
+            _text_response("done"), _text_response("done"),
+        )
         with patch("openai.AsyncOpenAI", responses):
             await kb.import_text(
                 "test", "Some text.",
@@ -203,7 +223,10 @@ async def test_import_text_runs_expand_schema_by_default(kb):
 
 async def test_import_text_skips_expand_schema_when_disabled(kb):
     with patch.object(kb._schema, "expand_schema", AsyncMock()) as mock_expand:
-        responses = _mock_openai_sequence(_text_response("done"))
+        responses = _mock_openai_sequence(
+            _text_response("done"), _text_response("done"),
+            _text_response("done"), _text_response("done"),
+        )
         with patch("openai.AsyncOpenAI", responses):
             await kb.import_text("test", "Some text.", expand_schema=False)
     mock_expand.assert_not_awaited()
@@ -215,9 +238,11 @@ async def test_import_text_skips_expand_schema_when_disabled(kb):
 
 async def test_find_entity_tool_returns_id_name_description(kb):
     alice = await kb.add_entity("test", "Alice", description="An engineer")
+    # find_entity is stage-1-only; let the remaining 3 stages end immediately.
     factory = _mock_openai_sequence(
         _tool_call_response("find_entity", {"name": "Alice"}),
         _text_response("done"),
+        _text_response("done"), _text_response("done"), _text_response("done"),
     )
     results = []
     with patch("openai.AsyncOpenAI", factory):
@@ -234,6 +259,7 @@ async def test_find_entity_tool_falls_back_to_normalized_match(kb):
     factory = _mock_openai_sequence(
         _tool_call_response("find_entity", {"name": "ibm"}),
         _text_response("done"),
+        _text_response("done"), _text_response("done"), _text_response("done"),
     )
     results = []
     with patch("openai.AsyncOpenAI", factory):
@@ -250,6 +276,7 @@ async def test_find_entity_tool_unrelated_name_still_returns_null_id(kb):
     factory = _mock_openai_sequence(
         _tool_call_response("find_entity", {"name": "Nobody"}),
         _text_response("done"),
+        _text_response("done"), _text_response("done"), _text_response("done"),
     )
     results = []
     with patch("openai.AsyncOpenAI", factory):
@@ -262,12 +289,16 @@ async def test_find_entity_tool_unrelated_name_still_returns_null_id(kb):
 
 
 async def test_find_fact_tool_miss_returns_null_id(kb):
+    # find_fact is stage-2-only: stage 1 ends immediately, then the find_fact
+    # call happens in stage 2, then stages 3-4 end immediately.
     factory = _mock_openai_sequence(
+        _text_response("done"),
         _tool_call_response(
             "find_fact",
             {"head_entity_id": "x", "relation_id": "y", "tail_entity_id": "z"},
         ),
         _text_response("done"),
+        _text_response("done"), _text_response("done"),
     )
     results = []
     with patch("openai.AsyncOpenAI", factory):
@@ -288,14 +319,19 @@ async def test_all_find_tools_honor_result_contract(kb):
     alice = await kb.add_entity("test", "Alice", class_id=person)
     ibm   = await kb.add_entity("test", "IBM", class_id=company)
     fact  = await kb.add_fact("test", head_entity_id=alice, tail_entity_id=ibm, relation_id=worked)
+    # find_class/find_entity are stage-1 tools; find_relation_type/find_fact are
+    # stage-2 tools — each stage gets its pair of calls, then ends.
     factory = _mock_openai_sequence(
         _tool_call_response("find_class", {"name": "PERSON"}),
+        _tool_call_response("find_entity", {"name": "Nobody"}),
+        _text_response("done"),
         _tool_call_response("find_relation_type", {"name": "MISSING"}),
         _tool_call_response(
             "find_fact",
             {"head_entity_id": alice, "relation_id": worked, "tail_entity_id": ibm},
         ),
-        _tool_call_response("find_entity", {"name": "Nobody"}),
+        _text_response("done"),
+        _text_response("done"),
         _text_response("done"),
     )
     results = []
@@ -309,3 +345,120 @@ async def test_all_find_tools_honor_result_contract(kb):
     assert ("find_relation_type", {"id": None}) in results
     assert ("find_fact", {"id": fact, "name": "Alice_WORKED_AT_IBM"}) in results
     assert ("find_entity", {"id": None}) in results
+
+
+# ------------------------------------------------------------------ #
+# staged extraction: entities -> relations -> properties               #
+# ------------------------------------------------------------------ #
+
+def test_stage_tool_sets_are_scoped_to_their_purpose():
+    from blue_data_kb_source.extraction.engine import (
+        STAGE_ENTITIES, STAGE_ENTITY_PROPERTIES, STAGE_FACT_PROPERTIES, STAGE_RELATIONS,
+        _STAGE_TOOL_NAMES,
+    )
+
+    entity_tools = set(_STAGE_TOOL_NAMES[STAGE_ENTITIES])
+    relation_tools = set(_STAGE_TOOL_NAMES[STAGE_RELATIONS])
+    assert {"find_entity", "add_entity"} <= entity_tools
+    assert "add_fact" not in entity_tools
+
+    assert {"find_fact", "add_fact", "find_relation_type"} <= relation_tools
+    # Relations are handed already-resolved entities by id in the prompt —
+    # this stage must never rediscover or invent one.
+    assert "find_entity" not in relation_tools
+    assert "add_entity" not in relation_tools
+
+    assert set(_STAGE_TOOL_NAMES[STAGE_ENTITY_PROPERTIES]) == {
+        "get_schema", "search_schema", "add_entity_property_value", "link_extraction",
+    }
+    assert set(_STAGE_TOOL_NAMES[STAGE_FACT_PROPERTIES]) == {
+        "get_schema", "search_schema", "add_fact_property_value", "link_extraction",
+    }
+
+
+def test_every_stage_offers_get_schema_and_search_schema():
+    from blue_data_kb_source.extraction.engine import STAGES, _STAGE_TOOL_NAMES
+
+    for stage in STAGES:
+        assert "get_schema" in _STAGE_TOOL_NAMES[stage]
+        assert "search_schema" in _STAGE_TOOL_NAMES[stage]
+
+
+async def test_relation_stage_prompt_lists_entities_resolved_by_entity_stage(kb):
+    person = await kb.declare_class("test", "PERSON", "")
+    company = await kb.declare_class("test", "COMPANY", "")
+    await kb.declare_relation_type("test", "WORKED_AT", "", domain="PERSON", range="COMPANY")
+
+    responses = _mock_openai_sequence(
+        _tool_call_response("add_entity", {"name": "Alice", "class_id": person}),
+        _tool_call_response("add_entity", {"name": "IBM", "class_id": company}),
+        _text_response("done"),   # ends stage 1 (entities)
+        _text_response("done"),   # stage 2 (relations) — prompt captured below
+        _text_response("done"),   # stage 3 (entity properties)
+        _text_response("done"),   # stage 4 (fact properties)
+    )
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Alice joined IBM.", expand_schema=False)
+
+    stage2_prompt = factory.return_value.chat.completions.create.call_args_list[3].kwargs["messages"][0]["content"]
+    assert "Alice (PERSON)" in stage2_prompt
+    assert "IBM (COMPANY)" in stage2_prompt
+
+
+async def test_staged_pipeline_creates_fact_from_stage1_resolved_entity_ids(kb):
+    """End-to-end: the relation stage never calls find_entity/add_entity — it
+    uses the ids the entity stage already resolved, exactly as the prompt
+    hands them over."""
+    person = await kb.declare_class("test", "PERSON", "")
+    company = await kb.declare_class("test", "COMPANY", "")
+    worked = await kb.declare_relation_type("test", "WORKED_AT", "", domain="PERSON", range="COMPANY")
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    ibm = await kb.add_entity("test", "IBM", class_id=company)
+
+    responses = _mock_openai_sequence(
+        _tool_call_response("find_entity", {"name": "Alice"}),
+        _tool_call_response("find_entity", {"name": "IBM"}),
+        _text_response("done"),
+        _tool_call_response("find_relation_type", {"name": "WORKED_AT"}),
+        _tool_call_response(
+            "add_fact", {"head_entity_id": alice, "tail_entity_id": ibm, "relation_id": worked}
+        ),
+        _text_response("done"),
+        _text_response("done"),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses):
+        await kb.import_text("test", "Alice joined IBM.", expand_schema=False)
+
+    facts = kb.match_nodes("test", label="FACT")
+    assert len(facts) == 1
+    heads = kb.get_neighbors("test", facts[0]["id"], edge_type="HEAD", direction="out")
+    tails = kb.get_neighbors("test", facts[0]["id"], edge_type="TAIL", direction="out")
+    assert heads[0]["node"]["id"] == alice
+    assert tails[0]["node"]["id"] == ibm
+
+
+async def test_fact_property_stage_prompt_lists_facts_resolved_by_relation_stage(kb):
+    person = await kb.declare_class("test", "PERSON", "")
+    company = await kb.declare_class("test", "COMPANY", "")
+    worked = await kb.declare_relation_type("test", "WORKED_AT", "", domain="PERSON", range="COMPANY")
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    ibm = await kb.add_entity("test", "IBM", class_id=company)
+
+    responses = _mock_openai_sequence(
+        _tool_call_response("find_entity", {"name": "Alice"}),
+        _tool_call_response("find_entity", {"name": "IBM"}),
+        _text_response("done"),
+        _tool_call_response("find_relation_type", {"name": "WORKED_AT"}),
+        _tool_call_response(
+            "add_fact", {"head_entity_id": alice, "tail_entity_id": ibm, "relation_id": worked}
+        ),
+        _text_response("done"),
+        _text_response("done"),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Alice joined IBM.", expand_schema=False)
+
+    stage4_prompt = factory.return_value.chat.completions.create.call_args_list[7].kwargs["messages"][0]["content"]
+    assert "Alice —WORKED_AT→ IBM" in stage4_prompt

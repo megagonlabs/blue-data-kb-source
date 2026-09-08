@@ -289,6 +289,13 @@ class KnowledgeManager:
             require_node_type(self._source, database, entity_id, ENTITY, "entity_id", KnowledgeError)
         if source_id is not None:
             require_node_type(self._source, database, source_id, SOURCE, "source_id", KnowledgeError)
+        if entity_id is not None and property_id is not None:
+            allowed = await self.is_property_allowed(database, entity_id, property_id)
+            if not allowed["ok"]:
+                raise KnowledgeError(
+                    f"property is not defined for this entity's class ({allowed['reason']}): "
+                    f"{allowed['details']}"
+                )
         literal_id = await self.add_literal(
             database, value, name=name, description=description,
             literal_type=literal_type, property_id=property_id
@@ -331,6 +338,13 @@ class KnowledgeManager:
             require_node_type(self._source, database, fact_id, FACT, "fact_id", KnowledgeError)
         if source_id is not None:
             require_node_type(self._source, database, source_id, SOURCE, "source_id", KnowledgeError)
+        if fact_id is not None and property_id is not None:
+            allowed = await self.is_property_allowed(database, fact_id, property_id)
+            if not allowed["ok"]:
+                raise KnowledgeError(
+                    f"property is not defined for this fact's relation ({allowed['reason']}): "
+                    f"{allowed['details']}"
+                )
         literal_id = await self.add_literal(
             database, value, name=name, description=description,
             literal_type=literal_type, property_id=property_id

@@ -124,8 +124,8 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 |--------|---------|-------------|
 | `add_entity(database, name, description?, entity_id?, class_id?, text?, source_id?, confidence?, extraction_type?)` | `str` | Create an ENTITY node; never idempotent — always creates a new node |
 | `add_fact(database, name?, description?, fact_id?, head_entity_id?, tail_entity_id?, relation_id?, text?, source_id?, confidence?, extraction_type?)` | `str` | Create a FACT node; `name` auto-synthesizes as `{head}_{relation}_{tail}` if omitted. When head/tail/relation are all given, checks conformance via `is_fact_allowed` and raises `KnowledgeError` if it isn't `ALLOWED` — unlike `assert_fact`, this never widens the relation's domain/range |
-| `add_entity_property_value(database, value, name?, description?, literal_type?, entity_id?, property_id?, text?, source_id?, confidence?, extraction_type?)` | `str` | Create a LITERAL and wire it to an entity |
-| `add_fact_property_value(database, value, name?, description?, literal_type?, fact_id?, property_id?, text?, source_id?, confidence?, extraction_type?)` | `str` | Create a LITERAL and wire it to a fact |
+| `add_entity_property_value(database, value, name?, description?, literal_type?, entity_id?, property_id?, text?, source_id?, confidence?, extraction_type?)` | `str` | Create a LITERAL and wire it to an entity. When both are given, raises `KnowledgeError` unless `is_property_allowed` reports the property is defined for the entity's class (or an ancestor) |
+| `add_fact_property_value(database, value, name?, description?, literal_type?, fact_id?, property_id?, text?, source_id?, confidence?, extraction_type?)` | `str` | Create a LITERAL and wire it to a fact. When both are given, raises `KnowledgeError` unless `is_property_allowed` reports the property is defined for the fact's relation (or an ancestor) |
 | `update_entity(database, entity_id, name?, description?)` | `None` | Update an ENTITY node |
 | `update_fact(database, fact_id, name?, description?)` | `None` | Update a FACT node |
 | `update_entity_property_value(database, entity_id, property_id, value?, name?, description?)` | `None` | Update a LITERAL owned by an entity |
@@ -204,7 +204,7 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `import_text(database, text, queries?, model?, source_id?, expand_schema?, schema_expansion_target?, schema_expansion_depth?, schema_expansion_mode?, schema_expansion_mcp_servers?, schema_expansion_dedup_mode?, on_tool_call?, on_tool_result?, max_turns?, related_data_k?)` | `None` | Extract entities, facts, and property values from free text using an LLM, against the schema as it currently stands — never declares new schema itself (a mention with no matching element is skipped). `expand_schema` (default `True`) runs `expand_schema()` first; the `schema_expansion_*` params mirror that method's `depth`/`reference`/`mcp_servers`/`dedup_mode` one-to-one. `related_data_k` (default `10`) surfaces that many existing-entity/fact search hits in the prompt as unconfirmed leads; `0` disables it — see ExtractionEngine and SchemaExpansionEngine below |
+| `import_text(database, text, queries?, model?, source_id?, expand_schema?, schema_expansion_target?, schema_expansion_depth?, schema_expansion_mode?, schema_expansion_mcp_servers?, schema_expansion_dedup_mode?, on_tool_call?, on_tool_result?, max_turns?, related_data_k?)` | `None` | Runs a 4-stage pipeline (entities → relations → entity properties → fact properties, each its own agentic pass) to extract from free text using an LLM, against the schema as it currently stands — never declares new schema itself (a mention with no matching element is skipped). `expand_schema` (default `True`) runs `expand_schema()` first; the `schema_expansion_*` params mirror that method's `depth`/`reference`/`mcp_servers`/`dedup_mode` one-to-one. `max_turns` applies per stage. `related_data_k` (default `10`) surfaces that many existing-entity/fact search hits in every stage's prompt as unconfirmed leads; `0` disables it — see ExtractionEngine and SchemaExpansionEngine below |
 
 #### Sync convenience methods
 
@@ -693,24 +693,45 @@ currently stands. Called directly by `ExtractionEngine`'s consumer — `KBSource
 - `queries` — optional list of natural language questions guiding the extraction focus
 - `model` — OpenAI model to use for the agent loop
 - `source_id` — ID of an existing SOURCE node; passed through to each instance creation call
-- `on_tool_call` / `on_tool_result` — optional callbacks invoked with `(tool_name, arguments)` / `(tool_name, arguments, result)` for each tool call the agent makes
-- `max_turns` (default `25`) — caps the number of agent turns; hitting the limit stops the loop silently rather than raising
-- `related_data_k` (default `10`) — number of existing ENTITY/FACT hits from `KBSearchIndexer.search_data(database, text, k=related_data_k)` to surface in the system prompt as "potentially related existing data"; `0` disables the lookup. A no-op when the database has no search indexer configured (`properties["search"]["mode"]` is `"none"`, the default) — the prompt says so explicitly rather than silently omitting the section
+- `on_tool_call` / `on_tool_result` — optional callbacks invoked with `(tool_name, arguments)` / `(tool_name, arguments, result)` for each tool call the agent makes, across every stage
+- `max_turns` (default `25`) — caps the number of agent turns *per stage*; hitting the limit stops that stage's loop silently rather than raising, and the pipeline still moves on to the next stage
+- `related_data_k` (default `10`) — number of existing ENTITY/FACT hits from `KBSearchIndexer.search_data(database, text, k=related_data_k)` to surface in every stage's system prompt as "potentially related existing data"; `0` disables the lookup. A no-op when the database has no search indexer configured (`properties["search"]["mode"]` is `"none"`, the default) — the prompt says so explicitly rather than silently omitting the section
 
-**Algorithm**
+**Staged pipeline:** rather than one agentic loop with all instance-creation tools available at once,
+`import_text` runs four sequential stages, each its own agentic loop (its own `max_turns` budget, its
+own fresh message history) over a narrower tool set than the last — mirroring the existing
+schema-expansion-then-extraction split, applied one level deeper:
 
-1. Call `SchemaManager.fetch_database_schema(database)` and serialize it as context for the LLM
-2. When a search indexer is configured and `related_data_k > 0`: call `KBSearchIndexer.search_data(database, text, k=related_data_k)` and render the hits (entity name + class; fact head/relation/tail) as additional context
-3. Fixed tool set: schema inspection (`get_schema`, `find_class`, `find_relation_type`, `find_entity`, `find_fact`, `search_schema`), instance creation (`add_entity`, `add_fact`, `add_entity_property_value`, `add_fact_property_value`), and `link_extraction` (attach evidence to an existing item instead of duplicating it) — no schema-declaration tool is offered
-4. Submit `text`, `queries`, schema context, and the related-data context to the LLM with the tool set — the system prompt instructs the agent to resolve each mention via `find_entity`/`find_fact`/`search_schema` against the existing schema, treating the related-data hits as unconfirmed leads to verify (not to reuse blindly), and to skip anything with no match rather than invent new schema
-5. Loop (up to `max_turns` turns):
+| Stage | Tools | Given from prior stages |
+|-------|-------|--------------------------|
+| entities | `get_schema`, `search_schema`, `find_class`, `find_entity`, `add_entity`, `link_extraction` | — |
+| relations | `get_schema`, `search_schema`, `find_relation_type`, `find_fact`, `add_fact`, `link_extraction` | entities resolved (id, name, class) |
+| entity properties | `get_schema`, `search_schema`, `add_entity_property_value`, `link_extraction` | entities resolved |
+| fact properties | `get_schema`, `search_schema`, `add_fact_property_value`, `link_extraction` | facts resolved (id, head, relation, tail) |
+
+The relation and property stages are never offered `find_entity`/`add_entity` — the system prompt
+instructs them to use the ids in the "already resolved" list and to skip anything not on it, rather
+than rediscovering or inventing an entity. This trades roughly 4x the LLM round-trips of the old
+single-loop design for a narrower, more reliable task per call; see #69 for offsetting that cost via
+parallelism. `add_entity_property_value`/`add_fact_property_value` reject a property that isn't
+actually defined for the entity's class / fact's relation (`KnowledgeError`, via `is_property_allowed`)
+— important now that two independent stages each re-scan the same text for attribute values and could
+otherwise both claim the same value for the wrong owner.
+
+**Algorithm (per stage)**
+
+1. Call `SchemaManager.fetch_database_schema(database)` and serialize it as context for the LLM (shared across all four stages)
+2. When a search indexer is configured and `related_data_k > 0`: call `KBSearchIndexer.search_data(database, text, k=related_data_k)` and render the hits (entity name + class; fact head/relation/tail) as additional context (shared across all four stages)
+3. Submit `text`, `queries`, schema context, related-data context, and the stage's own "already resolved" list to the LLM with that stage's tool set
+4. Loop (up to `max_turns` turns):
    - Receive tool calls from the LLM
    - For instance creation calls: dispatch to `KnowledgeManager`, passing `text=<verbatim span>` and `source_id=source_id`
    - For `link_extraction` calls (item already exists): dispatch to `ProvenanceTracker.add_extraction(element_id=…)`, attaching the new span as further evidence rather than creating a duplicate
    - Return tool results to the LLM
-6. Exit when the LLM returns without further tool calls, or `max_turns` is reached
+5. Exit when the LLM returns without further tool calls, or `max_turns` is reached
+6. After the entity/relation stages, harvest every entity/fact the stage's tool calls touched (via `add_entity`/`find_entity`/`link_extraction` for entities, `add_fact`/`find_fact`/`link_extraction` for facts) and re-fetch its current name/class (or head/relation/tail) from the graph, for the next stage's prompt
 
-**Where the schema expansion pass fits in:** `KBSource.import_text` (not `ExtractionEngine` itself) owns the two-phase orchestration — with `expand_schema=True` (the default), it calls `SchemaManager.expand_schema(...)` first, using `text`/`queries` (filtered by `schema_expansion_target`) as that call's grounding text, before calling `ExtractionEngine.import_text` above. Pass `expand_schema=False` to skip straight to extraction against whatever schema already exists.
+**Where the schema expansion pass fits in:** `KBSource.import_text` (not `ExtractionEngine` itself) owns the two-phase orchestration — with `expand_schema=True` (the default), it calls `SchemaManager.expand_schema(...)` first, using `text`/`queries` (filtered by `schema_expansion_target`) as that call's grounding text, before calling `ExtractionEngine.import_text` above (which then itself runs its four internal stages). Pass `expand_schema=False` to skip straight to extraction against whatever schema already exists.
 
 ---
 

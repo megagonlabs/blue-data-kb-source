@@ -5,7 +5,8 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from blue_data.source.graph.graph_source import GraphSource
 
-from blue_data_kb_source._constants import ENTITY
+from blue_data_kb_source._constants import ENTITY, FACT
+from blue_data_kb_source.knowledge.helpers import entity_classes, fact_parts, node_name
 from blue_data_kb_source.resolution.resolver import NodeResolver
 from blue_data_kb_source.types import DataSearchResult, ExtractionError
 
@@ -217,29 +218,17 @@ declares new CLASSes, RELATIONs, or PROPERTIES. If nothing in the current schema
 covers something in the text (use search_schema to check), skip that item rather
 than inventing a schema element for it.
 
-Workflow:
-1. For each entity in the text: call find_entity first. If it already exists, call
-   link_extraction with its id and the new text span instead of add_entity. Otherwise
-   find its CLASS via search_schema — if no matching CLASS exists, skip this entity —
-   then call add_entity.
-2. For each relationship: resolve both entities (including their CLASSes) first, then
-   find the RELATION type via search_schema. If no matching RELATION exists, skip this
-   relationship. Otherwise call find_fact. If the fact already exists, call
-   link_extraction with its id and the new text span instead of add_fact. Otherwise
-   call add_fact.
-3. For each attribute value: find the PROPERTY on its class/relation via search_schema.
-   If no matching PROPERTY exists, skip this value. Otherwise call
-   add_entity_property_value or add_fact_property_value.
-4. Use names exactly as they appear in the text for entities.
-5. When calling add_entity, add_fact, add_entity_property_value,
-   add_fact_property_value, or link_extraction, always pass the full sentence
-   (verbatim, exactly as written) that the item was extracted from as the
-   `text` argument — never just the bare name, relation phrase, or value on its
-   own. A short span like "Alice" or "1998-06" gives a reader no way to verify
-   the extraction later; the surrounding sentence does. If the item depends on
-   two adjacent sentences, include the verbatim span covering both. Reusing an
-   existing entity/fact via link_extraction records the new text as an
-   additional link without creating a duplicate.
+{workflow}
+
+When calling add_entity, add_fact, add_entity_property_value,
+add_fact_property_value, or link_extraction, always pass the full sentence
+(verbatim, exactly as written) that the item was extracted from as the
+`text` argument — never just the bare name, relation phrase, or value on its
+own. A short span like "Alice" or "1998-06" gives a reader no way to verify
+the extraction later; the surrounding sentence does. If the item depends on
+two adjacent sentences, include the verbatim span covering both. Reusing an
+existing item via link_extraction records the new text as an additional link
+without creating a duplicate.
 
 Source of this text: {source}
 
@@ -257,6 +246,101 @@ Extraction queries:
 
 Work through the text systematically and stop calling tools when you are done.\
 """
+
+# ------------------------------------------------------------------ #
+# Staged extraction — entities, then relations, then property values.  #
+# Each stage is its own agentic pass over a narrower tool set, told   #
+# what the prior stage(s) already resolved rather than rediscovering  #
+# it — mirroring the existing schema-expansion-then-extraction split. #
+# ------------------------------------------------------------------ #
+
+STAGE_ENTITIES = "entities"
+STAGE_RELATIONS = "relations"
+STAGE_ENTITY_PROPERTIES = "entity_properties"
+STAGE_FACT_PROPERTIES = "fact_properties"
+
+STAGES = (STAGE_ENTITIES, STAGE_RELATIONS, STAGE_ENTITY_PROPERTIES, STAGE_FACT_PROPERTIES)
+
+_STAGE_TOOL_NAMES: dict[str, list[str]] = {
+    STAGE_ENTITIES: ["get_schema", "search_schema", "find_class", "find_entity", "add_entity", "link_extraction"],
+    STAGE_RELATIONS: ["get_schema", "search_schema", "find_relation_type", "find_fact", "add_fact", "link_extraction"],
+    STAGE_ENTITY_PROPERTIES: ["get_schema", "search_schema", "add_entity_property_value", "link_extraction"],
+    STAGE_FACT_PROPERTIES: ["get_schema", "search_schema", "add_fact_property_value", "link_extraction"],
+}
+
+_STAGE_WORKFLOWS: dict[str, str] = {
+    STAGE_ENTITIES: """\
+Stage: entity extraction. Only entities exist yet — relations and property
+values are handled in later stages, so ignore them here.
+
+For each entity mentioned in the text: call find_entity first. If it already
+exists, call link_extraction with its id and the new text span instead of
+add_entity. Otherwise find its CLASS via search_schema — if no matching CLASS
+exists, skip this entity — then call add_entity. Use names exactly as they
+appear in the text.\
+""",
+    STAGE_RELATIONS: """\
+Stage: relation extraction. Entities were already resolved in a prior stage —
+never call find_entity or add_entity here, and never invent an entity that
+isn't in the list below; if a relationship involves one, skip it.
+
+Entities already resolved for this text (id, name, class):
+{entities}
+
+For each relationship the text states between two of the entities above: find
+the RELATION type via search_schema. If no matching RELATION exists, skip the
+relationship. Otherwise call find_fact using the ids above as
+head_entity_id/tail_entity_id. If the fact already exists, call
+link_extraction with its id and the new text span instead of add_fact.
+Otherwise call add_fact.\
+""",
+    STAGE_ENTITY_PROPERTIES: """\
+Stage: entity property extraction. Entities were already resolved in a prior
+stage — never invent an entity that isn't in the list below.
+
+Entities already resolved for this text (id, name, class):
+{entities}
+
+For each attribute value the text states about one of the entities above:
+find the PROPERTY on its class via search_schema. If no matching PROPERTY
+exists, skip this value. Otherwise call add_entity_property_value using the
+entity_id from the list above.\
+""",
+    STAGE_FACT_PROPERTIES: """\
+Stage: fact property extraction. Facts were already resolved in a prior
+stage — never invent a fact that isn't in the list below.
+
+Facts already resolved for this text (id, head, relation, tail):
+{facts}
+
+For each attribute value the text states about one of the facts above: find
+the PROPERTY on its relation via search_schema. If no matching PROPERTY
+exists, skip this value. Otherwise call add_fact_property_value using the
+fact_id from the list above.\
+""",
+}
+
+
+def _tools_for(stage: str) -> list[dict[str, Any]]:
+    names = set(_STAGE_TOOL_NAMES[stage])
+    return [t for t in _TOOLS if t["function"]["name"] in names]
+
+
+def _render_resolved_entities(entities: list[dict[str, Any]]) -> str:
+    if not entities:
+        return "(none resolved in this pass)"
+    lines = []
+    for e in entities:
+        suffix = f" ({e['class_name']})" if e.get("class_name") else ""
+        lines.append(f"- id={e['id']}  {e['name']}{suffix}")
+    return "\n".join(lines)
+
+
+def _render_resolved_facts(facts: list[dict[str, Any]]) -> str:
+    if not facts:
+        return "(none resolved in this pass)"
+    lines = [f"- id={f['id']}  {f['head_name']} —{f['relation_name']}→ {f['tail_name']}" for f in facts]
+    return "\n".join(lines)
 
 
 def _describe_source(node: dict[str, Any] | None) -> str:
@@ -315,6 +399,11 @@ class ExtractionEngine:
         max_turns: int = 25,
         related_data_k: int = 10,
     ) -> None:
+        """Run the staged extraction pipeline: entities, then relations, then
+        entity property values, then fact property values. Each stage is its
+        own agentic pass over a narrower tool set than the last, told what the
+        prior stage(s) resolved (by id) instead of rediscovering it.
+        """
         try:
             import openai
         except ImportError as exc:
@@ -336,15 +425,75 @@ class ExtractionEngine:
             )
         else:
             related_data_str = "(search not configured for this database)"
-        system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(
-            schema=schema_str, queries=queries_str, source=source_str, related_data=related_data_str
-        )
+
+        def build_prompt(workflow: str) -> str:
+            return _SYSTEM_PROMPT_TEMPLATE.format(
+                workflow=workflow, schema=schema_str, queries=queries_str,
+                source=source_str, related_data=related_data_str,
+            )
 
         client = openai.AsyncOpenAI()
+
+        entity_calls = await self._run_stage(
+            database, client, model, max_turns, source_id, on_tool_call, on_tool_result,
+            tools=_tools_for(STAGE_ENTITIES),
+            system_prompt=build_prompt(_STAGE_WORKFLOWS[STAGE_ENTITIES]),
+            text=text,
+        )
+        entities = self._resolved_entities(database, entity_calls)
+
+        relation_calls = await self._run_stage(
+            database, client, model, max_turns, source_id, on_tool_call, on_tool_result,
+            tools=_tools_for(STAGE_RELATIONS),
+            system_prompt=build_prompt(
+                _STAGE_WORKFLOWS[STAGE_RELATIONS].format(entities=_render_resolved_entities(entities))
+            ),
+            text=text,
+        )
+        facts = self._resolved_facts(database, relation_calls)
+
+        await self._run_stage(
+            database, client, model, max_turns, source_id, on_tool_call, on_tool_result,
+            tools=_tools_for(STAGE_ENTITY_PROPERTIES),
+            system_prompt=build_prompt(
+                _STAGE_WORKFLOWS[STAGE_ENTITY_PROPERTIES].format(entities=_render_resolved_entities(entities))
+            ),
+            text=text,
+        )
+
+        await self._run_stage(
+            database, client, model, max_turns, source_id, on_tool_call, on_tool_result,
+            tools=_tools_for(STAGE_FACT_PROPERTIES),
+            system_prompt=build_prompt(
+                _STAGE_WORKFLOWS[STAGE_FACT_PROPERTIES].format(facts=_render_resolved_facts(facts))
+            ),
+            text=text,
+        )
+
+    async def _run_stage(
+        self,
+        database: str,
+        client: Any,
+        model: str,
+        max_turns: int,
+        source_id: str | None,
+        on_tool_call: Callable[[str, dict[str, Any]], None] | None,
+        on_tool_result: Callable[[str, dict[str, Any], Any], None] | None,
+        *,
+        tools: list[dict[str, Any]],
+        system_prompt: str,
+        text: str,
+    ) -> list[tuple[str, dict[str, Any], Any]]:
+        """Run one agentic tool-calling pass to convergence (or max_turns).
+
+        Returns every (tool_name, args, result) triple from this pass, so the
+        caller can harvest which entities/facts it resolved for the next stage.
+        """
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": text},
         ]
+        calls: list[tuple[str, dict[str, Any], Any]] = []
         turns = 0
 
         while True:
@@ -354,7 +503,7 @@ class ExtractionEngine:
             response = await client.chat.completions.create(
                 model=model,
                 messages=messages,  # type: ignore[arg-type]
-                tools=_TOOLS,  # type: ignore[arg-type]
+                tools=tools,  # type: ignore[arg-type]
                 tool_choice="auto",
             )
             msg = response.choices[0].message
@@ -383,11 +532,63 @@ class ExtractionEngine:
                     result = {"error": str(exc)}
                 if on_tool_result:
                     on_tool_result(tc.function.name, args, result)
+                calls.append((tc.function.name, args, result))
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
                     "content": json.dumps(result),
                 })
+        return calls
+
+    def _resolved_entities(
+        self, database: str, calls: list[tuple[str, dict[str, Any], Any]]
+    ) -> list[dict[str, Any]]:
+        """Entities the entity stage touched: created, found, or re-linked."""
+        ids: set[str] = set()
+        for name, args, result in calls:
+            if name in ("add_entity", "find_entity") and isinstance(result, dict) and result.get("id"):
+                ids.add(result["id"])
+            elif name == "link_extraction" and args.get("element_id"):
+                ids.add(args["element_id"])
+        resolved = []
+        for eid in ids:
+            node = self._source.get_node(database, eid)
+            if node is None or node.get("label") != ENTITY:
+                continue
+            classes = entity_classes(self._source, database, eid)
+            resolved.append({
+                "id": eid,
+                "name": node_name(node),
+                "class_name": node_name(classes[0]) if classes else None,
+            })
+        return resolved
+
+    def _resolved_facts(
+        self, database: str, calls: list[tuple[str, dict[str, Any], Any]]
+    ) -> list[dict[str, Any]]:
+        """Facts the relation stage touched: created, found, or re-linked."""
+        ids: set[str] = set()
+        for name, args, result in calls:
+            if name in ("add_fact", "find_fact") and isinstance(result, dict) and result.get("id"):
+                ids.add(result["id"])
+            elif name == "link_extraction" and args.get("element_id"):
+                ids.add(args["element_id"])
+        resolved = []
+        for fid in ids:
+            node = self._source.get_node(database, fid)
+            if node is None or node.get("label") != FACT:
+                continue
+            parts = fact_parts(self._source, database, fid)
+            head, relation, tail = parts["head"], parts["relation"], parts["tail"]
+            if head is None or relation is None or tail is None:
+                continue
+            resolved.append({
+                "id": fid,
+                "head_name": node_name(head),
+                "relation_name": node_name(relation),
+                "tail_name": node_name(tail),
+            })
+        return resolved
 
     async def _dispatch_tool(
         self,

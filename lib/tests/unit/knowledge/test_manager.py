@@ -383,8 +383,9 @@ async def test_add_entity_property_value_creates_literal(kb):
 
 
 async def test_add_entity_property_value_wires_has_property(kb):
-    prop_id   = await kb.declare_class_property("test", "AGE", "")
-    entity_id = await kb.add_entity("test", "Alice")
+    person    = await kb.declare_class("test", "PERSON", "")
+    prop_id   = await kb.declare_class_property("test", "AGE", "", class_id=person)
+    entity_id = await kb.add_entity("test", "Alice", class_id=person)
     lit_id    = await kb.add_entity_property_value("test", 30,
                                                     entity_id=entity_id,
                                                     property_id=prop_id)
@@ -393,13 +394,65 @@ async def test_add_entity_property_value_wires_has_property(kb):
 
 
 async def test_add_entity_property_value_wires_is_value_of(kb):
-    prop_id   = await kb.declare_class_property("test", "AGE", "")
-    entity_id = await kb.add_entity("test", "Alice")
+    person    = await kb.declare_class("test", "PERSON", "")
+    prop_id   = await kb.declare_class_property("test", "AGE", "", class_id=person)
+    entity_id = await kb.add_entity("test", "Alice", class_id=person)
     lit_id    = await kb.add_entity_property_value("test", 30,
                                                     entity_id=entity_id,
                                                     property_id=prop_id)
     is_val_of = kb.get_neighbors("test", lit_id, edge_type="IS_VALUE_OF", direction="out")
     assert any(nb["node"]["id"] == prop_id for nb in is_val_of)
+
+
+# ------------------------------------------------------------------ #
+# add_*_property_value — property ownership conformance                #
+# ------------------------------------------------------------------ #
+
+async def test_add_entity_property_value_rejects_property_not_on_entitys_class(kb):
+    person  = await kb.declare_class("test", "PERSON", "")
+    company = await kb.declare_class("test", "COMPANY", "")
+    age_id  = await kb.declare_class_property("test", "AGE", "", class_id=person)
+    ibm     = await kb.add_entity("test", "IBM", class_id=company)
+    with pytest.raises(KnowledgeError, match="NOT_DEFINED_FOR_OWNER"):
+        await kb.add_entity_property_value("test", 100, entity_id=ibm, property_id=age_id)
+
+
+async def test_add_entity_property_value_rejects_untyped_entity(kb):
+    person = await kb.declare_class("test", "PERSON", "")
+    age_id = await kb.declare_class_property("test", "AGE", "", class_id=person)
+    alice  = await kb.add_entity("test", "Alice")  # no class
+    with pytest.raises(KnowledgeError, match="UNTYPED_ENTITY"):
+        await kb.add_entity_property_value("test", 28, entity_id=alice, property_id=age_id)
+
+
+async def test_add_entity_property_value_allows_property_via_subclass(kb):
+    person   = await kb.declare_class("test", "PERSON", "")
+    employee = await kb.declare_class("test", "EMPLOYEE", "")
+    await kb.add_is_subclass_of("test", employee, person)
+    age_id = await kb.declare_class_property("test", "AGE", "", class_id=person)
+    alice  = await kb.add_entity("test", "Alice", class_id=employee)
+    lit_id = await kb.add_entity_property_value("test", 28, entity_id=alice, property_id=age_id)
+    assert kb.get_node("test", lit_id) is not None
+
+
+async def test_add_fact_property_value_rejects_property_not_on_facts_relation(kb):
+    person  = await kb.declare_class("test", "PERSON", "")
+    company = await kb.declare_class("test", "COMPANY", "")
+    worked  = await kb.declare_relation_type("test", "WORKED_AT", "", domain="PERSON", range="COMPANY")
+    lives   = await kb.declare_relation_type("test", "LIVES_IN", "", domain="PERSON", range="COMPANY")
+    since_id = await kb.declare_relation_property("test", "SINCE", "", relation_id=lives)
+    fact_id = await kb.add_fact("test", relation_id=worked)
+    with pytest.raises(KnowledgeError, match="NOT_DEFINED_FOR_OWNER"):
+        await kb.add_fact_property_value("test", "2020", fact_id=fact_id, property_id=since_id)
+
+
+async def test_add_fact_property_value_rejects_fact_with_no_relation(kb):
+    person  = await kb.declare_class("test", "PERSON", "")
+    worked  = await kb.declare_relation_type("test", "WORKED_AT", "", domain="PERSON", range="PERSON")
+    start_id = await kb.declare_relation_property("test", "START_DATE", "", relation_id=worked)
+    fact_id = await kb.add_fact("test")  # no relation at all
+    with pytest.raises(KnowledgeError, match="FACT_HAS_NO_RELATION"):
+        await kb.add_fact_property_value("test", "2020", fact_id=fact_id, property_id=start_id)
 
 
 async def test_add_entity_property_bool_typed_correctly(kb):
@@ -478,8 +531,9 @@ async def test_add_fact_extraction_raises_for_missing_fact(kb):
 
 
 async def test_add_entity_property_value_extraction_wires_edge(kb):
-    entity_id = await kb.add_entity("test", "Alice")
-    prop_id = await kb.declare_class_property("test", "AGE", "")
+    person = await kb.declare_class("test", "PERSON", "")
+    entity_id = await kb.add_entity("test", "Alice", class_id=person)
+    prop_id = await kb.declare_class_property("test", "AGE", "", class_id=person)
     lit_id = await kb.add_entity_property_value("test", 28, entity_id=entity_id, property_id=prop_id)
     extraction_id = await kb.add_entity_property_value_extraction(
         "test", entity_id, prop_id, text="Alice is 28."
@@ -587,8 +641,9 @@ async def test_extraction_adders_thread_confidence_and_type(kb):
 
 
 async def test_property_value_extraction_adders_thread_confidence_and_type(kb):
-    entity_id = await kb.add_entity("test", "Alice")
-    age_id    = await kb.declare_class_property("test", "AGE", "")
+    person    = await kb.declare_class("test", "PERSON", "")
+    entity_id = await kb.add_entity("test", "Alice", class_id=person)
+    age_id    = await kb.declare_class_property("test", "AGE", "", class_id=person)
     await kb.add_entity_property_value("test", "28", entity_id=entity_id, property_id=age_id)
     ext_e = await kb.add_entity_property_value_extraction(
         "test", entity_id, age_id, text="Alice is 28.",

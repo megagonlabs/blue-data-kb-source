@@ -79,10 +79,11 @@ async def test_hook_fact_event_names_none_without_ids(kb):
 # ------------------------------------------------------------------ #
 
 async def test_hook_fires_on_entity_property_add(kb):
+    person = await kb.declare_class("test", "PERSON", "")
     events: list[dict] = []
     kb.add_change_hook("test", events.append)
-    prop_id   = await kb.declare_class_property("test", "AGE", "")
-    entity_id = await kb.add_entity("test", "Alice")
+    prop_id   = await kb.declare_class_property("test", "AGE", "", class_id=person)
+    entity_id = await kb.add_entity("test", "Alice", class_id=person)
     await kb.add_entity_property_value("test", 30, entity_id=entity_id, property_id=prop_id)
     prop_events = [e for e in events if e["type"] == "entity_property_added"]
     assert len(prop_events) == 1
