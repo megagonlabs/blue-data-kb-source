@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Literal
 
 from blue_data.source.graph.graph_source import GraphSource
 
@@ -217,7 +217,7 @@ This pass only extracts against the schema as it currently stands — it never
 declares new CLASSes, RELATIONs, or PROPERTIES. If nothing in the current schema
 covers something in the text (use search_schema to check), skip that item rather
 than inventing a schema element for it.
-
+{pass_note}
 {workflow}
 
 When calling add_entity, add_fact, add_entity_property_value,
@@ -260,6 +260,28 @@ STAGE_ENTITY_PROPERTIES = "entity_properties"
 STAGE_FACT_PROPERTIES = "fact_properties"
 
 STAGES = (STAGE_ENTITIES, STAGE_RELATIONS, STAGE_ENTITY_PROPERTIES, STAGE_FACT_PROPERTIES)
+
+# ------------------------------------------------------------------ #
+# Effort — how many times the whole staged pipeline runs over the     #
+# same text. Later passes are told a prior pass already ran, so they  #
+# hunt for what got missed rather than re-deriving what's there —     #
+# re-finding the same items is harmless (find_entity/find_fact/       #
+# link_extraction already dedupe), just wasted turns.                 #
+# ------------------------------------------------------------------ #
+
+EFFORT_PASSES: dict[str, int] = {"low": 1, "medium": 2, "high": 3}
+
+_FIRST_PASS_NOTE_TEMPLATE = (
+    "This is extraction pass {pass_num} of {total_passes} over the same text — "
+    "further passes will follow to catch anything this one misses, so extract "
+    "thoroughly but don't worry about being exhaustive.\n"
+)
+_LATER_PASS_NOTE_TEMPLATE = (
+    "This is extraction pass {pass_num} of {total_passes} over the same text — "
+    "prior passes already extracted what they could from it. Focus on anything "
+    "subtle, indirect, or easy to miss that hasn't been captured yet, rather "
+    "than re-deriving what's already there.\n"
+)
 
 _STAGE_TOOL_NAMES: dict[str, list[str]] = {
     STAGE_ENTITIES: ["get_schema", "search_schema", "find_class", "find_entity", "add_entity", "link_extraction"],
@@ -398,11 +420,17 @@ class ExtractionEngine:
         on_tool_result: Callable[[str, dict[str, Any], Any], None] | None = None,
         max_turns: int = 25,
         related_data_k: int = 10,
+        effort: Literal["low", "medium", "high"] = "low",
     ) -> None:
         """Run the staged extraction pipeline: entities, then relations, then
         entity property values, then fact property values. Each stage is its
         own agentic pass over a narrower tool set than the last, told what the
         prior stage(s) resolved (by id) instead of rediscovering it.
+
+        `effort` runs the whole pipeline multiple times over the same text —
+        low/medium/high = 1/2/3 passes — each later pass told a prior pass
+        already ran, so it hunts for what got missed rather than re-deriving
+        what's there.
         """
         try:
             import openai
@@ -410,7 +438,34 @@ class ExtractionEngine:
             raise ExtractionError(
                 "import_text requires the 'openai' package: pip install openai"
             ) from exc
+        if effort not in EFFORT_PASSES:
+            raise ExtractionError(f"effort must be one of {list(EFFORT_PASSES)}, got {effort!r}")
 
+        client = openai.AsyncOpenAI()
+        total_passes = EFFORT_PASSES[effort]
+        for pass_num in range(1, total_passes + 1):
+            await self._run_pipeline_pass(
+                database, client, text, queries, model, source_id,
+                on_tool_call, on_tool_result, max_turns, related_data_k,
+                pass_num=pass_num, total_passes=total_passes,
+            )
+
+    async def _run_pipeline_pass(
+        self,
+        database: str,
+        client: Any,
+        text: str,
+        queries: list[str] | None,
+        model: str,
+        source_id: str | None,
+        on_tool_call: Callable[[str, dict[str, Any]], None] | None,
+        on_tool_result: Callable[[str, dict[str, Any], Any], None] | None,
+        max_turns: int,
+        related_data_k: int,
+        pass_num: int,
+        total_passes: int,
+    ) -> None:
+        """One full run of the 4-stage pipeline over `text`."""
         schema_str = (await self._schema.fetch_database_schema(database)).to_str(simplified=True)
         queries_str = (
             "\n".join(f"- {q}" for q in queries)
@@ -419,20 +474,26 @@ class ExtractionEngine:
         )
         source_node = self._source.get_node(database, source_id) if source_id is not None else None
         source_str = _describe_source(source_node)
+        # Recomputed fresh (not hoisted to import_text) so a later pass sees
+        # what an earlier pass in this same call just wrote.
         if self._search_indexer is not None and related_data_k > 0:
             related_data_str = _describe_related_data(
                 self._search_indexer.search_data(database, text, k=related_data_k)
             )
         else:
             related_data_str = "(search not configured for this database)"
+        if total_passes == 1:
+            pass_note_str = ""
+        elif pass_num == 1:
+            pass_note_str = _FIRST_PASS_NOTE_TEMPLATE.format(pass_num=pass_num, total_passes=total_passes)
+        else:
+            pass_note_str = _LATER_PASS_NOTE_TEMPLATE.format(pass_num=pass_num, total_passes=total_passes)
 
         def build_prompt(workflow: str) -> str:
             return _SYSTEM_PROMPT_TEMPLATE.format(
                 workflow=workflow, schema=schema_str, queries=queries_str,
-                source=source_str, related_data=related_data_str,
+                source=source_str, related_data=related_data_str, pass_note=pass_note_str,
             )
-
-        client = openai.AsyncOpenAI()
 
         entity_calls = await self._run_stage(
             database, client, model, max_turns, source_id, on_tool_call, on_tool_result,

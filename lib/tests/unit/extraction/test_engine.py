@@ -2,6 +2,8 @@ import itertools
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 
 def _tool_call_response(name, arguments):
     """Build a mock chat response whose assistant message calls tool *name*."""
@@ -462,3 +464,85 @@ async def test_fact_property_stage_prompt_lists_facts_resolved_by_relation_stage
 
     stage4_prompt = factory.return_value.chat.completions.create.call_args_list[7].kwargs["messages"][0]["content"]
     assert "Alice —WORKED_AT→ IBM" in stage4_prompt
+
+
+# ------------------------------------------------------------------ #
+# effort: repeats the whole 4-stage pipeline low=1/medium=2/high=3    #
+# ------------------------------------------------------------------ #
+
+async def test_effort_low_runs_pipeline_once(kb):
+    # 4 stages x 1 pass, each ending immediately.
+    responses = _mock_openai_sequence(*[_text_response("done")] * 4)
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Some text.", expand_schema=False, effort="low")
+    assert factory.return_value.chat.completions.create.call_count == 4
+
+
+async def test_effort_medium_runs_pipeline_twice(kb):
+    responses = _mock_openai_sequence(*[_text_response("done")] * 8)
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Some text.", expand_schema=False, effort="medium")
+    assert factory.return_value.chat.completions.create.call_count == 8
+
+
+async def test_effort_high_runs_pipeline_three_times(kb):
+    responses = _mock_openai_sequence(*[_text_response("done")] * 12)
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Some text.", expand_schema=False, effort="high")
+    assert factory.return_value.chat.completions.create.call_count == 12
+
+
+async def test_effort_invalid_value_raises(kb):
+    from blue_data_kb_source.types import ExtractionError
+
+    with pytest.raises(ExtractionError):
+        await kb.import_text("test", "Some text.", expand_schema=False, effort="extreme")
+
+
+async def test_effort_low_prompt_carries_no_pass_note(kb):
+    responses = _mock_openai_sequence(*[_text_response("done")] * 4)
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Some text.", expand_schema=False, effort="low")
+    prompt = factory.return_value.chat.completions.create.call_args_list[0].kwargs["messages"][0]["content"]
+    assert "extraction pass" not in prompt.lower()
+
+
+async def test_effort_medium_first_pass_announces_more_passes_without_claiming_a_prior_one(kb):
+    responses = _mock_openai_sequence(*[_text_response("done")] * 8)
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Some text.", expand_schema=False, effort="medium")
+    first_pass_prompt = factory.return_value.chat.completions.create.call_args_list[0].kwargs["messages"][0]["content"]
+    assert "pass 1 of 2" in first_pass_prompt
+    assert "prior pass" not in first_pass_prompt.lower()
+
+
+async def test_effort_medium_second_pass_references_the_prior_pass(kb):
+    responses = _mock_openai_sequence(*[_text_response("done")] * 8)
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Some text.", expand_schema=False, effort="medium")
+    second_pass_prompt = factory.return_value.chat.completions.create.call_args_list[4].kwargs["messages"][0]["content"]
+    assert "pass 2 of 2" in second_pass_prompt
+    assert "prior pass" in second_pass_prompt.lower()
+
+
+async def test_effort_second_pass_related_data_sees_entities_from_first_pass():
+    from blue_data_kb_source import MemoryKBSource
+
+    kb = MemoryKBSource(name="effort-related-data-test", properties={"search": {"mode": "bm25"}})
+    kb.create_database("test")
+    person = await kb.declare_class("test", "PERSON", "")
+
+    responses = _mock_openai_sequence(
+        _tool_call_response("add_entity", {"name": "Alice", "class_id": person}),
+        _text_response("done"),   # ends pass-1 entity stage
+        _text_response("done"),   # pass-1 relations
+        _text_response("done"),   # pass-1 entity properties
+        _text_response("done"),   # pass-1 fact properties
+        _text_response("done"),   # pass-2 entity stage — prompt captured below
+        _text_response("done"), _text_response("done"), _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Alice works somewhere.", expand_schema=False, effort="medium")
+
+    pass2_entity_prompt = factory.return_value.chat.completions.create.call_args_list[5].kwargs["messages"][0]["content"]
+    assert "Alice (PERSON)" in pass2_entity_prompt
