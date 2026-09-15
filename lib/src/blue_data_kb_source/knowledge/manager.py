@@ -1126,6 +1126,16 @@ class KnowledgeManager:
         """First FACT matching the exact directed (head, relation, tail) triple, or None."""
         return find_fact(self._source, database, head_entity_id, relation_id, tail_entity_id)
 
+    async def find_literal(self, database: str, owner_id: str, property_id: str) -> dict | None:
+        """The ENTITY or FACT owner's existing LITERAL for *property_id*, or None.
+
+        The property-value counterpart of find_entity/find_fact — both of those
+        give a caller a way to check before writing, and without this one the
+        property write paths have none.
+        """
+        lit_id = self._find_literal(database, owner_id, property_id)
+        return self._source.get_node(database, lit_id) if lit_id else None
+
     # ------------------------------------------------------------------ #
     # Find (substring scan)                                                #
     # ------------------------------------------------------------------ #

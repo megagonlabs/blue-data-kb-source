@@ -653,6 +653,11 @@ class KBSource(GraphSource, ABC):
             database, head_entity_id, relation_id, tail_entity_id
         )
 
+    async def find_literal(
+        self, database: str, owner_id: str, property_id: str
+    ) -> dict | None:
+        return await self._knowledge.find_literal(database, owner_id, property_id)
+
     async def answer(
         self,
         database: str,

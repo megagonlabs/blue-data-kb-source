@@ -400,12 +400,21 @@ def test_stage_tool_sets_are_scoped_to_their_purpose():
     assert "find_entity" not in relation_tools
     assert "add_entity" not in relation_tools
 
+    # find_literal is the property stages' check-before-write, the counterpart
+    # of find_entity/find_fact in the stages above.
     assert set(_STAGE_TOOL_NAMES[STAGE_ENTITY_PROPERTIES]) == {
-        "get_schema", "search_schema", "add_entity_property_value", "link_extraction",
+        "get_schema", "search_schema", "find_literal",
+        "add_entity_property_value", "link_extraction",
     }
     assert set(_STAGE_TOOL_NAMES[STAGE_FACT_PROPERTIES]) == {
-        "get_schema", "search_schema", "add_fact_property_value", "link_extraction",
+        "get_schema", "search_schema", "find_literal",
+        "add_fact_property_value", "link_extraction",
     }
+    # …and neither property stage may create or rediscover entities or facts.
+    for stage in (STAGE_ENTITY_PROPERTIES, STAGE_FACT_PROPERTIES):
+        assert set(_STAGE_TOOL_NAMES[stage]).isdisjoint(
+            {"find_entity", "add_entity", "find_fact", "add_fact"}
+        )
 
 
 def test_every_stage_offers_get_schema_and_search_schema():
@@ -809,7 +818,7 @@ async def test_ungrounded_span_is_refused_and_creates_nothing(kb):
     # itself rather than silently losing the turn.
     replies = _tool_replies(factory)
     assert len(replies) == 1
-    assert "not a verbatim span" in replies[0]["content"]
+    assert "not a quote from the source text" in replies[0]["content"]
 
 
 async def test_grounded_span_survives_case_and_whitespace_differences(kb):
@@ -1050,3 +1059,319 @@ def test_extraction_context_snapshot_does_not_alias_the_live_context():
     snap = ctx.snapshot()
     ctx.extend("entities", [{"id": "e2"}])
     assert [e["id"] for e in snap.entities] == ["e1"]
+
+
+# ------------------------------------------------------------------ #
+# fixes found by a live run (see the staged-extraction walkthrough):  #
+# gap coverage vs. the carry, span grounding on list-structured text, #
+# and property-value dedupe.                                          #
+# ------------------------------------------------------------------ #
+
+_RESUME = """Alice Chen — Senior Project Manager
+
+EXPERIENCE
+Alice joined Contoso Ltd in March 2019 as a Senior Project Manager.
+
+SKILLS
+* Project Management: Agile, Scrum, Kanban * Tools: JIRA, Trello
+* Technical: SQL, Basic Python * Languages: English (Native), Spanish (Fluent)
+"""
+
+
+@pytest.mark.parametrize("span", [
+    # Verbatim prose — the fast path.
+    "Alice joined Contoso Ltd in March 2019 as a Senior Project Manager.",
+    # A heading spliced onto a genuine fragment: what a model actually sends
+    # when asked to quote a bullet list.
+    "Skills: Tools: JIRA, Trello",
+    "Skills: * Technical: SQL, Basic Python * Languages: English (Native), Spanish (Fluent)",
+    "Languages: Spanish (Fluent)",
+    # A genuine fragment with an elided middle ("SQL, " dropped).
+    "* Technical: Basic Python",
+    # Case and whitespace differences.
+    "alice joined contoso   ltd in march 2019",
+])
+def test_real_quotes_are_grounded_even_when_not_contiguous(span):
+    from blue_data_kb_source.extraction.engine import _span_is_grounded
+
+    assert _span_is_grounded(span, _RESUME)
+
+
+@pytest.mark.parametrize("span", [
+    "Alice Chen is 28 years old.",            # outright fabrication
+    "Alice Chen, aged 28, joined Contoso.",   # the value is not in the text
+    "Alice joined Trello",                    # stitched from scattered words
+    "Alice Chen worked at JIRA in 2019",      # plausible, but assembled
+    "Kanban Alice",                           # right words, wrong order
+    "",
+    "   ",
+])
+def test_fabricated_spans_are_still_refused(span):
+    from blue_data_kb_source.extraction.engine import _span_is_grounded
+
+    assert not _span_is_grounded(span, _RESUME)
+
+
+def test_grounding_window_rejects_a_span_stretched_across_the_whole_source():
+    """The words are all present and in order; only the window bound
+    distinguishes this from a quote."""
+    from blue_data_kb_source.extraction.engine import _span_is_grounded
+
+    source = "Alice " + ("filler " * 60) + "joined " + ("filler " * 60) + "Contoso"
+    assert not _span_is_grounded("Alice joined Contoso", source)
+    assert _span_is_grounded("Alice joined Contoso", "Alice joined Contoso Ltd.")
+
+
+async def test_gap_stage_does_not_rerun_for_classes_an_earlier_pass_filled(kb):
+    """Pass 2's entity stage only re-touches what it re-reads, so PERSON can
+    look empty there even though pass 1 filled it. Coverage is judged against
+    the carried context, not just the current pass."""
+    person, skill = await _resume_schema(kb)
+    alice = await kb.add_entity("test", "Alice Chen", class_id=person)
+    sql = await kb.add_entity("test", "SQL", class_id=skill)
+
+    responses = _mock_openai_sequence(
+        # pass 1 — both classes covered, so no gap stage
+        _tool_call_response("find_entity", {"name": "Alice Chen"}),
+        _tool_call_response("find_entity", {"name": "SQL"}),
+        _text_response("done"),
+        _text_response("done"), _text_response("done"), _text_response("done"),
+        # pass 2 — only SQL re-touched; PERSON must NOT look missing
+        _tool_call_response("find_entity", {"name": "SQL"}),
+        _text_response("done"),
+        _text_response("done"), _text_response("done"), _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Alice Chen knows SQL.", expand_schema=False, effort="medium")
+
+    prompts = [c.kwargs["messages"][0]["content"]
+               for c in factory.return_value.chat.completions.create.call_args_list]
+    assert not any("Stage: entity gap recovery" in p for p in prompts)
+    assert len(prompts) == 11
+    assert alice and sql
+
+
+async def test_gap_stage_prompt_lists_entities_from_earlier_passes_too(kb):
+    """When the gap stage does run on a later pass, the 'already resolved'
+    list it shows must include what earlier passes found."""
+    person, skill = await _resume_schema(kb)
+    alice = await kb.add_entity("test", "Alice Chen", class_id=person)
+
+    responses = _mock_openai_sequence(
+        # pass 1 — PERSON only; SKILL empty, so the gap stage runs and finds nothing
+        _tool_call_response("find_entity", {"name": "Alice Chen"}),
+        _text_response("done"),
+        _text_response("done"),
+        _text_response("done"), _text_response("done"), _text_response("done"),
+        # pass 2 — re-links Alice again; SKILL still empty, gap stage runs again
+        _tool_call_response("find_entity", {"name": "Alice Chen"}),
+        _text_response("done"),
+        _text_response("done"),
+        _text_response("done"), _text_response("done"), _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Alice Chen is a manager.", expand_schema=False, effort="medium")
+
+    prompts = [c.kwargs["messages"][0]["content"]
+               for c in factory.return_value.chat.completions.create.call_args_list]
+    gap_prompts = [p for p in prompts if "Stage: entity gap recovery" in p]
+    assert len(gap_prompts) == 2
+    for p in gap_prompts:
+        assert f"id={alice}  Alice Chen (PERSON)" in p
+        assert f"id={skill}  SKILL" in p
+
+
+async def test_property_stages_can_find_an_existing_value_before_writing(kb):
+    ids = await _alice_at_ibm(kb)
+    text = "Alice joined IBM."
+    existing = await kb.add_entity_property_value(
+        "test", value="28", literal_type="NUMBER",
+        entity_id=ids["alice"], property_id=ids["age"], text=text,
+    )
+
+    responses = _mock_openai_sequence(
+        *_through_relations(ids),
+        _text_response("done"),   # fact properties
+        _tool_call_response("find_literal", {
+            "owner_id": ids["alice"], "property_id": ids["age"],
+        }),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", text, expand_schema=False)
+
+    replies = _tool_replies(factory)
+    found = json.loads(replies[-1]["content"])
+    assert found["id"] == existing
+    # NUMBER literals are stored cast, so the tool surfaces 28, not "28".
+    assert found["value"] == 28
+    # and no second literal was created
+    assert len(kb.match_nodes("test", label="LITERAL")) == 1
+
+
+async def test_find_literal_reports_no_existing_value(kb):
+    ids = await _alice_at_ibm(kb)
+
+    responses = _mock_openai_sequence(
+        *_through_relations(ids),
+        _text_response("done"),
+        _tool_call_response("find_literal", {
+            "owner_id": ids["alice"], "property_id": ids["age"],
+        }),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Alice joined IBM.", expand_schema=False)
+
+    assert json.loads(_tool_replies(factory)[-1]["content"]) == {"id": None}
+
+
+def test_property_workflows_tell_the_model_to_check_before_writing():
+    from blue_data_kb_source.extraction.engine import (
+        STAGE_ENTITY_PROPERTIES,
+        STAGE_FACT_PROPERTIES,
+        _STAGE_WORKFLOWS,
+    )
+
+    for stage in (STAGE_ENTITY_PROPERTIES, STAGE_FACT_PROPERTIES):
+        workflow = _STAGE_WORKFLOWS[stage]
+        assert "find_literal" in workflow
+        assert "link_extraction" in workflow
+
+
+# ------------------------------------------------------------------ #
+# dispatch-level dedupe: looking before writing is advisory for the   #
+# model, so the engine enforces it where every write passes through.  #
+# ------------------------------------------------------------------ #
+
+async def test_add_entity_returns_the_existing_entity_instead_of_forking_it(kb):
+    person, _ = await _resume_schema(kb)
+    alice = await kb.add_entity("test", "Alice Chen", class_id=person)
+
+    responses = _mock_openai_sequence(
+        # No find_entity first — exactly what the model does on a later pass.
+        _tool_call_response("add_entity", {
+            "name": "Alice Chen", "class_id": person, "text": "Alice Chen is a manager.",
+        }),
+        _text_response("done"),
+        _text_response("done"),   # gap stage (SKILL empty)
+        _text_response("done"), _text_response("done"), _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Alice Chen is a manager.", expand_schema=False)
+
+    assert len(kb.match_nodes("test", label="ENTITY")) == 1
+    reply = json.loads(_tool_replies(factory)[0]["content"])
+    assert reply == {"id": alice, "deduped": True}
+
+
+async def test_deduped_entity_still_records_the_new_text_span(kb):
+    """Collapsing onto the existing entity must not lose the evidence — that is
+    the whole point of link_extraction, and add_entity now does the same."""
+    person, _ = await _resume_schema(kb)
+    alice = await kb.add_entity("test", "Alice Chen", class_id=person, text="Alice Chen is a manager.")
+    before = len(kb.get_neighbors("test", alice, edge_type="EXTRACTED_FROM", direction="out"))
+
+    responses = _mock_openai_sequence(
+        _tool_call_response("add_entity", {
+            "name": "Alice Chen", "class_id": person, "text": "Alice Chen joined Contoso.",
+        }),
+        _text_response("done"),
+        _text_response("done"),
+        _text_response("done"), _text_response("done"), _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses):
+        await kb.import_text("test", "Alice Chen joined Contoso.", expand_schema=False)
+
+    after = kb.get_neighbors("test", alice, edge_type="EXTRACTED_FROM", direction="out")
+    assert len(after) == before + 1
+
+
+async def test_entity_dedupe_is_case_and_whitespace_insensitive(kb):
+    person, _ = await _resume_schema(kb)
+    await kb.add_entity("test", "IBM", class_id=person)
+
+    responses = _mock_openai_sequence(
+        _tool_call_response("add_entity", {"name": "ibm", "class_id": person}),
+        _text_response("done"),
+        _text_response("done"),
+        _text_response("done"), _text_response("done"), _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses):
+        await kb.import_text("test", "ibm", expand_schema=False)
+
+    assert [n["properties"]["name"] for n in kb.match_nodes("test", label="ENTITY")] == ["IBM"]
+
+
+async def test_add_fact_collapses_onto_an_existing_fact(kb):
+    ids = await _alice_at_ibm(kb)
+    existing = await kb.add_fact(
+        "test", head_entity_id=ids["alice"], tail_entity_id=ids["ibm"], relation_id=ids["worked"],
+    )
+
+    responses = _mock_openai_sequence(
+        _tool_call_response("find_entity", {"name": "Alice"}),
+        _tool_call_response("find_entity", {"name": "IBM"}),
+        _text_response("done"),
+        _tool_call_response("add_fact", {
+            "head_entity_id": ids["alice"], "tail_entity_id": ids["ibm"],
+            "relation_id": ids["worked"], "text": "Alice joined IBM.",
+        }),
+        _text_response("done"),
+        _text_response("done"), _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Alice joined IBM.", expand_schema=False)
+
+    assert len(kb.match_nodes("test", label="FACT")) == 1
+    assert json.loads(_tool_replies(factory)[-1]["content"]) == {"id": existing, "deduped": True}
+
+
+async def test_identical_property_value_is_deduped(kb):
+    ids = await _alice_at_ibm(kb)
+    text = "Alice joined IBM."
+    existing = await kb.add_entity_property_value(
+        "test", value="28", literal_type="NUMBER",
+        entity_id=ids["alice"], property_id=ids["age"], text=text,
+    )
+
+    responses = _mock_openai_sequence(
+        *_through_relations(ids),
+        _text_response("done"),   # fact properties
+        _tool_call_response("add_entity_property_value", {
+            "entity_id": ids["alice"], "property_id": ids["age"],
+            "value": "28", "literal_type": "NUMBER", "text": text,
+        }),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", text, expand_schema=False)
+
+    assert len(kb.match_nodes("test", label="LITERAL")) == 1
+    assert json.loads(_tool_replies(factory)[-1]["content"]) == {"id": existing, "deduped": True}
+
+
+async def test_a_second_distinct_value_for_the_same_property_is_kept(kb):
+    """Multi-valued attributes are legitimate (two phone numbers) — dedupe keys
+    on the value, not just the property."""
+    ids = await _alice_at_ibm(kb)
+    text = "Alice joined IBM."
+    await kb.add_entity_property_value(
+        "test", value="28", literal_type="NUMBER",
+        entity_id=ids["alice"], property_id=ids["age"], text=text,
+    )
+
+    responses = _mock_openai_sequence(
+        *_through_relations(ids),
+        _text_response("done"),
+        _tool_call_response("add_entity_property_value", {
+            "entity_id": ids["alice"], "property_id": ids["age"],
+            "value": "29", "literal_type": "NUMBER", "text": text,
+        }),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses):
+        await kb.import_text("test", text, expand_schema=False)
+
+    values = sorted(str(n["properties"]["value"]) for n in kb.match_nodes("test", label="LITERAL"))
+    assert values == ["28", "29"]

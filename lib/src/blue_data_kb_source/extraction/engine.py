@@ -16,7 +16,12 @@ from blue_data_kb_source._constants import (
     IS_VALUE_OF,
     LITERAL,
 )
-from blue_data_kb_source.knowledge.helpers import entity_classes, fact_parts, node_name
+from blue_data_kb_source.knowledge.helpers import (
+    entity_classes,
+    fact_parts,
+    node_name,
+    property_values,
+)
 from blue_data_kb_source.resolution.resolver import NodeResolver
 from blue_data_kb_source.types import DataSearchResult, ExtractionError
 
@@ -87,6 +92,26 @@ _TOOLS: list[dict[str, Any]] = [
                     "tail_entity_id": {"type": "string"},
                 },
                 "required": ["head_entity_id", "relation_id", "tail_entity_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "find_literal",
+            "description": (
+                "Look up the property value an ENTITY or FACT already carries for a "
+                "given PROPERTY. Call this before add_entity_property_value / "
+                "add_fact_property_value so an existing value is re-linked rather "
+                "than duplicated. Returns {id, value} or {id: null}."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "owner_id": {"type": "string", "description": "id of the entity or fact the value belongs to"},
+                    "property_id": {"type": "string"},
+                },
+                "required": ["owner_id", "property_id"],
             },
         },
     },
@@ -313,8 +338,8 @@ _STAGE_TOOL_NAMES: dict[str, list[str]] = {
     STAGE_ENTITIES: ["get_schema", "search_schema", "find_class", "find_entity", "add_entity", "link_extraction"],
     STAGE_ENTITY_GAPS: ["get_schema", "search_schema", "find_class", "find_entity", "add_entity", "link_extraction"],
     STAGE_RELATIONS: ["get_schema", "search_schema", "find_relation_type", "find_fact", "add_fact", "link_extraction"],
-    STAGE_ENTITY_PROPERTIES: ["get_schema", "search_schema", "add_entity_property_value", "link_extraction"],
-    STAGE_FACT_PROPERTIES: ["get_schema", "search_schema", "add_fact_property_value", "link_extraction"],
+    STAGE_ENTITY_PROPERTIES: ["get_schema", "search_schema", "find_literal", "add_entity_property_value", "link_extraction"],
+    STAGE_FACT_PROPERTIES: ["get_schema", "search_schema", "find_literal", "add_fact_property_value", "link_extraction"],
 }
 
 _STAGE_WORKFLOWS: dict[str, str] = {
@@ -396,8 +421,11 @@ Property values the fact stage already attached to those facts:
 
 For each attribute value the text states about one of the *entities* above:
 find the PROPERTY on its class via search_schema. If no matching PROPERTY
-exists, skip this value. Otherwise call add_entity_property_value using the
-entity_id from the list above.
+exists, skip this value. Otherwise call find_literal with that entity_id and
+property_id — if the entity already carries a value for that property, call
+link_extraction with the returned id and the new text span instead of adding
+a second one. Only call add_entity_property_value when find_literal returns
+{{id: null}}.
 
 Two limits on what counts. First, a value that describes a relationship
 rather than an entity has already been handled — the list above shows what
@@ -416,10 +444,13 @@ Entities already resolved for this text (id, name, class):
 Facts already resolved for this text (id, head, relation, tail):
 {facts}
 
-For each attribute value the text states about one of the *facts* above: find
-the PROPERTY on its relation via search_schema. If no matching PROPERTY
-exists, skip this value. Otherwise call add_fact_property_value using the
-fact_id from the list above.
+For each attribute value the text states about one of the *facts* above:
+find the PROPERTY on its relation via search_schema. If no matching PROPERTY
+exists, skip this value. Otherwise call find_literal with that fact_id and
+property_id — if the fact already carries a value for that property, call
+link_extraction with the returned id and the new text span instead of adding
+a second one. Only call add_fact_property_value when find_literal returns
+{{id: null}}.
 
 A value that describes the relationship belongs here — when it began, how
 long it ran, what it was worth, what role it was held under. A value that
@@ -587,20 +618,74 @@ _TEXT_BEARING_TOOLS = frozenset({
 })
 
 _WHITESPACE = re.compile(r"\s+")
+_WORD = re.compile(r"[0-9a-z]+")
+
+# How far the source may sprawl beyond the span's own length and still count as
+# a quote of it: a real quote with list markers or an elided middle stays tight,
+# whereas a sentence assembled from words scattered across the text does not.
+_SPAN_WINDOW_SLACK = 3
+_SPAN_WINDOW_FLOOR = 5
 
 
 def _normalize_span(value: str) -> str:
     return _WHITESPACE.sub(" ", value).strip().lower()
 
 
-def _span_is_grounded(span: str, source_text: str) -> bool:
-    """Is `span` a real quote from `source_text` (case- and whitespace-insensitive)?
+def _span_tokens(value: str) -> list[str]:
+    return _WORD.findall(value.lower())
 
-    The benchmark scorer already checks this after the fact (see
+
+def _minimal_window(span: list[str], source: list[str]) -> int | None:
+    """Length of the shortest run of `source` containing `span` in order, or
+    None if `span` isn't a subsequence of it at all."""
+    if not span:
+        return None
+    best: int | None = None
+    positions = [i for i, tok in enumerate(source) if tok == span[0]]
+    for start in positions:
+        i = start
+        matched = 0
+        while i < len(source) and matched < len(span):
+            if source[i] == span[matched]:
+                matched += 1
+            i += 1
+        if matched == len(span):
+            window = i - start
+            if best is None or window < best:
+                best = window
+                if best == len(span):      # exact contiguous run; can't do better
+                    break
+    return best
+
+
+def _span_is_grounded(span: str, source_text: str) -> bool:
+    """Is `span` a real quote from `source_text`?
+
+    The benchmark scorer makes the same judgement after the fact (see
     `check_provenance` in tests/benchmarks/common/scoring.py); doing it at
     dispatch time turns a score into a correction the model can act on.
+
+    A contiguous case/whitespace-insensitive match is the fast path. Beyond
+    that, the span's words must appear in the source *in order and close
+    together*. Models quoting list-structured text reliably splice a heading
+    onto a genuine fragment ("Skills: Tools: JIRA, Trello") or elide a middle
+    ("* Technical: Basic Python" from "* Technical: SQL, Basic Python"); those
+    are real quotes and a strict substring test rejects every one of them,
+    which costs the stage its whole turn budget. The window bound is what keeps
+    this from waving through a sentence stitched out of scattered words — those
+    need most of the document to match, and get rejected.
     """
-    return _normalize_span(span) in _normalize_span(source_text)
+    if not span.strip():
+        return False
+    if _normalize_span(span) in _normalize_span(source_text):
+        return True
+    span_tokens = _span_tokens(span)
+    if not span_tokens:
+        return False
+    window = _minimal_window(span_tokens, _span_tokens(source_text))
+    if window is None:
+        return False
+    return window <= len(span_tokens) * _SPAN_WINDOW_SLACK + _SPAN_WINDOW_FLOOR
 
 
 _PARAGRAPH_BREAK = re.compile(r"\n\s*\n")
@@ -786,20 +871,26 @@ class ExtractionEngine:
 
         # A class with zero instances is usually right, but it's also how a
         # class whose instances aren't proper nouns gets skipped wholesale.
-        # One extra targeted pass over just those classes — but only when the
-        # stage found *something*, since the failure being recovered from is
-        # selective blindness (some classes resolved, others never). A stage
-        # that resolved nothing at all has no partial coverage to explain, and
+        # One extra targeted pass over just those classes — but only when
+        # *something* is known, since the failure being recovered from is
+        # selective blindness (some classes resolved, others never). Nothing
+        # known at all means there's no partial coverage to explain, and
         # re-listing every class would just repeat the entity prompt verbatim;
         # that's what `effort`'s additional passes are for.
-        missing = _missing_classes(classes, entities) if entities else []
+        #
+        # Coverage is judged against everything known for this text, not just
+        # what this pass touched: a later pass only re-reads what it re-reads,
+        # so a class an earlier pass already filled would otherwise look empty
+        # and send the gap stage hunting for entities that already exist.
+        known_entities = _merge_entities(entities, carried.entities)
+        missing = _missing_classes(classes, known_entities) if known_entities else []
         if missing:
             gap_calls = await self._run_stage(
                 database, client, model, max_turns, source_id, on_tool_call, on_tool_result, write_lock,
                 tools=_tools_for(STAGE_ENTITY_GAPS),
                 system_prompt=build_prompt(
                     _STAGE_WORKFLOWS[STAGE_ENTITY_GAPS].format(
-                        entities=_render_resolved_entities(entities),
+                        entities=_render_resolved_entities(known_entities),
                         missing_classes=_render_class_checklist(missing),
                     )
                 ),
@@ -1047,6 +1138,53 @@ class ExtractionEngine:
             })
         return resolved
 
+    async def _existing_entity_id(self, database: str, name: str) -> str | None:
+        """Id of an entity already standing for *name*, or None.
+
+        find_entity is a deliberately frozen exact-match lookup (see
+        resolution/resolver.py); this adds the case/whitespace/punctuation-
+        insensitive tier on top, so "ibm" resolves to an existing "IBM"
+        instead of forking it. The search tier is excluded — a semantically
+        similar but distinct entity is not the same entity.
+        """
+        node = await self._knowledge.find_entity(database, name)
+        if node is not None:
+            return node["id"]
+        candidates = await self._resolver.resolve_entity(
+            database, name, k=1, include_search=False
+        )
+        return candidates[0].node_id if candidates else None
+
+    def _existing_literal_id(
+        self, database: str, owner_id: str, property_id: str, value: Any
+    ) -> str | None:
+        """Id of this owner's existing LITERAL holding exactly *value* for
+        *property_id*, or None.
+
+        Keyed on the value, not just the property: an owner is allowed more
+        than one value for the same property (two phone numbers), so only an
+        identical value is a duplicate. Compared as text because literals are
+        stored cast to their type (28, not "28").
+        """
+        for pv in property_values(self._source, database, owner_id):
+            prop = pv["property"]
+            if prop is None or prop["id"] != property_id:
+                continue
+            if str(pv["literal"].get("properties", {}).get("value")) == str(value):
+                return pv["literal"]["id"]
+        return None
+
+    async def _link_existing(
+        self, database: str, element_id: str, span: str | None, source_id: str | None
+    ) -> dict[str, Any]:
+        """Record *span* against an item that already exists and report it as
+        deduped, which is what add_* collapses to on a second sighting."""
+        if span:
+            await self._provenance.add_extraction(
+                database, text=span, source_id=source_id, element_id=element_id
+            )
+        return {"id": element_id, "deduped": True}
+
     async def _dispatch_tool(
         self,
         database: str,
@@ -1063,11 +1201,12 @@ class ExtractionEngine:
         span = args.get("text")
         if fn in _TEXT_BEARING_TOOLS and span and not _span_is_grounded(span, source_text):
             return {"error": (
-                "the `text` argument is not a verbatim span of the source text. Quote "
-                "the sentence exactly as it appears, and only extract what the text "
-                "actually states — never infer a value from world knowledge, from an "
-                "entity's name, or from what is typical. If the text does not state "
-                "it, skip it."
+                "the `text` argument is not a quote from the source text — copy the "
+                "line or sentence across character for character rather than "
+                "rewriting or summarising it, and do not prepend a heading that "
+                "isn't there. Only extract what the text actually states: never "
+                "infer a value from world knowledge, from an entity's name, or from "
+                "what is typical. If the text does not state it, skip it."
             )}
 
         if fn == "get_schema":
@@ -1105,18 +1244,8 @@ class ExtractionEngine:
             return {"id": None}
 
         if fn == "find_entity":
-            node = await self._knowledge.find_entity(database, args["name"])
-            if node is None:
-                # find_entity is a deliberately frozen exact-match lookup (see
-                # resolution/resolver.py); fall back here to a case/whitespace/
-                # punctuation-insensitive match so "ibm" resolves to an existing
-                # "IBM" instead of creating a duplicate. Exclude the search tier —
-                # a semantically similar but distinct entity is not the same entity.
-                candidates = await self._resolver.resolve_entity(
-                    database, args["name"], k=1, include_search=False
-                )
-                if candidates:
-                    node = self._source.get_node(database, candidates[0].node_id)
+            eid = await self._existing_entity_id(database, args["name"])
+            node = self._source.get_node(database, eid) if eid else None
             if node:
                 p = node.get("properties", {})
                 return {"id": node["id"], "name": p.get("name"), "description": p.get("description")}
@@ -1130,7 +1259,25 @@ class ExtractionEngine:
                 return {"id": node["id"], "name": node.get("properties", {}).get("name")}
             return {"id": None}
 
+        if fn == "find_literal":
+            node = await self._knowledge.find_literal(
+                database, args["owner_id"], args["property_id"]
+            )
+            if node:
+                return {"id": node["id"], "value": node.get("properties", {}).get("value")}
+            return {"id": None}
+
+        # Each stage is *told* to look before it writes (find_entity / find_fact /
+        # find_literal), but that is advisory: a skipped check silently forks the
+        # item, and a later pass that re-reads the same text is exactly when the
+        # model skips it. Enforce the same resolve-or-link here, at the one point
+        # every write goes through. KnowledgeManager's write semantics are
+        # untouched — this is the extraction agent declining to create a second
+        # copy of something it can already see.
         if fn == "add_entity":
+            existing = await self._existing_entity_id(database, args["name"])
+            if existing is not None:
+                return await self._link_existing(database, existing, span, source_id)
             eid = await self._knowledge.add_entity(
                 database,
                 name=args["name"],
@@ -1142,6 +1289,11 @@ class ExtractionEngine:
             return {"id": eid}
 
         if fn == "add_fact":
+            existing_fact = await self._knowledge.find_fact(
+                database, args["head_entity_id"], args["relation_id"], args["tail_entity_id"]
+            )
+            if existing_fact:
+                return await self._link_existing(database, existing_fact["id"], span, source_id)
             fid = await self._knowledge.add_fact(
                 database,
                 name=args.get("name"),
@@ -1154,6 +1306,11 @@ class ExtractionEngine:
             return {"id": fid}
 
         if fn == "add_entity_property_value":
+            existing_lit = self._existing_literal_id(
+                database, args["entity_id"], args["property_id"], args["value"]
+            )
+            if existing_lit is not None:
+                return await self._link_existing(database, existing_lit, span, source_id)
             lit_id = await self._knowledge.add_entity_property_value(
                 database,
                 value=args["value"],
@@ -1166,6 +1323,11 @@ class ExtractionEngine:
             return {"id": lit_id}
 
         if fn == "add_fact_property_value":
+            existing_lit = self._existing_literal_id(
+                database, args["fact_id"], args["property_id"], args["value"]
+            )
+            if existing_lit is not None:
+                return await self._link_existing(database, existing_lit, span, source_id)
             lit_id = await self._knowledge.add_fact_property_value(
                 database,
                 value=args["value"],
