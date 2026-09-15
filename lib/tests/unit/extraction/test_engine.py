@@ -321,13 +321,22 @@ async def test_find_entity_tool_unrelated_name_still_returns_null_id(kb):
 
 
 async def test_find_fact_tool_miss_returns_null_id(kb):
-    # find_fact is stage-2-only: stage 1 ends immediately, then the find_fact
-    # call happens in stage 2, then stages 3-4 end immediately.
+    """A genuine miss — every argument is a real id, the fact just isn't there."""
+    person = await kb.declare_class("test", "PERSON", "")
+    company = await kb.declare_class("test", "COMPANY", "")
+    worked = await kb.declare_relation_type(
+        "test", "WORKED_AT", "", domain="PERSON", range="COMPANY"
+    )
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    ibm = await kb.add_entity("test", "IBM", class_id=company)
+
+    # find_fact is a relation-stage tool: the entity stage ends immediately,
+    # then the call happens in stage 2, then the remaining stages end.
     factory = _mock_openai_sequence(
         _text_response("done"),
         _tool_call_response(
             "find_fact",
-            {"head_entity_id": "x", "relation_id": "y", "tail_entity_id": "z"},
+            {"head_entity_id": alice, "relation_id": worked, "tail_entity_id": ibm},
         ),
         _text_response("done"),
         _text_response("done"), _text_response("done"),
@@ -1375,3 +1384,263 @@ async def test_a_second_distinct_value_for_the_same_property_is_kept(kb):
 
     values = sorted(str(n["properties"]["value"]) for n in kb.match_nodes("test", label="LITERAL"))
     assert values == ["28", "29"]
+
+
+# ------------------------------------------------------------------ #
+# id-argument coercion (issue #92): the agent routinely passes a name #
+# where a node id belongs. Resolve it before letting the call fail.   #
+# ------------------------------------------------------------------ #
+
+def test_every_id_argument_documents_that_it_takes_an_id_not_a_name():
+    from blue_data_kb_source.extraction.engine import _ID_ARGS, _TOOLS
+
+    id_args = {arg for arg, _ in _ID_ARGS} | {"owner_id"}
+    for tool in _TOOLS:
+        fn = tool["function"]
+        for pname, spec in fn["parameters"].get("properties", {}).items():
+            if pname in id_args:
+                assert "never a name" in spec.get("description", ""), f"{fn['name']}.{pname}"
+
+
+async def test_class_id_given_as_a_name_is_resolved(kb):
+    person, _ = await _resume_schema(kb)
+
+    responses = _mock_openai_sequence(
+        _tool_call_response("add_entity", {"name": "Alice Chen", "class_id": "PERSON"}),
+        _text_response("done"),
+        _text_response("done"),
+        _text_response("done"), _text_response("done"), _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Alice Chen is a manager.", expand_schema=False)
+
+    entities = kb.match_nodes("test", label="ENTITY")
+    assert len(entities) == 1
+    classes = kb.get_neighbors("test", entities[0]["id"], edge_type="IS_INSTANCE_OF", direction="out")
+    assert classes[0]["node"]["id"] == person
+    reply = json.loads(_tool_replies(factory)[0]["content"])
+    assert reply["coerced"] == {"class_id": f"PERSON -> {person}"}
+
+
+async def test_relation_id_given_as_a_name_is_resolved(kb):
+    ids = await _alice_at_ibm(kb)
+
+    responses = _mock_openai_sequence(
+        _tool_call_response("find_entity", {"name": "Alice"}),
+        _tool_call_response("find_entity", {"name": "IBM"}),
+        _text_response("done"),
+        _tool_call_response("add_fact", {
+            "head_entity_id": ids["alice"], "tail_entity_id": ids["ibm"],
+            "relation_id": "WORKED_AT",
+        }),
+        _text_response("done"),
+        _text_response("done"), _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses):
+        await kb.import_text("test", "Alice joined IBM.", expand_schema=False)
+
+    facts = kb.match_nodes("test", label="FACT")
+    assert len(facts) == 1
+    rel = kb.get_neighbors("test", facts[0]["id"], edge_type="REPRESENTS", direction="out")
+    assert rel[0]["node"]["id"] == ids["worked"]
+
+
+async def test_entity_id_given_as_a_name_is_resolved(kb):
+    ids = await _alice_at_ibm(kb)
+
+    responses = _mock_openai_sequence(
+        *_through_relations(ids),
+        _text_response("done"),   # fact properties
+        _tool_call_response("add_entity_property_value", {
+            "entity_id": "Alice", "property_id": ids["age"],
+            "value": "28", "literal_type": "NUMBER",
+        }),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses):
+        await kb.import_text("test", "Alice joined IBM.", expand_schema=False)
+
+    literals = kb.match_nodes("test", label="LITERAL")
+    assert len(literals) == 1
+    owner = kb.get_neighbors("test", literals[0]["id"], edge_type="HAS_PROPERTY", direction="in")
+    assert owner[0]["node"]["id"] == ids["alice"]
+
+
+async def test_property_id_given_as_a_name_is_resolved(kb):
+    ids = await _alice_at_ibm(kb)
+
+    responses = _mock_openai_sequence(
+        *_through_relations(ids),
+        _text_response("done"),
+        _tool_call_response("add_entity_property_value", {
+            "entity_id": ids["alice"], "property_id": "AGE",
+            "value": "28", "literal_type": "NUMBER",
+        }),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Alice joined IBM.", expand_schema=False)
+
+    assert len(kb.match_nodes("test", label="LITERAL")) == 1
+    reply = json.loads(_tool_replies(factory)[-1]["content"])
+    assert reply["coerced"] == {"property_id": f"AGE -> {ids['age']}"}
+
+
+async def test_property_id_prefers_the_property_declared_for_this_owner(kb):
+    """Property names are not unique. The call already names its owner, so the
+    owner's own class wins over a same-named property on another class."""
+    person = await kb.declare_class("test", "PERSON", "")
+    animal = await kb.declare_class("test", "ANIMAL", "")
+    animal_age = await kb.declare_class_property("test", "AGE", "Age of the animal", class_id=animal)
+    person_age = await kb.declare_class_property("test", "AGE", "Age of the person", class_id=person)
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    assert animal_age != person_age
+
+    responses = _mock_openai_sequence(
+        _tool_call_response("find_entity", {"name": "Alice"}),
+        _text_response("done"),
+        _text_response("done"),   # gap stage (ANIMAL empty)
+        _text_response("done"),   # relations
+        _text_response("done"),   # fact properties
+        _tool_call_response("add_entity_property_value", {
+            "entity_id": alice, "property_id": "AGE",
+            "value": "28", "literal_type": "NUMBER",
+        }),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses):
+        await kb.import_text("test", "Alice is 28.", expand_schema=False)
+
+    literals = kb.match_nodes("test", label="LITERAL")
+    assert len(literals) == 1
+    prop = kb.get_neighbors("test", literals[0]["id"], edge_type="IS_VALUE_OF", direction="out")
+    assert prop[0]["node"]["id"] == person_age
+
+
+async def test_find_fact_with_a_relation_name_finds_the_fact(kb):
+    """The quiet failure this change exists for: before coercion this returned
+    {id: null}, the model concluded the fact was new, and duplicated it."""
+    ids = await _alice_at_ibm(kb)
+    existing = await kb.add_fact(
+        "test", head_entity_id=ids["alice"], tail_entity_id=ids["ibm"], relation_id=ids["worked"],
+    )
+
+    responses = _mock_openai_sequence(
+        _tool_call_response("find_entity", {"name": "Alice"}),
+        _tool_call_response("find_entity", {"name": "IBM"}),
+        _text_response("done"),
+        _tool_call_response("find_fact", {
+            "head_entity_id": "Alice", "relation_id": "WORKED_AT", "tail_entity_id": "IBM",
+        }),
+        _text_response("done"),
+        _text_response("done"), _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Alice joined IBM.", expand_schema=False)
+
+    reply = json.loads(_tool_replies(factory)[-1]["content"])
+    assert reply["id"] == existing
+    assert set(reply["coerced"]) == {"head_entity_id", "relation_id", "tail_entity_id"}
+
+
+async def test_a_valid_id_is_left_untouched_and_reports_no_coercion(kb):
+    person, _ = await _resume_schema(kb)
+
+    responses = _mock_openai_sequence(
+        _tool_call_response("add_entity", {"name": "Alice Chen", "class_id": person}),
+        _text_response("done"),
+        _text_response("done"),
+        _text_response("done"), _text_response("done"), _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Alice Chen is a manager.", expand_schema=False)
+
+    assert "coerced" not in json.loads(_tool_replies(factory)[0]["content"])
+
+
+async def test_a_name_that_resolves_to_nothing_still_errors(kb):
+    """Coercion must not become a way to invent schema — the pipeline extracts
+    against the schema as it stands."""
+    person, _ = await _resume_schema(kb)
+
+    responses = _mock_openai_sequence(
+        _tool_call_response("add_entity", {"name": "Alice Chen", "class_id": "NO_SUCH_CLASS"}),
+        _text_response("done"),
+        _text_response("done"),
+        _text_response("done"), _text_response("done"), _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Alice Chen is a manager.", expand_schema=False)
+
+    assert kb.match_nodes("test", label="ENTITY") == []
+    reply = json.loads(_tool_replies(factory)[0]["content"])
+    assert "could not resolve" in reply["error"]
+    assert "NO_SUCH_CLASS" in reply["error"]
+
+
+async def test_coercion_never_falls_back_to_a_fuzzy_match(kb):
+    """Exact names only: 'COMPANIES' must not resolve to 'COMPANY'."""
+    await kb.declare_class("test", "COMPANY", "A business organization")
+
+    responses = _mock_openai_sequence(
+        _tool_call_response("add_entity", {"name": "Contoso", "class_id": "COMPANIES"}),
+        _text_response("done"),
+        _text_response("done"),
+        _text_response("done"), _text_response("done"), _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses):
+        await kb.import_text("test", "Contoso Ltd.", expand_schema=False)
+
+    assert kb.match_nodes("test", label="ENTITY") == []
+
+
+async def test_a_date_re_extracted_in_another_wording_is_still_deduped(kb):
+    """Writes normalize ("March 2019" -> "2019-03"), so dedupe has to compare
+    the incoming value in its stored form or every re-extraction looks new."""
+    ids = await _alice_at_ibm(kb)
+    text = "Alice joined IBM in March 2019."
+    existing = await kb.add_entity_property_value(
+        "test", value="March 2019", literal_type="DATE",
+        entity_id=ids["alice"], property_id=ids["age"], text=text,
+    )
+    stored = kb.get_node("test", existing)["properties"]["value"]
+    assert stored == "2019-03"
+
+    responses = _mock_openai_sequence(
+        *_through_relations(ids),
+        _text_response("done"),
+        _tool_call_response("add_entity_property_value", {
+            "entity_id": ids["alice"], "property_id": ids["age"],
+            "value": "March 2019", "literal_type": "DATE", "text": text,
+        }),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", text, expand_schema=False)
+
+    assert len(kb.match_nodes("test", label="LITERAL")) == 1
+    assert json.loads(_tool_replies(factory)[-1]["content"])["deduped"] is True
+
+
+def test_comparable_value_matches_the_write_paths_casting():
+    from blue_data_kb_source.extraction.engine import _comparable_value
+
+    assert _comparable_value("March 2019", "DATE") == "2019-03"
+    assert _comparable_value("2019-03", "DATE") == "2019-03"
+    assert _comparable_value("28", "NUMBER") == "28"
+    assert _comparable_value(28, None) == "28"
+    # An un-castable value falls back to its raw text rather than blowing up.
+    assert _comparable_value("not a date", "DATE") == "not a date"
+
+
+def test_same_value_matches_one_date_written_under_two_literal_types():
+    from blue_data_kb_source.extraction.engine import _same_value
+
+    # Only the DATE one is normalized on write, so the stored values differ.
+    assert _same_value(("March 2019", "STRING"), ("2019-03", "DATE"))
+    assert _same_value(("March 2019", None), ("2019-03", "DATE"))
+    # Genuinely different values stay different — normalize_date is an identity
+    # on anything that isn't a date, so nothing is collapsed by accident.
+    assert not _same_value(("March 2019", "DATE"), ("April 2019", "DATE"))
+    assert not _same_value(("Senior Project Manager", None), ("Project Management", None))
+    assert not _same_value(("28", "NUMBER"), ("29", "NUMBER"))

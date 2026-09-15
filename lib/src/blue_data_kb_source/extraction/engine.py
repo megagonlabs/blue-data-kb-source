@@ -10,14 +10,19 @@ from blue_data.source.graph.graph_source import GraphSource
 
 from blue_data_kb_source._constants import (
     CLASS,
+    DEFINE_PROPERTY,
     ENTITY,
     FACT,
     HAS_PROPERTY,
     IS_VALUE_OF,
     LITERAL,
+    PROPERTY,
+    RELATION,
 )
 from blue_data_kb_source.knowledge.helpers import (
+    cast_literal_value,
     entity_classes,
+    normalize_date,
     fact_parts,
     node_name,
     property_values,
@@ -87,9 +92,9 @@ _TOOLS: list[dict[str, Any]] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "head_entity_id": {"type": "string"},
-                    "relation_id": {"type": "string"},
-                    "tail_entity_id": {"type": "string"},
+                    "head_entity_id": {"type": "string", "description": "id of an existing ENTITY node, as returned by find_entity — never a name"},
+                    "relation_id": {"type": "string", "description": "id of an existing RELATION node, as returned by find_relation_type or search_schema — never a name"},
+                    "tail_entity_id": {"type": "string", "description": "id of an existing ENTITY node, as returned by find_entity — never a name"},
                 },
                 "required": ["head_entity_id", "relation_id", "tail_entity_id"],
             },
@@ -108,8 +113,8 @@ _TOOLS: list[dict[str, Any]] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "owner_id": {"type": "string", "description": "id of the entity or fact the value belongs to"},
-                    "property_id": {"type": "string"},
+                    "owner_id": {"type": "string", "description": "id of the ENTITY or FACT node the value belongs to — never a name"},
+                    "property_id": {"type": "string", "description": "id of an existing PROPERTY node, as returned by search_schema — never a name"},
                 },
                 "required": ["owner_id", "property_id"],
             },
@@ -146,7 +151,7 @@ _TOOLS: list[dict[str, Any]] = [
                 "properties": {
                     "name": {"type": "string"},
                     "description": {"type": "string"},
-                    "class_id": {"type": "string"},
+                    "class_id": {"type": "string", "description": "id of an existing CLASS node, as returned by find_class or search_schema — never a name"},
                     "text": {"type": "string", "description": "The full verbatim sentence (not just the bare name) this entity was extracted from"},
                 },
                 "required": ["name"],
@@ -161,9 +166,9 @@ _TOOLS: list[dict[str, Any]] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "head_entity_id": {"type": "string"},
-                    "tail_entity_id": {"type": "string"},
-                    "relation_id": {"type": "string"},
+                    "head_entity_id": {"type": "string", "description": "id of an existing ENTITY node, as returned by find_entity — never a name"},
+                    "tail_entity_id": {"type": "string", "description": "id of an existing ENTITY node, as returned by find_entity — never a name"},
+                    "relation_id": {"type": "string", "description": "id of an existing RELATION node, as returned by find_relation_type or search_schema — never a name"},
                     "name": {"type": "string"},
                     "text": {"type": "string", "description": "The full verbatim sentence (not just the bare relation phrase) this fact was extracted from"},
                 },
@@ -179,8 +184,8 @@ _TOOLS: list[dict[str, Any]] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "entity_id": {"type": "string"},
-                    "property_id": {"type": "string"},
+                    "entity_id": {"type": "string", "description": "id of an existing ENTITY node, as returned by find_entity — never a name"},
+                    "property_id": {"type": "string", "description": "id of an existing PROPERTY node, as returned by search_schema — never a name"},
                     "value": {"type": "string"},
                     "literal_type": {
                         "type": "string",
@@ -200,8 +205,8 @@ _TOOLS: list[dict[str, Any]] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "fact_id": {"type": "string"},
-                    "property_id": {"type": "string"},
+                    "fact_id": {"type": "string", "description": "id of an existing FACT node, as returned by find_fact or add_fact — never a name"},
+                    "property_id": {"type": "string", "description": "id of an existing PROPERTY node, as returned by search_schema — never a name"},
                     "value": {"type": "string"},
                     "literal_type": {
                         "type": "string",
@@ -611,6 +616,21 @@ def _describe_related_data(results: list[DataSearchResult]) -> str:
     return "\n".join(lines)
 
 
+# Arguments that take a node id, and the node label each one must name. The
+# extraction agent regularly passes the *name* instead ("AGE", "WORKED_AT",
+# "COMPANY"); `_coerce_id_args` looks each one up by name before the call is
+# allowed to fail. Order matters: the owner args resolve before `property_id`,
+# because a property is resolved against its owner's class/relation first.
+_ID_ARGS: tuple[tuple[str, str], ...] = (
+    ("class_id", CLASS),
+    ("relation_id", RELATION),
+    ("entity_id", ENTITY),
+    ("head_entity_id", ENTITY),
+    ("tail_entity_id", ENTITY),
+    ("fact_id", FACT),
+    ("property_id", PROPERTY),
+)
+
 # Tools whose `text` argument claims to be a verbatim quote from the source.
 _TEXT_BEARING_TOOLS = frozenset({
     "add_entity", "add_fact", "add_entity_property_value",
@@ -625,6 +645,36 @@ _WORD = re.compile(r"[0-9a-z]+")
 # whereas a sentence assembled from words scattered across the text does not.
 _SPAN_WINDOW_SLACK = 3
 _SPAN_WINDOW_FLOOR = 5
+
+
+def _comparable_value(value: Any, literal_type: str | None) -> str:
+    """A literal's value in the form it is stored in, as text.
+
+    Mirrors `add_literal`: a typed value is cast on write, so an incoming
+    "March 2019" has to become "2019-03" before it can be compared with what
+    is already on the graph.
+    """
+    if literal_type:
+        try:
+            value = cast_literal_value(value, literal_type)
+        except Exception:
+            pass          # un-castable: compare the raw text, as the writer will
+    return str(value)
+
+
+def _same_value(left: tuple[Any, str | None], right: tuple[Any, str | None]) -> bool:
+    """Do two (value, literal_type) pairs denote the same literal?
+
+    Casting each the way the write path would catches the ordinary case. The
+    second comparison catches the same date sent twice under different types —
+    the model calls one "March 2019" as a STRING and the next "2019-03" as a
+    DATE, and only the DATE one gets normalized on write. `normalize_date` is
+    an identity on anything that isn't a date, so this cannot collapse two
+    genuinely different values.
+    """
+    if _comparable_value(*left) == _comparable_value(*right):
+        return True
+    return normalize_date(str(left[0])) == normalize_date(str(right[0]))
 
 
 def _normalize_span(value: str) -> str:
@@ -1138,6 +1188,99 @@ class ExtractionEngine:
             })
         return resolved
 
+    async def _resolve_id_by_name(
+        self, database: str, arg: str, label: str, value: str, args: dict[str, Any]
+    ) -> str | None:
+        """Id of the *label* node named *value*, or None if the name doesn't resolve.
+
+        Exact-match lookups only (plus the case/whitespace tier entities already
+        have). Nothing fuzzy or semantic: this pass extracts against the schema
+        as it stands, and a near-match coercion would quietly invent membership
+        the schema never granted.
+        """
+        if label == CLASS:
+            node = await self._schema.find_class(database, value)
+            return node["id"] if node else None
+        if label == RELATION:
+            node = await self._schema.find_relation_type(database, value)
+            return node["id"] if node else None
+        if label == ENTITY:
+            return await self._existing_entity_id(database, value)
+        if label == PROPERTY:
+            return await self._resolve_property_id(database, value, args)
+        # FACT has no name worth looking up — a fact is identified by its triple.
+        return None
+
+    async def _resolve_property_id(
+        self, database: str, name: str, args: dict[str, Any]
+    ) -> str | None:
+        """Id of the PROPERTY named *name*, preferring one declared for the
+        owner named in the same call.
+
+        Property names are not unique — AGE can be declared on PERSON and on
+        ANIMAL — so a bare `find_property` returns a coin-flip. The call that
+        needs the id already carries its owner (`entity_id` or `fact_id`), and
+        scoping to that owner's class or relation turns the guess into a lookup.
+        `find_property` remains the fallback for an owner we can't pin down.
+        """
+        owner_id = args.get("entity_id") or args.get("fact_id")
+        if owner_id:
+            for node in self._owner_properties(database, owner_id):
+                if node_name(node) == name:
+                    return node["id"]
+        node = await self._schema.find_property(database, name)
+        return node["id"] if node else None
+
+    def _owner_properties(self, database: str, owner_id: str) -> list[dict[str, Any]]:
+        """PROPERTY nodes declared for an ENTITY's classes or a FACT's relation."""
+        owner = self._source.get_node(database, owner_id)
+        if owner is None:
+            return []
+        if owner.get("label") == FACT:
+            relation = fact_parts(self._source, database, owner_id)["relation"]
+            owners = [relation] if relation is not None else []
+        else:
+            owners = entity_classes(self._source, database, owner_id)
+        props: list[dict[str, Any]] = []
+        for node in owners:
+            props.extend(
+                nb["node"] for nb in self._source.get_neighbors(
+                    database, node["id"], edge_type=DEFINE_PROPERTY, direction="out"
+                )
+            )
+        return props
+
+    async def _coerce_id_args(
+        self, database: str, args: dict[str, Any]
+    ) -> tuple[dict[str, str], list[str]]:
+        """Replace any id-typed argument holding a *name* with the real id.
+
+        Returns (coercions applied, arguments that couldn't be resolved). Args
+        already holding a valid node of the right label are left untouched, so
+        the common case costs one `get_node` per id argument.
+
+        This runs for reads as well as writes, and the reads are the reason it
+        exists at all: `find_fact` given a relation *name* doesn't fail, it
+        returns {id: null}, and the model concludes the fact doesn't exist and
+        creates a second one. A hard failure at least says something.
+        """
+        coerced: dict[str, str] = {}
+        unresolved: list[str] = []
+        for arg, label in _ID_ARGS:
+            value = args.get(arg)
+            if not value or not isinstance(value, str):
+                continue
+            node = self._source.get_node(database, value)
+            if node is not None and node.get("label") == label:
+                continue
+            resolved = await self._resolve_id_by_name(database, arg, label, value, args)
+            if resolved is None:
+                unresolved.append(arg)
+                continue
+            args[arg] = resolved
+            coerced[arg] = f"{value} -> {resolved}"
+        return coerced, unresolved
+
     async def _existing_entity_id(self, database: str, name: str) -> str | None:
         """Id of an entity already standing for *name*, or None.
 
@@ -1156,21 +1299,31 @@ class ExtractionEngine:
         return candidates[0].node_id if candidates else None
 
     def _existing_literal_id(
-        self, database: str, owner_id: str, property_id: str, value: Any
+        self,
+        database: str,
+        owner_id: str,
+        property_id: str,
+        value: Any,
+        literal_type: str | None,
     ) -> str | None:
         """Id of this owner's existing LITERAL holding exactly *value* for
         *property_id*, or None.
 
         Keyed on the value, not just the property: an owner is allowed more
         than one value for the same property (two phone numbers), so only an
-        identical value is a duplicate. Compared as text because literals are
-        stored cast to their type (28, not "28").
+        identical value is a duplicate.
+
+        The incoming value is cast the same way the write path casts it before
+        comparing. Writes normalize ("March 2019" is stored as "2019-03"), so
+        comparing the raw argument against the stored value reports every
+        re-extraction of a date as new and duplicates it.
         """
         for pv in property_values(self._source, database, owner_id):
             prop = pv["property"]
             if prop is None or prop["id"] != property_id:
                 continue
-            if str(pv["literal"].get("properties", {}).get("value")) == str(value):
+            props = pv["literal"].get("properties", {})
+            if _same_value((value, literal_type), (props.get("value"), props.get("type"))):
                 return pv["literal"]["id"]
         return None
 
@@ -1193,6 +1346,23 @@ class ExtractionEngine:
         source_id: str | None,
         source_text: str,
     ) -> dict[str, Any]:
+        # The agent routinely passes a name where an id belongs ("AGE",
+        # "WORKED_AT", "COMPANY"). Resolve those to real ids before the call is
+        # allowed to fail — and before the grounding check, so an error is about
+        # the argument that is actually wrong.
+        coerced, unresolved = await self._coerce_id_args(database, args)
+        if unresolved:
+            detail = ", ".join(
+                f"{arg}={args[arg]!r}" for arg in unresolved if args.get(arg) is not None
+            )
+            return {"error": (
+                f"could not resolve {detail} — the value is neither the id of an "
+                "existing node nor the name of one. These arguments take the id "
+                "returned by find_class / find_relation_type / find_entity / "
+                "find_fact / search_schema, never a name; and if the schema has no "
+                "such element, skip the item rather than inventing one."
+            )}
+
         # Every write claims a verbatim `text` span from the source. Refuse the
         # ones that don't quote it — a fabricated span is the signature of a
         # value the model inferred rather than read. The error goes back as the
@@ -1209,6 +1379,22 @@ class ExtractionEngine:
                 "what is typical. If the text does not state it, skip it."
             )}
 
+        result = await self._dispatch_resolved(database, fn, args, source_id, span)
+        # Report what was rewritten, so a coercion shows up in on_tool_result and
+        # in traces rather than silently papering over the model's mistake.
+        if coerced and isinstance(result, dict):
+            result = {**result, "coerced": coerced}
+        return result
+
+    async def _dispatch_resolved(
+        self,
+        database: str,
+        fn: str,
+        args: dict[str, Any],
+        source_id: str | None,
+        span: str | None,
+    ) -> dict[str, Any]:
+        """The tool bodies proper — every id argument here is already a real id."""
         if fn == "get_schema":
             schema = await self._schema.fetch_database_schema(database)
             return {"schema": schema.to_str(simplified=True)}
@@ -1307,7 +1493,8 @@ class ExtractionEngine:
 
         if fn == "add_entity_property_value":
             existing_lit = self._existing_literal_id(
-                database, args["entity_id"], args["property_id"], args["value"]
+                database, args["entity_id"], args["property_id"],
+                args["value"], args.get("literal_type"),
             )
             if existing_lit is not None:
                 return await self._link_existing(database, existing_lit, span, source_id)
@@ -1324,7 +1511,8 @@ class ExtractionEngine:
 
         if fn == "add_fact_property_value":
             existing_lit = self._existing_literal_id(
-                database, args["fact_id"], args["property_id"], args["value"]
+                database, args["fact_id"], args["property_id"],
+                args["value"], args.get("literal_type"),
             )
             if existing_lit is not None:
                 return await self._link_existing(database, existing_lit, span, source_id)
