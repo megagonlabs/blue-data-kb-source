@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Callable, Literal
 
 from blue_data.source.graph.graph_source import GraphSource
 
-from blue_data_kb_source._constants import ENTITY, FACT
+from blue_data_kb_source._constants import CLASS, ENTITY, FACT
 from blue_data_kb_source.knowledge.helpers import entity_classes, fact_parts, node_name
 from blue_data_kb_source.resolution.resolver import NodeResolver
 from blue_data_kb_source.types import DataSearchResult, ExtractionError
@@ -208,12 +208,17 @@ _SYSTEM_PROMPT_TEMPLATE = """\
 You are a knowledge base (KB) extraction agent.
 
 The KB stores:
-  CLASS     — category of entities (e.g. PERSON, COMPANY)
+  CLASS     — category of entities (e.g. PERSON, COMPANY, SKILL)
   RELATION  — type of relationship (e.g. WORKED_AT, LIVES_IN)
   PROPERTY  — attribute of a class or relation (e.g. AGE, START_DATE)
-  ENTITY    — a specific instance of a class (e.g. Alice, IBM)
+  ENTITY    — a specific instance of a class (e.g. Alice, IBM, Python)
   FACT      — a specific relation between two entities
   LITERAL   — a concrete property value (e.g. "28", "1998-06-01")
+
+An ENTITY is an instance of *any* class in the schema, not just a named thing.
+Plenty of classes have instances that are ordinary nouns or noun phrases —
+`Python` is an instance of `SKILL` exactly as `IBM` is an instance of
+`COMPANY`. Never limit yourself to proper nouns.
 
 This pass only extracts against the schema as it currently stands — it never
 declares new CLASSes, RELATIONs, or PROPERTIES. If nothing in the current schema
@@ -257,11 +262,17 @@ Work through the text systematically and stop calling tools when you are done.\
 # ------------------------------------------------------------------ #
 
 STAGE_ENTITIES = "entities"
+# Recovery sweep after STAGE_ENTITIES, run only for classes that came back with
+# no instances at all. Same tools as the entity stage; a narrower prompt.
+STAGE_ENTITY_GAPS = "entity_gaps"
 STAGE_RELATIONS = "relations"
 STAGE_ENTITY_PROPERTIES = "entity_properties"
 STAGE_FACT_PROPERTIES = "fact_properties"
 
-STAGES = (STAGE_ENTITIES, STAGE_RELATIONS, STAGE_ENTITY_PROPERTIES, STAGE_FACT_PROPERTIES)
+STAGES = (
+    STAGE_ENTITIES, STAGE_ENTITY_GAPS,
+    STAGE_RELATIONS, STAGE_ENTITY_PROPERTIES, STAGE_FACT_PROPERTIES,
+)
 
 # ------------------------------------------------------------------ #
 # Effort — how many times the whole staged pipeline runs over the     #
@@ -287,6 +298,7 @@ _LATER_PASS_NOTE_TEMPLATE = (
 
 _STAGE_TOOL_NAMES: dict[str, list[str]] = {
     STAGE_ENTITIES: ["get_schema", "search_schema", "find_class", "find_entity", "add_entity", "link_extraction"],
+    STAGE_ENTITY_GAPS: ["get_schema", "search_schema", "find_class", "find_entity", "add_entity", "link_extraction"],
     STAGE_RELATIONS: ["get_schema", "search_schema", "find_relation_type", "find_fact", "add_fact", "link_extraction"],
     STAGE_ENTITY_PROPERTIES: ["get_schema", "search_schema", "add_entity_property_value", "link_extraction"],
     STAGE_FACT_PROPERTIES: ["get_schema", "search_schema", "add_fact_property_value", "link_extraction"],
@@ -297,11 +309,48 @@ _STAGE_WORKFLOWS: dict[str, str] = {
 Stage: entity extraction. Only entities exist yet — relations and property
 values are handled in later stages, so ignore them here.
 
-For each entity mentioned in the text: call find_entity first. If it already
-exists, call link_extraction with its id and the new text span instead of
-add_entity. Otherwise find its CLASS via search_schema — if no matching CLASS
-exists, skip this entity — then call add_entity. Use names exactly as they
-appear in the text.\
+Work through the schema class by class, not through the text name by name.
+Scanning for names finds only proper nouns and silently drops every class
+whose instances are ordinary words — skills, languages, tools, materials,
+conditions. A bare list item, a comma-separated run, or a noun buried in a
+sentence is an entity whenever a class covers it.
+
+This is the complete list of classes; account for every one of them:
+
+{classes}
+
+For each class above, find every mention in the text that is an instance of
+it. For each mention: call find_entity first. If it already exists, call
+link_extraction with its id and the new text span instead of add_entity.
+Otherwise call add_entity, passing that class's id from the list above. Use
+names exactly as they appear in the text.
+
+You do not need search_schema to find a class on that list — it is already
+complete. Use search_schema only to check some *other* concept in the text
+that none of the listed classes seems to cover; if nothing matches, skip that
+mention.
+
+When you have finished, report each class on the list with the instances you
+added or linked for it, or "none".\
+""",
+    STAGE_ENTITY_GAPS: """\
+Stage: entity gap recovery. An entity pass over this text already ran and
+resolved these entities:
+
+{entities}
+
+It produced no instances at all for the classes below. Often that is correct —
+the text may genuinely contain none of them. But it is also exactly how a
+class whose instances are ordinary nouns rather than names gets skipped, so
+re-read the text once more for these classes and nothing else:
+
+{missing_classes}
+
+For each class above, find any instance the earlier pass missed. Call
+find_entity first; if it already exists, call link_extraction with its id and
+the new text span, otherwise call add_entity with that class's id from the
+list above. Add nothing for a class the text genuinely does not mention, and
+do not revisit classes that are not on the list above.\
 """,
     STAGE_RELATIONS: """\
 Stage: relation extraction. Entities were already resolved in a prior stage —
@@ -350,6 +399,32 @@ def _tools_for(stage: str) -> list[dict[str, Any]]:
     return [t for t in _TOOLS if t["function"]["name"] in names]
 
 
+def _render_class_checklist(classes: list[dict[str, Any]]) -> str:
+    if not classes:
+        return "(no classes in the schema — there is nothing to extract in this stage)"
+    lines = []
+    for c in classes:
+        suffix = f" — {c['description']}" if c.get("description") else ""
+        lines.append(f"- id={c['id']}  {c['name']}{suffix}")
+    return "\n".join(lines)
+
+
+def _missing_classes(
+    classes: list[dict[str, Any]], entities: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Classes the entity stage produced no instance for — the gap stage's worklist."""
+    covered = {e["class_name"] for e in entities if e.get("class_name")}
+    return [c for c in classes if c["name"] not in covered]
+
+
+def _merge_entities(
+    first: list[dict[str, Any]], second: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """`first` plus whatever `second` added that isn't already in it, by id."""
+    seen = {e["id"] for e in first}
+    return first + [e for e in second if e["id"] not in seen]
+
+
 def _render_resolved_entities(entities: list[dict[str, Any]]) -> str:
     if not entities:
         return "(none resolved in this pass)"
@@ -391,6 +466,29 @@ def _describe_related_data(results: list[DataSearchResult]) -> str:
         else:  # FACT
             lines.append(f"- {r.head_name} —{r.relation_name}→ {r.tail_name}")
     return "\n".join(lines)
+
+
+# Tools whose `text` argument claims to be a verbatim quote from the source.
+_TEXT_BEARING_TOOLS = frozenset({
+    "add_entity", "add_fact", "add_entity_property_value",
+    "add_fact_property_value", "link_extraction",
+})
+
+_WHITESPACE = re.compile(r"\s+")
+
+
+def _normalize_span(value: str) -> str:
+    return _WHITESPACE.sub(" ", value).strip().lower()
+
+
+def _span_is_grounded(span: str, source_text: str) -> bool:
+    """Is `span` a real quote from `source_text` (case- and whitespace-insensitive)?
+
+    The benchmark scorer already checks this after the fact (see
+    `check_provenance` in tests/benchmarks/common/scoring.py); doing it at
+    dispatch time turns a score into a correction the model can act on.
+    """
+    return _normalize_span(span) in _normalize_span(source_text)
 
 
 _PARAGRAPH_BREAK = re.compile(r"\n\s*\n")
@@ -549,13 +647,39 @@ class ExtractionEngine:
                 source=source_str, related_data=related_data_str, pass_note=pass_note_str,
             )
 
+        classes = self._schema_classes(database)
         entity_calls = await self._run_stage(
             database, client, model, max_turns, source_id, on_tool_call, on_tool_result, write_lock,
             tools=_tools_for(STAGE_ENTITIES),
-            system_prompt=build_prompt(_STAGE_WORKFLOWS[STAGE_ENTITIES]),
+            system_prompt=build_prompt(
+                _STAGE_WORKFLOWS[STAGE_ENTITIES].format(classes=_render_class_checklist(classes))
+            ),
             text=text,
         )
         entities = self._resolved_entities(database, entity_calls)
+
+        # A class with zero instances is usually right, but it's also how a
+        # class whose instances aren't proper nouns gets skipped wholesale.
+        # One extra targeted pass over just those classes — but only when the
+        # stage found *something*, since the failure being recovered from is
+        # selective blindness (some classes resolved, others never). A stage
+        # that resolved nothing at all has no partial coverage to explain, and
+        # re-listing every class would just repeat the entity prompt verbatim;
+        # that's what `effort`'s additional passes are for.
+        missing = _missing_classes(classes, entities) if entities else []
+        if missing:
+            gap_calls = await self._run_stage(
+                database, client, model, max_turns, source_id, on_tool_call, on_tool_result, write_lock,
+                tools=_tools_for(STAGE_ENTITY_GAPS),
+                system_prompt=build_prompt(
+                    _STAGE_WORKFLOWS[STAGE_ENTITY_GAPS].format(
+                        entities=_render_resolved_entities(entities),
+                        missing_classes=_render_class_checklist(missing),
+                    )
+                ),
+                text=text,
+            )
+            entities = _merge_entities(entities, self._resolved_entities(database, gap_calls))
 
         relation_calls = await self._run_stage(
             database, client, model, max_turns, source_id, on_tool_call, on_tool_result, write_lock,
@@ -652,7 +776,9 @@ class ExtractionEngine:
                     on_tool_call(tc.function.name, args)
                 try:
                     async with write_lock:
-                        result = await self._dispatch_tool(database, tc.function.name, args, source_id)
+                        result = await self._dispatch_tool(
+                            database, tc.function.name, args, source_id, text
+                        )
                 except Exception as exc:
                     result = {"error": str(exc)}
                 if on_tool_result:
@@ -664,6 +790,18 @@ class ExtractionEngine:
                     "content": json.dumps(result),
                 })
         return calls
+
+    def _schema_classes(self, database: str) -> list[dict[str, Any]]:
+        """Every CLASS as {id, name, description}, name-sorted for a stable prompt."""
+        classes = [
+            {
+                "id": node["id"],
+                "name": node_name(node),
+                "description": node.get("properties", {}).get("description") or "",
+            }
+            for node in self._source.match_nodes(database, label=CLASS)
+        ]
+        return sorted(classes, key=lambda c: c["name"])
 
     def _resolved_entities(
         self, database: str, calls: list[tuple[str, dict[str, Any], Any]]
@@ -721,7 +859,23 @@ class ExtractionEngine:
         fn: str,
         args: dict[str, Any],
         source_id: str | None,
+        source_text: str,
     ) -> dict[str, Any]:
+        # Every write claims a verbatim `text` span from the source. Refuse the
+        # ones that don't quote it — a fabricated span is the signature of a
+        # value the model inferred rather than read. The error goes back as the
+        # tool result, so the model gets a chance to correct itself. A call that
+        # omits `text` entirely is left to the existing (permissive) path.
+        span = args.get("text")
+        if fn in _TEXT_BEARING_TOOLS and span and not _span_is_grounded(span, source_text):
+            return {"error": (
+                "the `text` argument is not a verbatim span of the source text. Quote "
+                "the sentence exactly as it appears, and only extract what the text "
+                "actually states — never infer a value from world knowledge, from an "
+                "entity's name, or from what is typical. If the text does not state "
+                "it, skip it."
+            )}
+
         if fn == "get_schema":
             schema = await self._schema.fetch_database_schema(database)
             return {"schema": schema.to_str(simplified=True)}

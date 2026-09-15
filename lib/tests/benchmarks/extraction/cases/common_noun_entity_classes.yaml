@@ -1,0 +1,51 @@
+id: common_noun_entity_classes
+description: >
+  Résumé skills block. Seeds SKILL — a class whose instances are ordinary nouns
+  (Agile, JIRA, SQL), not proper names — alongside PERSON, whose instances are.
+  The entity stage used to read "entity" as "named entity" and never proposed a
+  single SKILL candidate, so no find_entity call was ever made for them; it wrote
+  the languages onto the person as property values instead. Also a hallucination
+  trap: the text states no age, so any AGE value is fabricated. See issue #91.
+seed_schema:
+  classes:
+    - {name: PERSON, description: "A human individual"}
+    - {name: SKILL, description: "User skill or capability"}
+    - {name: LANGUAGE, description: "A natural language a person speaks"}
+  relations:
+    - name: HAS_SKILL
+      description: "A person has a skill or capability"
+      domain: PERSON
+      range: SKILL
+    - name: SPEAKS
+      description: "A person speaks a natural language"
+      domain: PERSON
+      range: LANGUAGE
+input_text: |
+  Alice Chen — Project Manager
+
+  SKILLS
+  * Project Management: Agile, Scrum, Kanban * Tools: JIRA, Microsoft Office Suite, Trello
+  * Technical: SQL, Basic Python * Languages: English (Native), Spanish (Fluent)
+queries:
+  - "What skills does the user have?"
+  - "What is the user's most recent job title?"
+schema_discovery_modes: [search]
+expected:
+  entities:
+    - {name: Alice Chen, class: PERSON}
+    - {name: Agile, class: SKILL}
+    - {name: Scrum, class: SKILL}
+    - {name: Kanban, class: SKILL}
+    - {name: JIRA, class: SKILL}
+    - {name: Trello, class: SKILL}
+    - {name: SQL, class: SKILL}
+    - {name: English, class: LANGUAGE}
+    - {name: Spanish, class: LANGUAGE}
+  facts:
+    - {head: Alice Chen, relation: HAS_SKILL, tail: Agile}
+    - {head: Alice Chen, relation: HAS_SKILL, tail: SQL}
+    - {head: Alice Chen, relation: SPEAKS, tail: English}
+  schema_reuse:
+    must_reuse: [SKILL]
+    # The text gives no age; an AGE property can only come from inference.
+    must_not_declare: [AGE]

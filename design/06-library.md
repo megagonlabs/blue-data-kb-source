@@ -204,7 +204,7 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `import_text(database, text, queries?, model?, source_id?, expand_schema?, schema_expansion_target?, schema_expansion_depth?, schema_expansion_mode?, schema_expansion_mcp_servers?, schema_expansion_dedup_mode?, on_tool_call?, on_tool_result?, max_turns?, related_data_k?, effort?, max_concurrency?)` | `None` | Runs a 4-stage pipeline (entities → relations → entity properties → fact properties, each its own agentic pass) to extract from free text using an LLM, against the schema as it currently stands — never declares new schema itself (a mention with no matching element is skipped). `expand_schema` (default `True`) runs `expand_schema()` first; the `schema_expansion_*` params mirror that method's `depth`/`reference`/`mcp_servers`/`dedup_mode` one-to-one. `max_turns` applies per stage. `related_data_k` (default `10`) surfaces that many existing-entity/fact search hits in every stage's prompt as unconfirmed leads; `0` disables it. `effort` (`"low"` default \| `"medium"` \| `"high"` → 1/2/3 passes) repeats the whole 4-stage pipeline, each later pass told to hunt for what a prior pass missed rather than re-deriving what's there. `max_concurrency` (default `1`, unchanged behavior) splits `text` into up to that many paragraph-aligned chunks and runs a full pipeline per chunk concurrently, at the cost of a residual cross-chunk duplicate risk (see below) — see ExtractionEngine and SchemaExpansionEngine below |
+| `import_text(database, text, queries?, model?, source_id?, expand_schema?, schema_expansion_target?, schema_expansion_depth?, schema_expansion_mode?, schema_expansion_mcp_servers?, schema_expansion_dedup_mode?, on_tool_call?, on_tool_result?, max_turns?, related_data_k?, effort?, max_concurrency?)` | `None` | Runs a staged pipeline (entities → *entity gap recovery* → relations → entity properties → fact properties, each its own agentic pass) to extract from free text using an LLM, against the schema as it currently stands — never declares new schema itself (a mention with no matching element is skipped). The entity stage sweeps the schema class by class from a rendered checklist rather than scanning the text for names; the gap stage re-sweeps only the classes that came back empty, and runs only when the entity stage resolved something. `expand_schema` (default `True`) runs `expand_schema()` first; the `schema_expansion_*` params mirror that method's `depth`/`reference`/`mcp_servers`/`dedup_mode` one-to-one. `max_turns` applies per stage. `related_data_k` (default `10`) surfaces that many existing-entity/fact search hits in every stage's prompt as unconfirmed leads; `0` disables it. `effort` (`"low"` default \| `"medium"` \| `"high"` → 1/2/3 passes) repeats the whole pipeline, each later pass told to hunt for what a prior pass missed rather than re-deriving what's there. `max_concurrency` (default `1`, unchanged behavior) splits `text` into up to that many paragraph-aligned chunks and runs a full pipeline per chunk concurrently, at the cost of a residual cross-chunk duplicate risk (see below) — see ExtractionEngine and SchemaExpansionEngine below |
 
 #### Sync convenience methods
 
@@ -696,24 +696,42 @@ currently stands. Called directly by `ExtractionEngine`'s consumer — `KBSource
 - `on_tool_call` / `on_tool_result` — optional callbacks invoked with `(tool_name, arguments)` / `(tool_name, arguments, result)` for each tool call the agent makes, across every stage
 - `max_turns` (default `25`) — caps the number of agent turns *per stage*; hitting the limit stops that stage's loop silently rather than raising, and the pipeline still moves on to the next stage
 - `related_data_k` (default `10`) — number of existing ENTITY/FACT hits from `KBSearchIndexer.search_data(database, text, k=related_data_k)` to surface in every stage's system prompt as "potentially related existing data"; `0` disables the lookup. A no-op when the database has no search indexer configured (`properties["search"]["mode"]` is `"none"`, the default) — the prompt says so explicitly rather than silently omitting the section
-- `effort` (`"low"` default | `"medium"` | `"high"` → 1/2/3 passes) — repeats the whole four-stage pipeline that many times over the same text; each pass after the first is told a prior pass already ran and to focus on what it missed. Safe to repeat — `find_entity`/`find_fact`/`link_extraction` already dedupe within a sequential run — it just costs more LLM calls
+- `effort` (`"low"` default | `"medium"` | `"high"` → 1/2/3 passes) — repeats the whole pipeline that many times over the same text; each pass after the first is told a prior pass already ran and to focus on what it missed. Safe to repeat — `find_entity`/`find_fact`/`link_extraction` already dedupe within a sequential run — it just costs more LLM calls
 - `max_concurrency` (default `1`, unchanged behavior) — splits `text` into up to that many paragraph-aligned chunks (see `_split_into_chunks`) and runs a full pipeline (all `effort` passes) per chunk *concurrently*, sharing one `openai.AsyncOpenAI` client; every tool dispatch is wrapped in an `asyncio.Lock` so two chunks can't interleave a single dispatch's own reads/writes. This does not make cross-chunk extraction fully race-free: the lock can't reach across a chunk's separate `find_*`-then-`add_*` LLM turns, so two chunks that both mention the same entity/fact can each independently decide it doesn't exist yet and create it twice — a race this codebase's prior fully-sequential execution never had. Best suited to text whose chunks cover mostly distinct content; a single unbroken block of text (no paragraph breaks) always runs as one chunk regardless of this value
 
 **Staged pipeline:** rather than one agentic loop with all instance-creation tools available at once,
-`import_text` runs four sequential stages, each its own agentic loop (its own `max_turns` budget, its
+`import_text` runs a sequence of stages, each its own agentic loop (its own `max_turns` budget, its
 own fresh message history) over a narrower tool set than the last — mirroring the existing
 schema-expansion-then-extraction split, applied one level deeper:
 
 | Stage | Tools | Given from prior stages |
 |-------|-------|--------------------------|
-| entities | `get_schema`, `search_schema`, `find_class`, `find_entity`, `add_entity`, `link_extraction` | — |
+| entities | `get_schema`, `search_schema`, `find_class`, `find_entity`, `add_entity`, `link_extraction` | the full CLASS checklist (id, name, description) |
+| entity gaps *(conditional)* | same as entities | entities resolved, plus the classes that got none |
 | relations | `get_schema`, `search_schema`, `find_relation_type`, `find_fact`, `add_fact`, `link_extraction` | entities resolved (id, name, class) |
 | entity properties | `get_schema`, `search_schema`, `add_entity_property_value`, `link_extraction` | entities resolved |
 | fact properties | `get_schema`, `search_schema`, `add_fact_property_value`, `link_extraction` | facts resolved (id, head, relation, tail) |
 
+**Class-driven entity sweep:** the entity stage is given the complete CLASS list (name-sorted, with
+ids and descriptions) and told to work through it class by class, not to scan the text for names.
+The earlier text-first framing ("for each entity mentioned in the text… then find its CLASS via
+`search_schema`") reliably produced a *named-entity* reading: classes whose instances are ordinary
+nouns — `SKILL`, a language, a material, a condition — were never even proposed as candidates, so no
+`find_entity` call was ever made for them. Rendering the checklist also removes the `search_schema`
+round-trip for classes that are already in the prompt verbatim.
+
+**Entity gap recovery:** a conditional stage between entities and relations. After the entity stage,
+any CLASS with zero resolved instances is re-swept once, on its own, with the resolved entities
+shown as context. It runs only when the entity stage resolved *something* — selective blindness
+(some classes covered, others never) is the failure it exists to catch, whereas a stage that
+resolved nothing has no partial coverage to explain and re-listing every class would just repeat the
+entity prompt verbatim; that is what `effort`'s additional passes are for. Entities it recovers are
+merged (by id) into the list handed to every later stage, so a recovered entity can still take part
+in facts and carry property values.
+
 The relation and property stages are never offered `find_entity`/`add_entity` — the system prompt
 instructs them to use the ids in the "already resolved" list and to skip anything not on it, rather
-than rediscovering or inventing an entity. This trades roughly 4x the LLM round-trips of the old
+than rediscovering or inventing an entity. This trades roughly 4-5x the LLM round-trips of the old
 single-loop design for a narrower, more reliable task per call; `max_concurrency` (above) offsets
 that cost for long text by overlapping chunks' LLM round-trips. `add_entity_property_value`/`add_fact_property_value` reject a property that isn't
 actually defined for the entity's class / fact's relation (`KnowledgeError`, via `is_property_allowed`)
@@ -722,8 +740,8 @@ otherwise both claim the same value for the wrong owner.
 
 **Algorithm (per stage)**
 
-1. Call `SchemaManager.fetch_database_schema(database)` and serialize it as context for the LLM (shared across all four stages)
-2. When a search indexer is configured and `related_data_k > 0`: call `KBSearchIndexer.search_data(database, text, k=related_data_k)` and render the hits (entity name + class; fact head/relation/tail) as additional context (shared across all four stages)
+1. Call `SchemaManager.fetch_database_schema(database)` and serialize it as context for the LLM (shared across all stages); separately collect the CLASS nodes as an (id, name, description) checklist for the entity and gap stages
+2. When a search indexer is configured and `related_data_k > 0`: call `KBSearchIndexer.search_data(database, text, k=related_data_k)` and render the hits (entity name + class; fact head/relation/tail) as additional context (shared across all stages)
 3. Submit `text`, `queries`, schema context, related-data context, and the stage's own "already resolved" list to the LLM with that stage's tool set
 4. Loop (up to `max_turns` turns):
    - Receive tool calls from the LLM
@@ -731,9 +749,11 @@ otherwise both claim the same value for the wrong owner.
    - For `link_extraction` calls (item already exists): dispatch to `ProvenanceTracker.add_extraction(element_id=…)`, attaching the new span as further evidence rather than creating a duplicate
    - Return tool results to the LLM
 5. Exit when the LLM returns without further tool calls, or `max_turns` is reached
-6. After the entity/relation stages, harvest every entity/fact the stage's tool calls touched (via `add_entity`/`find_entity`/`link_extraction` for entities, `add_fact`/`find_fact`/`link_extraction` for facts) and re-fetch its current name/class (or head/relation/tail) from the graph, for the next stage's prompt
+6. Reject any creation call whose `text` argument is not a verbatim span of the stage's source text (whitespace- and case-insensitive), returning the refusal as the tool result so the model can correct itself rather than silently losing the turn. A call that omits `text` entirely takes the existing permissive path
+7. After the entity/gap/relation stages, harvest every entity/fact the stage's tool calls touched (via `add_entity`/`find_entity`/`link_extraction` for entities, `add_fact`/`find_fact`/`link_extraction` for facts) and re-fetch its current name/class (or head/relation/tail) from the graph, for the next stage's prompt
+8. After the entity stage only: diff the CLASS checklist against the classes those entities belong to, and run the gap stage over the remainder (skipped when the diff is empty, or when no entity resolved at all)
 
-**Where the schema expansion pass fits in:** `KBSource.import_text` (not `ExtractionEngine` itself) owns the two-phase orchestration — with `expand_schema=True` (the default), it calls `SchemaManager.expand_schema(...)` first, using `text`/`queries` (filtered by `schema_expansion_target`) as that call's grounding text, before calling `ExtractionEngine.import_text` above (which then itself runs its four internal stages). Pass `expand_schema=False` to skip straight to extraction against whatever schema already exists.
+**Where the schema expansion pass fits in:** `KBSource.import_text` (not `ExtractionEngine` itself) owns the two-phase orchestration — with `expand_schema=True` (the default), it calls `SchemaManager.expand_schema(...)` first, using `text`/`queries` (filtered by `schema_expansion_target`) as that call's grounding text, before calling `ExtractionEngine.import_text` above (which then itself runs its internal stages). Pass `expand_schema=False` to skip straight to extraction against whatever schema already exists.
 
 ---
 

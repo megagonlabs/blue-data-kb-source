@@ -39,6 +39,21 @@ def _text_response(text=None):
     return response
 
 
+def _tool_replies(factory):
+    """Every tool-result message the agent sent back, across all stages.
+
+    `call_args_list` holds a *reference* to the message list `_run_stage`
+    keeps appending to, so positional indexing into it sees the end state of
+    the stage, not the state at that call. Collect by role instead.
+    """
+    seen: list[dict] = []
+    for call in factory.return_value.chat.completions.create.call_args_list:
+        for m in call.kwargs["messages"]:
+            if m.get("role") == "tool" and m not in seen:
+                seen.append(m)
+    return seen
+
+
 def _mock_openai_sequence(*responses):
     """Patch openai.AsyncOpenAI so every AsyncOpenAI() call shares one client
     whose chat.completions.create returns *responses* in order."""
@@ -619,3 +634,237 @@ async def test_max_concurrency_runs_chunks_concurrently_not_sequentially(kb):
         await kb.import_text("test", text, expand_schema=False, max_concurrency=3)
         elapsed = time.monotonic() - start
     assert elapsed < 8 * delay  # well under the 12x-delay fully-sequential bound
+
+
+# ------------------------------------------------------------------ #
+# entity stage sweeps the schema class by class, not the text name    #
+# by name — the framing that made non-proper-noun classes (SKILL)     #
+# get skipped wholesale. See issue #91.                               #
+# ------------------------------------------------------------------ #
+
+async def _resume_schema(kb):
+    """PERSON + SKILL: one class with proper-noun instances, one without."""
+    person = await kb.declare_class("test", "PERSON", "A human individual")
+    skill = await kb.declare_class("test", "SKILL", "User skill or capability")
+    return person, skill
+
+
+def test_entity_workflow_is_class_driven_and_names_non_proper_nouns():
+    from blue_data_kb_source.extraction.engine import STAGE_ENTITIES, _STAGE_WORKFLOWS
+
+    workflow = _STAGE_WORKFLOWS[STAGE_ENTITIES]
+    assert "{classes}" in workflow, "entity stage must render the class checklist"
+    assert "class by class" in workflow
+    assert "proper noun" in workflow
+
+
+def test_system_prompt_glossary_shows_a_common_noun_instance():
+    from blue_data_kb_source.extraction.engine import _SYSTEM_PROMPT_TEMPLATE
+
+    # Every example used to be a proper noun (Alice, IBM), which is what
+    # pushed the model toward a named-entity reading of "entity".
+    assert "SKILL" in _SYSTEM_PROMPT_TEMPLATE
+    assert "Python" in _SYSTEM_PROMPT_TEMPLATE
+
+
+async def test_entity_stage_prompt_lists_every_class_with_id_and_description(kb):
+    person, skill = await _resume_schema(kb)
+
+    responses = _mock_openai_sequence(*[_text_response("done")] * 4)
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Some text.", expand_schema=False)
+
+    stage1_prompt = factory.return_value.chat.completions.create.call_args_list[0].kwargs["messages"][0]["content"]
+    assert f"id={person}  PERSON — A human individual" in stage1_prompt
+    assert f"id={skill}  SKILL — User skill or capability" in stage1_prompt
+
+
+async def test_entity_stage_checklist_is_name_sorted_for_a_stable_prompt(kb):
+    await kb.declare_class("test", "ZEBRA", "")
+    await kb.declare_class("test", "APPLE", "")
+
+    responses = _mock_openai_sequence(*[_text_response("done")] * 4)
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Some text.", expand_schema=False)
+
+    stage1_prompt = factory.return_value.chat.completions.create.call_args_list[0].kwargs["messages"][0]["content"]
+    assert stage1_prompt.index("APPLE") < stage1_prompt.index("ZEBRA")
+
+
+# ------------------------------------------------------------------ #
+# gap recovery: one extra sweep over classes that got no instances    #
+# ------------------------------------------------------------------ #
+
+async def test_gap_stage_runs_for_a_class_the_entity_stage_left_empty(kb):
+    person, skill = await _resume_schema(kb)
+
+    responses = _mock_openai_sequence(
+        _tool_call_response("add_entity", {"name": "Alice Chen", "class_id": person}),
+        _text_response("done"),   # ends the entity stage — SKILL got nothing
+        _text_response("done"),   # gap stage: prompt captured below
+        _text_response("done"),   # relations
+        _text_response("done"),   # entity properties
+        _text_response("done"),   # fact properties
+    )
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Alice Chen knows SQL.", expand_schema=False)
+
+    assert factory.return_value.chat.completions.create.call_count == 6
+    gap_prompt = factory.return_value.chat.completions.create.call_args_list[2].kwargs["messages"][0]["content"]
+    assert "gap recovery" in gap_prompt
+    assert f"id={skill}  SKILL" in gap_prompt
+    # Only the empty classes are re-swept; PERSON is listed as already resolved.
+    assert f"id={person}  PERSON" not in gap_prompt
+    assert "Alice Chen (PERSON)" in gap_prompt
+
+
+async def test_gap_stage_entities_reach_the_relation_stage(kb):
+    """An entity only the gap stage found must still be available to later
+    stages — otherwise recovering it is pointless, since no fact can use it."""
+    person, skill = await _resume_schema(kb)
+
+    responses = _mock_openai_sequence(
+        _tool_call_response("add_entity", {"name": "Alice Chen", "class_id": person}),
+        _text_response("done"),
+        _tool_call_response("add_entity", {"name": "SQL", "class_id": skill}),
+        _text_response("done"),   # ends the gap stage
+        _text_response("done"),   # relations — prompt captured below
+        _text_response("done"),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Alice Chen knows SQL.", expand_schema=False)
+
+    relation_prompt = factory.return_value.chat.completions.create.call_args_list[4].kwargs["messages"][0]["content"]
+    assert "Alice Chen (PERSON)" in relation_prompt
+    assert "SQL (SKILL)" in relation_prompt
+
+
+async def test_gap_stage_skipped_when_every_class_got_an_instance(kb):
+    person, skill = await _resume_schema(kb)
+
+    responses = _mock_openai_sequence(
+        _tool_call_response("add_entity", {"name": "Alice Chen", "class_id": person}),
+        _tool_call_response("add_entity", {"name": "SQL", "class_id": skill}),
+        _text_response("done"),
+        _text_response("done"),
+        _text_response("done"),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Alice Chen knows SQL.", expand_schema=False)
+
+    assert factory.return_value.chat.completions.create.call_count == 6
+
+
+async def test_gap_stage_skipped_when_the_entity_stage_resolved_nothing(kb):
+    """No partial coverage to explain — re-listing every class would just
+    repeat the entity prompt. Extra passes are `effort`'s job, not this one's."""
+    await _resume_schema(kb)
+
+    responses = _mock_openai_sequence(*[_text_response("done")] * 4)
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Some unrelated text.", expand_schema=False)
+
+    assert factory.return_value.chat.completions.create.call_count == 4
+
+
+async def test_gap_stage_cannot_add_facts_or_property_values(kb):
+    from blue_data_kb_source.extraction.engine import STAGE_ENTITY_GAPS, _STAGE_TOOL_NAMES
+
+    tools = set(_STAGE_TOOL_NAMES[STAGE_ENTITY_GAPS])
+    assert {"find_entity", "add_entity", "link_extraction"} <= tools
+    assert tools.isdisjoint({"add_fact", "add_entity_property_value", "add_fact_property_value"})
+
+
+# ------------------------------------------------------------------ #
+# verbatim-span grounding: a write whose `text` isn't a real quote    #
+# from the source is refused (the AGE = 28 hallucination in #91).     #
+# ------------------------------------------------------------------ #
+
+async def test_ungrounded_span_is_refused_and_creates_nothing(kb):
+    person, _ = await _resume_schema(kb)
+    prop = await kb.declare_class_property("test", "AGE", "Age in years", class_id=person)
+    alice = await kb.add_entity("test", "Alice Chen", class_id=person)
+
+    responses = _mock_openai_sequence(
+        _text_response("done"),   # entities
+        _text_response("done"),   # relations
+        _tool_call_response("add_entity_property_value", {
+            "entity_id": alice, "property_id": prop, "value": "28",
+            "literal_type": "NUMBER",
+            "text": "Alice Chen is 28 years old.",   # nowhere in the source
+        }),
+        _text_response("done"),
+        _text_response("done"),   # fact properties
+    )
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Alice Chen is a project manager.", expand_schema=False)
+
+    assert kb.match_nodes("test", label="LITERAL") == []
+    # The refusal goes back to the model as the tool result, so it can correct
+    # itself rather than silently losing the turn.
+    replies = _tool_replies(factory)
+    assert len(replies) == 1
+    assert "not a verbatim span" in replies[0]["content"]
+
+
+async def test_grounded_span_survives_case_and_whitespace_differences(kb):
+    person, _ = await _resume_schema(kb)
+
+    responses = _mock_openai_sequence(
+        _tool_call_response("add_entity", {
+            "name": "Alice Chen", "class_id": person,
+            "text": "alice chen is a   PROJECT manager.",
+        }),
+        _text_response("done"),
+        _text_response("done"),   # gap stage (SKILL empty)
+        _text_response("done"),
+        _text_response("done"),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses):
+        await kb.import_text("test", "Alice Chen is a project\nmanager.", expand_schema=False)
+
+    assert [n["properties"]["name"] for n in kb.match_nodes("test", label="ENTITY")] == ["Alice Chen"]
+
+
+async def test_span_spanning_two_sentences_is_grounded(kb):
+    person, _ = await _resume_schema(kb)
+    text = "Alice Chen is a project manager. She joined IBM in 1998."
+
+    responses = _mock_openai_sequence(
+        _tool_call_response("add_entity", {
+            "name": "Alice Chen", "class_id": person, "text": text,
+        }),
+        _text_response("done"),
+        _text_response("done"),
+        _text_response("done"),
+        _text_response("done"),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses):
+        await kb.import_text("test", text, expand_schema=False)
+
+    assert len(kb.match_nodes("test", label="ENTITY")) == 1
+
+
+async def test_grounding_check_leaves_lookup_tools_alone(kb):
+    """find_entity has no `text` argument and must never be refused."""
+    person, _ = await _resume_schema(kb)
+    await kb.add_entity("test", "Alice Chen", class_id=person)
+
+    responses = _mock_openai_sequence(
+        _tool_call_response("find_entity", {"name": "Alice Chen"}),
+        _text_response("done"),
+        _text_response("done"),
+        _text_response("done"),
+        _text_response("done"),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Unrelated source text.", expand_schema=False)
+
+    replies = _tool_replies(factory)
+    assert len(replies) == 1
+    assert json.loads(replies[0]["content"])["name"] == "Alice Chen"
