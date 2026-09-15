@@ -492,8 +492,11 @@ async def test_fact_property_stage_prompt_lists_facts_resolved_by_relation_stage
     with patch("openai.AsyncOpenAI", responses) as factory:
         await kb.import_text("test", "Alice joined IBM.", expand_schema=False)
 
-    stage4_prompt = factory.return_value.chat.completions.create.call_args_list[7].kwargs["messages"][0]["content"]
-    assert "Alice —WORKED_AT→ IBM" in stage4_prompt
+    # Fact properties now run *before* entity properties, so this is call 6.
+    fact_prop_prompt = factory.return_value.chat.completions.create.call_args_list[6].kwargs["messages"][0]["content"]
+    assert f"Alice (PERSON, id={alice}) —WORKED_AT→ IBM (COMPANY, id={ibm})" in fact_prop_prompt
+    # …and it is given the entities too, not just the facts.
+    assert f"id={alice}  Alice (PERSON)" in fact_prop_prompt
 
 
 # ------------------------------------------------------------------ #
@@ -868,3 +871,182 @@ async def test_grounding_check_leaves_lookup_tools_alone(kb):
     replies = _tool_replies(factory)
     assert len(replies) == 1
     assert json.loads(replies[0]["content"])["name"] == "Alice Chen"
+
+
+# ------------------------------------------------------------------ #
+# forward-carried context: every stage is shown what prior stages     #
+# resolved, and the whole thing carries across effort passes.         #
+# ------------------------------------------------------------------ #
+
+async def _alice_at_ibm(kb):
+    person = await kb.declare_class("test", "PERSON", "")
+    company = await kb.declare_class("test", "COMPANY", "")
+    worked = await kb.declare_relation_type("test", "WORKED_AT", "", domain="PERSON", range="COMPANY")
+    start = await kb.declare_relation_property("test", "START_DATE", "", relation_id=worked)
+    age = await kb.declare_class_property("test", "AGE", "", class_id=person)
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    ibm = await kb.add_entity("test", "IBM", class_id=company)
+    return {
+        "person": person, "company": company, "worked": worked,
+        "start": start, "age": age, "alice": alice, "ibm": ibm,
+    }
+
+
+def _through_relations(ids):
+    """Tool calls that resolve Alice + IBM and the WORKED_AT fact between them,
+    ending the entity and relation stages."""
+    return [
+        _tool_call_response("find_entity", {"name": "Alice"}),
+        _tool_call_response("find_entity", {"name": "IBM"}),
+        _text_response("done"),
+        _tool_call_response("find_relation_type", {"name": "WORKED_AT"}),
+        _tool_call_response("add_fact", {
+            "head_entity_id": ids["alice"], "tail_entity_id": ids["ibm"],
+            "relation_id": ids["worked"],
+        }),
+        _text_response("done"),
+    ]
+
+
+def test_fact_properties_stage_runs_before_entity_properties():
+    from blue_data_kb_source.extraction.engine import (
+        STAGE_ENTITY_PROPERTIES,
+        STAGE_FACT_PROPERTIES,
+        STAGES,
+    )
+
+    assert STAGES.index(STAGE_FACT_PROPERTIES) < STAGES.index(STAGE_ENTITY_PROPERTIES)
+
+
+async def test_entity_property_stage_sees_facts_and_what_the_fact_stage_took(kb):
+    """The ownership hand-off: the entity-property stage runs second and is
+    shown the values the fact stage already claimed, so it doesn't re-claim
+    them onto the entity."""
+    ids = await _alice_at_ibm(kb)
+    text = "Alice joined IBM in June 1998."
+
+    responses = _mock_openai_sequence(
+        *_through_relations(ids),
+        # fact properties: START_DATE goes on the fact
+        _tool_call_response("add_fact_property_value", {
+            "fact_id": None, "property_id": ids["start"], "value": "1998-06",
+            "literal_type": "DATE", "text": text,
+        }),
+        _text_response("done"),
+        _text_response("done"),   # entity properties — prompt captured below
+    )
+    # The fact id isn't known until add_fact runs, so patch it in at dispatch.
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        engine = kb._extraction
+        original = engine._dispatch_tool
+
+        async def _fill_fact_id(database, fn, args, source_id, source_text):
+            if fn == "add_fact_property_value" and args.get("fact_id") is None:
+                args["fact_id"] = kb.match_nodes("test", label="FACT")[0]["id"]
+            return await original(database, fn, args, source_id, source_text)
+
+        with patch.object(engine, "_dispatch_tool", _fill_fact_id):
+            await kb.import_text("test", text, expand_schema=False)
+
+    entity_prop_prompt = factory.return_value.chat.completions.create.call_args_list[8].kwargs["messages"][0]["content"]
+    assert "Stage: entity property extraction" in entity_prop_prompt
+    # the facts it did not have before
+    assert f"Alice (PERSON, id={ids['alice']}) —WORKED_AT→ IBM" in entity_prop_prompt
+    # and what the fact stage already claimed
+    assert "(Alice —WORKED_AT→ IBM).START_DATE = 1998-06" in entity_prop_prompt
+
+
+async def test_fact_property_stage_prompt_carries_entities_and_facts(kb):
+    ids = await _alice_at_ibm(kb)
+
+    responses = _mock_openai_sequence(
+        *_through_relations(ids),
+        _text_response("done"),   # fact properties
+        _text_response("done"),   # entity properties
+    )
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Alice joined IBM.", expand_schema=False)
+
+    prompt = factory.return_value.chat.completions.create.call_args_list[6].kwargs["messages"][0]["content"]
+    assert "Stage: fact property extraction" in prompt
+    assert f"id={ids['alice']}  Alice (PERSON)" in prompt
+    assert f"id={ids['ibm']}  IBM (COMPANY)" in prompt
+    assert f"Alice (PERSON, id={ids['alice']}) —WORKED_AT→ IBM (COMPANY, id={ids['ibm']})" in prompt
+
+
+async def test_single_pass_prompt_carries_no_prior_extraction_block(kb):
+    """effort="low" must read exactly as it did before the carry existed."""
+    await _alice_at_ibm(kb)
+
+    responses = _mock_openai_sequence(*[_text_response("done")] * 4)
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Some text.", expand_schema=False, effort="low")
+
+    for call in factory.return_value.chat.completions.create.call_args_list:
+        assert "Already extracted from this text by earlier passes" not in call.kwargs["messages"][0]["content"]
+
+
+async def test_second_pass_inherits_what_the_first_pass_resolved(kb):
+    ids = await _alice_at_ibm(kb)
+
+    responses = _mock_openai_sequence(
+        *_through_relations(ids),
+        _text_response("done"),   # pass 1 fact properties
+        _text_response("done"),   # pass 1 entity properties
+        _text_response("done"),   # pass 2 entities — prompt captured below
+        _text_response("done"), _text_response("done"), _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Alice joined IBM.", expand_schema=False, effort="medium")
+
+    pass2_first = factory.return_value.chat.completions.create.call_args_list[8].kwargs["messages"][0]["content"]
+    assert "Already extracted from this text by earlier passes" in pass2_first
+    assert f"id={ids['alice']}  Alice (PERSON)" in pass2_first
+    assert "Alice (PERSON" in pass2_first and "—WORKED_AT→ IBM" in pass2_first
+
+
+async def test_carried_context_is_per_chunk_not_shared_across_chunks(kb):
+    """Concurrent chunks must not be told an entity exists because another
+    chunk is midway through creating it — the same reason the dispatch lock
+    can't make cross-chunk extraction race-free."""
+    await _alice_at_ibm(kb)
+    text = "Alice joined IBM.\n\nBob joined ACME."
+
+    responses = _mock_openai_endless(_text_response("done"))[0]
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", text, expand_schema=False, max_concurrency=2)
+
+    for call in factory.return_value.chat.completions.create.call_args_list:
+        assert "Already extracted from this text by earlier passes" not in call.kwargs["messages"][0]["content"]
+
+
+def test_property_value_rendering_labels_entity_and_fact_owners():
+    from blue_data_kb_source.extraction.engine import _render_property_values
+
+    rendered = _render_property_values([
+        {"id": "l1", "owner_label": "Alice", "property_name": "AGE", "value": "28"},
+        {"id": "l2", "owner_label": "(Alice —WORKED_AT→ IBM)", "property_name": "START_DATE", "value": "1998-06"},
+    ])
+    assert "- Alice.AGE = 28" in rendered
+    assert "- (Alice —WORKED_AT→ IBM).START_DATE = 1998-06" in rendered
+
+
+def test_extraction_context_extend_dedupes_by_id():
+    from blue_data_kb_source.extraction.engine import _ExtractionContext
+
+    ctx = _ExtractionContext()
+    assert ctx.is_empty()
+    ctx.extend("entities", [{"id": "e1", "name": "Alice"}, {"id": "e2", "name": "IBM"}])
+    ctx.extend("entities", [{"id": "e2", "name": "IBM"}, {"id": "e3", "name": "ACME"}])
+    assert [e["id"] for e in ctx.entities] == ["e1", "e2", "e3"]
+    assert not ctx.is_empty()
+
+
+def test_extraction_context_snapshot_does_not_alias_the_live_context():
+    from blue_data_kb_source.extraction.engine import _ExtractionContext
+
+    ctx = _ExtractionContext()
+    ctx.extend("entities", [{"id": "e1"}])
+    snap = ctx.snapshot()
+    ctx.extend("entities", [{"id": "e2"}])
+    assert [e["id"] for e in snap.entities] == ["e1"]

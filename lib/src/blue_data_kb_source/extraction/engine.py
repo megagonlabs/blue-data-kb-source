@@ -3,11 +3,19 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Literal
 
 from blue_data.source.graph.graph_source import GraphSource
 
-from blue_data_kb_source._constants import CLASS, ENTITY, FACT
+from blue_data_kb_source._constants import (
+    CLASS,
+    ENTITY,
+    FACT,
+    HAS_PROPERTY,
+    IS_VALUE_OF,
+    LITERAL,
+)
 from blue_data_kb_source.knowledge.helpers import entity_classes, fact_parts, node_name
 from blue_data_kb_source.resolution.resolver import NodeResolver
 from blue_data_kb_source.types import DataSearchResult, ExtractionError
@@ -247,7 +255,7 @@ these are hints from a keyword/semantic match, not confirmed — always verify
 with find_entity/find_fact before reusing one, exactly as you would for any
 other candidate):
 {related_data}
-
+{prior_extraction}
 Extraction queries:
 {queries}
 
@@ -269,9 +277,14 @@ STAGE_RELATIONS = "relations"
 STAGE_ENTITY_PROPERTIES = "entity_properties"
 STAGE_FACT_PROPERTIES = "fact_properties"
 
+# Fact properties run *before* entity properties: both stages re-scan the same
+# text for attribute values, and where a PROPERTY is declared on both a class
+# and a relation the first stage to claim a value keeps it. The fact is the
+# more specific owner (a START_DATE belongs to the employment, not the person),
+# so it gets first claim, and the entity stage is shown what it took.
 STAGES = (
     STAGE_ENTITIES, STAGE_ENTITY_GAPS,
-    STAGE_RELATIONS, STAGE_ENTITY_PROPERTIES, STAGE_FACT_PROPERTIES,
+    STAGE_RELATIONS, STAGE_FACT_PROPERTIES, STAGE_ENTITY_PROPERTIES,
 )
 
 # ------------------------------------------------------------------ #
@@ -368,28 +381,51 @@ link_extraction with its id and the new text span instead of add_fact.
 Otherwise call add_fact.\
 """,
     STAGE_ENTITY_PROPERTIES: """\
-Stage: entity property extraction. Entities were already resolved in a prior
-stage — never invent an entity that isn't in the list below.
+Stage: entity property extraction. Entities and facts were both already
+resolved in prior stages — never invent an entity that isn't in the list
+below.
 
 Entities already resolved for this text (id, name, class):
 {entities}
 
-For each attribute value the text states about one of the entities above:
+Facts already resolved for this text (id, head, relation, tail):
+{facts}
+
+Property values the fact stage already attached to those facts:
+{fact_properties}
+
+For each attribute value the text states about one of the *entities* above:
 find the PROPERTY on its class via search_schema. If no matching PROPERTY
 exists, skip this value. Otherwise call add_entity_property_value using the
-entity_id from the list above.\
+entity_id from the list above.
+
+Two limits on what counts. First, a value that describes a relationship
+rather than an entity has already been handled — the list above shows what
+the fact stage took, and none of it should be re-attached here. Second, only
+extract a value the text actually states about the entity itself: never infer
+one from world knowledge, from the entity's name, or from what is typical. If
+the text does not state it, skip it.\
 """,
     STAGE_FACT_PROPERTIES: """\
-Stage: fact property extraction. Facts were already resolved in a prior
-stage — never invent a fact that isn't in the list below.
+Stage: fact property extraction. Entities and facts were both already
+resolved in prior stages — never invent one that isn't in the lists below.
+
+Entities already resolved for this text (id, name, class):
+{entities}
 
 Facts already resolved for this text (id, head, relation, tail):
 {facts}
 
-For each attribute value the text states about one of the facts above: find
+For each attribute value the text states about one of the *facts* above: find
 the PROPERTY on its relation via search_schema. If no matching PROPERTY
 exists, skip this value. Otherwise call add_fact_property_value using the
-fact_id from the list above.\
+fact_id from the list above.
+
+A value that describes the relationship belongs here — when it began, how
+long it ran, what it was worth, what role it was held under. A value that
+describes one of the entities on its own — an age, a nationality, a founding
+year — does not; leave it, the next stage attaches those. The entity list is
+here to help you tell the two apart, not to attach values to.\
 """,
 }
 
@@ -435,11 +471,87 @@ def _render_resolved_entities(entities: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def _endpoint(name: str, class_name: str | None, node_id: str) -> str:
+    qualifier = f"{class_name}, id={node_id}" if class_name else f"id={node_id}"
+    return f"{name} ({qualifier})"
+
+
 def _render_resolved_facts(facts: list[dict[str, Any]]) -> str:
+    """Facts with each endpoint's class and id, so a stage given both this and
+    the entity list can line the two up without matching on bare names."""
     if not facts:
         return "(none resolved in this pass)"
-    lines = [f"- id={f['id']}  {f['head_name']} —{f['relation_name']}→ {f['tail_name']}" for f in facts]
+    lines = []
+    for f in facts:
+        head = _endpoint(f["head_name"], f.get("head_class"), f["head_id"])
+        tail = _endpoint(f["tail_name"], f.get("tail_class"), f["tail_id"])
+        lines.append(f"- id={f['id']}  {head} —{f['relation_name']}→ {tail}")
     return "\n".join(lines)
+
+
+def _render_property_values(values: list[dict[str, Any]]) -> str:
+    if not values:
+        return "(none attached in this pass)"
+    return "\n".join(
+        f"- {v['owner_label']}.{v['property_name']} = {v['value']}" for v in values
+    )
+
+
+@dataclass
+class _ExtractionContext:
+    """What the pipeline has resolved so far — accumulated across the stages of
+    a pass and, when `effort` runs more than one, across the passes of a chunk.
+
+    Each chunk owns its own instance; chunks deliberately do not share one, for
+    the same reason the dispatch lock can't make them race-free (see
+    `import_text`) — a chunk must not be told an entity exists because a
+    concurrently-running chunk is halfway through creating it.
+    """
+
+    entities: list[dict[str, Any]] = field(default_factory=list)
+    facts: list[dict[str, Any]] = field(default_factory=list)
+    entity_properties: list[dict[str, Any]] = field(default_factory=list)
+    fact_properties: list[dict[str, Any]] = field(default_factory=list)
+
+    def is_empty(self) -> bool:
+        return not (self.entities or self.facts or self.entity_properties or self.fact_properties)
+
+    def snapshot(self) -> _ExtractionContext:
+        """A copy, so a pass can render what it inherited while still adding to
+        the live context as its own stages resolve things."""
+        return _ExtractionContext(
+            entities=list(self.entities), facts=list(self.facts),
+            entity_properties=list(self.entity_properties),
+            fact_properties=list(self.fact_properties),
+        )
+
+    def extend(self, field_name: str, items: list[dict[str, Any]]) -> None:
+        current = getattr(self, field_name)
+        seen = {i["id"] for i in current}
+        current.extend(i for i in items if i["id"] not in seen)
+
+
+def _render_prior_extraction(ctx: _ExtractionContext) -> str:
+    """The cross-pass carry block. Empty (and absent from the prompt entirely)
+    on the first pass, so a single-pass run reads exactly as it did before."""
+    if ctx.is_empty():
+        return ""
+    sections = []
+    if ctx.entities:
+        sections.append("Entities:\n" + _render_resolved_entities(ctx.entities))
+    if ctx.facts:
+        sections.append("Facts:\n" + _render_resolved_facts(ctx.facts))
+    if ctx.fact_properties:
+        sections.append("Fact property values:\n" + _render_property_values(ctx.fact_properties))
+    if ctx.entity_properties:
+        sections.append("Entity property values:\n" + _render_property_values(ctx.entity_properties))
+    body = "\n\n".join(sections)
+    return (
+        "\nAlready extracted from this text by earlier passes — this is what is\n"
+        "already in the KB for this text, so do not re-extract it. Look for what\n"
+        "these passes missed instead:\n\n"
+        f"{body}\n"
+    )
 
 
 def _describe_source(node: dict[str, Any] | None) -> str:
@@ -592,11 +704,15 @@ class ExtractionEngine:
         write_lock = asyncio.Lock()
 
         async def run_chunk(chunk_text: str) -> None:
+            # One context per chunk, carried from pass to pass: pass 2 is shown
+            # what pass 1 resolved instead of only being told that it ran.
+            carried = _ExtractionContext()
             for pass_num in range(1, total_passes + 1):
                 await self._run_pipeline_pass(
                     database, client, chunk_text, queries, model, source_id,
                     on_tool_call, on_tool_result, max_turns, related_data_k,
                     pass_num=pass_num, total_passes=total_passes, write_lock=write_lock,
+                    carried=carried,
                 )
 
         await asyncio.gather(*(run_chunk(c) for c in chunks))
@@ -616,8 +732,13 @@ class ExtractionEngine:
         pass_num: int,
         total_passes: int,
         write_lock: asyncio.Lock,
+        carried: _ExtractionContext,
     ) -> None:
-        """One full run of the 4-stage pipeline over `text`."""
+        """One full run of the staged pipeline over `text`.
+
+        `carried` accumulates what every stage resolves and is shared across the
+        passes of this chunk, so a later pass inherits it as prompt context.
+        """
         schema_str = (await self._schema.fetch_database_schema(database)).to_str(simplified=True)
         queries_str = (
             "\n".join(f"- {q}" for q in queries)
@@ -641,10 +762,15 @@ class ExtractionEngine:
         else:
             pass_note_str = _LATER_PASS_NOTE_TEMPLATE.format(pass_num=pass_num, total_passes=total_passes)
 
+        # Snapshotted before any stage runs, so every stage of this pass sees the
+        # same inherited context while `carried` keeps growing underneath it.
+        inherited_str = _render_prior_extraction(carried.snapshot())
+
         def build_prompt(workflow: str) -> str:
             return _SYSTEM_PROMPT_TEMPLATE.format(
                 workflow=workflow, schema=schema_str, queries=queries_str,
                 source=source_str, related_data=related_data_str, pass_note=pass_note_str,
+                prior_extraction=inherited_str,
             )
 
         classes = self._schema_classes(database)
@@ -680,6 +806,7 @@ class ExtractionEngine:
                 text=text,
             )
             entities = _merge_entities(entities, self._resolved_entities(database, gap_calls))
+        carried.extend("entities", entities)
 
         relation_calls = await self._run_stage(
             database, client, model, max_turns, source_id, on_tool_call, on_tool_result, write_lock,
@@ -690,24 +817,41 @@ class ExtractionEngine:
             text=text,
         )
         facts = self._resolved_facts(database, relation_calls)
+        carried.extend("facts", facts)
 
-        await self._run_stage(
-            database, client, model, max_turns, source_id, on_tool_call, on_tool_result, write_lock,
-            tools=_tools_for(STAGE_ENTITY_PROPERTIES),
-            system_prompt=build_prompt(
-                _STAGE_WORKFLOWS[STAGE_ENTITY_PROPERTIES].format(entities=_render_resolved_entities(entities))
-            ),
-            text=text,
-        )
+        entities_str = _render_resolved_entities(entities)
+        facts_str = _render_resolved_facts(facts)
 
-        await self._run_stage(
+        # Fact properties before entity properties — see the STAGES comment.
+        fact_property_calls = await self._run_stage(
             database, client, model, max_turns, source_id, on_tool_call, on_tool_result, write_lock,
             tools=_tools_for(STAGE_FACT_PROPERTIES),
             system_prompt=build_prompt(
-                _STAGE_WORKFLOWS[STAGE_FACT_PROPERTIES].format(facts=_render_resolved_facts(facts))
+                _STAGE_WORKFLOWS[STAGE_FACT_PROPERTIES].format(
+                    entities=entities_str, facts=facts_str,
+                )
             ),
             text=text,
         )
+        fact_properties = self._resolved_property_values(
+            database, fact_property_calls, "add_fact_property_value"
+        )
+        carried.extend("fact_properties", fact_properties)
+
+        entity_property_calls = await self._run_stage(
+            database, client, model, max_turns, source_id, on_tool_call, on_tool_result, write_lock,
+            tools=_tools_for(STAGE_ENTITY_PROPERTIES),
+            system_prompt=build_prompt(
+                _STAGE_WORKFLOWS[STAGE_ENTITY_PROPERTIES].format(
+                    entities=entities_str, facts=facts_str,
+                    fact_properties=_render_property_values(fact_properties),
+                )
+            ),
+            text=text,
+        )
+        carried.extend("entity_properties", self._resolved_property_values(
+            database, entity_property_calls, "add_entity_property_value"
+        ))
 
     async def _run_stage(
         self,
@@ -847,9 +991,59 @@ class ExtractionEngine:
                 continue
             resolved.append({
                 "id": fid,
+                "head_id": head["id"],
                 "head_name": node_name(head),
+                "head_class": self._first_class_name(database, head["id"]),
                 "relation_name": node_name(relation),
+                "tail_id": tail["id"],
                 "tail_name": node_name(tail),
+                "tail_class": self._first_class_name(database, tail["id"]),
+            })
+        return resolved
+
+    def _first_class_name(self, database: str, entity_id: str) -> str | None:
+        classes = entity_classes(self._source, database, entity_id)
+        return node_name(classes[0]) if classes else None
+
+    def _owner_label(self, database: str, node: dict[str, Any]) -> str:
+        """How a property value's owner is named in a prompt: a bare entity
+        name, or a fact spelled out as (head —relation→ tail)."""
+        if node.get("label") != FACT:
+            return node_name(node)
+        parts = fact_parts(self._source, database, node["id"])
+        head, relation, tail = parts["head"], parts["relation"], parts["tail"]
+        if head is None or relation is None or tail is None:
+            return node_name(node)
+        return f"({node_name(head)} —{node_name(relation)}→ {node_name(tail)})"
+
+    def _resolved_property_values(
+        self, database: str, calls: list[tuple[str, dict[str, Any], Any]], add_tool: str
+    ) -> list[dict[str, Any]]:
+        """Property values the stage touched: created via *add_tool*, or
+        re-linked via link_extraction. Mirrors _resolved_entities/_resolved_facts,
+        except the owner and property have to be walked back from the LITERAL."""
+        ids: set[str] = set()
+        for name, args, result in calls:
+            if name == add_tool and isinstance(result, dict) and result.get("id"):
+                ids.add(result["id"])
+            elif name == "link_extraction" and args.get("element_id"):
+                ids.add(args["element_id"])
+        resolved = []
+        for lid in ids:
+            node = self._source.get_node(database, lid)
+            # link_extraction also re-links entities and facts; only literals here.
+            if node is None or node.get("label") != LITERAL:
+                continue
+            owners = self._source.get_neighbors(database, lid, edge_type=HAS_PROPERTY, direction="in")
+            props = self._source.get_neighbors(database, lid, edge_type=IS_VALUE_OF, direction="out")
+            if not owners or not props:
+                continue
+            resolved.append({
+                "id": lid,
+                "owner_id": owners[0]["node"]["id"],
+                "owner_label": self._owner_label(database, owners[0]["node"]),
+                "property_name": node_name(props[0]["node"]),
+                "value": node.get("properties", {}).get("value"),
             })
         return resolved
 
