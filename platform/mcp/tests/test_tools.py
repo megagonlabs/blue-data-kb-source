@@ -366,22 +366,44 @@ async def test_expand_schema_declares_class():
 # Extraction (mocked OpenAI)
 # ---------------------------------------------------------------------------
 
+def _mock_openai_endless_done():
+    """A client that answers every call with a no-tool-calls turn.
+
+    Extraction is a multi-stage pipeline whose stage count is free to change, so
+    a fixed-length response sequence pins the test to today's number and breaks
+    the next time a stage is added or removed.
+    """
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(
+        side_effect=lambda *a, **k: _text_response("done")
+    )
+    return MagicMock(return_value=mock_client)
+
+
+def _schema_expansion_prompts(factory):
+    """System prompts belonging to the schema-expansion agent."""
+    return [
+        call.kwargs["messages"][0]["content"]
+        for call in factory.return_value.chat.completions.create.call_args_list
+        if "schema expansion agent" in call.kwargs["messages"][0]["content"]
+    ]
+
+
 async def test_import_text_completes_with_no_tool_calls():
-    factory = _mock_openai_sequence(_text_response("done"))
+    factory = _mock_openai_endless_done()
     with patch("openai.AsyncOpenAI", factory):
         result = json.loads(await import_text("Some text.", expand_schema=False, database=DB))
     assert result["status"] == "ok"
+    # expand_schema=False, so the expansion agent must not have run.
+    assert not _schema_expansion_prompts(factory)
 
 
 async def test_import_text_default_also_runs_schema_expansion():
-    # expand_schema=True (default) means the mocked client is called twice —
-    # once for expand_schema, once for extraction — both ending immediately
-    # with no tool calls.
-    factory = _mock_openai_sequence(_text_response("done"), _text_response("done"))
+    factory = _mock_openai_endless_done()
     with patch("openai.AsyncOpenAI", factory):
         result = json.loads(await import_text("Some text.", database=DB))
     assert result["status"] == "ok"
-    assert factory.return_value.chat.completions.create.call_count == 2
+    assert _schema_expansion_prompts(factory)
 
 
 # ---------------------------------------------------------------------------
@@ -391,3 +413,64 @@ async def test_import_text_default_also_runs_schema_expansion():
 async def test_add_source_returns_id():
     result = json.loads(await add_source("doc2", name="Doc 2", original="2021-05-01", database=DB))
     assert "id" in result
+
+
+# ---------------------------------------------------------------------------
+# Configuration naming — shared with the `kb` CLI
+# ---------------------------------------------------------------------------
+
+def test_model_resolution_matches_the_cli_precedence(monkeypatch):
+    """Function-specific > KB-wide > family-wide > built-in default, the same
+    chain the CLI resolves from its profile."""
+    from blue_data_kb_mcp.config import model_for
+
+    for var in ("BLUE_DATA_LLM_MODEL", "BLUE_DATA_KB_SOURCE_LLM_MODEL",
+                "BLUE_DATA_KB_SOURCE_EXTRACTION_LLM_MODEL"):
+        monkeypatch.delenv(var, raising=False)
+    assert model_for("EXTRACTION") == "gpt-4o"
+
+    monkeypatch.setenv("BLUE_DATA_LLM_MODEL", "family")
+    assert model_for("EXTRACTION") == "family"
+
+    monkeypatch.setenv("BLUE_DATA_KB_SOURCE_LLM_MODEL", "kb-wide")
+    assert model_for("EXTRACTION") == "kb-wide"
+    assert model_for("QUERY") == "kb-wide"
+
+    monkeypatch.setenv("BLUE_DATA_KB_SOURCE_EXTRACTION_LLM_MODEL", "extraction-only")
+    assert model_for("EXTRACTION") == "extraction-only"
+    assert model_for("QUERY") == "kb-wide"
+
+
+def test_every_variable_this_server_reads_is_a_name_the_cli_also_uses():
+    """The two are configured independently — this server never reads a profile —
+    but a variable must mean the same thing in both. Anything here that the CLI
+    does not also know is a name that has drifted."""
+    import json
+    import re
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[1] / "src" / "blue_data_kb_mcp"
+    used = set()
+    for f in src.glob("*.py"):
+        used |= set(re.findall(r"BLUE_DATA_KB_SOURCE_[A-Z0-9_]+", f.read_text()))
+
+    spec_path = (
+        Path(__file__).resolve().parents[3]
+        / "platform" / "cli" / "src" / "blue_data_kb_cli" / "profile_spec.json"
+    )
+    known = set(json.loads(spec_path.read_text()))
+    # Per-database backend settings are configured by `kb database register`
+    # flags rather than by a profile parameter, so they have no spec entry —
+    # the flag name is the CLI's counterpart and is checked by review, not here.
+    backend_only = {
+        "BLUE_DATA_KB_SOURCE_GRAPH_BACKEND",
+        "BLUE_DATA_KB_SOURCE_SEARCH",
+        "BLUE_DATA_KB_SOURCE_BM25_INDEX_DIR",
+        "BLUE_DATA_KB_SOURCE_VECTOR_BACKEND",
+        "BLUE_DATA_KB_SOURCE_EMBEDDING_MODEL",
+        "BLUE_DATA_KB_SOURCE_NEO4J_URI",
+        "BLUE_DATA_KB_SOURCE_NEO4J_USER",
+        "BLUE_DATA_KB_SOURCE_NEO4J_PASSWORD",
+    }
+    drifted = used - known - backend_only
+    assert not drifted, f"MCP reads variables the CLI does not know: {sorted(drifted)}"

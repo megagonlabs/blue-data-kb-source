@@ -723,7 +723,7 @@ surfaces to MCP clients — `platform/mcp/src/blue_data_kb_mcp/server.py`).
 
 ## 4. CLI
 
-Built with Click (argument parsing) and Rich (output). All commands are thin wrappers over the Python library; Click handlers use `asyncio.run()` to call async library methods (`platform/cli/src/blue_data_kb_cli/commands.py`). Per-database configuration (graph backend, search) is stored in `{KBDB_DATA_DIR}/registry.json` (default `~/.kbdb/`), managed by `platform/cli/src/blue_data_kb_cli/config.py`.
+Built with Click (argument parsing) and Rich (output). All commands are thin wrappers over the Python library; Click handlers use `asyncio.run()` to call async library methods (`platform/cli/src/blue_data_kb_cli/commands.py`). Per-database configuration (graph backend, search) is stored in `{BLUE_DATA_KB_SOURCE_DATA_DIR}/registry.json` (default `~/.kbdb/`), managed by `platform/cli/src/blue_data_kb_cli/config.py`. Everything else — data directory, default database, LLM models, extraction defaults, API keys — comes from the selected profile in `~/.kbdb/.profiles`, via `kb profile` (`platform/cli/src/blue_data_kb_cli/profile.py`) over the shared `blue_data.utils.config` engine.
 
 ### Global options
 
@@ -733,7 +733,8 @@ kb [--database DB] GROUP [SUBGROUP] COMMAND [OPTIONS]
 
 | Option | Description |
 |--------|-------------|
-| `--database DB` | Target database. Overrides `KBDB_DATABASE` if set; otherwise falls back to the database last chosen with `kb database select`, or `"default"`. Auto-created (file-backed) on first use if not already registered. |
+| `--profile NAME` | Configuration profile. Overrides `BLUE_DATA_PROFILE`; otherwise the profile last chosen with `kb profile select`, or `"default"`. |
+| `--database DB` | Target database. Falls back to the database last chosen with `kb database select`, then the profile's `BLUE_DATA_KB_SOURCE_DATABASE`, then `"default"`. Auto-created (file-backed) on first use if not already registered. |
 
 ---
 

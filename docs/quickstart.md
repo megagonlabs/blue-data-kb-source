@@ -9,7 +9,7 @@ cd ../platform/cli && bash scripts/install.sh
 
 ## 1. Create a database
 
-Databases persist as JSON files under `~/.kbdb/` by default (override with `export KBDB_DATA_DIR=/path/to/dir`).
+Databases persist as JSON files under `~/.kbdb/` by default (override with `export BLUE_DATA_KB_SOURCE_DATA_DIR=/path/to/dir`, or `kb profile config BLUE_DATA_KB_SOURCE_DATA_DIR /path/to/dir`).
 
 ```bash
 kb database create main
@@ -66,12 +66,16 @@ kb data list
 
 ## 5. Ask questions (needs `OPENAI_API_KEY`)
 
+Store the key in your profile once, rather than exporting it in every shell — it is written to `~/.kbdb/.profiles` (mode `0600`) and never echoed back:
+
 ```bash
-export OPENAI_API_KEY=sk-...
+kb profile config OPENAI_API_KEY        # prompts; enter the key, or $OPENAI_API_KEY to reference the variable
 
 kb data answer "Where did Alice work?"
 kb data validate "Alice worked at IBM"
 ```
+
+An exported `OPENAI_API_KEY` still works and takes precedence. See [cli.md](cli.md#profiles-and-configuration) for the full parameter list.
 
 `answer`/`validate` run an LLM agent that searches and traverses the graph — no query language to learn. Add `--include-metadata` to also see when each fact was added and what it was extracted from.
 

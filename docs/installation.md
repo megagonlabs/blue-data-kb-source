@@ -115,14 +115,24 @@ The library's benchmark suites (`lib/tests/benchmarks/`) are separate from the d
 
 ## Environment variables
 
-Directory locations and search/embedding configuration are set via environment variables — there is no separate config file for either the CLI or the MCP server (the MCP server does not read the CLI's registry; see [mcp.md](mcp.md#architecture)).
+**The CLI** keeps its configuration in a profile — `~/.kbdb/.profiles`, managed with `kb profile config` — so nothing below needs exporting in normal use:
+
+```bash
+kb profile config          # walk through the required parameters
+kb profile inspect         # every value, and which tier set it
+```
+
+Exporting a variable directly still overrides the profile, which is the documented precedence: **command option > environment variable > profile > default**. The full parameter table is in [cli.md](cli.md#profiles-and-configuration).
+
+**The MCP server** has no profile support and is configured purely by environment variables. It does not read the CLI's registry or profiles; see [mcp.md](mcp.md#architecture).
 
 | Variable | Used by | Purpose |
 |---|---|---|
-| `OPENAI_API_KEY` | lib, CLI, MCP | Required for any LLM operation |
-| `KBDB_DATA_DIR` | CLI | Directory for `registry.json` and file-backed databases (default `~/.kbdb`) |
-| `KBDB_DATABASE` | CLI | Default `--database` when not passed explicitly |
-| `BLUE_DATA_KB_SOURCE_*` | MCP server | Full table in [mcp.md](mcp.md#configuration-reference) |
+| `OPENAI_API_KEY` | lib, CLI, MCP | Required for any LLM operation. For the CLI, set it in a profile (`kb profile config OPENAI_API_KEY`) rather than exporting it |
+| `BLUE_DATA_KB_SOURCE_HOME` | CLI | Where the CLI keeps `.profiles`, `.selected.profile` and `.selected.database` (default `~/.kbdb`). Environment-only — it is where profiles are read from, so it cannot come from one |
+| `BLUE_DATA_KB_SOURCE_DATA_DIR` | CLI | Directory for `registry.json` and file-backed databases (default `~/.kbdb`) |
+| `BLUE_DATA_KB_SOURCE_DATABASE` | CLI | Default `--database` when not passed explicitly and no `kb database select` has been made |
+| `BLUE_DATA_KB_SOURCE_*` | MCP server | The same names as the CLI's, read from the environment only — the MCP server has no profile support. Full table in [mcp.md](mcp.md#configuration-reference) |
 
 ---
 

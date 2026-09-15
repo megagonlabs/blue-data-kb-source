@@ -145,6 +145,6 @@ Stores all schema and instance data as a typed graph of nodes and edges. The sto
 
 **Memory** — In-process graph store. Used for development, testing, and short-lived pipelines where persistence is not required.
 
-**File** — JSON-file-backed graph store, one file per database. The default backend for the CLI, persisting databases under `~/.kbdb/` (or `KBDB_DATA_DIR`) without requiring an external database server.
+**File** — JSON-file-backed graph store, one file per database. The default backend for the CLI, persisting databases under `~/.kbdb/` (or the profile's `BLUE_DATA_KB_SOURCE_DATA_DIR`) without requiring an external database server.
 
 **Neo4j** — Persistent graph database backend. Used for production deployments where the knowledge base must survive process restarts and support concurrent access.

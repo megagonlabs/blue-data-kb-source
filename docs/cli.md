@@ -46,7 +46,7 @@ For the default `file` graph backend, data is automatically persisted as a JSON 
 `FileGraphSource` saves after every write operation, so IDs returned by one command can be safely passed to the next. Override the data directory:
 
 ```bash
-export KBDB_DATA_DIR=/path/to/my-kbdb
+export BLUE_DATA_KB_SOURCE_DATA_DIR=/path/to/my-kbdb   # or: kb profile config BLUE_DATA_KB_SOURCE_DATA_DIR /path/to/my-kbdb
 ```
 
 ## Registering a database
@@ -88,13 +88,88 @@ kb --database main database search config show
 kb --database main data reindex
 ```
 
-## Global option
+## Global options
 
 ```
-kb [--database DB] COMMAND
+kb [--profile NAME] [--database DB] COMMAND
 ```
 
-`--database` selects the target database. The default is read from `~/.kbdb/.selected.database` (written by `kb database select`); if that file does not exist the database named `"default"` is used. Override for a single command with `--database`, or set `KBDB_DATABASE` to make it the environment-level default.
+`--profile` selects the configuration profile; `--database` selects the target database.
+
+`--database` defaults to `~/.kbdb/.selected.database` (written by `kb database select`); if that file does not exist, the profile's `BLUE_DATA_KB_SOURCE_DATABASE` is used, then the database named `"default"`. Precedence is `--database` > `kb database select` > profile > `"default"`.
+
+## Profiles and configuration
+
+A **profile** is a named set of configuration values — API keys, models, directories — stored as one section of `~/.kbdb/.profiles`. Everything the CLI reads comes from the selected profile, so switching environments is one command rather than a shell full of exports.
+
+```bash
+$ kb profile add staging
+$ kb profile select staging
+$ kb profile config                     # walk through the required parameters
+$ kb profile inspect                    # every value, and where it came from
+```
+
+### Setting values
+
+`kb profile config` has three forms:
+
+```bash
+kb profile config                                  # prompt for every required parameter
+kb profile config BLUE_DATA_LLM_MODEL              # prompt for one
+kb profile config BLUE_DATA_LLM_MODEL gpt-4o       # set one directly
+```
+
+Add `--profile NAME` to configure a profile other than the selected one.
+
+### Precedence
+
+**command option > environment variable > profile > default**
+
+`kb profile inspect` reports the winning tier for every parameter, so a surprising value can be traced to whatever set it.
+
+### Secrets
+
+Secrets are never accepted as a command-line value — that would put them in your shell history — so `kb profile config OPENAI_API_KEY` always prompts. Two forms are accepted:
+
+```bash
+$ kb profile config OPENAI_API_KEY
+  value: sk-svcacct-...        # stored encoded in ~/.kbdb/.profiles
+$ kb profile config OPENAI_API_KEY
+  value: $OPENAI_API_KEY       # stored as a reference; read from the environment at use
+```
+
+`~/.kbdb/.profiles` is written `0600`, and `kb profile inspect` masks stored secrets. A reference is shown by name with whether it currently resolves (`$OPENAI_API_KEY (set)`), which tells you what to export without revealing anything.
+
+> The encoded form is obfuscation, not encryption — it keeps a key off your screen and out of a careless `grep`, and anyone who can read the file can decode it. The file mode is the real protection. Where that is not enough, use the `$VAR` reference form so the secret never touches disk.
+
+### Parameters
+
+| Parameter | Cast | Default | Asked by `config` |
+|---|---|---|---|
+| `OPENAI_API_KEY` | secret | — | ✓ |
+| `ANTHROPIC_API_KEY` | secret | — | |
+| `BLUE_DATA_LLM_PROVIDER` | str | `openai` | |
+| `BLUE_DATA_LLM_MODEL` | str | `gpt-4o` | ✓ |
+| `BLUE_DATA_CLI_FORMAT` | str | `table` | |
+| `BLUE_DATA_CLI_LOG_LIMIT` | int | `80` | |
+| `BLUE_DATA_KB_SOURCE_DATA_DIR` | directory | `~/.kbdb` | ✓ |
+| `BLUE_DATA_KB_SOURCE_DATABASE` | str | `default` | ✓ |
+| `BLUE_DATA_KB_SOURCE_LLM_MODEL` | str | *inherits* | |
+| `BLUE_DATA_KB_SOURCE_EXTRACTION_LLM_MODEL` | str | *inherits* | |
+| `BLUE_DATA_KB_SOURCE_QUERY_LLM_MODEL` | str | *inherits* | |
+| `BLUE_DATA_KB_SOURCE_VALIDATION_LLM_MODEL` | str | *inherits* | |
+| `BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_LLM_MODEL` | str | *inherits* | |
+| `BLUE_DATA_KB_SOURCE_INGESTION_LLM_MODEL` | str | *inherits* | |
+| `BLUE_DATA_KB_SOURCE_ASSERTION_LLM_MODEL` | str | *inherits* | |
+| `BLUE_DATA_KB_SOURCE_EXTRACTION_EFFORT` | str | `low` | |
+| `BLUE_DATA_KB_SOURCE_EXTRACTION_MAX_CONCURRENCY` | int | `1` | |
+| `BLUE_DATA_KB_SOURCE_EXTRACTION_MAX_TURNS` | int | `25` | |
+| `BLUE_DATA_KB_SOURCE_EXTRACTION_RELATED_DATA_K` | int | `10` | |
+| `BLUE_DATA_KB_SOURCE_EXTRACTION_EXPAND_SCHEMA` | bool | `true` | |
+
+Each per-function model falls back to `BLUE_DATA_KB_SOURCE_LLM_MODEL`, then to `BLUE_DATA_LLM_MODEL` — so setting one value covers every command, and a single function can still be pinned to a different model.
+
+`BLUE_DATA_KB_SOURCE_HOME` (default `~/.kbdb`) is deliberately *not* a profile parameter: it is the directory the profiles themselves live in, so it can only be set in the environment.
 
 ## Walkthrough
 
@@ -265,6 +340,12 @@ Shared `ASSERT_OPTS` on every `assert` command and `kb data ingest`: `[--descrip
 
 | Command | Description |
 |---|---|
+| `kb profile add NAME` | Create a profile |
+| `kb profile remove NAME [--confirm]` | Delete a profile and its configuration |
+| `kb profile list [--format table\|json]` | List profiles, marking the selected one |
+| `kb profile select NAME` | Make a profile the default for subsequent commands |
+| `kb profile inspect [NAME] [--format table\|json]` | Show every configuration value and the tier it came from; secrets masked |
+| `kb profile config [PARAM [VALUE]] [--profile NAME]` | Set configuration: no args walks the required parameters, PARAM prompts for one, PARAM VALUE sets it directly. Secrets always prompt |
 | `kb database list [--format table\|json]` | List registered databases with backend and search mode |
 | `kb database register NAME [options]` | Register a new database with graph and search backends |
 | `kb database create NAME` | Create a database (auto-registers with file defaults) |
@@ -351,9 +432,9 @@ Shared `ASSERT_OPTS` on every `assert` command and `kb data ingest`: `[--descrip
 | `kb data fact property extraction add --fact NAME\|--fact-id ID --property NAME\|--property-id ID --text T [--source NAME\|--source-id ID] [--confidence F] [--extraction-type T]` | Link additional source text to a fact's existing property value |
 | `kb data reindex` | Rebuild the BM25/vector search index for the current database |
 | `kb data search QUERY [--type entity\|fact]… [--top-k N] [--format table\|json]` | Keyword or semantic search over entities and facts; search mode depends on database config; `--type` is repeatable |
-| `kb data answer QUESTION [--format table\|json\|nl] [--model M] [--include-metadata] [--verbose\|-v] [--log\|-l] [--log-limit N]` | LLM answer query; `--format nl` returns a prose answer; `--include-metadata` also collects created/modified, confidence, and per-extraction evidence for cited entities/facts/properties — shown as a second "Metadata" table (`--format table`), a `metadata` key alongside `result` (`--format json`), or folded into the prose as a follow-up section (`--format nl`); `--verbose` shows tool call arguments in the status line; `--log` also prints each tool call on its own persistent line; `--log-limit` sets the truncation length for verbose/log output (default 80) |
-| `kb data validate STATEMENT [--natural-language] [--model M] [--include-metadata] [--verbose\|-v] [--log\|-l] [--log-limit N]` | LLM supporting / counter evidence; `--natural-language` returns a prose assessment; `--include-metadata` behaves as in `kb data answer` (a "Metadata" table normally, folded into the prose with `--natural-language`); `--verbose` shows tool call arguments in the status line; `--log` also prints each tool call on its own persistent line; `--log-limit` sets the truncation length for verbose/log output (default 80) |
-| `kb data extract TEXT [--query Q]… [--source NAME\|--source-id ID] [--model M] [--expand-schema\|--no-expand-schema] [--schema-expansion-target text\|queries]… [--schema-expansion-depth N] [--schema-expansion-mode llm\|mcp] [--schema-expansion-mcp-server JSON]… [--schema-expansion-dedup-mode search\|llm\|none] [--verbose\|-v] [--log\|-l] [--log-limit N]` | LLM extraction against the schema as it currently stands (never declares new schema — a mention with no matching element is skipped). `--expand-schema` (default: on) runs `kb schema expand` first, grounded by `--schema-expansion-target` (any combination of `text`/`queries`, default both); `--schema-expansion-depth`/`--schema-expansion-mode`/`--schema-expansion-mcp-server`/`--schema-expansion-dedup-mode` mirror `kb schema expand`'s `--depth`/`--reference`/`--mcp-server`/`--dedup-mode`. Use `--no-expand-schema` to only extract, e.g. against a schema already expanded once via `kb schema expand`. `--verbose` shows tool call arguments in the status line; `--log` also prints each tool call on its own persistent line; `--log-limit` sets the truncation length for verbose/log output (default 80) |
+| `kb data answer QUESTION [--format table\|json\|nl] [--model M] [--include-metadata] [--verbose\|-v] [--log\|-l] [--log-limit N]` | LLM answer query; `--format nl` returns a prose answer; `--include-metadata` also collects created/modified, confidence, and per-extraction evidence for cited entities/facts/properties — shown as a second "Metadata" table (`--format table`), a `metadata` key alongside `result` (`--format json`), or folded into the prose as a follow-up section (`--format nl`); `--verbose` shows tool call arguments in the status line; `--log` also prints each tool call on its own persistent line; `--log-limit` sets the truncation length for verbose/log output, defaulting to the profile's `BLUE_DATA_CLI_LOG_LIMIT` |
+| `kb data validate STATEMENT [--natural-language] [--model M] [--include-metadata] [--verbose\|-v] [--log\|-l] [--log-limit N]` | LLM supporting / counter evidence; `--natural-language` returns a prose assessment; `--include-metadata` behaves as in `kb data answer` (a "Metadata" table normally, folded into the prose with `--natural-language`); `--verbose` shows tool call arguments in the status line; `--log` also prints each tool call on its own persistent line; `--log-limit` sets the truncation length for verbose/log output, defaulting to the profile's `BLUE_DATA_CLI_LOG_LIMIT` |
+| `kb data extract TEXT [--query Q]… [--source NAME\|--source-id ID] [--model M] [--effort low\|medium\|high] [--max-concurrency N] [--max-turns N] [--related-data-k N] [--expand-schema\|--no-expand-schema] [--schema-expansion-target text\|queries]… [--schema-expansion-depth N] [--schema-expansion-mode llm\|mcp] [--schema-expansion-mcp-server JSON]… [--schema-expansion-dedup-mode search\|llm\|none] [--verbose\|-v] [--log\|-l] [--log-limit N]` | LLM extraction against the schema as it currently stands (never declares new schema — a mention with no matching element is skipped). `--expand-schema` (default: on) runs `kb schema expand` first, grounded by `--schema-expansion-target` (any combination of `text`/`queries`, default both); `--schema-expansion-depth`/`--schema-expansion-mode`/`--schema-expansion-mcp-server`/`--schema-expansion-dedup-mode` mirror `kb schema expand`'s `--depth`/`--reference`/`--mcp-server`/`--dedup-mode`. Use `--no-expand-schema` to only extract, e.g. against a schema already expanded once via `kb schema expand`. `--verbose` shows tool call arguments in the status line; `--log` also prints each tool call on its own persistent line; `--log-limit` sets the truncation length for verbose/log output. `--model`, `--effort`, `--max-concurrency`, `--max-turns`, `--related-data-k`, `--expand-schema/--no-expand-schema` and `--log-limit` each default to the selected profile's corresponding parameter — see [Profiles and configuration](#profiles-and-configuration) |
 
 Exit codes: `0` success · `1` KBError · `2` bad arguments.
 

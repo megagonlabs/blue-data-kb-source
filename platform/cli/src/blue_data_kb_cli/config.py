@@ -1,7 +1,7 @@
 """Per-database registry and KBSource factory for the kb CLI.
 
 Registered databases are persisted via blue-data's `DataRegistry`, backed by a
-`FileJSONSource` at `{KBDB_DATA_DIR}/registry.json`. Each database is a `DataRegistry`
+`FileJSONSource` at `{BLUE_DATA_KB_SOURCE_DATA_DIR}/registry.json`. Each database is a `DataRegistry`
 "source" record: `properties["_class"]` is the dotted path of the concrete KBSource
 subclass to reconstruct (auto-derived by `register_source`), `properties["connection"]`
 is the graph backend's connection config, and `properties["search"]` is the KB's own
@@ -56,12 +56,32 @@ _VECTOR_CLASS_BY_BACKEND = {
 }
 
 
+CLI_HOME_DEFAULT = "~/.kbdb"
+
+
+def _cli_home() -> str:
+    """Where this CLI keeps its own state: profiles, selections, registry.
+
+    Deliberately not a profile parameter — it is the directory the profiles
+    themselves are read from, so it can only come from the environment.
+    """
+    return str(Path(os.environ.get("BLUE_DATA_KB_SOURCE_HOME", CLI_HOME_DEFAULT)).expanduser())
+
+
 def _data_dir() -> str:
-    return str(Path(os.environ.get("KBDB_DATA_DIR", "~/.kbdb")).expanduser())
+    """Directory for the registry and file-backed graph data.
+
+    Resolved by the profile (BLUE_DATA_KB_SOURCE_DATA_DIR), which the root
+    group exports into the environment before any command runs; the default
+    keeps library-level and test use working without a profile.
+    """
+    return str(Path(
+        os.environ.get("BLUE_DATA_KB_SOURCE_DATA_DIR") or CLI_HOME_DEFAULT
+    ).expanduser())
 
 
 def _selected_database_path() -> Path:
-    return Path(_data_dir()) / ".selected.database"
+    return Path(_cli_home()) / ".selected.database"
 
 
 def _default_database() -> str:
@@ -71,6 +91,24 @@ def _default_database() -> str:
         if name:
             return name
     return "default"
+
+
+def _resolve_database(option: str | None, resolver) -> str:
+    """Which database a command acts on.
+
+    Precedence: --database, then the `database select` file, then the profile's
+    BLUE_DATA_KB_SOURCE_DATABASE, then "default". The selection file outranks
+    the profile because `database select` is the more specific and more recent
+    act; the profile supplies the default for a shell that has never run it.
+    """
+    if option:
+        return option
+    p = _selected_database_path()
+    if p.exists():
+        name = p.read_text().strip()
+        if name:
+            return name
+    return resolver.get("BLUE_DATA_KB_SOURCE_DATABASE") or "default"
 
 
 def _registry_path() -> Path:

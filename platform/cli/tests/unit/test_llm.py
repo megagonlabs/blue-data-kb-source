@@ -79,6 +79,16 @@ def test_extract_reports_completion(runner):
     assert "Extraction complete." in result.output
 
 
+def _schema_expansion_prompts(factory):
+    """System prompts belonging to the schema-expansion agent, across every call
+    made on the mocked client."""
+    return [
+        call.kwargs["messages"][0]["content"]
+        for call in factory.return_value.chat.completions.create.call_args_list
+        if "schema expansion agent" in call.kwargs["messages"][0]["content"]
+    ]
+
+
 def test_extract_no_expand_schema_skips_expansion(runner):
     invoke(runner, DB + ["schema", "class", "add", "EMPLOYEE", "A person employed by an organization"])
     factory = _mock_openai_no_tool_calls()
@@ -88,9 +98,22 @@ def test_extract_no_expand_schema_skips_expansion(runner):
             "--no-expand-schema",
         ])
     assert result.exit_code == 0, result.output
-    # Only extraction's own tool loop ran (one no-tool-calls turn) — if expand_schema
-    # had also run, that would be a second turn on the same mocked client.
-    assert factory.return_value.chat.completions.create.call_count == 1
+    # Assert on *which* agent ran, not how many turns it took: extraction is a
+    # multi-stage pipeline whose stage count is free to change, so a call-count
+    # assertion here only records today's number.
+    assert not _schema_expansion_prompts(factory)
+    assert factory.return_value.chat.completions.create.call_count >= 1
+
+
+def test_extract_expands_schema_by_default(runner):
+    """The other half of the pair: without --no-expand-schema, the expansion
+    agent does run — otherwise the test above would pass for the wrong reason."""
+    invoke(runner, DB + ["schema", "class", "add", "EMPLOYEE", "A person employed by an organization"])
+    factory = _mock_openai_no_tool_calls()
+    with patch("openai.AsyncOpenAI", factory):
+        result = runner.invoke(cli, DB + ["data", "extract", "Alice joined IBM in June 1998."])
+    assert result.exit_code == 0, result.output
+    assert _schema_expansion_prompts(factory)
 
 
 def test_schema_expand_dedup_mode_none_omits_search_schema_tool(runner):

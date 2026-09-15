@@ -3,7 +3,9 @@
 Unlike the `kb` CLI (`platform/cli/src/blue_data_kb_cli/config.py`), which resolves a
 per-database backend from `~/.kbdb/registry.json`, this server owns a single KBSource
 instance for the process lifetime, configured entirely by BLUE_DATA_KB_SOURCE_* env
-vars. `database` stays a per-tool-call argument on every tool — KBSource already
+vars. Those variable names are deliberately the same ones the CLI uses (see its
+`profile_spec.json`), so a value means the same thing in both; this server simply
+reads them from the environment and has no connection to the CLI's profiles. `database` stays a per-tool-call argument on every tool — KBSource already
 supports multiple logical databases on one backend.
 
 Deliberately does not import anything from `blue_data_kb_cli`: this package depends
@@ -46,8 +48,35 @@ def reset_kb() -> None:
     _kb = None
 
 
+# Model resolution, per function, matching the `kb` CLI exactly: a
+# function-specific variable falls back to the KB-wide one, then to the
+# family-wide one, then to the built-in default. The CLI resolves these from a
+# profile; this server reads them from the environment only, and has no
+# connection to the CLI's profiles. The names are shared deliberately — the
+# reference list is the CLI's `profile_spec.json`.
+_MODEL_DEFAULT = "gpt-4o"
+
+
+def model_for(function: str | None = None) -> str:
+    """The model to use, optionally for a named function.
+
+    `function` is one of EXTRACTION, QUERY, VALIDATION, SCHEMA_EXPANSION,
+    ENRICHMENT, INGESTION, ASSERTION — the same set the CLI uses.
+    """
+    names = []
+    if function:
+        names.append(f"BLUE_DATA_KB_SOURCE_{function}_LLM_MODEL")
+    names += ["BLUE_DATA_KB_SOURCE_LLM_MODEL", "BLUE_DATA_LLM_MODEL"]
+    for name in names:
+        value = os.environ.get(name)
+        if value:
+            return value
+    return _MODEL_DEFAULT
+
+
 def default_model() -> str:
-    return os.environ.get("BLUE_DATA_KB_SOURCE_DEFAULT_MODEL", "gpt-4o")
+    """Backwards-compatible alias for an unqualified model lookup."""
+    return model_for()
 
 
 # ---------------------------------------------------------------------------
@@ -55,7 +84,7 @@ def default_model() -> str:
 # ---------------------------------------------------------------------------
 
 def _directory() -> str:
-    return str(Path(os.environ.get("BLUE_DATA_KB_SOURCE_DIRECTORY", "~/.kbdb")).expanduser())
+    return str(Path(os.environ.get("BLUE_DATA_KB_SOURCE_DATA_DIR", "~/.kbdb")).expanduser())
 
 
 def _neo4j_connection() -> dict[str, Any]:

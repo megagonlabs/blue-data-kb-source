@@ -19,7 +19,7 @@ Run:
     python3 langgraph_mcp_demo.py
 
 The blue-data-kb-mcp server is launched automatically as a subprocess (stdio
-transport), pointed at a scratch directory via BLUE_DATA_KB_SOURCE_DIRECTORY
+transport), pointed at a scratch directory via BLUE_DATA_KB_SOURCE_DATA_DIR
 so it never touches ~/.kbdb. BLUE_DATA_KB_SOURCE_SEARCH=bm25 turns on ranked
 keyword search for the search_schema/search_data tools -- no embedding API
 calls needed for that part, only the ReAct agent's own reasoning uses the
@@ -49,7 +49,7 @@ async def main() -> None:
             "transport": "stdio",
             "env": {
                 **os.environ,
-                "BLUE_DATA_KB_SOURCE_DIRECTORY": tmp,
+                "BLUE_DATA_KB_SOURCE_DATA_DIR": tmp,
                 "BLUE_DATA_KB_SOURCE_SEARCH": "bm25",
             },
         }

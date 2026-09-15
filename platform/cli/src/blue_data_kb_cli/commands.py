@@ -1,6 +1,8 @@
 """Click command groups for the kb CLI.
 
-Databases are registered in {KBDB_DATA_DIR}/registry.json (defaults to ~/.kbdb).
+Databases are registered in {BLUE_DATA_KB_SOURCE_DATA_DIR}/registry.json (defaults to ~/.kbdb).
+That value, and every other configuration parameter, comes from the selected
+profile in ~/.kbdb/.profiles — see `kb profile --help`.
 Each entry stores the graph backend and optional search configuration.  Run
 `kb database register` to create and configure a new database.
 
@@ -42,12 +44,15 @@ from blue_data_kb_source._constants import (
 )
 from blue_data_kb_source.types import KBError
 
+from blue_data_kb_cli.profile import profile_group, resolver_for
 from blue_data_kb_cli.config import (
     _BACKEND_BY_KB_CLASS,
     _FILE_KB_CLASS,
     _KB_CLASS_BY_BACKEND,
+    _cli_home,
     _data_dir,
     _default_database,
+    _resolve_database,
     _get_registry,
     _make_kb,
     _neo4j_connection_dict,
@@ -237,16 +242,18 @@ def _resolve_owned_property(
     return nodes[0]["id"]
 
 
-def _assert_kwargs(kb: FileKBSource, db: str, source_name, source_id,
+def _assert_kwargs(obj: dict, source_name, source_id,
                    confidence, extraction_type, schema_creation_mode, model) -> dict:
     """Resolve --source/--source-id and collect the shared assert options."""
+    kb: FileKBSource = obj["kb"]
+    db: str = obj["db"]
     resolved_source_id = None
     if source_name or source_id:
         resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
     return {
         "source_id": resolved_source_id, "confidence": confidence,
         "extraction_type": extraction_type, "schema_creation_mode": schema_creation_mode,
-        "model": model,
+        "model": _model_for(obj, "ASSERTION", model),
     }
 
 
@@ -280,7 +287,7 @@ _ASSERT_OPTIONS = [
     click.option("--schema-creation-mode", "schema_creation_mode",
                  type=click.Choice(["llm", "none"]), default="llm", show_default=True,
                  help="How new schema elements are named and described."),
-    click.option("--model", default="gpt-4o", show_default=True, help="OpenAI model for judges."),
+    click.option("--model", default=None, help="OpenAI model for judges. Default: the profile's model for this command."),
 ]
 
 
@@ -337,25 +344,76 @@ def _evidence_records(kb: FileKBSource, db: str, node_id: str) -> list[dict]:
 
 @click.group()
 @click.option(
+    "--profile",
+    "profile_name",
+    envvar="BLUE_DATA_PROFILE",
+    default=None,
+    help="Configuration profile. Overrides BLUE_DATA_PROFILE. "
+         "Defaults to the selection in ~/.kbdb/.selected.profile.",
+)
+@click.option(
     "--database",
-    envvar="KBDB_DATABASE",
-    default=_default_database,
-    show_default=True,
-    help="Target database. Overrides KBDB_DATABASE. Defaults to selection in ~/.kbdb/.selected.database.",
+    default=None,
+    help="Target database. Defaults to the selection in ~/.kbdb/.selected.database, "
+         "then BLUE_DATA_KB_SOURCE_DATABASE from the profile.",
 )
 @click.pass_context
-def cli(ctx: click.Context, database: str) -> None:
+def cli(ctx: click.Context, profile_name: str | None, database: str | None) -> None:
     """kb — Knowledge Base CLI.
 
-    Databases are configured via ~/.kbdb/registry.json (KBDB_DATA_DIR).
+    Configuration lives in profiles: `kb profile config` to set values,
+    `kb profile inspect` to see them and where each came from.
     Run `kb database register` to create and configure a database.
     """
     ctx.ensure_object(dict)
+    home = _cli_home()
+
+    # Apply the profile before anything else runs: resolved values are written
+    # into the environment, which is where the library, the OpenAI SDK and the
+    # remaining `envvar=` options already read their configuration from.
+    resolver = resolver_for(home, profile_name)
+    resolver.export()
+    ctx.obj["home"] = home
+    ctx.obj["profile"] = resolver.profile
+    ctx.obj["config"] = resolver
+
+    database = _resolve_database(database, resolver)
     kb = _make_kb(database)
     if database not in kb.fetch_databases():
         kb.create_database(database)
     ctx.obj["kb"] = kb
     ctx.obj["db"] = database
+
+
+cli.add_command(profile_group)
+
+
+def _model_for(obj: dict, function: str, option: str | None) -> str:
+    """The model a command should use.
+
+    `--model` wins; otherwise the profile's parameter for this function, which
+    itself falls back through BLUE_DATA_KB_SOURCE_LLM_MODEL to
+    BLUE_DATA_LLM_MODEL. The Click options default to None rather than a
+    hardcoded model so an unset option is distinguishable from a chosen one.
+    """
+    if option:
+        return option
+    resolver = obj["config"]
+    return resolver.get(f"BLUE_DATA_KB_SOURCE_{function}_LLM_MODEL") or "gpt-4o"
+
+
+def _log_limit(obj: dict, option: int | None) -> int:
+    """`--log-limit` if given, else the family-wide BLUE_DATA_CLI_LOG_LIMIT."""
+    if option is not None:
+        return option
+    return obj["config"].get("BLUE_DATA_CLI_LOG_LIMIT") or 80
+
+
+def _extraction_default(obj: dict, param: str, option):
+    """An extraction knob: the command option if given, else the profile value."""
+    if option is not None:
+        return option
+    return obj["config"].get(f"BLUE_DATA_KB_SOURCE_EXTRACTION_{param}")
 
 
 # ------------------------------------------------------------------ #
@@ -398,7 +456,7 @@ def database_list(fmt: str) -> None:
 @database_group.command("register")
 @click.argument("name")
 @click.option("--graph-backend", "graph_backend", type=click.Choice(["file", "neo4j"]), default="file", show_default=True)
-@click.option("--directory",      help="Graph data directory (file backend). Default: KBDB_DATA_DIR.")
+@click.option("--directory",      help="Graph data directory (file backend). Default: the profile's BLUE_DATA_KB_SOURCE_DATA_DIR.")
 @click.option("--neo4j-uri",      help="Neo4j bolt URI.")
 @click.option("--neo4j-user",     help="Neo4j username.")
 @click.option("--neo4j-password", help="Neo4j password.")
@@ -850,7 +908,7 @@ def schema_class_assert(obj, name, description, source_name, source_id,
     """Assert a class: reuse it when one resolves, create it otherwise."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
-    kwargs = _assert_kwargs(kb, db, source_name, source_id, confidence,
+    kwargs = _assert_kwargs(obj, source_name, source_id, confidence,
                             extraction_type, schema_creation_mode, model)
     _run_assert(kb.assert_class(db, name, description, **kwargs), "class", name)
 
@@ -979,7 +1037,7 @@ def schema_class_parent_assert(obj, child, parent, description, source_name, sou
     """Assert CHILD IS_SUBCLASS_OF PARENT; missing classes are created."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
-    kwargs = _assert_kwargs(kb, db, source_name, source_id, confidence,
+    kwargs = _assert_kwargs(obj, source_name, source_id, confidence,
                             extraction_type, schema_creation_mode, model)
     _run_assert(kb.assert_subclass(db, child, parent, **kwargs),
                 "subclass", f"{child} -> {parent}")
@@ -1164,7 +1222,7 @@ def schema_class_property_assert(obj, name, class_name, description, source_name
     """Assert a class property; the owning class is created when missing."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
-    kwargs = _assert_kwargs(kb, db, source_name, source_id, confidence,
+    kwargs = _assert_kwargs(obj, source_name, source_id, confidence,
                             extraction_type, schema_creation_mode, model)
     _run_assert(kb.assert_class_property(db, name, class_name, description, **kwargs),
                 "property", name)
@@ -1343,7 +1401,7 @@ def schema_relation_assert(obj, name, domain, range_, is_symmetric, description,
     """Assert a relation type; missing domain/range classes are created, existing ones widened."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
-    kwargs = _assert_kwargs(kb, db, source_name, source_id, confidence,
+    kwargs = _assert_kwargs(obj, source_name, source_id, confidence,
                             extraction_type, schema_creation_mode, model)
     _run_assert(kb.assert_relation_type(db, name, list(domain), list(range_), description,
                                         is_symmetric, **kwargs), "relation", name)
@@ -1480,7 +1538,7 @@ def schema_relation_parent_assert(obj, child, parent, description, source_name, 
     """Assert CHILD IS_SUBCLASS_OF PARENT for relations; both must already exist."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
-    kwargs = _assert_kwargs(kb, db, source_name, source_id, confidence,
+    kwargs = _assert_kwargs(obj, source_name, source_id, confidence,
                             extraction_type, schema_creation_mode, model)
     _run_assert(kb.assert_subrelation(db, child, parent, **kwargs),
                 "subrelation", f"{child} -> {parent}")
@@ -1810,7 +1868,7 @@ def schema_relation_property_assert(obj, name, relation_name, description, sourc
     """Assert a relation property; the relation must already exist."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
-    kwargs = _assert_kwargs(kb, db, source_name, source_id, confidence,
+    kwargs = _assert_kwargs(obj, source_name, source_id, confidence,
                             extraction_type, schema_creation_mode, model)
     _run_assert(kb.assert_relation_property(db, name, relation_name, description, **kwargs),
                 "property", name)
@@ -2038,10 +2096,10 @@ def schema_search(obj: dict, query: str, types: tuple[str, ...], mode: str, top_
         "to judge synonyms (e.g. JOIN_DATE vs START_DATE); 'none' disables the check."
     ),
 )
-@click.option("--model", default="gpt-4o", show_default=True, help="OpenAI model.")
+@click.option("--model", default=None, help="OpenAI model. Default: the profile's model for this command.")
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Show tool call arguments in the status line.")
 @click.option("--log", "-l", is_flag=True, default=False, help="Also log each tool call and its result on its own line (in addition to the status line).")
-@click.option("--log-limit", type=int, default=80, show_default=True, help="Max characters to show per truncated verbose/log line.")
+@click.option("--log-limit", type=int, default=None, help="Max characters per truncated verbose/log line. Default: the profile's BLUE_DATA_CLI_LOG_LIMIT.")
 @click.pass_obj
 def schema_expand(
     obj: dict,
@@ -2053,7 +2111,7 @@ def schema_expand(
     model: str,
     verbose: bool,
     log: bool,
-    log_limit: int,
+    log_limit: int | None,
 ) -> None:
     """Grow the schema (classes, relations, properties) grounded by TEXT — without
     extracting any data. Run separately from `kb data extract`, so the same
@@ -2067,14 +2125,14 @@ def schema_expand(
     mcp_servers = _parse_mcp_servers(mcp_servers_raw)
     try:
         with console.status("Expanding schema…") as status:
-            on_call, on_result = _status_tool_callbacks(status, "Expanding", verbose, log, log_limit)
+            on_call, on_result = _status_tool_callbacks(status, "Expanding", verbose, log, _log_limit(obj, log_limit))
             _run(kb.expand_schema(
                 db, text,
                 depth=depth,
                 reference=reference,
                 mcp_servers=mcp_servers,
                 dedup_mode=dedup_mode,
-                model=model,
+                model=_model_for(obj, "SCHEMA_EXPANSION", model),
                 on_tool_call=on_call,
                 on_tool_result=on_result,
             ))
@@ -2132,7 +2190,7 @@ def data_reindex(obj: dict) -> None:
 @click.option("--schema-creation-mode", "schema_creation_mode",
               type=click.Choice(["llm", "none"]), default="llm", show_default=True,
               help="How new schema elements are named and described.")
-@click.option("--model", default="gpt-4o", show_default=True, help="OpenAI model for judges.")
+@click.option("--model", default=None, help="OpenAI model for judges. Default: the profile's model for this command.")
 @click.option("--format", "fmt", type=click.Choice(["table", "json"]), default="table",
               show_default=True, help="Report format.")
 @click.pass_obj
@@ -2154,7 +2212,7 @@ def data_ingest(obj, input_file, source_name, source_id, confidence, extraction_
         report = _run(kb.ingest(
             db, payload, source_id=resolved_source_id, confidence=confidence,
             extraction_type=extraction_type, schema_creation_mode=schema_creation_mode,
-            model=model,
+            model=_model_for(obj, "INGESTION", model),
         ))
     except KBError as exc:
         raise click.ClickException(str(exc))
@@ -2378,7 +2436,7 @@ def entity_assert(obj, name, class_name, description, source_name, source_id,
     """Assert an entity by name: resolve it, or create it with a judged class."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
-    kwargs = _assert_kwargs(kb, db, source_name, source_id, confidence,
+    kwargs = _assert_kwargs(obj, source_name, source_id, confidence,
                             extraction_type, schema_creation_mode, model)
     _run_assert(kb.assert_entity(db, name, class_name, description, **kwargs), "entity", name)
 
@@ -2708,7 +2766,7 @@ def entity_property_assert(obj, entity, property_name, value, literal_type, desc
     """Assert a property value on an entity; equal values dedupe, property placement judged."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
-    kwargs = _assert_kwargs(kb, db, source_name, source_id, confidence,
+    kwargs = _assert_kwargs(obj, source_name, source_id, confidence,
                             extraction_type, schema_creation_mode, model)
     coerced = _coerce_value(value, literal_type)
     _run_assert(kb.assert_entity_property(db, entity, property_name, coerced, literal_type,
@@ -2980,7 +3038,7 @@ def fact_assert(obj, head, relation, tail, name, description, source_name, sourc
     """Assert a fact by names; operands are resolved or created, duplicates deduped."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
-    kwargs = _assert_kwargs(kb, db, source_name, source_id, confidence,
+    kwargs = _assert_kwargs(obj, source_name, source_id, confidence,
                             extraction_type, schema_creation_mode, model)
     _run_assert(kb.assert_fact(db, head, relation, tail, name, description, **kwargs),
                 "fact", f"{head} {relation} {tail}")
@@ -3242,7 +3300,7 @@ def fact_property_assert(obj, head, relation, tail, property_name, value, litera
     """Assert a property value on the fact identified by its (head, relation, tail) triple."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
-    kwargs = _assert_kwargs(kb, db, source_name, source_id, confidence,
+    kwargs = _assert_kwargs(obj, source_name, source_id, confidence,
                             extraction_type, schema_creation_mode, model)
     coerced = _coerce_value(value, literal_type)
     _run_assert(kb.assert_fact_property(db, head, relation, tail, property_name, coerced,
@@ -3601,11 +3659,12 @@ def data_import(obj: dict, input_file) -> None:
 @click.option("--query",     "queries",     multiple=True, help="Guiding question (repeatable).")
 @click.option("--source",    "source_name", default=None,  help="Source name for provenance.")
 @click.option("--source-id",               default=None,  help="Source node ID (overrides --source).")
-@click.option("--model",                   default="gpt-4o", show_default=True, help="OpenAI model.")
+@click.option("--model", default=None, help="OpenAI model. Default: the profile's model for this command.")
 @click.option(
-    "--expand-schema/--no-expand-schema", "expand_schema_flag", default=True, show_default=True,
+    "--expand-schema/--no-expand-schema", "expand_schema_flag", default=None,
     help="Run schema expansion (SchemaManager.expand_schema) before extracting. "
-         "Use --no-expand-schema to extract only against the schema as it stands.",
+         "Use --no-expand-schema to extract only against the schema as it stands. "
+         "Default: the profile's BLUE_DATA_KB_SOURCE_EXTRACTION_EXPAND_SCHEMA (true).",
 )
 @click.option(
     "--schema-expansion-target", "schema_expansion_target",
@@ -3643,9 +3702,29 @@ def data_import(obj: dict, input_file) -> None:
         "of an extra call per check; 'none' disables the check."
     ),
 )
+@click.option(
+    "--effort", type=click.Choice(["low", "medium", "high"]), default=None,
+    help="Passes over the text (1/2/3). Default: the profile's "
+         "BLUE_DATA_KB_SOURCE_EXTRACTION_EFFORT.",
+)
+@click.option(
+    "--max-concurrency", type=int, default=None,
+    help="Chunks to extract concurrently. Default: the profile's "
+         "BLUE_DATA_KB_SOURCE_EXTRACTION_MAX_CONCURRENCY.",
+)
+@click.option(
+    "--max-turns", type=int, default=None,
+    help="Max agent turns per extraction stage. Default: the profile's "
+         "BLUE_DATA_KB_SOURCE_EXTRACTION_MAX_TURNS.",
+)
+@click.option(
+    "--related-data-k", type=int, default=None,
+    help="Existing entities/facts surfaced as leads; 0 disables. Default: the "
+         "profile's BLUE_DATA_KB_SOURCE_EXTRACTION_RELATED_DATA_K.",
+)
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Show tool call arguments in the status line.")
 @click.option("--log", "-l", is_flag=True, default=False, help="Also log each tool call and its result on its own line (in addition to the status line).")
-@click.option("--log-limit", type=int, default=80, show_default=True, help="Max characters to show per truncated verbose/log line.")
+@click.option("--log-limit", type=int, default=None, help="Max characters per truncated verbose/log line. Default: the profile's BLUE_DATA_CLI_LOG_LIMIT.")
 @click.pass_obj
 def extract_cmd(
     obj: dict,
@@ -3654,15 +3733,19 @@ def extract_cmd(
     source_name: str | None,
     source_id: str | None,
     model: str,
-    expand_schema_flag: bool,
+    expand_schema_flag: bool | None,
     schema_expansion_target: tuple[str, ...],
     schema_expansion_depth: int,
     schema_expansion_mode: str,
     schema_expansion_mcp_servers_raw: tuple[str, ...],
     schema_expansion_dedup_mode: str,
+    effort: str | None,
+    max_concurrency: int | None,
+    max_turns: int | None,
+    related_data_k: int | None,
     verbose: bool,
     log: bool,
-    log_limit: int,
+    log_limit: int | None,
 ) -> None:
     """Extract entities, facts, and property values from free text. By default this
     also expands the schema first (see --no-expand-schema and `kb schema expand`).
@@ -3676,14 +3759,23 @@ def extract_cmd(
     if source_name or source_id:
         resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
     schema_expansion_mcp_servers = _parse_mcp_servers(schema_expansion_mcp_servers_raw)
+    # The flag pair defaults to None, so "not given" is distinguishable from an
+    # explicit --expand-schema and the profile can supply the default.
+    expand_schema_resolved = bool(_extraction_default(obj, "EXPAND_SCHEMA", expand_schema_flag))
     try:
         with console.status("Extracting…") as status:
-            on_call, on_result = _status_tool_callbacks(status, "Extracting", verbose, log, log_limit)
+            on_call, on_result = _status_tool_callbacks(
+                status, "Extracting", verbose, log, _log_limit(obj, log_limit)
+            )
             _run(kb.import_text(db, text,
                                 queries=list(queries) or None,
-                                model=model,
+                                model=_model_for(obj, "EXTRACTION", model),
                                 source_id=resolved_source_id,
-                                expand_schema=expand_schema_flag,
+                                effort=_extraction_default(obj, "EFFORT", effort),
+                                max_concurrency=_extraction_default(obj, "MAX_CONCURRENCY", max_concurrency),
+                                max_turns=_extraction_default(obj, "MAX_TURNS", max_turns),
+                                related_data_k=_extraction_default(obj, "RELATED_DATA_K", related_data_k),
+                                expand_schema=expand_schema_resolved,
                                 schema_expansion_target=list(schema_expansion_target) or None,
                                 schema_expansion_depth=schema_expansion_depth,
                                 schema_expansion_mode=schema_expansion_mode,
@@ -3709,12 +3801,12 @@ def extract_cmd(
     show_default=True,
     help="Output format: table, json, or nl (prose natural-language answer).",
 )
-@click.option("--model", default="gpt-4o", show_default=True, help="OpenAI model.")
+@click.option("--model", default=None, help="OpenAI model. Default: the profile's model for this command.")
 @click.option("--include-metadata", "include_metadata", is_flag=True, default=False,
               help="Also collect created/modified/confidence/evidence metadata for cited entities/facts/properties.")
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Show tool call arguments in the status line.")
 @click.option("--log", "-l", is_flag=True, default=False, help="Also log each tool call and its result on its own line (in addition to the status line).")
-@click.option("--log-limit", type=int, default=80, show_default=True, help="Max characters to show per truncated verbose/log line.")
+@click.option("--log-limit", type=int, default=None, help="Max characters per truncated verbose/log line. Default: the profile's BLUE_DATA_CLI_LOG_LIMIT.")
 @click.pass_obj
 def answer_cmd(
     obj: dict, question: str, fmt: str, model: str, include_metadata: bool,
@@ -3725,8 +3817,8 @@ def answer_cmd(
     db: str = obj["db"]
     try:
         with console.status("Answering…") as status:
-            on_call, on_result = _status_tool_callbacks(status, "Answering", verbose, log, log_limit)
-            raw = _run(kb.answer(db, question, model=model, natural_language=(fmt == "nl"),
+            on_call, on_result = _status_tool_callbacks(status, "Answering", verbose, log, _log_limit(obj, log_limit))
+            raw = _run(kb.answer(db, question, model=_model_for(obj, "QUERY", model), natural_language=(fmt == "nl"),
                                   include_metadata=include_metadata,
                                   on_tool_call=on_call, on_tool_result=on_result))
     except KBError as exc:
@@ -3760,12 +3852,12 @@ def answer_cmd(
 @click.argument("statement")
 @click.option("--natural-language", "natural_language", is_flag=True, default=False,
               help="Return a prose assessment instead of supporting/counter lists.")
-@click.option("--model", default="gpt-4o", show_default=True, help="OpenAI model.")
+@click.option("--model", default=None, help="OpenAI model. Default: the profile's model for this command.")
 @click.option("--include-metadata", "include_metadata", is_flag=True, default=False,
               help="Also collect created/modified/confidence/evidence metadata for cited entities/facts/properties.")
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Show tool call arguments in the status line.")
 @click.option("--log", "-l", is_flag=True, default=False, help="Also log each tool call and its result on its own line (in addition to the status line).")
-@click.option("--log-limit", type=int, default=80, show_default=True, help="Max characters to show per truncated verbose/log line.")
+@click.option("--log-limit", type=int, default=None, help="Max characters per truncated verbose/log line. Default: the profile's BLUE_DATA_CLI_LOG_LIMIT.")
 @click.pass_obj
 def validate_cmd(
     obj: dict, statement: str, natural_language: bool, model: str, include_metadata: bool,
@@ -3776,8 +3868,8 @@ def validate_cmd(
     db: str = obj["db"]
     try:
         with console.status("Validating…") as status:
-            on_call, on_result = _status_tool_callbacks(status, "Validating", verbose, log, log_limit)
-            raw = _run(kb.validate(db, statement, model=model, natural_language=natural_language,
+            on_call, on_result = _status_tool_callbacks(status, "Validating", verbose, log, _log_limit(obj, log_limit))
+            raw = _run(kb.validate(db, statement, model=_model_for(obj, "VALIDATION", model), natural_language=natural_language,
                                     include_metadata=include_metadata,
                                     on_tool_call=on_call, on_tool_result=on_result))
     except KBError as exc:

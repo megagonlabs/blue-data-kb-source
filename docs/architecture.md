@@ -281,7 +281,7 @@ Idempotent instance resolution (`find_entity`/`find_fact` before creating) means
 | Backend | `KBSource` mixin | Persistence | Concurrency | Typical use |
 |---|---|---|---|---|
 | `MemoryGraphSource` | `MemoryKBSource` (`from blue_data_kb_source import ...`) | None (in-process) | Single process | Development, testing, short-lived pipelines |
-| `FileGraphSource` | `FileKBSource` (`from blue_data_kb_source import ...`) | One JSON file per database | Single process | CLI default (`~/.kbdb/` or `KBDB_DATA_DIR`) — no server required |
+| `FileGraphSource` | `FileKBSource` (`from blue_data_kb_source import ...`) | One JSON file per database | Single process | CLI default (`~/.kbdb/` or `BLUE_DATA_KB_SOURCE_DATA_DIR`) — no server required |
 | `NEO4JSource` | `NEO4JKBSource` (`from blue_data_kb_source.neo4j.neo4j_kb_source import NEO4JKBSource`) | Neo4j database | Concurrent | Production deployments |
 
 All three `GraphSource` implementations come from the sibling `blue-data` library; `kb_source.py` itself never imports a concrete backend directly — each mixin lives in its own module (`memory_kb_source.py`, `file_kb_source.py`, `neo4j/neo4j_kb_source.py`) that does the mixing. `NEO4JKBSource` is deliberately kept out of the top-level package: importing it is what pulls in the `neo4j` driver, so plain `import blue_data_kb_source` never requires it to be installed. Each mixin overrides `_initialize_connection_properties` to report its own `kb/memory`/`kb/file`/`kb/neo4j` connection protocol rather than inheriting the mixed-in `GraphSource`'s `graph/*` one. See [extending.md](extending.md) for implementing another backend the same way.

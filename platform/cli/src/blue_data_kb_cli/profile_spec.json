@@ -1,0 +1,123 @@
+{
+  "BLUE_DATA_KB_SOURCE_DATA_DIR": {
+    "default": "~/.kbdb",
+    "prompt": "Directory holding the database registry and file-backed graph data",
+    "required": true,
+    "cast": "directory"
+  },
+  "BLUE_DATA_KB_SOURCE_DATABASE": {
+    "default": "default",
+    "prompt": "Default database when --database is not given",
+    "required": true,
+    "cast": "str"
+  },
+  "BLUE_DATA_KB_SOURCE_LLM_MODEL": {
+    "default": null,
+    "prompt": "LLM model for all kb commands (overrides BLUE_DATA_LLM_MODEL)",
+    "required": false,
+    "cast": "str",
+    "inherits": [
+      "BLUE_DATA_LLM_MODEL"
+    ]
+  },
+  "BLUE_DATA_KB_SOURCE_EXTRACTION_LLM_MODEL": {
+    "default": null,
+    "prompt": "LLM model for `kb data extract`",
+    "required": false,
+    "cast": "str",
+    "inherits": [
+      "BLUE_DATA_KB_SOURCE_LLM_MODEL",
+      "BLUE_DATA_LLM_MODEL"
+    ]
+  },
+  "BLUE_DATA_KB_SOURCE_QUERY_LLM_MODEL": {
+    "default": null,
+    "prompt": "LLM model for `kb data answer`",
+    "required": false,
+    "cast": "str",
+    "inherits": [
+      "BLUE_DATA_KB_SOURCE_LLM_MODEL",
+      "BLUE_DATA_LLM_MODEL"
+    ]
+  },
+  "BLUE_DATA_KB_SOURCE_VALIDATION_LLM_MODEL": {
+    "default": null,
+    "prompt": "LLM model for `kb data validate`",
+    "required": false,
+    "cast": "str",
+    "inherits": [
+      "BLUE_DATA_KB_SOURCE_LLM_MODEL",
+      "BLUE_DATA_LLM_MODEL"
+    ]
+  },
+  "BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_LLM_MODEL": {
+    "default": null,
+    "prompt": "LLM model for `kb schema expand` (and expansion inside `kb data extract`)",
+    "required": false,
+    "cast": "str",
+    "inherits": [
+      "BLUE_DATA_KB_SOURCE_LLM_MODEL",
+      "BLUE_DATA_LLM_MODEL"
+    ]
+  },
+  "BLUE_DATA_KB_SOURCE_ENRICHMENT_LLM_MODEL": {
+    "default": null,
+    "prompt": "LLM model for enrichment (the MCP server's `enrich` tool)",
+    "required": false,
+    "cast": "str",
+    "inherits": [
+      "BLUE_DATA_KB_SOURCE_LLM_MODEL",
+      "BLUE_DATA_LLM_MODEL"
+    ]
+  },
+  "BLUE_DATA_KB_SOURCE_INGESTION_LLM_MODEL": {
+    "default": null,
+    "prompt": "LLM model for `kb data ingest` judges",
+    "required": false,
+    "cast": "str",
+    "inherits": [
+      "BLUE_DATA_KB_SOURCE_LLM_MODEL",
+      "BLUE_DATA_LLM_MODEL"
+    ]
+  },
+  "BLUE_DATA_KB_SOURCE_ASSERTION_LLM_MODEL": {
+    "default": null,
+    "prompt": "LLM model for `assert` judges",
+    "required": false,
+    "cast": "str",
+    "inherits": [
+      "BLUE_DATA_KB_SOURCE_LLM_MODEL",
+      "BLUE_DATA_LLM_MODEL"
+    ]
+  },
+  "BLUE_DATA_KB_SOURCE_EXTRACTION_EFFORT": {
+    "default": "low",
+    "prompt": "Extraction effort \u2014 low, medium, or high (1/2/3 passes over the text)",
+    "required": false,
+    "cast": "str"
+  },
+  "BLUE_DATA_KB_SOURCE_EXTRACTION_MAX_CONCURRENCY": {
+    "default": 1,
+    "prompt": "Extraction chunks to process concurrently (1 = sequential)",
+    "required": false,
+    "cast": "int"
+  },
+  "BLUE_DATA_KB_SOURCE_EXTRACTION_MAX_TURNS": {
+    "default": 25,
+    "prompt": "Max agent turns per extraction stage",
+    "required": false,
+    "cast": "int"
+  },
+  "BLUE_DATA_KB_SOURCE_EXTRACTION_RELATED_DATA_K": {
+    "default": 10,
+    "prompt": "Existing entities/facts surfaced to extraction as leads (0 disables)",
+    "required": false,
+    "cast": "int"
+  },
+  "BLUE_DATA_KB_SOURCE_EXTRACTION_EXPAND_SCHEMA": {
+    "default": true,
+    "prompt": "Run schema expansion before extracting",
+    "required": false,
+    "cast": "bool"
+  }
+}

@@ -49,7 +49,8 @@ lib/tests/
 
 platform/cli/tests/
   unit/
-    conftest.py       # CliRunner fixture, isolated KBDB_DATA_DIR
+    conftest.py       # CliRunner fixture, isolated CLI home + escape guard
+    test_profile.py   # profile add/remove/list/config/inspect/select, precedence, secrets
     test_database.py  # database register/create/select/delete, config
     test_schema.py     # class/relation declaration, hierarchy, search
     test_data.py        # entity/fact/property CRUD, data search, reindex
@@ -210,7 +211,7 @@ async def populated_kb(kb) -> MemoryKBSource:
 
 Interface tests live in each interface's **own package**, not under `lib/tests/` — each adapter is a separate deployable unit (see [07-repo-organization.md](07-repo-organization.md)) with its own test suite and fixtures rather than importing `lib/tests/conftest.py`.
 
-- **CLI** (`platform/cli/tests/unit/`) — tested via Click's `CliRunner`, pointed at an isolated `tmp_path` per test via `KBDB_DATA_DIR` (`conftest.py`); `extract`/`answer`/`validate` tests mock `openai.AsyncOpenAI` the same way `lib/tests/unit/` does.
+- **CLI** (`platform/cli/tests/unit/`) — tested via Click's `CliRunner`, pointed at an isolated `tmp_path` per test via `BLUE_DATA_KB_SOURCE_HOME`/`BLUE_DATA_KB_SOURCE_DATA_DIR` (`conftest.py`, which also clears every spec parameter so a developer's own exported keys cannot change what the tests observe, and asserts afterwards that nothing was written to the real `~/.kbdb`); `extract`/`answer`/`validate` tests mock `openai.AsyncOpenAI` the same way `lib/tests/unit/` does.
 - **MCP Server** (`platform/mcp/tests/test_tools.py`) — an `autouse` fixture builds a `MemoryKBSource`, injects it as the module-level singleton via `config.reset_kb()`/monkeypatching `get_kb`, and tests call the `@mcp.tool()`-decorated async functions directly, asserting on the JSON string each returns.
 - **REST API** — doesn't exist yet (`platform/api/` is empty); no tests exist for it.
 

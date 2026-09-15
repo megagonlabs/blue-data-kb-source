@@ -56,7 +56,7 @@ cd lib && bash scripts/install.sh && cd ..
 cd platform/cli && bash scripts/install.sh && cd ../..
 
 # Databases persist under ~/.kbdb/ by default; override with:
-export KBDB_DATA_DIR=/path/to/my-kbdb
+export BLUE_DATA_KB_SOURCE_DATA_DIR=/path/to/my-kbdb   # or: kb profile config BLUE_DATA_KB_SOURCE_DATA_DIR /path/to/my-kbdb
 
 # Create a database and declare a schema
 kb database create main

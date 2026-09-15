@@ -32,7 +32,7 @@ Quick start
     blue-data-kb-mcp
 
     # With a persistent file-backed KB and BM25 search
-    BLUE_DATA_KB_SOURCE_DIRECTORY=/path/to/kb BLUE_DATA_KB_SOURCE_SEARCH=bm25 \\
+    BLUE_DATA_KB_SOURCE_DATA_DIR=/path/to/kb BLUE_DATA_KB_SOURCE_SEARCH=bm25 \\
         blue-data-kb-mcp
 
 Claude Desktop config (~/.config/claude-desktop/claude_desktop_config.json):
@@ -41,7 +41,7 @@ Claude Desktop config (~/.config/claude-desktop/claude_desktop_config.json):
         "blue-data-kb": {
           "command": "blue-data-kb-mcp",
           "env": {
-            "BLUE_DATA_KB_SOURCE_DIRECTORY": "/path/to/kb",
+            "BLUE_DATA_KB_SOURCE_DATA_DIR": "/path/to/kb",
             "BLUE_DATA_KB_SOURCE_SEARCH": "bm25"
           }
         }
@@ -56,7 +56,7 @@ from typing import Any, Optional
 
 from mcp.server.fastmcp import FastMCP
 
-from blue_data_kb_mcp.config import default_model, get_kb
+from blue_data_kb_mcp.config import get_kb, model_for
 
 mcp = FastMCP(
     "blue-data-kb",
@@ -578,7 +578,7 @@ async def answer(
     """
     try:
         result = await get_kb().answer(
-            database, question, model or default_model(), natural_language, include_metadata
+            database, question, model or model_for("QUERY"), natural_language, include_metadata
         )
         if include_metadata:
             payload, metadata = result
@@ -609,7 +609,7 @@ async def validate(
     """
     try:
         result = await get_kb().validate(
-            database, statement, model or default_model(), natural_language, include_metadata
+            database, statement, model or model_for("VALIDATION"), natural_language, include_metadata
         )
         if include_metadata:
             payload, metadata = result
@@ -637,7 +637,7 @@ async def enrich(
         database: Target database (default 'default').
     """
     try:
-        results = await get_kb().enrich(database, query, depth, model or default_model())
+        results = await get_kb().enrich(database, query, depth, model or model_for("ENRICHMENT"))
         return _ok(results)
     except Exception as e:
         return _err(e)
@@ -686,7 +686,7 @@ async def expand_schema(
             reference=reference,
             mcp_servers=mcp_servers,
             dedup_mode=dedup_mode,
-            model=model or default_model(),
+            model=model or model_for("SCHEMA_EXPANSION"),
         )
         return _ok({"status": "ok"})
     except Exception as e:
@@ -736,7 +736,7 @@ async def import_text(
         await get_kb().import_text(
             database, text,
             queries=queries,
-            model=model or default_model(),
+            model=model or model_for("EXTRACTION"),
             source_id=source_id,
             expand_schema=expand_schema,
             schema_expansion_target=schema_expansion_target,

@@ -54,17 +54,23 @@ cd ../platform/wordnet-mcp && bash scripts/install.sh  # + blue-data-wordnet-mcp
 
 ## 3. Configuration (Today)
 
-All configuration is via environment variables — no config files. The CLI and MCP server each use their **own, independent** env var namespace; they don't share configuration.
+The CLI is configured by **profiles** — `~/.kbdb/.profiles`, managed with `kb profile config`; the MCP server has no profile support and is configured purely by environment variables. The two share **variable names** deliberately — a `BLUE_DATA_KB_SOURCE_*` value means the same thing in both — but not configuration: the MCP server never reads the CLI's profiles or its `registry.json`, and takes every value from the environment.
 
 ### CLI (`kb`) — `platform/cli/src/blue_data_kb_cli/config.py`
 
 | Variable | Default | Description |
 |---|---|---|
-| `KBDB_DATA_DIR` | `~/.kbdb` | Directory holding `registry.json` (per-database backend/search config) and file-backed graph data |
-| `KBDB_DATABASE` | — | Overrides which database `--database` defaults to, if not passed explicitly |
+| `BLUE_DATA_KB_SOURCE_HOME` | `~/.kbdb` | CLI state: `.profiles`, `.selected.profile`, `.selected.database`. Environment-only — it is where the profiles themselves are read from, so it cannot come from one |
+| `BLUE_DATA_KB_SOURCE_DATA_DIR` | `~/.kbdb` | Directory holding `registry.json` (per-database backend/search config) and file-backed graph data |
+| `BLUE_DATA_KB_SOURCE_DATABASE` | `default` | Which database `--database` falls back to, when no `kb database select` has been made |
 | `OPENAI_API_KEY` | — | Required for `kb schema expand`/`kb data extract`/`answer`/`validate`, and for the `assert`/`ingest` commands under `--schema-creation-mode llm` (the default; `none` needs no key) |
+| `BLUE_DATA_LLM_MODEL`, `BLUE_DATA_KB_SOURCE_*_LLM_MODEL` | `gpt-4o` | The model each LLM command uses. A function-specific value falls back to `BLUE_DATA_KB_SOURCE_LLM_MODEL`, then to `BLUE_DATA_LLM_MODEL` |
+| `BLUE_DATA_KB_SOURCE_EXTRACTION_*` | — | Extraction defaults (`EFFORT`, `MAX_CONCURRENCY`, `MAX_TURNS`, `RELATED_DATA_K`, `EXPAND_SCHEMA`), each overridable by the matching `kb data extract` option |
+| `BLUE_DATA_CLI_FORMAT`, `BLUE_DATA_CLI_LOG_LIMIT` | `table`, `80` | Family-wide CLI output defaults |
 
-Per-database backend and search configuration (graph backend, Neo4j connection, search mode, vector backend) is **not** environment-variable-driven — it's set via `kb database register ...` flags and persisted in `{KBDB_DATA_DIR}/registry.json`. See [09-api-interface-spec.md](09-api-interface-spec.md) §4 for the full flag reference.
+Every row except `BLUE_DATA_KB_SOURCE_HOME` is normally set in a profile rather than exported — `kb profile config` writes them to `~/.kbdb/.profiles` (mode `0600`), and the CLI exports the resolved values into its own environment at startup so everything that already reads configuration from the environment keeps working unchanged. Exporting one directly still wins, which is the documented precedence: **command option > environment > profile > default**. The full parameter table is in [docs/cli.md](../docs/cli.md#profiles-and-configuration); the engine is `blue_data.utils.config` in the `blue-data` repo, shared with the rest of the CLI family.
+
+Per-database backend and search configuration (graph backend, Neo4j connection, search mode, vector backend) is **not** environment-variable-driven — it's set via `kb database register ...` flags and persisted in `{BLUE_DATA_KB_SOURCE_DATA_DIR}/registry.json`. See [09-api-interface-spec.md](09-api-interface-spec.md) §4 for the full flag reference.
 
 ### MCP server (`blue-data-kb-mcp`) — `platform/mcp/src/blue_data_kb_mcp/config.py`
 
@@ -73,15 +79,15 @@ A completely separate `BLUE_DATA_KB_SOURCE_*` namespace, since the server owns o
 | Variable | Default | Description |
 |---|---|---|
 | `BLUE_DATA_KB_SOURCE_GRAPH_BACKEND` | `file` | `file` \| `neo4j` |
-| `BLUE_DATA_KB_SOURCE_DIRECTORY` | `~/.kbdb` | File backend directory |
+| `BLUE_DATA_KB_SOURCE_DATA_DIR` | `~/.kbdb` | File backend directory |
 | `BLUE_DATA_KB_SOURCE_NEO4J_URI` / `_USER` / `_PASSWORD` | — | Neo4j connection, when `GRAPH_BACKEND=neo4j` |
 | `BLUE_DATA_KB_SOURCE_SEARCH` | `none` | `none` \| `bm25` \| `semantic` |
 | `BLUE_DATA_KB_SOURCE_VECTOR_BACKEND` | `memory` | `memory` \| `file` \| `chromadb` \| `redis`, when `SEARCH=semantic` |
 | `BLUE_DATA_KB_SOURCE_EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model, when `SEARCH=semantic` |
-| `BLUE_DATA_KB_SOURCE_DEFAULT_MODEL` | `gpt-4o` | Default model for `answer`/`validate`/`enrich`/`expand_schema`/`import_text` |
+| `BLUE_DATA_KB_SOURCE_LLM_MODEL` | `gpt-4o` | Default model for `answer`/`validate`/`enrich`/`expand_schema`/`import_text` |
 | `OPENAI_API_KEY` | — | Required for LLM features |
 
-Full table with examples: [platform/mcp/README.md](../platform/mcp/README.md) Configuration reference. Pointing both `KBDB_DATA_DIR` and `BLUE_DATA_KB_SOURCE_DIRECTORY` at the same path gives the CLI and MCP server practical (not automatic) access to the same file-backed data — they don't otherwise coordinate.
+Full table with examples: [platform/mcp/README.md](../platform/mcp/README.md) Configuration reference. Pointing both `BLUE_DATA_KB_SOURCE_DATA_DIR` and `BLUE_DATA_KB_SOURCE_DATA_DIR` at the same path gives the CLI and MCP server practical (not automatic) access to the same file-backed data — they don't otherwise coordinate.
 
 The MCP server runs over **stdio transport** (`mcp.run()`, launched as a subprocess by an MCP client like Claude Desktop or Claude Code) — it is not a network service and has no port to configure.
 
@@ -134,7 +140,7 @@ Sketch, once a REST API exists:
 
 ### Configuration (planned, REST API)
 
-A future REST API would likely need its own env vars, distinct from the CLI's and MCP server's namespaces above — e.g. `KBDB_REST_PORT`, a default `KBDB_DATABASE`, and its own graph-backend selection. Design these when `platform/api/` is actually started, informed by whatever the CLI/MCP split above has already taught about keeping per-service config independent.
+A future REST API would likely need its own env vars, distinct from the CLI's and MCP server's namespaces above — e.g. `BLUE_DATA_KB_SOURCE_REST_PORT`, a default `BLUE_DATA_KB_SOURCE_DATABASE`, and its own graph-backend selection. Design these when `platform/api/` is actually started, informed by whatever the CLI/MCP split above has already taught about keeping per-service config independent.
 
 ### Observability (planned)
 

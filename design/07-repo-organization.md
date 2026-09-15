@@ -98,12 +98,15 @@ blue-data-kb-source/
     │   │   └── blue_data_kb_cli/
     │   │       ├── __init__.py
     │   │       ├── commands.py          # Click command groups; FileKBSource adapter
-    │   │       └── config.py            # Database registry and KBSource factory
+    │   │       ├── config.py            # Database registry, CLI home, KBSource factory
+    │   │       ├── profile.py           # `kb profile` group over blue_data.utils.config
+    │   │       └── profile_spec.json    # This CLI's configuration parameters
     │   └── tests/
     │       ├── __init__.py
     │       └── unit/
     │           ├── __init__.py
-    │           ├── conftest.py          # CliRunner fixture with isolated KBDB_DATA_DIR
+    │           ├── conftest.py          # CliRunner fixture with isolated CLI home
+    │           ├── test_profile.py      # profile add/remove/list/config/inspect/select, precedence, secrets
     │           ├── test_database.py     # database register/create/select/delete, config
     │           ├── test_schema.py       # class/relation declaration, hierarchy, search
     │           ├── test_data.py         # entity/fact/property CRUD, data search, reindex
@@ -206,8 +209,10 @@ Currently implemented:
 | `scripts/build.sh` | Builds the distributable package |
 | `scripts/deploy.sh` | Publishes to PyPI |
 | `src/blue_data_kb_cli/commands.py` | Click command groups; `FileKBSource` class; all CLI logic |
-| `src/blue_data_kb_cli/config.py` | Database registry (`registry.json`) and the `_make_kb` `KBSource` factory |
-| `tests/unit/` | Unit tests for the CLI adapter layer, run with `click.testing.CliRunner` against an isolated `KBDB_DATA_DIR` |
+| `src/blue_data_kb_cli/config.py` | Database registry (`registry.json`), the CLI home directory, database resolution, and the `_make_kb` `KBSource` factory |
+| `src/blue_data_kb_cli/profile.py` | The `kb profile` command group — a thin Click layer over `blue_data.utils.config`, which owns the spec, the `.profiles` file, precedence and secrets so every Blue CLI can share them |
+| `src/blue_data_kb_cli/profile_spec.json` | This CLI's configuration parameters, merged with `blue_data.utils.config.base_spec()` at load |
+| `tests/unit/` | Unit tests for the CLI adapter layer, run with `click.testing.CliRunner` against an isolated CLI home |
 
 `mcp/` follows a lighter version of the same shape:
 
@@ -258,4 +263,4 @@ Each `unit/` subdirectory carries an `__init__.py` to prevent pytest from confus
 
 `answer`, `validate`, and `enrich` tests in `unit/knowledge/` mock `openai.AsyncOpenAI` via `unittest.mock.patch` so the agent loop runs without a live API key.
 
-Platform adapter tests define their own fixtures rather than importing `lib/tests/conftest.py`, since each adapter exercises a different entry point. The CLI's `tests/unit/conftest.py` provides a `click.testing.CliRunner` fixture that points `KBDB_DATA_DIR` at a fresh `tmp_path` per test, so each test gets an isolated file-backed database with no cross-test state; its `extract`/`answer`/`validate` tests mock `openai.AsyncOpenAI` the same way the library tests do.
+Platform adapter tests define their own fixtures rather than importing `lib/tests/conftest.py`, since each adapter exercises a different entry point. The CLI's `tests/unit/conftest.py` provides a `click.testing.CliRunner` fixture that points every home/data variable at a fresh `tmp_path` per test, clears every configuration parameter so a developer's own exported keys cannot change what the tests see, snapshots the environment around each invocation (the CLI applies a profile by exporting into `os.environ`, which a real run discards when the process exits), and asserts afterwards that nothing was written to the real `~/.kbdb`; its `extract`/`answer`/`validate` tests mock `openai.AsyncOpenAI` the same way the library tests do.
