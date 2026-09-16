@@ -113,7 +113,7 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `export_database_schema(database)` | `dict` | `fetch_database_schema(database).to_json()` — portable JSON form |
 | `fetch_meta_schema()` | `DataSchema` | Return the fixed KBDB meta-schema |
 | `import_database_schema(database, schema_json)` | `None` | Replay a `DataSchema.to_json()` dict via idempotent `declare_*` calls — safe to import into a database that already has same-named elements |
-| `consolidate_schema(database, operation, source_names, target_name, predicate?)` | `None` | Only `operation="merge"` is implemented; any other value raises `SchemaError`. `predicate` is accepted but unused. See SchemaManager below for what merge actually does — it does not remove source elements. |
+| `consolidate_schema(database, operation, source_names, target_name, predicate?)` | `None` | Only `operation="merge"` is implemented; any other value raises `SchemaError`. `predicate` is accepted but unused. Merge rewires every reference onto the target, deletes the source elements, and fires change events so the search index follows. |
 | `expand_schema(database, text, depth?, reference?, mcp_servers?, dedup_mode?, model?, on_tool_call?, on_tool_result?, max_turns?)` | `None` | LLM agent that grows the schema (CLASS/RELATION/PROPERTY only) grounded by `text` — never touches entities/facts/property values. See SchemaExpansionEngine below |
 
 `declare_relation_type` wires the initial DOMAIN/RANGE edges inline (`domain`/`range` are required there), and re-declaring never re-wires them — post-declaration widening is what `attach_relation_domain`/`attach_relation_range` are for.
@@ -288,6 +288,8 @@ Output:
 
 Only `operation="merge"` is implemented — any other value, including `"split"`, raises `SchemaError(f"consolidate_schema operation '{operation}' is not supported")`. There is no split capability today despite the general-sounding name; `predicate` is accepted in the signature but never read by the current implementation.
 
+Merge folds each source element into the target: every edge that referenced a source is re-pointed at the target, the source nodes are deleted, and change events are fired for the target, each rewired neighbour and each deleted source so the search index reflects the merged schema. Source and target names are canonicalized as `declare_*` canonicalizes them, so `["worker"]` resolves the `WORKER` a declare call would have created.
+
 **Parameters**
 
 - `operation` — must be `"merge"`
@@ -297,13 +299,18 @@ Only `operation="merge"` is implemented — any other value, including `"split"`
 
 **Algorithm — merge**
 
-Merge is additive, not a rewrite-and-remove operation:
+Merge folds the sources into the target and leaves only the target:
 
-1. Resolve each name in `source_names` to a schema element ID (same label required across all of them)
-2. Look up the target element by `target_name`, or create it if absent
-3. For each instance whose primary instance edge (`IS_INSTANCE_OF`/`REPRESENTS`/`IS_VALUE_OF`) points at a source element, **add a new** instance edge from that same instance to the target element
+1. Resolve each name in `source_names` to a schema element ID, canonicalizing it the way `declare_*` does (so `"worker"` finds `WORKER`); the same label is required across all of them
+2. Look up the target element by `target_name` — canonicalized likewise — or create it if absent
+3. Re-point **every** edge incident to a source at the target: instance edges (`IS_INSTANCE_OF`/`REPRESENTS`/`IS_VALUE_OF`), `IS_SUBCLASS_OF` in both directions, `DOMAIN`, `RANGE`, `DEFINE_PROPERTY`, and provenance. The rewire enumerates the source's edges rather than consulting a fixed list of edge types, so a new edge type is carried along without changing this code. An edge the target already has is not duplicated; an edge between source and target, which would become a self-loop, is dropped
+4. If the target has no description of its own, adopt one from a source — otherwise the merged-away element's description is lost
+5. Delete the source node, which removes its remaining edges with it
+6. Fire change events: `*_updated` for the target, `*_updated` for each rewired neighbour, `*_deleted` for each source
 
-That's all it does. It does **not** remove the old instance edge, does **not** delete the source schema nodes, and does **not** touch `DEFINE_PROPERTY`/`DOMAIN`/`RANGE`/`IS_SUBCLASS_OF` edges on the sources. `fetch_database_schema` after a merge still lists the source elements. An instance that was merged now has instance edges to *both* its original class and the target class; code that assumes one class per entity (like `get_metadata`'s `class_name`) reports whichever edge it finds first — the original one, since it was created first. If you need the old edges gone or the source nodes removed, do that explicitly afterward with `delete_class`/`delete_relation`/`delete_property`.
+Step 6 is what keeps search consistent: the Search Indexer subscribes to these events, so without them `search_schema` would keep returning merged-away elements and entities would stay indexed under their old class name.
+
+After a merge, `fetch_database_schema` lists the target only, and each affected instance has exactly one class edge — so `get_metadata`'s `class_name` reports the target. Merging is destructive by design; there is no flag to keep the sources.
 
 #### `attach_property(database, target_id, property_id)`
 

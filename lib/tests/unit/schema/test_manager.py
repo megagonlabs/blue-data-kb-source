@@ -1,5 +1,6 @@
 import pytest
 
+from blue_data_kb_source import MemoryKBSource
 from blue_data_kb_source.types import SchemaError
 
 
@@ -517,6 +518,108 @@ async def test_consolidate_schema_merge_rewires_instances(kb):
     # Bob (already under EMPLOYEE) still has the edge
     bob_nbs = kb.get_neighbors("test", bob, edge_type="IS_INSTANCE_OF", direction="out")
     assert any(nb["node"]["id"] == target_id for nb in bob_nbs)
+
+
+async def test_consolidate_schema_merge_removes_the_source_class(kb):
+    """Merge means merge: the source element is gone and its instances belong
+    to the target only, rather than to both (the old behaviour aliased them)."""
+    worker_id = await kb.declare_class("test", "WORKER", "A worker")
+    await kb.declare_class("test", "EMPLOYEE", "An employee")
+    alice = await kb.add_entity("test", "Alice", class_id=worker_id)
+
+    await kb.consolidate_schema("test", "merge", ["WORKER", "EMPLOYEE"], "EMPLOYEE")
+
+    assert not kb.match_nodes("test", label="CLASS", properties={"name": "WORKER"})
+    classes = [
+        nb["node"]["properties"]["name"]
+        for nb in kb.get_neighbors("test", alice, edge_type="IS_INSTANCE_OF", direction="out")
+    ]
+    assert classes == ["EMPLOYEE"]
+
+
+async def test_consolidate_schema_merge_rewires_domain_and_properties(kb):
+    """Every reference to the source moves, not just the instance edge."""
+    worker_id = await kb.declare_class("test", "WORKER", "A worker")
+    await kb.declare_class("test", "EMPLOYEE", "An employee")
+    await kb.declare_class("test", "COMPANY", "A business")
+    rel_id = await kb.declare_relation_type(
+        "test", "WORKED_AT", "Employment", domain="WORKER", range="COMPANY"
+    )
+    prop_id = await kb.declare_class_property("test", "AGE", "Age", class_id=worker_id)
+
+    await kb.consolidate_schema("test", "merge", ["WORKER", "EMPLOYEE"], "EMPLOYEE")
+
+    domain = [nb["node"]["properties"]["name"]
+              for nb in kb.get_neighbors("test", rel_id, edge_type="DOMAIN", direction="out")]
+    assert domain == ["EMPLOYEE"]
+    owners = [nb["node"]["properties"]["name"]
+              for nb in kb.get_neighbors("test", prop_id, edge_type="DEFINE_PROPERTY", direction="in")]
+    assert owners == ["EMPLOYEE"]
+
+
+async def test_consolidate_schema_merge_fires_change_events(kb):
+    """Without these the search index keeps serving the pre-merge schema."""
+    worker_id = await kb.declare_class("test", "WORKER", "A worker")
+    await kb.declare_class("test", "EMPLOYEE", "An employee")
+    alice = await kb.add_entity("test", "Alice", class_id=worker_id)
+
+    events = _collect_events(kb, "test")
+    await kb.consolidate_schema("test", "merge", ["WORKER", "EMPLOYEE"], "EMPLOYEE")
+
+    by_type = {e["type"] for e in events}
+    assert "class_deleted" in by_type
+    assert "class_updated" in by_type
+    assert any(e["type"] == "class_deleted" and e["id"] == worker_id for e in events)
+    assert any(e["type"] == "entity_updated" and e["id"] == alice for e in events)
+
+
+async def test_consolidate_schema_merge_drops_the_source_from_search():
+    """The end the change events exist for."""
+    kb = MemoryKBSource(name="merge-search", properties={"search": {"mode": "bm25"}})
+    kb.create_database("test")
+    worker_id = await kb.declare_class("test", "WORKER", "A worker")
+    await kb.declare_class("test", "EMPLOYEE", "An employee")
+
+    await kb.consolidate_schema("test", "merge", ["WORKER", "EMPLOYEE"], "EMPLOYEE")
+
+    names = {r.name for r in await kb.search_schema("test", "worker", type_filter="CLASS")}
+    assert "WORKER" not in names
+    assert not kb.get_node("test", worker_id)
+
+
+async def test_consolidate_schema_merge_keeps_a_source_description(kb):
+    """A merged-away element's description is the only record of what it meant."""
+    await kb.declare_class("test", "WORKER", "A worker")
+    await kb.declare_class("test", "EMPLOYEE", "")
+
+    await kb.consolidate_schema("test", "merge", ["WORKER", "EMPLOYEE"], "EMPLOYEE")
+
+    target = kb.match_nodes("test", label="CLASS", properties={"name": "EMPLOYEE"})[0]
+    assert target["properties"]["description"] == "A worker"
+
+
+async def test_consolidate_schema_merge_does_not_duplicate_a_shared_instance_edge(kb):
+    """An entity already in both classes must not end up with the edge twice."""
+    worker_id = await kb.declare_class("test", "WORKER", "A worker")
+    employee_id = await kb.declare_class("test", "EMPLOYEE", "An employee")
+    alice = await kb.add_entity("test", "Alice", class_id=worker_id)
+    await kb.attach_entity_class("test", alice, employee_id)
+
+    await kb.consolidate_schema("test", "merge", ["WORKER", "EMPLOYEE"], "EMPLOYEE")
+
+    edges = kb.get_neighbors("test", alice, edge_type="IS_INSTANCE_OF", direction="out")
+    assert [nb["node"]["id"] for nb in edges] == [employee_id]
+
+
+async def test_consolidate_schema_merge_canonicalizes_names(kb):
+    """Sources and target are canonicalized the way declare_* canonicalizes."""
+    await kb.declare_class("test", "WORKER", "A worker")
+    await kb.declare_class("test", "EMPLOYEE", "An employee")
+
+    await kb.consolidate_schema("test", "merge", ["worker"], "employee")
+
+    assert not kb.match_nodes("test", label="CLASS", properties={"name": "WORKER"})
+    assert kb.match_nodes("test", label="CLASS", properties={"name": "EMPLOYEE"})
 
 
 async def test_consolidate_schema_unsupported_op_raises(kb):

@@ -72,7 +72,7 @@ async def main():
 
     print()
     print(DIVIDER)
-    print("5. consolidate_schema('merge') adds a new instance edge, it doesn't move the old one")
+    print("5. consolidate_schema('merge') folds the source class into the target")
     print(DIVIDER)
 
     organization = await kb.declare_class("main", "ORGANIZATION", "A generic organizational entity")
@@ -86,21 +86,21 @@ async def main():
     )
 
     # get_neighbors is the underlying GraphSource's own inspection method (KBSource mixes
-    # in a GraphSource directly) -- useful here because fetch_database_schema/get_metadata
-    # only ever report *one* class per entity, and this merge can leave more than one.
+    # in a GraphSource directly) -- shown here to make it visible that the merge leaves
+    # exactly one class edge behind rather than adding a second one.
     classes = [
         nb["node"]["properties"]["name"]
         for nb in kb.get_neighbors("main", acme, edge_type="IS_INSTANCE_OF", direction="out")
     ]
     print(f"Acme Corp's IS_INSTANCE_OF edges after merge: {classes}")
     after = await kb.get_metadata("main", acme)
-    print(f"get_metadata still reports the first one found: class_name={after['class_name']!r}")
-    print("Gotcha: consolidate_schema('merge') ADDS a new IS_INSTANCE_OF edge from each")
-    print("instance of a source class to the target class -- it does not remove the edge to")
-    print("the source class, and it does not delete the source schema node itself. A merged")
-    print("instance ends up belonging to *both* classes; get_metadata's class_name (which")
-    print("assumes one class per entity) keeps reporting whichever edge was added first,")
-    print("until you clean up the old edges yourself.")
+    print(f"get_metadata reports the merge target: class_name={after['class_name']!r}")
+    survivors = [c["name"] for c in (await kb.fetch_database_schema("main")).entities.values()]
+    print(f"ORGANIZATION is gone from the schema: {sorted(survivors)}")
+    print("consolidate_schema('merge') re-points every edge that referenced the source")
+    print("class -- instances, subclass links, domain/range, property definitions -- at the")
+    print("target, then deletes the source node. Change events are fired for each affected")
+    print("node, so a search-enabled KB stops returning the merged-away class as well.")
 
     print()
     print("Demo complete.")

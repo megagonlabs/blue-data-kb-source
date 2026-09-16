@@ -143,12 +143,17 @@ When a caller declares a schema element, the Schema Manager:
 
 Only `operation="merge"` is implemented today; any other value (including `"split"`) raises `SchemaError`. `consolidate_schema` accepts a `predicate` parameter in its signature, but nothing in the current implementation reads it — it's unused.
 
-Merge is **not** a rewrite-and-remove transaction; it's additive:
+Merge folds each source element into the target and leaves only the target:
 
-1. Identify all instances whose primary instance edge (`IS_INSTANCE_OF` for classes, `REPRESENTS` for relations, `IS_VALUE_OF` for properties) points at one of the source elements
-2. For each such instance, add a **new** instance edge pointing at the target element (creating the target if it doesn't already exist by name)
+1. Resolve the source names and the target name, canonicalized the same way `declare_*` canonicalizes them, and create the target if no element of that label already carries the name
+2. Re-point **every** edge incident to a source element at the target — instance edges (`IS_INSTANCE_OF`, `REPRESENTS`, `IS_VALUE_OF`), `IS_SUBCLASS_OF` in both directions, `DOMAIN`, `RANGE`, `DEFINE_PROPERTY`, and provenance. The rewire is generic rather than a fixed list of edge types, so an edge type added later is carried along without revisiting this code. An edge the target already has is not duplicated, and an edge between the two participants (which would become a self-loop) is dropped
+3. Adopt a source's description if the target has none of its own — a merged-away element's description is otherwise the only record of what it meant
+4. Delete the source node, which drops its remaining edges with it
+5. Fire change events: `*_updated` for the target, `*_updated` for every rewired neighbour, and `*_deleted` for each source
 
-That's the whole operation. It does **not** remove the old instance edge, does **not** delete the source schema node, and does **not** touch `DEFINE_PROPERTY`/`DOMAIN`/`RANGE`/`IS_SUBCLASS_OF` edges on the source. After a merge, an affected instance has instance edges to *both* the source and target elements, and the source element is still present in `fetch_database_schema`'s output. Downstream code that assumes one class per entity (e.g. `get_metadata`'s `class_name`) will keep reporting whichever edge it finds first, which is the edge to the *source* element, since it was created first — not necessarily the merge target. Callers who need old edges removed or source nodes deleted must do so explicitly with `delete_class`/`delete_relation`/`delete_property` after the merge.
+Step 5 is what keeps the search index consistent. The indexer subscribes to these events, so without them `search_schema` would keep returning the merged-away element and keep indexing entities under their old class name.
+
+After a merge, an affected instance belongs to the target only, and the source is gone from `fetch_database_schema`'s output — so code that assumes one class per entity (e.g. `get_metadata`'s `class_name`) reports the target.
 
 **Schema Search**
 

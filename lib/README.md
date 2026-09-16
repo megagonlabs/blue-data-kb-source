@@ -129,7 +129,8 @@ async def query(kb):
     for h in hits:
         print(h.type, h.name, h.description)
 
-    # Merge two schema elements and rewire their instances to the target
+    # Fold WORKER into EMPLOYEE: instances, domain/range and property
+    # definitions are rewired, and WORKER is removed from the schema
     await kb.consolidate_schema("main", operation="merge",
                                 source_names=["EMPLOYEE", "WORKER"],
                                 target_name="EMPLOYEE")
@@ -424,7 +425,7 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | `await export_database_schema(database)` | `dict` | `fetch_database_schema(database).to_json()` — portable JSON, symmetric with `import_database_schema` |
 | `await import_database_schema(database, schema_json)` | `None` | Populate *database* from a `DataSchema.to_json()`/`export_database_schema` dict; declares classes, properties, relations, and domain/range edges |
 | `await search_schema(database, query)` | `list[SchemaSearchResult]` | Return CLASS/RELATION/PROPERTY nodes whose name or description contains *query* (case-insensitive) |
-| `await consolidate_schema(database, operation, source_names, target_name, predicate?)` | `None` | Merge or split schema elements and rewire instances; `operation="merge"` supported |
+| `await consolidate_schema(database, operation, source_names, target_name, predicate?)` | `None` | Fold source elements into the target: rewires every reference, deletes the sources, updates the search index. `operation="merge"` only |
 | `await expand_schema(database, text, depth?, reference?, mcp_servers?, dedup_mode?, model?, on_tool_call?, max_turns?)` | `None` | OpenAI LLM agent that grows the schema (CLASS/RELATION/PROPERTY) grounded by *text*; never touches entities/facts/property values. `depth` (default `1`) — hierarchy levels beyond what's directly evidenced to also propose, linked via `add_subclass_of`. `reference` — `"llm"` (default) or `"mcp"` (also gives the model tools from connected `mcp_servers`, e.g. WordNet). `dedup_mode` (`"search"` default, `"llm"`, or `"none"`) controls how `search_schema` checks for existing elements *and* is auto-applied as a safety-net check before every `declare_class`/`declare_relation_type` call, even if the model skips `search_schema` — pass `"none"` to disable both. Never declares a taxonomic (is-a/type-of/kind-of/subclass-of) name as a `RELATION`; those are rejected in favor of `add_subclass_of`. Requires `openai` (and `mcp` for `reference="mcp"`). |
 
 ---

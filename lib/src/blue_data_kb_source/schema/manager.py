@@ -34,9 +34,27 @@ from typing import TYPE_CHECKING, Any, Callable, Literal
 
 if TYPE_CHECKING:
     from blue_data_kb_source.notification.notifier import ChangeNotifier
+    from blue_data_kb_source.search.indexer import KBSearchIndexer
 
 _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _NON_ALNUM_RUN = re.compile(r"[^0-9A-Za-z]+")
+
+
+# Merge fires the same change events an ordinary declare/update/delete fires,
+# so the search indexer rebuilds the entries naming a merged element instead of
+# keeping the pre-merge schema indexed. Keyed by the node's own label.
+_SCHEMA_UPDATED_EVENT = {CLASS: "class_updated", RELATION: "relation_updated", PROPERTY: "property_updated"}
+_SCHEMA_DELETED_EVENT = {CLASS: "class_deleted", RELATION: "relation_deleted", PROPERTY: "property_deleted"}
+# Neighbours whose indexed text names the merged element. LITERAL and
+# EXTRACTION are absent on purpose: the indexer has no entry for either, so
+# `reindex_node` would no-op on them anyway.
+_NODE_UPDATED_EVENT = {
+    ENTITY: "entity_updated",
+    FACT: "fact_updated",
+    CLASS: "class_updated",
+    RELATION: "relation_updated",
+    PROPERTY: "property_updated",
+}
 
 
 def _canonicalize_schema_name(name: str) -> str:
@@ -52,7 +70,6 @@ def _canonicalize_schema_name(name: str) -> str:
     """
     split = _CAMEL_BOUNDARY.sub("_", name)
     return _NON_ALNUM_RUN.sub("_", split).strip("_").upper()
-    from blue_data_kb_source.search.indexer import KBSearchIndexer
 
 
 class SchemaManager:
@@ -874,60 +891,122 @@ class SchemaManager:
         else:
             raise SchemaError(f"consolidate_schema operation '{operation}' is not supported")
 
+    def _find_merge_sources(
+        self, database: str, source_names: list[str]
+    ) -> tuple[list[dict], str]:
+        """The nodes named by *source_names*, and the single label they share.
+
+        Names are canonicalized the way `declare_*` canonicalizes them, so
+        `["worker"]` finds the WORKER a declare call would have created.
+        """
+        source_nodes: list[dict] = []
+        label: str | None = None
+        for raw_name in source_names:
+            name = _canonicalize_schema_name(raw_name)
+            for lbl in (CLASS, RELATION, PROPERTY):
+                nodes = self._source.match_nodes(database, label=lbl, properties={"name": name})
+                if not nodes:
+                    continue
+                if label is not None and label != lbl:
+                    raise SchemaError("cannot merge schema elements of different types")
+                label = lbl
+                source_nodes.extend(nodes)
+                break
+            else:
+                raise SchemaError(f"schema element '{raw_name}' not found in '{database}'")
+
+        if label is None:
+            raise SchemaError("no source schema elements found")
+        return source_nodes, label
+
+    def _edge_exists(self, database: str, source_id: str, edge_type: str, target_id: str) -> bool:
+        return bool(self._source.match_edges(
+            database, edge_type=edge_type, source_id=source_id, target_id=target_id
+        ))
+
+    def _rewire_edges(self, database: str, source_id: str, target_id: str) -> set[str]:
+        """Re-point every edge incident to *source_id* at *target_id*.
+
+        Generic rather than a per-label list of edge types, because a merge
+        means "nothing references the source any more" — and a hardcoded list
+        silently misses whichever edge type gets added next. The source node is
+        deleted afterwards, which drops the original edges with it (delete_node
+        removes every incident edge), so nothing has to be unwired by hand.
+
+        Returns the ids of the nodes on the far side, whose index entries name
+        the merged element and so need rebuilding.
+        """
+        affected: set[str] = set()
+        for nb in self._source.get_neighbors(database, source_id):
+            edge = nb["edge"]
+            outgoing = nb["direction"] == "out"
+            other_id = edge["target_id"] if outgoing else edge["source_id"]
+            # An edge between the two participants, or a self-loop on the
+            # source, would become a self-loop on the target: drop it.
+            if other_id in (source_id, target_id):
+                continue
+            new_source, new_target = (
+                (target_id, other_id) if outgoing else (other_id, target_id)
+            )
+            # add_edge neither deduplicates nor raises, so an edge the target
+            # already has must be checked for explicitly — otherwise merging
+            # two classes an entity already belonged to would leave it with
+            # the same IS_INSTANCE_OF edge twice.
+            if not self._edge_exists(database, new_source, edge["edge_type"], new_target):
+                self._source.add_edge(
+                    database, new_source, edge["edge_type"], new_target,
+                    properties=dict(edge.get("properties") or {}),
+                )
+            affected.add(other_id)
+        return affected
+
     async def _merge_schema(
         self,
         database: str,
         source_names: list[str],
         target_name: str,
     ) -> None:
-        # Collect source nodes, all must share the same label
-        source_nodes: list[dict] = []
-        label: str | None = None
-        for name in source_names:
-            found = False
-            for lbl in (CLASS, RELATION, PROPERTY):
-                nodes = self._source.match_nodes(database, label=lbl, properties={"name": name})
-                if nodes:
-                    if label is not None and label != lbl:
-                        raise SchemaError("cannot merge schema elements of different types")
-                    label = lbl
-                    source_nodes.extend(nodes)
-                    found = True
-                    break
-            if not found:
-                raise SchemaError(f"schema element '{name}' not found in '{database}'")
+        """Fold every source element into *target_name*, leaving only the target.
 
-        if label is None:
-            raise SchemaError("no source schema elements found")
+        Everything that referenced a source — instances, subclass links,
+        domain/range, property definitions, provenance — references the target
+        afterwards, and the source nodes are gone. Change events are fired for
+        the target, for each rewired neighbour and for each deleted source, so
+        the search index reflects the merged schema rather than the one that
+        existed before the call.
+        """
+        source_nodes, label = self._find_merge_sources(database, source_names)
+        target_name = _canonicalize_schema_name(target_name)
 
         existing_target = self._source.match_nodes(database, label=label, properties={"name": target_name})
-        target_id = (
-            existing_target[0]["id"]
-            if existing_target
-            else self._source.add_node(database, label, stamped({"name": target_name, "description": ""}))
-        )
+        if existing_target:
+            target_id = existing_target[0]["id"]
+        else:
+            target_id = self._source.add_node(
+                database, label, stamped({"name": target_name, "description": ""})
+            )
 
-        # Edge type and direction for finding instances that reference each source node
-        instance_edge_map: dict[str, str] = {
-            CLASS: IS_SUBCLASS_OF,   # overridden below; main instance edge is IS_INSTANCE_OF
-            RELATION: "REPRESENTS",
-            PROPERTY: "IS_VALUE_OF",
-        }
-        # Primary instance rewire: incoming edges pointing to the schema node
-        primary: dict[str, str] = {
-            CLASS: "IS_INSTANCE_OF",
-            RELATION: "REPRESENTS",
-            PROPERTY: "IS_VALUE_OF",
-        }
-        _ = instance_edge_map  # suppress unused warning
-
-        edge_type = primary[label]
+        affected: set[str] = set()
         for src_node in source_nodes:
             if src_node["id"] == target_id:
                 continue
-            for nb in self._source.get_neighbors(database, src_node["id"], edge_type=edge_type, direction="in"):
-                instance_id = nb["node"]["id"]
-                try:
-                    self._source.add_edge(database, instance_id, edge_type, target_id, properties=edge_stamped())
-                except Exception:  # noqa: BLE001
-                    pass
+            # A merged-away element's description is the only record of what it
+            # meant; keep it if the target has none of its own.
+            target_node = self._source.get_node(database, target_id) or {}
+            if not (target_node.get("properties", {}) or {}).get("description"):
+                description = (src_node.get("properties", {}) or {}).get("description")
+                if description:
+                    self._source.update_node(database, target_id, touched({"description": description}))
+
+            affected |= self._rewire_edges(database, src_node["id"], target_id)
+            self._source.delete_node(database, src_node["id"])
+            self._fire({"type": _SCHEMA_DELETED_EVENT[label], "database": database, "id": src_node["id"]})
+
+        self._fire({"type": _SCHEMA_UPDATED_EVENT[label], "database": database, "id": target_id})
+        for node_id in affected:
+            node = self._source.get_node(database, node_id)
+            if node is None:
+                continue
+            event = _NODE_UPDATED_EVENT.get(node.get("label", ""))
+            if event:
+                self._fire({"type": event, "database": database, "id": node_id})

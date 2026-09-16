@@ -179,7 +179,7 @@ Both `answer` and `validate` also take `natural_language=True`, returning prose 
 
 ## Scenario 9: Schema Consolidation
 
-As the schema grows across many sources — extraction runs, ingest runs, independent declarations — redundant or overlapping elements accumulate. Two separate extraction runs have produced both a `COMPANY` class and a `CORPORATION` class, and instances of `CORPORATION` need to be reachable as `COMPANY` too. A developer calls `consolidate_schema` to merge them. The Schema Manager identifies every instance whose primary instance edge points at `CORPORATION` and adds a **new** instance edge from each one to `COMPANY` — it does not remove the old edge, and it does not delete `CORPORATION` from the schema. `operation="split"` is not implemented — `consolidate_schema` only supports `"merge"` today.
+As the schema grows across many sources — extraction runs, ingest runs, independent declarations — redundant or overlapping elements accumulate. Two separate extraction runs have produced both a `COMPANY` class and a `CORPORATION` class, and the two need to become one. A developer calls `consolidate_schema` to merge them. The Schema Manager re-points every edge that referenced `CORPORATION` — instance edges, subclass links, domain/range, property definitions, provenance — at `COMPANY`, deletes `CORPORATION`, and fires change events so the search index follows. `operation="split"` is not implemented — `consolidate_schema` only supports `"merge"` today.
 
 **Example:**
 
@@ -210,14 +210,13 @@ await kb.consolidate_schema(
 Result:
 ```
 COMPANY     CLASS  "A business organization"
-CORPORATION CLASS  "A commercial entity"   # still in the schema — merge doesn't delete it
+                                    # CORPORATION is gone
 
-Acme —IS_INSTANCE_OF→ COMPANY       # new edge, added by the merge
-Acme —IS_INSTANCE_OF→ CORPORATION   # old edge, still there
+Acme —IS_INSTANCE_OF→ COMPANY       # rewired by the merge
 IBM  —IS_INSTANCE_OF→ COMPANY       # unchanged
 ```
 
-A subsequent call to `fetch_database_schema` still lists both `COMPANY` and `CORPORATION`. `answer("main", "What companies are in the KB?")` returns both IBM and Acme, since the agent can reach Acme via either class edge — but code that assumes one class per entity (like `get_metadata`'s `class_name`) reports whichever edge it finds first, which is the original `CORPORATION` edge, not the new `COMPANY` one, since it was created first. If a clean single-class result matters, follow the merge with `delete_class("main", corporation_id)` to remove the source class and its now-orphaned edges explicitly.
+A subsequent call to `fetch_database_schema` lists `COMPANY` only. `answer("main", "What companies are in the KB?")` returns both IBM and Acme, and `get_metadata`'s `class_name` reports `COMPANY` for each, since there is now exactly one class edge per entity. Anything that referenced `CORPORATION` in the schema — a relation whose domain or range was `CORPORATION`, a property declared on it, a subclass of it — references `COMPANY` afterwards.
 
 ---
 

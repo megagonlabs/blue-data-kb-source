@@ -61,7 +61,7 @@ class KBSource(GraphSource, ABC):
     async def export_database_schema(self, database: str) -> dict: ...             # fetch_database_schema(...).to_json()
     async def import_database_schema(self, database: str, schema_json: dict) -> None: ...
     async def fetch_meta_schema(self) -> DataSchema: ...                           # fixed schema describing the KB's own node/edge taxonomy
-    async def consolidate_schema(self, database: str, operation: str, source_names: list[str], target_name: str, predicate: Callable | None = None) -> None: ...  # operation="merge" only, today
+    async def consolidate_schema(self, database: str, operation: str, source_names: list[str], target_name: str, predicate: Callable | None = None) -> None: ...  # operation="merge" only, today; folds sources into target and deletes them
 
     # Schema — LLM-driven expansion (grows CLASS/RELATION/PROPERTY only; never touches entities/facts/property values)
     async def expand_schema(self, database: str, text: str, *, depth: int = 1, reference: Literal["llm", "mcp"] = "llm", mcp_servers: list[dict[str, Any]] | None = None, dedup_mode: Literal["search", "llm", "none"] = "search", model: str = "gpt-4o", on_tool_call: Callable[[str, dict], None] | None = None, on_tool_result: Callable[[str, dict, Any], None] | None = None, max_turns: int = 25) -> None: ...

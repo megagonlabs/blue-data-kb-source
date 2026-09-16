@@ -131,8 +131,8 @@ backends/ scripts' incidental use of the same calls.
 
 `declare_class`/`declare_relation_type`/`declare_class_property` idempotency semantics,
 class hierarchy via `add_is_subclass_of`, property scoping by `class_id`, and
-`consolidate_schema("merge")` — including the gotcha that merge *adds* a new instance
-edge to the target class without removing the edge to the source class.
+`consolidate_schema("merge")` — which folds the source class into the target: instances
+are rewired, the source class is deleted, and the search index is updated to match.
 
 ```bash
 python3 examples/feature-demos/schema_declaration_demo.py
