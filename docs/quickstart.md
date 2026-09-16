@@ -9,7 +9,7 @@ cd ../platform/cli && bash scripts/install.sh
 
 ## 1. Create a database
 
-Databases persist as JSON files under `~/.kbdb/` by default (override with `export BLUE_DATA_KB_SOURCE_DATA_DIR=/path/to/dir`, or `kb profile config BLUE_DATA_KB_SOURCE_DATA_DIR /path/to/dir`).
+Databases persist as JSON files under `~/.kb/` by default (override with `export BLUE_DATA_KB_SOURCE_DATA_DIR=/path/to/dir`, or `kb profile config BLUE_DATA_KB_SOURCE_DATA_DIR /path/to/dir`).
 
 ```bash
 kb database create main
@@ -66,7 +66,7 @@ kb data list
 
 ## 5. Ask questions (needs `OPENAI_API_KEY`)
 
-Store the key in your profile once, rather than exporting it in every shell — it is written to `~/.kbdb/.profiles` (mode `0600`) and never echoed back:
+Store the key in your profile once, rather than exporting it in every shell — it is written to `~/.kb/.profiles` (mode `0600`) and never echoed back:
 
 ```bash
 kb profile config OPENAI_API_KEY        # prompts; enter the key, or $OPENAI_API_KEY to reference the variable

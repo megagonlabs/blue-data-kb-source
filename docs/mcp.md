@@ -31,7 +31,7 @@ pip install -e ".[neo4j,chromadb,redis,search]"
 ## Running
 
 ```bash
-# Default: ephemeral file-backed KB at ~/.kbdb, no search
+# Default: ephemeral file-backed KB at ~/.kb, no search
 blue-data-kb-mcp
 
 # Persistent KB in a specific directory, with BM25 keyword search
@@ -54,13 +54,13 @@ BLUE_DATA_KB_SOURCE_SEARCH=semantic OPENAI_API_KEY=sk-... \
 tools (each runs its own LLM agent loop) and for `BLUE_DATA_KB_SOURCE_SEARCH=semantic`
 (embeddings).
 
-Note: this server does **not** read the `kb` CLI's `~/.kbdb/registry.json`, and it
+Note: this server does **not** read the `kb` CLI's `~/.kb/registry.json`, and it
 has no profile support — it owns one independently-configured `KBSource` for the
 process lifetime, configured purely by the environment variables below (see
 Architecture). The variable names are the same ones the CLI uses, so a value means
 the same thing in both, but `kb profile config …` has no effect here: set them in
 the environment. `BLUE_DATA_KB_SOURCE_DATA_DIR`
-defaults to the same `~/.kbdb` directory the CLI's file backend uses by default, so
+defaults to the same `~/.kb` directory the CLI's file backend uses by default, so
 pointing both at their defaults gives practical (not automatic) continuity between
 `kb` and this server.
 
@@ -107,7 +107,7 @@ All configuration is via environment variables — there is no config file, and 
 | Variable | Default | Description |
 |---|---|---|
 | `BLUE_DATA_KB_SOURCE_GRAPH_BACKEND` | `file` | `file` — JSON files on disk. `neo4j` — Neo4j graph database. |
-| `BLUE_DATA_KB_SOURCE_DATA_DIR` | `~/.kbdb` | File backend directory. Same default the `kb` CLI's file backend uses. |
+| `BLUE_DATA_KB_SOURCE_DATA_DIR` | `~/.kb` | File backend directory. Same default the `kb` CLI's file backend uses. |
 | `BLUE_DATA_KB_SOURCE_NEO4J_URI` | — | Neo4j bolt URI, e.g. `bolt://localhost:7687`. Used when `BLUE_DATA_KB_SOURCE_GRAPH_BACKEND=neo4j`. |
 | `BLUE_DATA_KB_SOURCE_NEO4J_USER` | `neo4j` | Neo4j username. |
 | `BLUE_DATA_KB_SOURCE_NEO4J_PASSWORD` | — | Neo4j password. |
@@ -381,7 +381,7 @@ blue_data_kb_mcp.config   ← singleton KBSource factory (BLUE_DATA_KB_SOURCE_* 
 The server holds a single `KBSource` instance per process. All tool calls share
 that instance; `database` is a plain string argument selecting a logical
 database within it (multiple databases are supported on one backend). Unlike
-the `kb` CLI, this server does not read `~/.kbdb/registry.json` — it depends
+the `kb` CLI, this server does not read `~/.kb/registry.json` — it depends
 only on `blue-data-kb-source`, not on `blue-data-kb-cli`, so it stays an
 independently deployable unit (see `design/07-repo-organization.md`).
 

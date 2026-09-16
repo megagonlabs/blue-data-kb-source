@@ -55,8 +55,8 @@ export OPENAI_API_KEY=sk-...
 cd lib && bash scripts/install.sh && cd ..
 cd platform/cli && bash scripts/install.sh && cd ../..
 
-# Databases persist under ~/.kbdb/ by default; override with:
-export BLUE_DATA_KB_SOURCE_DATA_DIR=/path/to/my-kbdb   # or: kb profile config BLUE_DATA_KB_SOURCE_DATA_DIR /path/to/my-kbdb
+# Databases persist under ~/.kb/ by default; override with:
+export BLUE_DATA_KB_SOURCE_DATA_DIR=/path/to/my-kb   # or: kb profile config BLUE_DATA_KB_SOURCE_DATA_DIR /path/to/my-kb
 
 # Create a database and declare a schema
 kb database create main

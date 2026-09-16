@@ -15,14 +15,14 @@ into a working search indexer, vector source, and embedding function (see
 Example persisted record properties for a semantic-search-enabled database:
   {
     "_class": "blue_data_kb_source.file_kb_source.FileKBSource",
-    "connection": {"directory": "~/.kbdb"},
+    "connection": {"directory": "~/.kb"},
     "search": {
       "mode": "semantic",
-      "bm25_index_dir": "~/.kbdb/bm25",
+      "bm25_index_dir": "~/.kb/bm25",
       "vector": {
         "_class": "blue_data.source.vector.file_vector_source.FileVectorSource",
         "name": "kb_vectors",
-        "connection": {"directory": "~/.kbdb/vectors"}
+        "connection": {"directory": "~/.kb/vectors"}
       },
       "embedding": {"provider": "openai", "model": "text-embedding-3-small"}
     }
@@ -38,7 +38,6 @@ from urllib.parse import urlparse
 from blue_data.registry.data_registry import DataRegistry
 from blue_data.source.json.file_json_source import FileJSONSource
 from blue_data.source.source import DataSource
-
 from blue_data_kb_source import KBSource
 
 _MEMORY_KB_CLASS = "blue_data_kb_source.memory_kb_source.MemoryKBSource"
@@ -56,7 +55,7 @@ _VECTOR_CLASS_BY_BACKEND = {
 }
 
 
-CLI_HOME_DEFAULT = "~/.kbdb"
+CLI_HOME_DEFAULT = "~/.kb"
 
 
 def _cli_home() -> str:
@@ -82,15 +81,6 @@ def _data_dir() -> str:
 
 def _selected_database_path() -> Path:
     return Path(_cli_home()) / ".selected.database"
-
-
-def _default_database() -> str:
-    p = _selected_database_path()
-    if p.exists():
-        name = p.read_text().strip()
-        if name:
-            return name
-    return "default"
 
 
 def _resolve_database(option: str | None, resolver) -> str:

@@ -437,5 +437,5 @@ The Graph Store persists all schema and instance data as a typed graph of nodes 
 | Backend | Characteristics | Typical Use |
 |---------|----------------|------------|
 | Memory | In-process, non-persistent | Development, testing, short-lived pipelines |
-| File | JSON file per database, persistent, single-process | CLI default (`~/.kbdb/`, or the profile's `BLUE_DATA_KB_SOURCE_DATA_DIR`), no server required |
+| File | JSON file per database, persistent, single-process | CLI default (`~/.kb/`, or the profile's `BLUE_DATA_KB_SOURCE_DATA_DIR`), no server required |
 | Neo4j | Persistent, concurrent, queryable with Cypher | Production deployments |

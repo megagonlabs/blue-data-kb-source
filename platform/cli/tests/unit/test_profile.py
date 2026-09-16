@@ -2,9 +2,6 @@
 import json
 from pathlib import Path
 
-import pytest
-from click.testing import CliRunner
-
 from blue_data_kb_cli.commands import cli
 from blue_data_kb_cli.profile import cli_spec
 
@@ -276,3 +273,22 @@ def test_model_options_no_longer_hardcode_a_default():
     for command in (extract_cmd, answer_cmd, validate_cmd):
         model = next(p for p in command.params if p.name == "model")
         assert model.default is None, command.name
+
+
+def test_profile_commands_do_not_create_a_database(runner, tmp_path):
+    """Configuration commands have no business touching the graph. The root
+    group used to build — and create — the target database on every
+    invocation, so `kb profile list` left a default.json behind."""
+    invoke(runner, ["profile", "add", "staging"])
+    invoke(runner, ["profile", "list"])
+    invoke(runner, ["profile", "config", "BLUE_DATA_LLM_MODEL", "gpt-4o"])
+    invoke(runner, ["profile", "inspect"])
+
+    assert (tmp_path / ".profiles").exists()
+    assert list(tmp_path.glob("*.json")) == []
+
+
+def test_a_database_command_still_creates_its_database(runner, tmp_path):
+    """The other half: laziness must not stop a real command from working."""
+    invoke(runner, ["schema", "class", "add", "PERSON", "A human"])
+    assert (tmp_path / "default.json").exists()

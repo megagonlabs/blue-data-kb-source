@@ -688,7 +688,7 @@ supports async functions natively.
 
 The server holds one `KBSource` instance for the process lifetime, built from `BLUE_DATA_KB_SOURCE_*`
 env vars (`platform/mcp/src/blue_data_kb_mcp/config.py:get_kb()`) — **not** the CLI's
-`~/.kbdb/registry.json`; `database` is a plain string parameter on every tool (default `"default"`),
+`~/.kb/registry.json`; `database` is a plain string parameter on every tool (default `"default"`),
 since `KBSource` already supports multiple logical databases on one backend. See
 `platform/mcp/README.md`'s Configuration reference for the full env var table.
 
@@ -723,7 +723,7 @@ surfaces to MCP clients — `platform/mcp/src/blue_data_kb_mcp/server.py`).
 
 ## 4. CLI
 
-Built with Click (argument parsing) and Rich (output). All commands are thin wrappers over the Python library; Click handlers use `asyncio.run()` to call async library methods (`platform/cli/src/blue_data_kb_cli/commands.py`). Per-database configuration (graph backend, search) is stored in `{BLUE_DATA_KB_SOURCE_DATA_DIR}/registry.json` (default `~/.kbdb/`), managed by `platform/cli/src/blue_data_kb_cli/config.py`. Everything else — data directory, default database, LLM models, extraction defaults, API keys — comes from the selected profile in `~/.kbdb/.profiles`, via `kb profile` (`platform/cli/src/blue_data_kb_cli/profile.py`) over the shared `blue_data.utils.config` engine.
+Built with Click (argument parsing) and Rich (output). All commands are thin wrappers over the Python library; Click handlers use `asyncio.run()` to call async library methods (`platform/cli/src/blue_data_kb_cli/commands.py`). Per-database configuration (graph backend, search) is stored in `{BLUE_DATA_KB_SOURCE_DATA_DIR}/registry.json` (default `~/.kb/`), managed by `platform/cli/src/blue_data_kb_cli/config.py`. Everything else — data directory, default database, LLM models, extraction defaults, API keys — comes from the selected profile in `~/.kb/.profiles`, via `kb profile` (`platform/cli/src/blue_data_kb_cli/profile.py`) over the shared `blue_data.utils.config` engine.
 
 ### Global options
 

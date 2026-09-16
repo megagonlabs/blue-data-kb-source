@@ -34,19 +34,19 @@ pip install -e "../../lib[openai]"
 Each database is registered in a registry file:
 
 ```
-~/.kbdb/registry.json
+~/.kb/registry.json
 ```
 
 For the default `file` graph backend, data is automatically persisted as a JSON file — no explicit save step is needed:
 
 ```
-~/.kbdb/{database}.json
+~/.kb/{database}.json
 ```
 
 `FileGraphSource` saves after every write operation, so IDs returned by one command can be safely passed to the next. Override the data directory:
 
 ```bash
-export BLUE_DATA_KB_SOURCE_DATA_DIR=/path/to/my-kbdb   # or: kb profile config BLUE_DATA_KB_SOURCE_DATA_DIR /path/to/my-kbdb
+export BLUE_DATA_KB_SOURCE_DATA_DIR=/path/to/my-kb   # or: kb profile config BLUE_DATA_KB_SOURCE_DATA_DIR /path/to/my-kb
 ```
 
 ## Registering a database
@@ -62,7 +62,7 @@ kb database register main \
     --graph-backend file \
     --search semantic \
     --vector-backend chromadb \
-    --vector-path ~/.kbdb/chromadb \
+    --vector-path ~/.kb/chromadb \
     --embedding-provider openai \
     --embedding-model text-embedding-3-small
 
@@ -96,11 +96,11 @@ kb [--profile NAME] [--database DB] COMMAND
 
 `--profile` selects the configuration profile; `--database` selects the target database.
 
-`--database` defaults to `~/.kbdb/.selected.database` (written by `kb database select`); if that file does not exist, the profile's `BLUE_DATA_KB_SOURCE_DATABASE` is used, then the database named `"default"`. Precedence is `--database` > `kb database select` > profile > `"default"`.
+`--database` defaults to `~/.kb/.selected.database` (written by `kb database select`); if that file does not exist, the profile's `BLUE_DATA_KB_SOURCE_DATABASE` is used, then the database named `"default"`. Precedence is `--database` > `kb database select` > profile > `"default"`.
 
 ## Profiles and configuration
 
-A **profile** is a named set of configuration values — API keys, models, directories — stored as one section of `~/.kbdb/.profiles`. Everything the CLI reads comes from the selected profile, so switching environments is one command rather than a shell full of exports.
+A **profile** is a named set of configuration values — API keys, models, directories — stored as one section of `~/.kb/.profiles`. Everything the CLI reads comes from the selected profile, so switching environments is one command rather than a shell full of exports.
 
 ```bash
 $ kb profile add staging
@@ -133,12 +133,12 @@ Secrets are never accepted as a command-line value — that would put them in yo
 
 ```bash
 $ kb profile config OPENAI_API_KEY
-  value: sk-svcacct-...        # stored encoded in ~/.kbdb/.profiles
+  value: sk-svcacct-...        # stored encoded in ~/.kb/.profiles
 $ kb profile config OPENAI_API_KEY
   value: $OPENAI_API_KEY       # stored as a reference; read from the environment at use
 ```
 
-`~/.kbdb/.profiles` is written `0600`, and `kb profile inspect` masks stored secrets. A reference is shown by name with whether it currently resolves (`$OPENAI_API_KEY (set)`), which tells you what to export without revealing anything.
+`~/.kb/.profiles` is written `0600`, and `kb profile inspect` masks stored secrets. A reference is shown by name with whether it currently resolves (`$OPENAI_API_KEY (set)`), which tells you what to export without revealing anything.
 
 > The encoded form is obfuscation, not encryption — it keeps a key off your screen and out of a careless `grep`, and anyone who can read the file can decode it. The file mode is the real protection. Where that is not enough, use the `$VAR` reference form so the secret never touches disk.
 
@@ -152,7 +152,7 @@ $ kb profile config OPENAI_API_KEY
 | `BLUE_DATA_LLM_MODEL` | str | `gpt-4o` | ✓ |
 | `BLUE_DATA_CLI_FORMAT` | str | `table` | |
 | `BLUE_DATA_CLI_LOG_LIMIT` | int | `80` | |
-| `BLUE_DATA_KB_SOURCE_DATA_DIR` | directory | `~/.kbdb` | ✓ |
+| `BLUE_DATA_KB_SOURCE_DATA_DIR` | directory | `~/.kb` | ✓ |
 | `BLUE_DATA_KB_SOURCE_DATABASE` | str | `default` | ✓ |
 | `BLUE_DATA_KB_SOURCE_LLM_MODEL` | str | *inherits* | |
 | `BLUE_DATA_KB_SOURCE_EXTRACTION_LLM_MODEL` | str | *inherits* | |
@@ -169,7 +169,7 @@ $ kb profile config OPENAI_API_KEY
 
 Each per-function model falls back to `BLUE_DATA_KB_SOURCE_LLM_MODEL`, then to `BLUE_DATA_LLM_MODEL` — so setting one value covers every command, and a single function can still be pinned to a different model.
 
-`BLUE_DATA_KB_SOURCE_HOME` (default `~/.kbdb`) is deliberately *not* a profile parameter: it is the directory the profiles themselves live in, so it can only be set in the environment.
+`BLUE_DATA_KB_SOURCE_HOME` (default `~/.kb`) is deliberately *not* a profile parameter: it is the directory the profiles themselves live in, so it can only be set in the environment.
 
 ## Walkthrough
 

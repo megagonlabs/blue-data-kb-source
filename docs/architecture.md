@@ -91,7 +91,7 @@
   │  │  terminal, one       │   │  stdio/MCP protocol  │                      │
   │  │  KBSource per        │   │  26 tools: schema,   │                      │
   │  │  registered database │   │  knowledge, query,   │                      │
-  │  │  (~/.kbdb registry)  │   │  extraction, source  │                      │
+  │  │  (~/.kb registry)  │   │  extraction, source  │                      │
   │  └──────────┬───────────┘   └──────────┬───────────┘                      │
   │             │                          │                                  │
   │             │            ┌─────────────┘                                  │
@@ -125,7 +125,7 @@
 | `wordnet-mcp` | `platform/wordnet-mcp/` (`blue-data-wordnet-mcp`) | stdio (MCP) | Implemented — optional, referenced by `expand_schema(reference="mcp")` |
 | `api` | `platform/api/` | HTTP (FastAPI) | Planned — see [api.md](api.md) |
 
-The `cli` and `mcp` processes are independent — they do not share state with each other, and each holds its own `KBSource` instance. `cli` resolves its backend per invocation from `~/.kbdb/registry.json` (multiple named databases, each independently configured — see [cli.md](cli.md)); `mcp` owns a single `KBSource` for the process lifetime, configured entirely by `BLUE_DATA_KB_SOURCE_*` environment variables, with `database` as a plain per-tool-call argument (see [mcp.md](mcp.md)). This is a deliberate difference, not an oversight — `mcp` depends only on `blue-data-kb-source`, not on `blue-data-kb-cli`, so each platform component stays independently deployable.
+The `cli` and `mcp` processes are independent — they do not share state with each other, and each holds its own `KBSource` instance. `cli` resolves its backend per invocation from `~/.kb/registry.json` (multiple named databases, each independently configured — see [cli.md](cli.md)); `mcp` owns a single `KBSource` for the process lifetime, configured entirely by `BLUE_DATA_KB_SOURCE_*` environment variables, with `database` as a plain per-tool-call argument (see [mcp.md](mcp.md)). This is a deliberate difference, not an oversight — `mcp` depends only on `blue-data-kb-source`, not on `blue-data-kb-cli`, so each platform component stays independently deployable.
 
 `wordnet-mcp` is a standalone read-only MCP server, not a `KBSource` dependency — the Schema Expansion Engine (`schema/expansion.py`) spawns it (or connects to it, for `sse`/`streamable_http` transports) itself when `expand_schema` is called with `reference="mcp"` and an entry for it in `mcp_servers`, offering its tools (hypernym/synonym lookups) to the LLM agent alongside the built-in schema tools for that one call. Neither `cli` nor `mcp` talk to it directly.
 
@@ -281,7 +281,7 @@ Idempotent instance resolution (`find_entity`/`find_fact` before creating) means
 | Backend | `KBSource` mixin | Persistence | Concurrency | Typical use |
 |---|---|---|---|---|
 | `MemoryGraphSource` | `MemoryKBSource` (`from blue_data_kb_source import ...`) | None (in-process) | Single process | Development, testing, short-lived pipelines |
-| `FileGraphSource` | `FileKBSource` (`from blue_data_kb_source import ...`) | One JSON file per database | Single process | CLI default (`~/.kbdb/` or `BLUE_DATA_KB_SOURCE_DATA_DIR`) — no server required |
+| `FileGraphSource` | `FileKBSource` (`from blue_data_kb_source import ...`) | One JSON file per database | Single process | CLI default (`~/.kb/` or `BLUE_DATA_KB_SOURCE_DATA_DIR`) — no server required |
 | `NEO4JSource` | `NEO4JKBSource` (`from blue_data_kb_source.neo4j.neo4j_kb_source import NEO4JKBSource`) | Neo4j database | Concurrent | Production deployments |
 
 All three `GraphSource` implementations come from the sibling `blue-data` library; `kb_source.py` itself never imports a concrete backend directly — each mixin lives in its own module (`memory_kb_source.py`, `file_kb_source.py`, `neo4j/neo4j_kb_source.py`) that does the mixing. `NEO4JKBSource` is deliberately kept out of the top-level package: importing it is what pulls in the `neo4j` driver, so plain `import blue_data_kb_source` never requires it to be installed. Each mixin overrides `_initialize_connection_properties` to report its own `kb/memory`/`kb/file`/`kb/neo4j` connection protocol rather than inheriting the mixed-in `GraphSource`'s `graph/*` one. See [extending.md](extending.md) for implementing another backend the same way.

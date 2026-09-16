@@ -1,8 +1,8 @@
 """Click command groups for the kb CLI.
 
-Databases are registered in {BLUE_DATA_KB_SOURCE_DATA_DIR}/registry.json (defaults to ~/.kbdb).
+Databases are registered in {BLUE_DATA_KB_SOURCE_DATA_DIR}/registry.json (defaults to ~/.kb).
 That value, and every other configuration parameter, comes from the selected
-profile in ~/.kbdb/.profiles — see `kb profile --help`.
+profile in ~/.kb/.profiles — see `kb profile --help`.
 Each entry stores the graph backend and optional search configuration.  Run
 `kb database register` to create and configure a new database.
 
@@ -51,7 +51,6 @@ from blue_data_kb_cli.config import (
     _KB_CLASS_BY_BACKEND,
     _cli_home,
     _data_dir,
-    _default_database,
     _resolve_database,
     _get_registry,
     _make_kb,
@@ -342,6 +341,26 @@ def _evidence_records(kb: FileKBSource, db: str, node_id: str) -> list[dict]:
 # Root group                                                           #
 # ------------------------------------------------------------------ #
 
+class _CommandContext(dict):
+    """Click context object whose KBSource is built on first use.
+
+    The root group used to construct the target database — creating it if
+    absent — on every single invocation, including commands that never touch
+    one: `kb profile list` would leave a `default.json` and a `registry.json`
+    behind. Commands still read `obj["kb"]` exactly as before; it simply isn't
+    built until one of them actually asks for it.
+    """
+
+    def __init__(self, build_kb, **values) -> None:
+        super().__init__(**values)
+        self._build_kb = build_kb
+
+    def __getitem__(self, key):
+        if key == "kb" and "kb" not in self:
+            super().__setitem__("kb", self._build_kb())
+        return super().__getitem__(key)
+
+
 @click.group()
 @click.option(
     "--profile",
@@ -349,12 +368,12 @@ def _evidence_records(kb: FileKBSource, db: str, node_id: str) -> list[dict]:
     envvar="BLUE_DATA_PROFILE",
     default=None,
     help="Configuration profile. Overrides BLUE_DATA_PROFILE. "
-         "Defaults to the selection in ~/.kbdb/.selected.profile.",
+         "Defaults to the selection in ~/.kb/.selected.profile.",
 )
 @click.option(
     "--database",
     default=None,
-    help="Target database. Defaults to the selection in ~/.kbdb/.selected.database, "
+    help="Target database. Defaults to the selection in ~/.kb/.selected.database, "
          "then BLUE_DATA_KB_SOURCE_DATABASE from the profile.",
 )
 @click.pass_context
@@ -365,7 +384,6 @@ def cli(ctx: click.Context, profile_name: str | None, database: str | None) -> N
     `kb profile inspect` to see them and where each came from.
     Run `kb database register` to create and configure a database.
     """
-    ctx.ensure_object(dict)
     home = _cli_home()
 
     # Apply the profile before anything else runs: resolved values are written
@@ -373,16 +391,17 @@ def cli(ctx: click.Context, profile_name: str | None, database: str | None) -> N
     # remaining `envvar=` options already read their configuration from.
     resolver = resolver_for(home, profile_name)
     resolver.export()
-    ctx.obj["home"] = home
-    ctx.obj["profile"] = resolver.profile
-    ctx.obj["config"] = resolver
-
     database = _resolve_database(database, resolver)
-    kb = _make_kb(database)
-    if database not in kb.fetch_databases():
-        kb.create_database(database)
-    ctx.obj["kb"] = kb
-    ctx.obj["db"] = database
+
+    def build_kb():
+        kb = _make_kb(database)
+        if database not in kb.fetch_databases():
+            kb.create_database(database)
+        return kb
+
+    ctx.obj = _CommandContext(
+        build_kb, home=home, profile=resolver.profile, config=resolver, db=database
+    )
 
 
 cli.add_command(profile_group)

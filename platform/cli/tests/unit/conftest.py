@@ -8,13 +8,13 @@ from click.testing import CliRunner
 
 from blue_data_kb_cli.commands import cli
 
-# Anything in the real ~/.kbdb newer than this was written by the test run.
+# Anything in the real ~/.kb newer than this was written by the test run.
 _SESSION_START = time.time()
 
 
 # Every environment variable that can steer the CLI at a real home directory.
 # Listed explicitly so that adding a new one without isolating it trips the
-# guard below rather than silently writing into the developer's own ~/.kbdb.
+# guard below rather than silently writing into the developer's own ~/.kb.
 _HOME_ENV_VARS = (
     "BLUE_DATA_KB_SOURCE_HOME",
     "BLUE_DATA_KB_SOURCE_DATA_DIR",
@@ -27,7 +27,7 @@ def isolated_home(tmp_path, monkeypatch):
 
     Isolation used to rest on a single variable name; when the CLI grew profile
     configuration under new names, the tests quietly started writing into the
-    real ~/.kbdb. The guard is the part that matters — it turns that class of
+    real ~/.kb. The guard is the part that matters — it turns that class of
     mistake into a test failure instead of a surprise in someone's home dir.
     """
     # Clear every configurable parameter first, so a developer's own exported
@@ -44,7 +44,7 @@ def isolated_home(tmp_path, monkeypatch):
 
     yield
 
-    real_home = Path.home() / ".kbdb"
+    real_home = Path.home() / ".kb"
     if real_home.exists():
         touched = [
             f.name for f in real_home.iterdir()
