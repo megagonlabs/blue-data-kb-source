@@ -110,7 +110,7 @@ async def run_case(kb: KBSource, case: Case, model: str, schema_discovery_mode: 
                 step.input_text,
                 queries=step.queries or None,
                 model=model,
-                schema_discovery_mode=schema_discovery_mode,
+                schema_expansion_dedup_mode=schema_discovery_mode,
                 on_tool_call=on_tool_call,
                 on_tool_result=on_tool_result,
             )
