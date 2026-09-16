@@ -102,12 +102,22 @@ kb [--profile NAME] [--database DB] COMMAND
 
 A **profile** is a named set of configuration values — API keys, models, directories — stored as one section of `~/.kb/.profiles`. Everything the CLI reads comes from the selected profile, so switching environments is one command rather than a shell full of exports.
 
+The first `kb` command creates a `default` profile and selects it, so there is nothing to set up before the CLI works:
+
 ```bash
-$ kb profile add staging
-$ kb profile select staging
 $ kb profile config                     # walk through the required parameters
 $ kb profile inspect                    # every value, and where it came from
 ```
+
+`add` is for additional profiles:
+
+```bash
+$ kb profile add staging
+$ kb profile select staging
+$ kb profile config                     # configures staging, now that it is selected
+```
+
+The `default` profile is created empty, so any value you never set keeps tracking the built-in default rather than being frozen at whatever it was when you installed. Removing a profile sticks — it is not recreated on the next command.
 
 ### Setting values
 
@@ -340,7 +350,7 @@ Shared `ASSERT_OPTS` on every `assert` command and `kb data ingest`: `[--descrip
 
 | Command | Description |
 |---|---|
-| `kb profile add NAME` | Create a profile |
+| `kb profile add NAME` | Create an additional profile (`default` is created on first use) |
 | `kb profile remove NAME [--confirm]` | Delete a profile and its configuration |
 | `kb profile list [--format table\|json]` | List profiles, marking the selected one |
 | `kb profile select NAME` | Make a profile the default for subsequent commands |

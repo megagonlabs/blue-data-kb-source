@@ -292,3 +292,42 @@ def test_a_database_command_still_creates_its_database(runner, tmp_path):
     """The other half: laziness must not stop a real command from working."""
     invoke(runner, ["schema", "class", "add", "PERSON", "A human"])
     assert (tmp_path / "default.json").exists()
+
+
+# ------------------------------------------------------------------ #
+# first use                                                           #
+# ------------------------------------------------------------------ #
+
+def test_the_first_command_creates_the_default_profile(runner, tmp_path):
+    """A fresh install must not tell the user to run `kb profile add` before
+    anything works."""
+    assert not (tmp_path / ".profiles").exists()
+    out = json.loads(invoke(runner, ["profile", "list", "--format", "json"]).output)
+    assert out == {"selected": "default", "profiles": ["default"]}
+
+
+def test_the_created_profile_is_empty_so_values_track_the_spec_defaults(runner):
+    """Seeding it with today's defaults would freeze them at install time."""
+    out = json.loads(invoke(runner, ["profile", "inspect", "--format", "json"]).output)
+    assert out["values"]["BLUE_DATA_LLM_MODEL"] == {"value": "gpt-4o", "source": "default"}
+
+
+def test_first_use_creates_no_database(runner, tmp_path):
+    invoke(runner, ["profile", "list"])
+    assert (tmp_path / ".profiles").exists()
+    assert list(tmp_path.glob("*.json")) == []
+
+
+def test_a_removed_default_profile_is_not_resurrected(runner):
+    """Initialization is keyed on the profiles file, not the section, so an
+    explicit removal sticks."""
+    invoke(runner, ["profile", "add", "staging"])
+    invoke(runner, ["profile", "select", "staging"])
+    invoke(runner, ["profile", "remove", "default", "--confirm"])
+    out = json.loads(invoke(runner, ["profile", "list", "--format", "json"]).output)
+    assert out["profiles"] == ["staging"]
+
+
+def test_commands_work_against_a_freshly_created_empty_profile(runner, tmp_path):
+    invoke(runner, ["schema", "class", "add", "PERSON", "A human"])
+    assert (tmp_path / "default.json").exists()

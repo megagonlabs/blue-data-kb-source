@@ -13,17 +13,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
 import arrow
 import click
-from rich.console import Console
-from rich.table import Table
-from rich.tree import Tree
-
 from blue_data_kb_source import KBSource
 from blue_data_kb_source._constants import (
     CLASS,
@@ -43,18 +38,20 @@ from blue_data_kb_source._constants import (
     TAIL,
 )
 from blue_data_kb_source.types import KBError
+from rich.console import Console
+from rich.table import Table
+from rich.tree import Tree
 
-from blue_data_kb_cli.profile import profile_group, resolver_for
 from blue_data_kb_cli.config import (
     _BACKEND_BY_KB_CLASS,
     _FILE_KB_CLASS,
     _KB_CLASS_BY_BACKEND,
     _cli_home,
     _data_dir,
-    _resolve_database,
     _get_registry,
     _make_kb,
     _neo4j_connection_dict,
+    _resolve_database,
     _selected_database_path,
     _vector_properties,
     list_databases,
@@ -63,6 +60,7 @@ from blue_data_kb_cli.config import (
     unregister_database,
     update_db_config,
 )
+from blue_data_kb_cli.profile import profile_group, profile_store, resolver_for
 
 console = Console()
 
@@ -385,6 +383,12 @@ def cli(ctx: click.Context, profile_name: str | None, database: str | None) -> N
     Run `kb database register` to create and configure a database.
     """
     home = _cli_home()
+
+    # A fresh install gets its `default` profile here, rather than being told to
+    # run `kb profile add` before anything works. Keyed on the profiles file, so
+    # a profile the user removed on purpose is not resurrected on the next
+    # command.
+    profile_store(home).initialize()
 
     # Apply the profile before anything else runs: resolved values are written
     # into the environment, which is where the library, the OpenAI SDK and the

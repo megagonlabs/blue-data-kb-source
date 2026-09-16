@@ -133,7 +133,7 @@ def profile_list(obj: dict, fmt: str) -> None:
         ))
         return
     if not names:
-        console.print("[dim](no profiles — run `kb profile add default`)[/dim]")
+        console.print("[dim](no profiles — run `kb profile add NAME`)[/dim]")
         return
     t = Table(show_header=True, header_style="bold")
     t.add_column("Profile")
@@ -238,6 +238,8 @@ def profile_config(obj: dict, param: str | None, value: str | None, profile_name
     spec = cli_spec()
 
     if not store.exists(target):
+        # The startup hook creates `default`; this covers `--profile NAME` for
+        # one that was never added.
         store.add(target)
         console.print(f"[dim]Created profile {target!r}.[/dim]")
 
