@@ -17,6 +17,33 @@ def test_database_create_auto_registers(runner):
     assert rows["main"].get("search") is None
 
 
+def test_database_create_inherits_session_search_config(runner):
+    """`create` is the shortcut for `register`, so it must not quietly produce a
+    database with search off when the session's own database has it on."""
+    invoke(runner, ["database", "register", "primary", "--search", "bm25"])
+    invoke(runner, ["--database", "primary", "database", "create", "derived"])
+    cfg = invoke_json(runner, ["--database", "derived", "database", "search", "config", "show"])
+    assert cfg["mode"] == "bm25"
+
+
+def test_database_create_inherits_session_backend_connection(runner, tmp_path):
+    data_dir = str(tmp_path / "graphs")
+    invoke(runner, ["database", "register", "primary", "--directory", data_dir])
+    invoke(runner, ["--database", "primary", "database", "create", "derived"])
+    rows = invoke_json(runner, ["database", "list", "--format", "json"])
+    assert rows["derived"]["_class"] == rows["primary"]["_class"]
+    assert rows["derived"]["connection"]["directory"] == data_dir
+
+
+def test_database_create_does_not_persist_a_none_search_mode(runner):
+    """An absent "search" key already means mode=none to KBSource; writing it
+    out explicitly would only add noise to the registry record."""
+    invoke(runner, ["--database", "main", "database", "create", "main"])
+    invoke(runner, ["--database", "main", "database", "create", "second"])
+    rows = invoke_json(runner, ["database", "list", "--format", "json"])
+    assert rows["second"].get("search") is None
+
+
 def test_database_register_file_backend(runner, tmp_path):
     result = invoke(runner, [
         "database", "register", "mydb",

@@ -760,7 +760,11 @@ kb database search config set [--search none|bm25|semantic] [--bm25-index-dir DI
                                [--vector-backend ...] [--embedding-provider openai] [--embedding-model MODEL]
 ```
 
-`register` fully configures a database (backend + search) up front; `create` is a shortcut that creates a database using the current session's file backend and auto-registers it with defaults if not already registered.
+`register` fully configures a database (backend + search) up front; `create` is a shortcut that
+takes no configuration options and instead inherits the session database's backend and search
+config, auto-registering the new database with them if it is not already registered. Creating a
+database from a session using neo4j and semantic search therefore yields another such database,
+rather than a file-backed one with search silently off.
 
 **Example**
 ```

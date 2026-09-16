@@ -358,7 +358,7 @@ Shared `ASSERT_OPTS` on every `assert` command and `kb data ingest`: `[--descrip
 | `kb profile config [PARAM [VALUE]] [--profile NAME]` | Set configuration: no args walks the required parameters, PARAM prompts for one, PARAM VALUE sets it directly. Secrets always prompt |
 | `kb database list [--format table\|json]` | List registered databases with backend and search mode |
 | `kb database register NAME [options]` | Register a new database with graph and search backends |
-| `kb database create NAME` | Create a database (auto-registers with file defaults) |
+| `kb database create NAME` | Create a database, inheriting the session database's backend and search config |
 | `kb database delete NAME [--yes]` | Delete a database and remove it from the registry |
 | `kb database select NAME` | Set the default target database |
 | `kb database config show` | Print graph backend config for the current database |

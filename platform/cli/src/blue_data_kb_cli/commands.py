@@ -556,15 +556,40 @@ def database_register(
 @click.argument("name")
 @click.pass_obj
 def database_create(obj: dict, name: str) -> None:
-    """Create a database using the current session's backend (shortcut for simple file setups)."""
+    """Create a database using the current session's backend and search config.
+
+    The shortcut for `database register`: it takes no configuration options and
+    instead inherits the session database's, so `create` in a session using
+    neo4j and semantic search produces another such database rather than a
+    file-backed one with search silently off. Use `database register` to
+    configure a database differently from the session's.
+    """
     kb: KBSource = obj["kb"]
     try:
         kb.create_database(name)
     except KBError as exc:
         raise click.ClickException(str(exc))
-    # Auto-register with defaults if not present
+    # Auto-register if not present, mirroring the session database's own
+    # backend and search config. It used to hardcode the file backend with no
+    # search, which contradicted the "current session's backend" this command
+    # advertises and left `properties["search"]` absent — so KBSource built no
+    # indexer and search_schema/search_data silently degraded to substring
+    # lookups on a database the user never configured that way.
+    #
+    # Sharing one search config across databases is safe: BM25 corpus files are
+    # named `{database}_{collection}_bm25.json` and vector indices are keyed by
+    # (database, collection), so neither collides.
     if _get_registry().get_source_record(name) is None:
-        register_database(name, _FILE_KB_CLASS, connection={"directory": _data_dir()})
+        session_cfg = load_db_config(obj["db"])
+        session_search = session_cfg.get("search") or {}
+        register_database(
+            name,
+            session_cfg.get("_class", _FILE_KB_CLASS),
+            connection=session_cfg.get("connection") or {"directory": _data_dir()},
+            # An explicit mode="none" is not worth persisting — it is what an
+            # absent "search" key already means to KBSource.__init__.
+            search=session_search if session_search.get("mode", "none") != "none" else None,
+        )
     console.print(f"Created database: [bold]{name}[/bold]")
 
 
