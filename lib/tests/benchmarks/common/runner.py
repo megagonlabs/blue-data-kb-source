@@ -11,12 +11,27 @@ from dataclasses import dataclass, field
 from typing import Any
 from unittest.mock import patch
 
-from blue_data_kb_source import KBSource
+from blue_data_kb_source import KBSource, MemoryKBSource
 
 from .capture import CreationCollector, InstrumentedOpenAI, LLMCallRecord, ToolCallRecord, make_trace_callbacks
 from .cases import Case
 
 DB = "benchmark"
+
+
+def make_kb(name: str = "extraction-benchmark") -> MemoryKBSource:
+    """A KB with a real search index, as every extraction case assumes.
+
+    Search is declarative config under properties["search"]; with none, the
+    indexer is never built and `search_schema` silently degrades to
+    `SchemaManager.find_schema`, a substring lookup that misses any query
+    phrased as anything but the element's exact name. The relation stage asks
+    `search_schema("Agile skill", type="relation")`, gets nothing back, and
+    correctly skips every fact — so a case can score 0 on facts with the model
+    behaving perfectly. `query_runner.make_kb` already did this; extraction
+    never did.
+    """
+    return MemoryKBSource(name=name, properties={"search": {"mode": "bm25"}})
 
 
 async def seed_schema(kb: KBSource, database: str, spec: dict[str, Any]) -> None:

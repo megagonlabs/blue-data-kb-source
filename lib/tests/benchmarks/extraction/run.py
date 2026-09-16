@@ -20,7 +20,6 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from ...conftest import MemoryKBSource
 from ..common import runner, scoring
 from ..common.cases import Case, cassette_filename, load_cases
 from ..common.reporting import render_table, write_detailed_log, write_json
@@ -70,7 +69,7 @@ def _cassette_context(case_id: str, mode: str, record: bool):
 async def _run_one(
     case: Case, model: str, mode: str, judge_client, judge_model: str, record: bool
 ) -> tuple[runner.RunResult, scoring.CaseScore]:
-    kb = MemoryKBSource(name="benchmark-live")
+    kb = runner.make_kb("benchmark-live")
     with _cassette_context(case.id, mode, record):
         result = await runner.run_case(kb, case, model, mode)
     score = await scoring.score_case(

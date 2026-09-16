@@ -18,6 +18,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from blue_data_kb_source._constants import DOMAIN, EXTRACTED_FROM, RANGE
+# The engine's own dispatch-time grounding predicate, reused verbatim rather
+# than reimplemented: a scorer with its own idea of "verbatim" reports spans
+# the engine accepted as fabricated. It did — a strict substring test flagged
+# every entity quoted out of a newline-separated list block.
+from blue_data_kb_source.extraction.engine import _span_is_grounded
 from blue_data_kb_source.knowledge.helpers import entity_classes
 
 from .cases import Case, SchemaReuseSpec
@@ -223,12 +228,15 @@ class ProvenanceResult:
 def check_provenance(collector: CreationCollector, kb: Any, database: str, source_text: str) -> ProvenanceResult:
     """Every created entity/fact/property value should carry a verbatim source
     text span. This walks each item's EXTRACTED_FROM edges directly and checks
-    the text is a real substring of the case's source material — catching
+    the text really is quoted from the case's source material — catching
     fabricated/hallucinated provenance, which the LLM judge (which never sees
     raw graph state, only the extracted item lists) has no way to detect.
+
+    "Quoted" means whatever `_span_is_grounded` means, since that is the rule
+    the engine enforced when it accepted the write; scoring against a stricter
+    rule measures the gap between two implementations, not the model.
     """
     result = ProvenanceResult()
-    normalized_source = source_text.lower()
     items: list[tuple[str, str]] = (
         [(e.get("name", e.get("id", "?")), e["id"]) for e in collector.entities]
         + [(f.get("name", f.get("id", "?")), f["id"]) for f in collector.facts]
@@ -242,7 +250,7 @@ def check_provenance(collector: CreationCollector, kb: Any, database: str, sourc
         texts = [t for t in (nb["node"].get("properties", {}).get("text") for nb in nbs) if t]
         if not texts:
             result.missing.append(label)
-        elif not any(t.lower() in normalized_source for t in texts):
+        elif not any(_span_is_grounded(t, source_text) for t in texts):
             result.fabricated.append(label)
         else:
             result.ok_items.append(label)
