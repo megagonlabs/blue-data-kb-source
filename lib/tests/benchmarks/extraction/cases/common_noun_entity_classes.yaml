@@ -6,6 +6,14 @@ description: >
   single SKILL candidate, so no find_entity call was ever made for them; it wrote
   the languages onto the person as property values instead. Also a hallucination
   trap: the text states no age, so any AGE value is fabricated. See issue #91.
+
+  `expected` lists every skill and language the text names, and a fact for each
+  one, because the model reliably extracts all of them — a subset would score
+  correct output as a precision miss. "Project Management" is deliberately
+  absent: it is the category heading of "* Project Management: Agile, Scrum,
+  Kanban", not an item in the list, and treating a heading as an instance is
+  mild over-extraction that should cost precision. It appeared in 1 of 3
+  gpt-4o runs, so requiring it would cost recall in the other 2.
 seed_schema:
   classes:
     - {name: PERSON, description: "A human individual"}
@@ -37,14 +45,23 @@ expected:
     - {name: Scrum, class: SKILL}
     - {name: Kanban, class: SKILL}
     - {name: JIRA, class: SKILL}
+    - {name: Microsoft Office Suite, class: SKILL}
     - {name: Trello, class: SKILL}
     - {name: SQL, class: SKILL}
+    - {name: Basic Python, class: SKILL}
     - {name: English, class: LANGUAGE}
     - {name: Spanish, class: LANGUAGE}
   facts:
     - {head: Alice Chen, relation: HAS_SKILL, tail: Agile}
+    - {head: Alice Chen, relation: HAS_SKILL, tail: Scrum}
+    - {head: Alice Chen, relation: HAS_SKILL, tail: Kanban}
+    - {head: Alice Chen, relation: HAS_SKILL, tail: JIRA}
+    - {head: Alice Chen, relation: HAS_SKILL, tail: Microsoft Office Suite}
+    - {head: Alice Chen, relation: HAS_SKILL, tail: Trello}
     - {head: Alice Chen, relation: HAS_SKILL, tail: SQL}
+    - {head: Alice Chen, relation: HAS_SKILL, tail: Basic Python}
     - {head: Alice Chen, relation: SPEAKS, tail: English}
+    - {head: Alice Chen, relation: SPEAKS, tail: Spanish}
   schema_reuse:
     must_reuse: [SKILL]
     # The text gives no age; an AGE property can only come from inference.
