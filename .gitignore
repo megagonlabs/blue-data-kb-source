@@ -57,3 +57,6 @@ Thumbs.db
 # User database files
 *.userdb
 ~/.userdb/
+
+# Local tooling config
+treehouse.toml
