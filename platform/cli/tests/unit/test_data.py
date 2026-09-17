@@ -578,6 +578,37 @@ def test_entity_property_assert_then_dedupes(runner):
     assert "deduped, evidence attached" in again.output
 
 
+def test_fact_property_set_and_list_accept_a_fact_name(runner):
+    """`--fact` used to be rejected here while every sibling accepted it; a fact's
+    auto-generated Head_RELATION_Tail name is what makes it resolvable. See #97."""
+    _seed_schema_and_entities(runner)
+    invoke(runner, DB + [
+        "data", "fact", "add", "--head", "Alice", "--relation", "WORKED_AT", "--tail", "IBM",
+    ])
+
+    invoke(runner, DB + [
+        "data", "fact", "property", "set", "1998-06-01",
+        "--fact", "Alice_WORKED_AT_IBM", "--property", "START_DATE", "--type", "DATE",
+    ])
+    rows = invoke_json(runner, DB + [
+        "data", "fact", "property", "list", "--fact", "Alice_WORKED_AT_IBM", "--format", "json",
+    ])
+    assert rows[0]["property"] == "START_DATE"
+    assert rows[0]["value"] == "1998-06-01"
+
+
+def test_fact_property_set_and_list_require_one_of_fact_or_fact_id(runner):
+    """Neither given is a usage error, worded as the shared resolver words it."""
+    _seed_schema_and_entities(runner)
+    for args in (
+        ["data", "fact", "property", "set", "x", "--property", "START_DATE"],
+        ["data", "fact", "property", "list"],
+    ):
+        result = runner.invoke(cli, DB + args)
+        assert result.exit_code != 0
+        assert "Provide --fact or --fact-id" in result.output
+
+
 def test_fact_property_assert_on_the_triple(runner):
     invoke(runner, DB + ["data", "fact", "assert", "--head", "Zorbo", "--relation", "KNOWS",
                          "--tail", "Blarp"] + NONE_MODE)

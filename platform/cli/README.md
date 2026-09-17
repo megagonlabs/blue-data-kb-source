@@ -434,9 +434,9 @@ Shared `ASSERT_OPTS` on every `assert` command and `kb data ingest`: `[--descrip
 | `kb data fact update --fact NAME\|--fact-id ID [--name N] [--description D]` | Update the name and/or description of a fact |
 | `kb data fact delete --fact NAME\|--fact-id ID [--yes]` | Delete a fact and its property values |
 | `kb data fact extraction add --fact NAME\|--fact-id ID --text T [--source NAME\|--source-id ID] [--confidence F] [--extraction-type T]` | Link additional source text (a new `EXTRACTED_FROM` edge) to an existing fact |
-| `kb data fact property set VALUE [--name N] [--description D] --fact-id ID --property NAME [--type T] [--source NAME\|--source-id ID] [--confidence F] [--extraction-type T]` | Set a property value on a fact |
+| `kb data fact property set VALUE [--name N] [--description D] --fact NAME\|--fact-id ID --property NAME [--type T] [--source NAME\|--source-id ID] [--confidence F] [--extraction-type T]` | Set a property value on a fact |
 | `kb data fact property assert --head H --relation R --tail T --property P --value V [--type T] [ASSERT_OPTS]` | Assert a property value on the fact identified structurally by its triple; a missing fact is created |
-| `kb data fact property list --fact-id ID [--show-provenance] [--format table\|json]` | List property values for a fact; `--show-provenance` expands each row into one row per piece of evidence, with its own score, text, and source |
+| `kb data fact property list --fact NAME\|--fact-id ID [--show-provenance] [--format table\|json]` | List property values for a fact; `--show-provenance` expands each row into one row per piece of evidence, with its own score, text, and source |
 | `kb data fact property update --fact NAME\|--fact-id ID --property NAME\|--property-id ID [--value V] [--name N] [--description D]` | Update the value, name, and/or description of a fact property value |
 | `kb data fact property delete --fact NAME\|--fact-id ID --property NAME\|--property-id ID [--yes]` | Delete a property value from a fact |
 | `kb data fact property extraction add --fact NAME\|--fact-id ID --property NAME\|--property-id ID --text T [--source NAME\|--source-id ID] [--confidence F] [--extraction-type T]` | Link additional source text to a fact's existing property value |

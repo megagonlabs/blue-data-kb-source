@@ -3268,7 +3268,8 @@ def fact_property_group() -> None:
 @click.argument("value")
 @click.option("--name",                       default=None,  help="Literal name (defaults to value).")
 @click.option("--description",                default=None,  help="Optional description.")
-@click.option("--fact-id",                    required=True, help="Fact node ID.")
+@click.option("--fact",      "fact_name",     default=None,  help="Fact name.")
+@click.option("--fact-id",                    default=None,  help="Fact node ID (overrides --fact).")
 @click.option("--property",  "property_name", default=None,  help="Property name.")
 @click.option("--property-id",                default=None,  help="Property node ID (overrides --property).")
 @click.option(
@@ -3295,7 +3296,8 @@ def fact_property_set(
     value: str,
     name: str | None,
     description: str | None,
-    fact_id: str,
+    fact_name: str | None,
+    fact_id: str | None,
     property_name: str | None,
     property_id: str | None,
     literal_type: str | None,
@@ -3313,6 +3315,7 @@ def fact_property_set(
     """
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
+    fid = _resolve_node(kb, db, FACT, fact_name, fact_id, "fact")
     pid: str | None = None
     if property_name or property_id:
         pid = _resolve_node(kb, db, PROPERTY, property_name, property_id, "property")
@@ -3324,7 +3327,7 @@ def fact_property_set(
         lit_id = _run(kb.add_fact_property_value(
             db, coerced,
             name=name, description=description,
-            fact_id=fact_id, property_id=pid, literal_type=literal_type,
+            fact_id=fid, property_id=pid, literal_type=literal_type,
             text=text, source_id=resolved_source_id,
             confidence=confidence, extraction_type=extraction_type,
         ))
@@ -3357,7 +3360,8 @@ def fact_property_assert(obj, head, relation, tail, property_name, value, litera
 
 
 @fact_property_group.command("list")
-@click.option("--fact-id",         required=True,    help="Fact node ID.")
+@click.option("--fact",            "fact_name",      default=None, help="Fact name.")
+@click.option("--fact-id",                           default=None, help="Fact node ID (overrides --fact).")
 @click.option("--show-provenance", "show_provenance", is_flag=True, help="Include provenance text.")
 @click.option(
     "--format", "fmt",
@@ -3366,12 +3370,15 @@ def fact_property_assert(obj, head, relation, tail, property_name, value, litera
     show_default=True,
 )
 @click.pass_obj
-def fact_property_list(obj: dict, fact_id: str, show_provenance: bool, fmt: str) -> None:
+def fact_property_list(
+    obj: dict, fact_name: str | None, fact_id: str | None, show_provenance: bool, fmt: str
+) -> None:
     """List all property values for a fact."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
+    fid = _resolve_node(kb, db, FACT, fact_name, fact_id, "fact")
     rows = []
-    for nb in kb.get_neighbors(db, fact_id, edge_type=HAS_PROPERTY, direction="out"):
+    for nb in kb.get_neighbors(db, fid, edge_type=HAS_PROPERTY, direction="out"):
         lit = nb["node"]
         lit_props = lit.get("properties", {})
         prop_nbs = kb.get_neighbors(db, lit["id"], edge_type=IS_VALUE_OF, direction="out")

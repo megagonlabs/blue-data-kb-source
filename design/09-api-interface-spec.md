@@ -967,18 +967,18 @@ kb data fact delete (--fact NAME | --fact-id ID) [--yes]
 
 kb data fact extraction add (--fact ... | --fact-id ...) --text TEXT (--source ... | --source-id ...)
 
-kb data fact property set VALUE --fact-id ID (--property ... | --property-id ...)
+kb data fact property set VALUE (--fact NAME | --fact-id ID) (--property ... | --property-id ...)
                                  [--type NUMBER|DATE|BOOLEAN|STRING] [--text TEXT] [--source ... | --source-id ...]
 kb data fact property assert --head H --relation R --tail T --property P --value V [--type T] [assert options]
-kb data fact property list   --fact-id ID [--show-provenance] [--format table|json]
-kb data fact property update --fact-id ID (--property ... | --property-id ...)
+kb data fact property list   (--fact NAME | --fact-id ID) [--show-provenance] [--format table|json]
+kb data fact property update (--fact NAME | --fact-id ID) (--property ... | --property-id ...)
                               [--value NEW] [--name NEW] [--description NEW]
-kb data fact property delete --fact-id ID (--property ... | --property-id ...) [--yes]
-kb data fact property extraction add --fact-id ID (--property ... | --property-id ...)
+kb data fact property delete (--fact NAME | --fact-id ID) (--property ... | --property-id ...) [--yes]
+kb data fact property extraction add (--fact NAME | --fact-id ID) (--property ... | --property-id ...)
                                       --text TEXT (--source ... | --source-id ...)
 ```
 
-Note: fact-property commands identify the fact only by `--fact-id` (no `--fact` name lookup), unlike entity-property commands. `fact extraction add` / `fact property extraction add` behave like their entity counterparts above.
+Note: a fact's name is auto-generated as `Head_RELATION_Tail` when `fact add` is not given one, which is what makes `--fact` resolvable. `fact extraction add` / `fact property extraction add` behave like their entity counterparts above.
 
 **Example**
 ```
