@@ -353,13 +353,13 @@ Shared `ASSERT_OPTS` on every `assert` command and `kb data ingest`: `[--descrip
 | `kb profile add NAME` | Create an additional profile (`default` is created on first use) |
 | `kb profile remove NAME [--confirm]` | Delete a profile and its configuration |
 | `kb profile list [--format table\|json]` | List profiles, marking the selected one |
-| `kb profile select NAME` | Make a profile the default for subsequent commands |
+| `kb profile select NAME` | Set the default profile |
 | `kb profile inspect [NAME] [--format table\|json]` | Show every configuration value and the tier it came from; secrets masked |
 | `kb profile config [PARAM [VALUE]] [--profile NAME]` | Set configuration: no args walks the required parameters, PARAM prompts for one, PARAM VALUE sets it directly. Secrets always prompt |
 | `kb database list [--format table\|json]` | List registered databases with backend and search mode |
 | `kb database register NAME [options]` | Register a new database with graph and search backends |
 | `kb database create NAME` | Create a database, inheriting the session database's backend and search config |
-| `kb database delete NAME [--yes]` | Delete a database and remove it from the registry |
+| `kb database delete NAME [--yes]` | Delete a database and unregister it |
 | `kb database select NAME` | Set the default target database |
 | `kb database config show` | Print graph backend config for the current database |
 | `kb database config set [--graph-backend …] [--directory …] [--neo4j-uri …] …` | Update graph backend config |
@@ -370,36 +370,36 @@ Shared `ASSERT_OPTS` on every `assert` command and `kb data ingest`: `[--descrip
 | `kb schema import FILE` | Import a schema previously produced by `kb schema export` (declares idempotently; `-` reads stdin) |
 | `kb schema class add NAME DESC` | Declare a CLASS (idempotent) |
 | `kb schema class assert NAME [ASSERT_OPTS]` | Assert a class: reuse when one resolves (exact, normalized, or search match), create otherwise |
-| `kb schema class list [--format table\|json]` | List all declared classes |
+| `kb schema class list [--format table\|json]` | List classes |
 | `kb schema class update --class NAME\|--class-id ID [--name N] [--description D]` | Update the name and/or description of a class |
 | `kb schema class parent add [--class NAME\|--class-id ID] [--parent NAME\|--parent-id ID]` | Wire IS_SUBCLASS_OF from child to parent |
-| `kb schema class parent assert CHILD PARENT [ASSERT_OPTS]` | Assert CHILD IS_SUBCLASS_OF PARENT; missing classes are created |
+| `kb schema class parent assert CHILD PARENT [ASSERT_OPTS]` | Add a subclass link, creating missing classes |
 | `kb schema class parent remove [--class NAME\|--class-id ID] [--parent NAME\|--parent-id ID]` | Remove IS_SUBCLASS_OF edge |
-| `kb schema class parent list [--class NAME\|--class-id ID] [--recursive] [--format table\|json\|tree]` | List parent classes (direct or all ancestors) |
-| `kb schema class child list [--class NAME\|--class-id ID] [--recursive] [--format table\|json\|tree]` | List child classes (direct subclasses or all descendants) |
+| `kb schema class parent list [--class NAME\|--class-id ID] [--recursive] [--format table\|json\|tree]` | List superclasses |
+| `kb schema class child list [--class NAME\|--class-id ID] [--recursive] [--format table\|json\|tree]` | List subclasses |
 | `kb schema class property add NAME DESC [--class NAME\|--class-id ID]` | Declare a property on a class |
 | `kb schema class property attach [--property NAME\|--property-id ID] [--class NAME\|--class-id ID]` | Attach an existing property to a class (idempotent) — reuse it instead of declaring a same-meaning duplicate |
-| `kb schema class property assert NAME --class NAME [ASSERT_OPTS]` | Assert a class property; the owning class is created when missing |
+| `kb schema class property assert NAME --class NAME [ASSERT_OPTS]` | Add a class property, creating the class if missing |
 | `kb schema class property list [--class NAME\|--class-id ID] [--format table\|json]` | List class properties (optionally filtered by class) |
 | `kb schema class property update --property NAME\|--property-id ID [--class NAME\|--class-id ID] [--name N] [--description D]` | Update the name and/or description of a class property; --class disambiguates when the name is shared |
 | `kb schema class property delete --property NAME\|--property-id ID [--class NAME\|--class-id ID] [--yes]` | Delete a class property (errors if values exist); --class disambiguates |
 | `kb schema class delete --class NAME\|--class-id ID [--yes]` | Delete a class (errors if instances or subclasses exist) |
 | `kb schema relation add NAME DESC [--domain C] [--range C]` | Declare a RELATION (idempotent) |
 | `kb schema relation assert NAME --domain C... --range C... [--is-symmetric] [ASSERT_OPTS]` | Assert a relation type; missing domain/range classes are created, an existing relation is widened instead of rejected |
-| `kb schema relation list [--format table\|json]` | List all declared relations |
+| `kb schema relation list [--format table\|json]` | List relations |
 | `kb schema relation update --relation NAME\|--relation-id ID [--name N] [--description D]` | Update the name and/or description of a relation |
 | `kb schema relation parent add [--relation NAME\|--relation-id ID] [--parent NAME\|--parent-id ID]` | Wire IS_SUBCLASS_OF from child to parent relation |
 | `kb schema relation parent assert CHILD PARENT [ASSERT_OPTS]` | Assert the same for relations; both must already exist |
 | `kb schema relation parent remove [--relation NAME\|--relation-id ID] [--parent NAME\|--parent-id ID]` | Remove IS_SUBCLASS_OF edge between relations |
-| `kb schema relation parent list [--relation NAME\|--relation-id ID] [--recursive] [--format table\|json\|tree]` | List parent relations (direct or all ancestors) |
-| `kb schema relation child list [--relation NAME\|--relation-id ID] [--recursive] [--format table\|json\|tree]` | List child relations (direct sub-relations or all descendants) |
+| `kb schema relation parent list [--relation NAME\|--relation-id ID] [--recursive] [--format table\|json\|tree]` | List parent relations |
+| `kb schema relation child list [--relation NAME\|--relation-id ID] [--recursive] [--format table\|json\|tree]` | List sub-relations |
 | `kb schema relation domain attach [--relation NAME\|--relation-id ID] [--class NAME\|--class-id ID]` | Attach a class to the relation's domain (deduplicated; add-only by design — no detach counterpart) |
-| `kb schema relation domain list [--relation NAME\|--relation-id ID] [--format table\|json]` | List the relation's domain classes |
+| `kb schema relation domain list [--relation NAME\|--relation-id ID] [--format table\|json]` | List a relation's domain classes |
 | `kb schema relation range attach [--relation NAME\|--relation-id ID] [--class NAME\|--class-id ID]` | Attach a class to the relation's range (deduplicated; add-only by design — no detach counterpart) |
-| `kb schema relation range list [--relation NAME\|--relation-id ID] [--format table\|json]` | List the relation's range classes |
+| `kb schema relation range list [--relation NAME\|--relation-id ID] [--format table\|json]` | List a relation's range classes |
 | `kb schema relation property add NAME DESC [--relation NAME\|--relation-id ID]` | Declare a property on a relation |
 | `kb schema relation property attach [--property NAME\|--property-id ID] [--relation NAME\|--relation-id ID]` | Attach an existing property to a relation (idempotent) — reuse it instead of declaring a same-meaning duplicate |
-| `kb schema relation property assert NAME --relation NAME [ASSERT_OPTS]` | Assert a relation property; the relation must already exist |
+| `kb schema relation property assert NAME --relation NAME [ASSERT_OPTS]` | Add a relation property (relation must exist) |
 | `kb schema relation property list [--relation NAME\|--relation-id ID] [--format table\|json]` | List relation properties (optionally filtered by relation) |
 | `kb schema relation property update --property NAME\|--property-id ID [--relation NAME\|--relation-id ID] [--name N] [--description D]` | Update the name and/or description of a relation property; --relation disambiguates when the name is shared |
 | `kb schema relation property delete --property NAME\|--property-id ID [--relation NAME\|--relation-id ID] [--yes]` | Delete a relation property (errors if values exist); --relation disambiguates |
@@ -414,15 +414,15 @@ Shared `ASSERT_OPTS` on every `assert` command and `kb data ingest`: `[--descrip
 | `kb data source list [--show-detailed] [--format table\|json]` | List all registered provenance sources; `--show-detailed` adds Created/Modified columns to the table as human-readable local dates (`--format json` always includes `original`/`created`/`modified` as raw ISO-8601 timestamps) |
 | `kb data source update --source NAME\|--source-id ID [--name N] [--description D] [--original DATE]` | Update the name, description, and/or original date of a source |
 | `kb data source delete --source NAME\|--source-id ID [--yes]` | Delete a source and its extraction records; instances are preserved |
-| `kb data entity add [--name NAME] [--class NAME\|--class-id ID] [--description D] [--text T] [--source NAME\|--source-id ID] [--confidence F] [--extraction-type T]` | Add an entity instance |
+| `kb data entity add [--name NAME] [--class NAME\|--class-id ID] [--description D] [--text T] [--source NAME\|--source-id ID] [--confidence F] [--extraction-type T]` | Add an entity |
 | `kb data entity assert NAME [--class NAME] [ASSERT_OPTS]` | Assert an entity by name: reuse it when one resolves, else create it with a judged class (`EVERYTHING` under `--schema-creation-mode none`); output shows the outcome (created/reused/deduped) and any cascade-created nodes |
 | `kb data entity list [--show-provenance] [--format table\|json]` | List all entity instances; `--show-provenance` expands each row into one row per piece of evidence, with its own score, text, and source |
 | `kb data entity update --entity NAME\|--entity-id ID [--name N] [--description D]` | Update the name and/or description of an entity |
 | `kb data entity delete --entity NAME\|--entity-id ID [--cascade] [--yes]` | Delete an entity and its property values; with --cascade also deletes referencing facts |
 | `kb data entity class attach [--entity NAME\|--entity-id ID] [--class NAME\|--class-id ID]` | Attach a class to an existing entity (deduplicated; add-only by design — no detach counterpart) |
-| `kb data entity class list [--entity NAME\|--entity-id ID] [--format table\|json]` | List the classes an entity is an instance of |
+| `kb data entity class list [--entity NAME\|--entity-id ID] [--format table\|json]` | List an entity's classes |
 | `kb data entity extraction add --entity NAME\|--entity-id ID --text T [--source NAME\|--source-id ID] [--confidence F] [--extraction-type T]` | Link additional source text (a new `EXTRACTED_FROM` edge) to an existing entity |
-| `kb data entity property set VALUE [--name N] [--description D] --entity NAME\|--entity-id ID --property NAME [--type T] [--source NAME\|--source-id ID] [--confidence F] [--extraction-type T]` | Set a property value on an entity |
+| `kb data entity property set VALUE [--name N] [--description D] --entity NAME\|--entity-id ID --property NAME [--type T] [--source NAME\|--source-id ID] [--confidence F] [--extraction-type T]` | Set an entity property value |
 | `kb data entity property assert --entity E --property P --value V [--type T] [ASSERT_OPTS]` | Assert a property value on an entity; equal values dedupe, property placement is judged |
 | `kb data entity property list --entity NAME\|--entity-id ID [--show-provenance] [--format table\|json]` | List property values for an entity; `--show-provenance` expands each row into one row per piece of evidence, with its own score, text, and source |
 | `kb data entity property update --entity NAME\|--entity-id ID --property NAME\|--property-id ID [--value V] [--name N] [--description D]` | Update the value, name, and/or description of an entity property value |
@@ -434,7 +434,7 @@ Shared `ASSERT_OPTS` on every `assert` command and `kb data ingest`: `[--descrip
 | `kb data fact update --fact NAME\|--fact-id ID [--name N] [--description D]` | Update the name and/or description of a fact |
 | `kb data fact delete --fact NAME\|--fact-id ID [--yes]` | Delete a fact and its property values |
 | `kb data fact extraction add --fact NAME\|--fact-id ID --text T [--source NAME\|--source-id ID] [--confidence F] [--extraction-type T]` | Link additional source text (a new `EXTRACTED_FROM` edge) to an existing fact |
-| `kb data fact property set VALUE [--name N] [--description D] --fact NAME\|--fact-id ID --property NAME [--type T] [--source NAME\|--source-id ID] [--confidence F] [--extraction-type T]` | Set a property value on a fact |
+| `kb data fact property set VALUE [--name N] [--description D] --fact NAME\|--fact-id ID --property NAME [--type T] [--source NAME\|--source-id ID] [--confidence F] [--extraction-type T]` | Set a fact property value |
 | `kb data fact property assert --head H --relation R --tail T --property P --value V [--type T] [ASSERT_OPTS]` | Assert a property value on the fact identified structurally by its triple; a missing fact is created |
 | `kb data fact property list --fact NAME\|--fact-id ID [--show-provenance] [--format table\|json]` | List property values for a fact; `--show-provenance` expands each row into one row per piece of evidence, with its own score, text, and source |
 | `kb data fact property update --fact NAME\|--fact-id ID --property NAME\|--property-id ID [--value V] [--name N] [--description D]` | Update the value, name, and/or description of a fact property value |

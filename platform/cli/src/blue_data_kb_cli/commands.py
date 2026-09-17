@@ -445,7 +445,7 @@ def _extraction_default(obj: dict, param: str, option):
 
 @cli.group("database")
 def database_group() -> None:
-    """Database management."""
+    """Manage databases."""
 
 
 @database_group.command("list")
@@ -511,7 +511,7 @@ def database_register(
     embedding_provider: str,
     embedding_model: str | None,
 ) -> None:
-    """Register a new database with the specified backend and search config."""
+    """Register a database with explicit configuration."""
     class_path = _KB_CLASS_BY_BACKEND[graph_backend]
 
     if graph_backend == "neo4j":
@@ -556,7 +556,7 @@ def database_register(
 @click.argument("name")
 @click.pass_obj
 def database_create(obj: dict, name: str) -> None:
-    """Create a database using the current session's backend and search config.
+    """Create a database using the session's config.
 
     The shortcut for `database register`: it takes no configuration options and
     instead inherits the session database's, so `create` in a session using
@@ -597,7 +597,7 @@ def database_create(obj: dict, name: str) -> None:
 @click.argument("name")
 @click.option("--yes", is_flag=True, help="Skip confirmation prompt.")
 def database_delete(name: str, yes: bool) -> None:
-    """Delete a database and remove it from the registry."""
+    """Delete a database and unregister it."""
     cfg = load_db_config(name)
     class_path = cfg.get("_class", _FILE_KB_CLASS)
     graph_backend = _BACKEND_BY_KB_CLASS.get(class_path, class_path)
@@ -636,7 +636,7 @@ def database_delete(name: str, yes: bool) -> None:
 @database_group.command("select")
 @click.argument("name")
 def database_select(name: str) -> None:
-    """Set the default target database for subsequent commands."""
+    """Set the default database."""
     p = _selected_database_path()
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(name)
@@ -649,13 +649,13 @@ def database_select(name: str) -> None:
 
 @database_group.group("config")
 def database_config_group() -> None:
-    """Show or update database backend configuration."""
+    """Show or update graph backend configuration."""
 
 
 @database_config_group.command("show")
 @click.pass_obj
 def database_config_show(obj: dict) -> None:
-    """Print the configuration for the current database."""
+    """Show the database configuration."""
     db: str = obj["db"]
     cfg = load_db_config(db)
     console.print_json(json.dumps(cfg, indent=2))
@@ -676,7 +676,7 @@ def database_config_set(
     neo4j_user: str | None,
     neo4j_password: str | None,
 ) -> None:
-    """Update graph backend configuration for the current database."""
+    """Update graph backend configuration."""
     db: str = obj["db"]
     updates: dict[str, Any] = {}
     if graph_backend:
@@ -699,18 +699,18 @@ def database_config_set(
 
 @database_group.group("search")
 def database_search_group() -> None:
-    """Search backend configuration."""
+    """Manage search configuration."""
 
 
 @database_search_group.group("config")
 def database_search_config_group() -> None:
-    """Show or update search configuration for the current database."""
+    """Show or update search configuration."""
 
 
 @database_search_config_group.command("show")
 @click.pass_obj
 def database_search_config_show(obj: dict) -> None:
-    """Print search configuration for the current database."""
+    """Show search configuration."""
     db: str = obj["db"]
     cfg = load_db_config(db)
     console.print_json(json.dumps(cfg.get("search") or {"mode": "none"}, indent=2))
@@ -741,7 +741,7 @@ def database_search_config_set(
     embedding_provider: str | None,
     embedding_model: str | None,
 ) -> None:
-    """Update search configuration for the current database."""
+    """Update search configuration."""
     db: str = obj["db"]
     search_updates: dict[str, Any] = {}
     if search:
@@ -780,7 +780,7 @@ def database_search_config_set(
 
 @cli.group("schema")
 def schema_group() -> None:
-    """Schema management."""
+    """Manage the schema."""
 
 
 @schema_group.command("list")
@@ -792,7 +792,7 @@ def schema_group() -> None:
 )
 @click.pass_obj
 def schema_list(obj: dict, fmt: str) -> None:
-    """List classes, relations, and their properties for the current database."""
+    """List classes, relations, and properties."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
@@ -894,7 +894,7 @@ def schema_list(obj: dict, fmt: str) -> None:
               help="Write JSON to this file (default: stdout).")
 @click.pass_obj
 def schema_export(obj: dict, output) -> None:
-    """Export the database's schema as JSON, in the shape `kb schema import` reads back."""
+    """Export the schema as JSON."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
@@ -909,7 +909,7 @@ def schema_export(obj: dict, output) -> None:
 @click.argument("input_file", type=click.File("r"))
 @click.pass_obj
 def schema_import(obj: dict, input_file) -> None:
-    """Import a schema previously produced by `kb schema export` (declares idempotently)."""
+    """Import a schema from JSON (idempotent)."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
@@ -929,7 +929,7 @@ def schema_import(obj: dict, input_file) -> None:
 
 @schema_group.group("class")
 def schema_class_group() -> None:
-    """Class schema management."""
+    """Manage classes."""
 
 
 @schema_class_group.command("add")
@@ -937,7 +937,7 @@ def schema_class_group() -> None:
 @click.argument("description")
 @click.pass_obj
 def schema_class_add(obj: dict, name: str, description: str) -> None:
-    """Declare a CLASS node (idempotent)."""
+    """Declare a class (idempotent)."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
@@ -953,7 +953,7 @@ def schema_class_add(obj: dict, name: str, description: str) -> None:
 @click.pass_obj
 def schema_class_assert(obj, name, description, source_name, source_id,
                         confidence, extraction_type, schema_creation_mode, model):
-    """Assert a class: reuse it when one resolves, create it otherwise."""
+    """Reuse a matching class, or create it."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     kwargs = _assert_kwargs(obj, source_name, source_id, confidence,
@@ -970,7 +970,7 @@ def schema_class_assert(obj, name, description, source_name, source_id,
 )
 @click.pass_obj
 def schema_class_list(obj: dict, fmt: str) -> None:
-    """List all declared classes."""
+    """List classes."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
@@ -1005,7 +1005,7 @@ def schema_class_update(
     obj: dict, class_name: str | None, class_id: str | None,
     name: str | None, description: str | None,
 ) -> None:
-    """Update the name and/or description of a class."""
+    """Update a class's name or description."""
     if not name and not description:
         raise click.UsageError("Provide at least one of --name or --description.")
     kb: FileKBSource = obj["kb"]
@@ -1048,7 +1048,7 @@ def _build_child_tree(kb: FileKBSource, db: str, class_id: str, label: str, tree
 
 @schema_class_group.group("parent")
 def schema_class_parent_group() -> None:
-    """Class parent (IS_SUBCLASS_OF) management."""
+    """Manage superclasses."""
 
 
 @schema_class_parent_group.command("add")
@@ -1061,7 +1061,7 @@ def schema_class_parent_add(
     obj: dict, class_name: str | None, class_id: str | None,
     parent_name: str | None, parent_id: str | None,
 ) -> None:
-    """Wire child IS_SUBCLASS_OF parent."""
+    """Make one class a subclass of another."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     resolved_child  = _resolve_node(kb, db, CLASS, class_name,  class_id,  "class")
@@ -1082,7 +1082,7 @@ def schema_class_parent_add(
 @click.pass_obj
 def schema_class_parent_assert(obj, child, parent, description, source_name, source_id,
                                confidence, extraction_type, schema_creation_mode, model):
-    """Assert CHILD IS_SUBCLASS_OF PARENT; missing classes are created."""
+    """Add a subclass link, creating missing classes."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     kwargs = _assert_kwargs(obj, source_name, source_id, confidence,
@@ -1101,7 +1101,7 @@ def schema_class_parent_remove(
     obj: dict, class_name: str | None, class_id: str | None,
     parent_name: str | None, parent_id: str | None,
 ) -> None:
-    """Remove IS_SUBCLASS_OF edge between child and parent."""
+    """Remove a subclass link."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     resolved_child  = _resolve_node(kb, db, CLASS, class_name,  class_id,  "class")
@@ -1129,7 +1129,7 @@ def schema_class_parent_remove(
 def schema_class_parent_list(
     obj: dict, class_name: str | None, class_id: str | None, recursive: bool, fmt: str,
 ) -> None:
-    """List parent classes (direct or all ancestors)."""
+    """List superclasses."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     resolved_id = _resolve_node(kb, db, CLASS, class_name, class_id, "class")
@@ -1161,7 +1161,7 @@ def schema_class_parent_list(
 
 @schema_class_group.group("child")
 def schema_class_child_group() -> None:
-    """Class child (subclasses) management."""
+    """Subclasses of a class."""
 
 
 @schema_class_child_group.command("list")
@@ -1178,7 +1178,7 @@ def schema_class_child_group() -> None:
 def schema_class_child_list(
     obj: dict, class_name: str | None, class_id: str | None, recursive: bool, fmt: str,
 ) -> None:
-    """List child classes (direct subclasses or all descendants)."""
+    """List subclasses."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     resolved_id = _resolve_node(kb, db, CLASS, class_name, class_id, "class")
@@ -1210,7 +1210,7 @@ def schema_class_child_list(
 
 @schema_class_group.group("property")
 def schema_class_property_group() -> None:
-    """Class property management."""
+    """Manage class properties."""
 
 
 @schema_class_property_group.command("add")
@@ -1222,7 +1222,7 @@ def schema_class_property_group() -> None:
 def schema_class_property_add(
     obj: dict, name: str, description: str, class_name: str | None, class_id: str | None
 ) -> None:
-    """Declare a PROPERTY on a class (idempotent)."""
+    """Declare a class property (idempotent)."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     resolved_class_id: str | None = None
@@ -1245,7 +1245,7 @@ def schema_class_property_attach(
     obj: dict, property_name: str | None, property_id: str | None,
     class_name: str | None, class_id: str | None,
 ) -> None:
-    """Attach an existing PROPERTY to a class (idempotent) — reuse it instead of declaring a
+    """Attach an existing property to a class.
     same-meaning duplicate under a new name."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
@@ -1267,7 +1267,7 @@ def schema_class_property_attach(
 @click.pass_obj
 def schema_class_property_assert(obj, name, class_name, description, source_name, source_id,
                                  confidence, extraction_type, schema_creation_mode, model):
-    """Assert a class property; the owning class is created when missing."""
+    """Add a class property, creating the class if missing."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     kwargs = _assert_kwargs(obj, source_name, source_id, confidence,
@@ -1289,7 +1289,7 @@ def schema_class_property_assert(obj, name, class_name, description, source_name
 def schema_class_property_list(
     obj: dict, class_name: str | None, class_id: str | None, fmt: str
 ) -> None:
-    """List class properties, optionally filtered by class."""
+    """List class properties."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     if class_name or class_id:
@@ -1340,7 +1340,7 @@ def schema_class_property_update(
     class_name: str | None, class_id: str | None,
     name: str | None, description: str | None,
 ) -> None:
-    """Update the name and/or description of a class property."""
+    """Update a class property's name or description."""
     if not name and not description:
         raise click.UsageError("Provide at least one of --name or --description.")
     kb: FileKBSource = obj["kb"]
@@ -1369,7 +1369,7 @@ def schema_class_property_delete(
     class_name: str | None, class_id: str | None,
     yes: bool,
 ) -> None:
-    """Delete a class property (errors if values exist)."""
+    """Delete a class property (errors if in use)."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     owner_id: str | None = None
@@ -1394,7 +1394,7 @@ def schema_class_property_delete(
 def schema_class_delete(
     obj: dict, class_name: str | None, class_id: str | None, yes: bool,
 ) -> None:
-    """Delete a class (errors if instances or subclasses exist)."""
+    """Delete a class (errors if in use)."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     cid = _resolve_node(kb, db, CLASS, class_name, class_id, "class")
@@ -1414,7 +1414,7 @@ def schema_class_delete(
 
 @schema_group.group("relation")
 def schema_relation_group() -> None:
-    """Relation schema management."""
+    """Manage relations."""
 
 
 @schema_relation_group.command("add")
@@ -1426,7 +1426,7 @@ def schema_relation_group() -> None:
 def schema_relation_add(
     obj: dict, name: str, description: str, domain: str, range: str
 ) -> None:
-    """Declare a RELATION node (idempotent)."""
+    """Declare a relation (idempotent)."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
@@ -1446,7 +1446,7 @@ def schema_relation_add(
 @click.pass_obj
 def schema_relation_assert(obj, name, domain, range_, is_symmetric, description, source_name,
                            source_id, confidence, extraction_type, schema_creation_mode, model):
-    """Assert a relation type; missing domain/range classes are created, existing ones widened."""
+    """Add a relation, creating or widening domain and range."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     kwargs = _assert_kwargs(obj, source_name, source_id, confidence,
@@ -1464,7 +1464,7 @@ def schema_relation_assert(obj, name, domain, range_, is_symmetric, description,
 )
 @click.pass_obj
 def schema_relation_list(obj: dict, fmt: str) -> None:
-    """List all declared relations."""
+    """List relations."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
@@ -1507,7 +1507,7 @@ def schema_relation_update(
     obj: dict, relation_name: str | None, relation_id: str | None,
     name: str | None, description: str | None,
 ) -> None:
-    """Update the name and/or description of a relation."""
+    """Update a relation's name or description."""
     if not name and not description:
         raise click.UsageError("Provide at least one of --name or --description.")
     kb: FileKBSource = obj["kb"]
@@ -1548,7 +1548,7 @@ def _build_relation_child_tree(kb: FileKBSource, db: str, relation_id: str, tree
 
 @schema_relation_group.group("parent")
 def schema_relation_parent_group() -> None:
-    """Relation parent (IS_SUBCLASS_OF) management."""
+    """Manage parent relations."""
 
 
 @schema_relation_parent_group.command("add")
@@ -1561,7 +1561,7 @@ def schema_relation_parent_add(
     obj: dict, relation_name: str | None, relation_id: str | None,
     parent_name: str | None, parent_id: str | None,
 ) -> None:
-    """Wire child IS_SUBCLASS_OF parent for relations."""
+    """Make one relation a sub-relation of another."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     resolved_child  = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
@@ -1583,7 +1583,7 @@ def schema_relation_parent_add(
 @click.pass_obj
 def schema_relation_parent_assert(obj, child, parent, description, source_name, source_id,
                                   confidence, extraction_type, schema_creation_mode, model):
-    """Assert CHILD IS_SUBCLASS_OF PARENT for relations; both must already exist."""
+    """Add a sub-relation link (both must exist)."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     kwargs = _assert_kwargs(obj, source_name, source_id, confidence,
@@ -1602,7 +1602,7 @@ def schema_relation_parent_remove(
     obj: dict, relation_name: str | None, relation_id: str | None,
     parent_name: str | None, parent_id: str | None,
 ) -> None:
-    """Remove IS_SUBCLASS_OF edge between child and parent relations."""
+    """Remove a sub-relation link."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     resolved_child  = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
@@ -1631,7 +1631,7 @@ def schema_relation_parent_remove(
 def schema_relation_parent_list(
     obj: dict, relation_name: str | None, relation_id: str | None, recursive: bool, fmt: str,
 ) -> None:
-    """List parent relations (direct or all ancestors)."""
+    """List parent relations."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     resolved_id = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
@@ -1663,7 +1663,7 @@ def schema_relation_parent_list(
 
 @schema_relation_group.group("child")
 def schema_relation_child_group() -> None:
-    """Relation child (sub-relations) management."""
+    """Sub-relations of a relation."""
 
 
 @schema_relation_child_group.command("list")
@@ -1680,7 +1680,7 @@ def schema_relation_child_group() -> None:
 def schema_relation_child_list(
     obj: dict, relation_name: str | None, relation_id: str | None, recursive: bool, fmt: str,
 ) -> None:
-    """List child relations (direct sub-relations or all descendants)."""
+    """List sub-relations."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     resolved_id = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
@@ -1717,7 +1717,7 @@ def schema_relation_child_list(
 
 @schema_relation_group.group("domain")
 def schema_relation_domain_group() -> None:
-    """Relation domain management (attach and list only — no detach counterpart by design)."""
+    """Manage relation domain classes."""
 
 
 @schema_relation_domain_group.command("attach")
@@ -1730,7 +1730,7 @@ def schema_relation_domain_attach(
     obj: dict, relation_name: str | None, relation_id: str | None,
     class_name: str | None, class_id: str | None,
 ) -> None:
-    """Attach a class to the relation's domain (deduplicated; no detach counterpart by design)."""
+    """Add a class to a relation's domain."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     resolved_rel   = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
@@ -1758,7 +1758,7 @@ def schema_relation_domain_attach(
 def schema_relation_domain_list(
     obj: dict, relation_name: str | None, relation_id: str | None, fmt: str,
 ) -> None:
-    """List the relation's domain classes."""
+    """List a relation's domain classes."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     resolved_id = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
@@ -1786,7 +1786,7 @@ def schema_relation_domain_list(
 
 @schema_relation_group.group("range")
 def schema_relation_range_group() -> None:
-    """Relation range management (attach and list only — no detach counterpart by design)."""
+    """Manage relation range classes."""
 
 
 @schema_relation_range_group.command("attach")
@@ -1799,7 +1799,7 @@ def schema_relation_range_attach(
     obj: dict, relation_name: str | None, relation_id: str | None,
     class_name: str | None, class_id: str | None,
 ) -> None:
-    """Attach a class to the relation's range (deduplicated; no detach counterpart by design)."""
+    """Add a class to a relation's range."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     resolved_rel   = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
@@ -1827,7 +1827,7 @@ def schema_relation_range_attach(
 def schema_relation_range_list(
     obj: dict, relation_name: str | None, relation_id: str | None, fmt: str,
 ) -> None:
-    """List the relation's range classes."""
+    """List a relation's range classes."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     resolved_id = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
@@ -1855,7 +1855,7 @@ def schema_relation_range_list(
 
 @schema_relation_group.group("property")
 def schema_relation_property_group() -> None:
-    """Relation property management."""
+    """Manage relation properties."""
 
 
 @schema_relation_property_group.command("add")
@@ -1867,7 +1867,7 @@ def schema_relation_property_group() -> None:
 def schema_relation_property_add(
     obj: dict, name: str, description: str, relation_name: str | None, relation_id: str | None
 ) -> None:
-    """Declare a PROPERTY on a relation (idempotent)."""
+    """Declare a relation property (idempotent)."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     resolved_relation_id: str | None = None
@@ -1890,7 +1890,7 @@ def schema_relation_property_attach(
     obj: dict, property_name: str | None, property_id: str | None,
     relation_name: str | None, relation_id: str | None,
 ) -> None:
-    """Attach an existing PROPERTY to a relation (idempotent) — reuse it instead of declaring a
+    """Attach an existing property to a relation.
     same-meaning duplicate under a new name."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
@@ -1913,7 +1913,7 @@ def schema_relation_property_attach(
 def schema_relation_property_assert(obj, name, relation_name, description, source_name,
                                     source_id, confidence, extraction_type,
                                     schema_creation_mode, model):
-    """Assert a relation property; the relation must already exist."""
+    """Add a relation property (relation must exist)."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     kwargs = _assert_kwargs(obj, source_name, source_id, confidence,
@@ -1935,7 +1935,7 @@ def schema_relation_property_assert(obj, name, relation_name, description, sourc
 def schema_relation_property_list(
     obj: dict, relation_name: str | None, relation_id: str | None, fmt: str
 ) -> None:
-    """List relation properties, optionally filtered by relation."""
+    """List relation properties."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     if relation_name or relation_id:
@@ -1987,7 +1987,7 @@ def schema_relation_property_update(
     relation_name: str | None, relation_id: str | None,
     name: str | None, description: str | None,
 ) -> None:
-    """Update the name and/or description of a relation property."""
+    """Update a relation property's name or description."""
     if not name and not description:
         raise click.UsageError("Provide at least one of --name or --description.")
     kb: FileKBSource = obj["kb"]
@@ -2016,7 +2016,7 @@ def schema_relation_property_delete(
     relation_name: str | None, relation_id: str | None,
     yes: bool,
 ) -> None:
-    """Delete a relation property (errors if values exist)."""
+    """Delete a relation property (errors if in use)."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     owner_id: str | None = None
@@ -2041,7 +2041,7 @@ def schema_relation_property_delete(
 def schema_relation_delete(
     obj: dict, relation_name: str | None, relation_id: str | None, yes: bool,
 ) -> None:
-    """Delete a relation (errors if facts or sub-relations exist)."""
+    """Delete a relation (errors if in use)."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     rid = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
@@ -2081,7 +2081,7 @@ def schema_relation_delete(
 )
 @click.pass_obj
 def schema_search(obj: dict, query: str, types: tuple[str, ...], mode: str, top_k: int, fmt: str) -> None:
-    """Search schema elements by keyword or semantic similarity."""
+    """Search classes, relations, and properties."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     type_filter = [t.upper() for t in types] if types else None
@@ -2161,7 +2161,7 @@ def schema_expand(
     log: bool,
     log_limit: int | None,
 ) -> None:
-    """Grow the schema (classes, relations, properties) grounded by TEXT — without
+    """Grow the schema from text, without extracting data.
     extracting any data. Run separately from `kb data extract`, so the same
     expanded schema can be reused across many extraction calls.
 
@@ -2195,13 +2195,13 @@ def schema_expand(
 
 @cli.group("data")
 def data_group() -> None:
-    """Instance data management."""
+    """Manage instance data."""
 
 
 @data_group.command("reindex")
 @click.pass_obj
 def data_reindex(obj: dict) -> None:
-    """Rebuild the search index for the current database.
+    """Rebuild the search index.
 
     Iterates every node in the graph and re-populates both the BM25 corpus
     and vector index (if configured).  Required after enabling search on an
@@ -2244,7 +2244,7 @@ def data_reindex(obj: dict) -> None:
 @click.pass_obj
 def data_ingest(obj, input_file, source_name, source_id, confidence, extraction_type,
                 schema_creation_mode, model, fmt):
-    """Bulk-ingest a ten-arm JSON payload (same ergonomics as `kb data import`; `-` reads
+    """Bulk-ingest a JSON payload.
     stdin). Rows run through the per-item asserts in file order; failures collect into
     the report instead of stopping the run."""
     kb: FileKBSource = obj["kb"]
@@ -2287,7 +2287,7 @@ def data_ingest(obj, input_file, source_name, source_id, confidence, extraction_
 
 @data_group.group("source")
 def source_group() -> None:
-    """Provenance source management."""
+    """Manage provenance sources."""
 
 
 @source_group.command("add")
@@ -2297,7 +2297,7 @@ def source_group() -> None:
 @click.option("--original", default=None, help="Original date of the source (e.g. when it was originally published).")
 @click.pass_obj
 def source_add(obj: dict, source: str, name: str | None, description: str | None, original: str | None) -> None:
-    """Register a source document and return its ID."""
+    """Register a provenance source."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
@@ -2318,7 +2318,7 @@ def source_add(obj: dict, source: str, name: str | None, description: str | None
 )
 @click.pass_obj
 def source_list(obj: dict, show_detailed: bool, fmt: str) -> None:
-    """List all registered provenance sources."""
+    """List provenance sources."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     rows = [
@@ -2366,7 +2366,7 @@ def source_update(
     obj: dict, source_name: str | None, source_id: str | None,
     name: str | None, description: str | None, original: str | None,
 ) -> None:
-    """Update the name, description, and/or original date of a source."""
+    """Update a source's details."""
     if not name and not description and not original:
         raise click.UsageError("Provide at least one of --name, --description, or --original.")
     kb: FileKBSource = obj["kb"]
@@ -2387,7 +2387,7 @@ def source_update(
 def source_delete(
     obj: dict, source_name: str | None, source_id: str | None, yes: bool,
 ) -> None:
-    """Delete a source and all its extraction records.
+    """Delete a source and its extractions.
 
     Instance nodes (entities, facts, property values) are preserved;
     only the provenance links to this source are removed.
@@ -2417,7 +2417,7 @@ def source_delete(
 
 @data_group.group("entity")
 def entity_group() -> None:
-    """Entity instance management."""
+    """Manage entities."""
 
 
 @entity_group.command("add")
@@ -2450,7 +2450,7 @@ def entity_add(
     confidence: float | None,
     extraction_type: str,
 ) -> None:
-    """Add an entity instance.
+    """Add an entity.
 
     Identify the class by name (--class PERSON) or by ID (--class-id <uuid>).
     """
@@ -2481,7 +2481,7 @@ def entity_add(
 @click.pass_obj
 def entity_assert(obj, name, class_name, description, source_name, source_id,
                   confidence, extraction_type, schema_creation_mode, model):
-    """Assert an entity by name: resolve it, or create it with a judged class."""
+    """Resolve an entity by name, or create it."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     kwargs = _assert_kwargs(obj, source_name, source_id, confidence,
@@ -2499,7 +2499,7 @@ def entity_assert(obj, name, class_name, description, source_name, source_id,
 )
 @click.pass_obj
 def entity_list(obj: dict, show_provenance: bool, fmt: str) -> None:
-    """List all entity instances."""
+    """List entities."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     rows = []
@@ -2548,7 +2548,7 @@ def entity_update(
     obj: dict, entity_name: str | None, entity_id: str | None,
     name: str | None, description: str | None,
 ) -> None:
-    """Update the name and/or description of an entity."""
+    """Update an entity's name or description."""
     if not name and not description:
         raise click.UsageError("Provide at least one of --name or --description.")
     kb: FileKBSource = obj["kb"]
@@ -2571,7 +2571,7 @@ def entity_update(
 def entity_delete(
     obj: dict, entity_name: str | None, entity_id: str | None, cascade: bool, yes: bool,
 ) -> None:
-    """Delete an entity, its property values, and optionally its facts."""
+    """Delete an entity and its property values."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     eid = _resolve_node(kb, db, ENTITY, entity_name, entity_id, "entity")
@@ -2593,7 +2593,7 @@ def entity_delete(
 
 @entity_group.group("class")
 def entity_class_group() -> None:
-    """Entity class (IS_INSTANCE_OF) membership (attach and list only — no detach
+    """Manage entity class membership.
     counterpart by design)."""
 
 
@@ -2608,7 +2608,7 @@ def entity_class_attach(
     entity_name: str | None, entity_id: str | None,
     class_name: str | None, class_id: str | None,
 ) -> None:
-    """Attach a class to an existing entity (deduplicated; no detach counterpart by design).
+    """Attach a class to an entity.
 
     `entity add --class` wires an entity's first class at creation; this adds a
     further one to an entity that already exists.
@@ -2640,7 +2640,7 @@ def entity_class_attach(
 def entity_class_list(
     obj: dict, entity_name: str | None, entity_id: str | None, fmt: str,
 ) -> None:
-    """List the classes an entity is an instance of."""
+    """List an entity's classes."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     eid = _resolve_node(kb, db, ENTITY, entity_name, entity_id, "entity")
@@ -2671,7 +2671,7 @@ def entity_class_list(
 
 @entity_group.group("extraction")
 def entity_extraction_group() -> None:
-    """Provenance extraction management for entities."""
+    """Manage entity provenance."""
 
 
 @entity_extraction_group.command("add")
@@ -2697,7 +2697,7 @@ def entity_extraction_add(
     confidence: float | None,
     extraction_type: str,
 ) -> None:
-    """Link additional source text to an existing entity.
+    """Link source text to an entity.
 
     Unlike `--text` on `entity add`, this does not create a new node — it
     adds another EXTRACTED_FROM edge to an entity that already exists, so
@@ -2725,7 +2725,7 @@ def entity_extraction_add(
 
 @entity_group.group("property")
 def entity_property_group() -> None:
-    """Entity property-value management."""
+    """Manage entity property values."""
 
 
 @entity_property_group.command("set")
@@ -2771,7 +2771,7 @@ def entity_property_set(
     confidence: float | None,
     extraction_type: str,
 ) -> None:
-    """Set a property value on an entity.
+    """Set an entity property value.
 
     \b
     Examples:
@@ -2811,7 +2811,7 @@ def entity_property_set(
 def entity_property_assert(obj, entity, property_name, value, literal_type, description,
                            source_name, source_id, confidence, extraction_type,
                            schema_creation_mode, model):
-    """Assert a property value on an entity; equal values dedupe, property placement judged."""
+    """Set an entity property value, judged and deduped."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     kwargs = _assert_kwargs(obj, source_name, source_id, confidence,
@@ -2835,7 +2835,7 @@ def entity_property_assert(obj, entity, property_name, value, literal_type, desc
 def entity_property_list(
     obj: dict, entity_name: str | None, entity_id: str | None, show_provenance: bool, fmt: str
 ) -> None:
-    """List all property values for an entity."""
+    """List an entity's property values."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     eid = _resolve_node(kb, db, ENTITY, entity_name, entity_id, "entity")
@@ -2890,7 +2890,7 @@ def entity_property_update(
     property_name: str | None, property_id: str | None,
     value: str | None, name: str | None, description: str | None,
 ) -> None:
-    """Update the value, name, and/or description of an entity property value."""
+    """Update an entity property value."""
     if not value and not name and not description:
         raise click.UsageError("Provide at least one of --value, --name, or --description.")
     kb: FileKBSource = obj["kb"]
@@ -2918,7 +2918,7 @@ def entity_property_delete(
     property_name: str | None, property_id: str | None,
     yes: bool,
 ) -> None:
-    """Delete a property value from an entity."""
+    """Delete an entity property value."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     eid = _resolve_node(kb, db, ENTITY, entity_name, entity_id, "entity")
@@ -2941,7 +2941,7 @@ def entity_property_delete(
 
 @entity_property_group.group("extraction")
 def entity_property_extraction_group() -> None:
-    """Provenance extraction management for entity property values."""
+    """Manage entity property value provenance."""
 
 
 @entity_property_extraction_group.command("add")
@@ -2970,7 +2970,7 @@ def entity_property_extraction_add(
     confidence: float | None,
     extraction_type: str,
 ) -> None:
-    """Link additional source text to an entity's existing property value."""
+    """Link source text to an entity property value."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     eid = _resolve_node(kb, db, ENTITY, entity_name, entity_id, "entity")
@@ -2996,7 +2996,7 @@ def entity_property_extraction_add(
 
 @data_group.group("fact")
 def fact_group() -> None:
-    """Fact management."""
+    """Manage facts."""
 
 
 @fact_group.command("add")
@@ -3037,7 +3037,7 @@ def fact_add(
     confidence: float | None,
     extraction_type: str,
 ) -> None:
-    """Add a fact (relation instance) between two entities.
+    """Add a fact between two entities.
 
     \b
     Resolve by name or by ID:
@@ -3083,7 +3083,7 @@ def fact_add(
 @click.pass_obj
 def fact_assert(obj, head, relation, tail, name, description, source_name, source_id,
                 confidence, extraction_type, schema_creation_mode, model):
-    """Assert a fact by names; operands are resolved or created, duplicates deduped."""
+    """Add a fact by name, resolving or creating operands."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     kwargs = _assert_kwargs(obj, source_name, source_id, confidence,
@@ -3102,7 +3102,7 @@ def fact_assert(obj, head, relation, tail, name, description, source_name, sourc
 )
 @click.pass_obj
 def fact_list(obj: dict, show_provenance: bool, fmt: str) -> None:
-    """List all facts."""
+    """List facts."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
 
@@ -3165,7 +3165,7 @@ def fact_update(
     obj: dict, fact_name: str | None, fact_id: str | None,
     name: str | None, description: str | None,
 ) -> None:
-    """Update the name and/or description of a fact."""
+    """Update a fact's name or description."""
     if not name and not description:
         raise click.UsageError("Provide at least one of --name or --description.")
     kb: FileKBSource = obj["kb"]
@@ -3207,7 +3207,7 @@ def fact_delete(
 
 @fact_group.group("extraction")
 def fact_extraction_group() -> None:
-    """Provenance extraction management for facts."""
+    """Manage fact provenance."""
 
 
 @fact_extraction_group.command("add")
@@ -3233,7 +3233,7 @@ def fact_extraction_add(
     confidence: float | None,
     extraction_type: str,
 ) -> None:
-    """Link additional source text to an existing fact.
+    """Link source text to a fact.
 
     Unlike `--text` on `fact add`, this does not create a new node — it
     adds another EXTRACTED_FROM edge to a fact that already exists, so
@@ -3261,7 +3261,7 @@ def fact_extraction_add(
 
 @fact_group.group("property")
 def fact_property_group() -> None:
-    """Fact property-value management."""
+    """Manage fact property values."""
 
 
 @fact_property_group.command("set")
@@ -3307,7 +3307,7 @@ def fact_property_set(
     confidence: float | None,
     extraction_type: str,
 ) -> None:
-    """Set a property value on a fact.
+    """Set a fact property value.
 
     \b
     Example:
@@ -3348,7 +3348,7 @@ def fact_property_set(
 def fact_property_assert(obj, head, relation, tail, property_name, value, literal_type,
                          description, source_name, source_id, confidence, extraction_type,
                          schema_creation_mode, model):
-    """Assert a property value on the fact identified by its (head, relation, tail) triple."""
+    """Set a fact property value by head/relation/tail."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     kwargs = _assert_kwargs(obj, source_name, source_id, confidence,
@@ -3373,7 +3373,7 @@ def fact_property_assert(obj, head, relation, tail, property_name, value, litera
 def fact_property_list(
     obj: dict, fact_name: str | None, fact_id: str | None, show_provenance: bool, fmt: str
 ) -> None:
-    """List all property values for a fact."""
+    """List a fact's property values."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     fid = _resolve_node(kb, db, FACT, fact_name, fact_id, "fact")
@@ -3428,7 +3428,7 @@ def fact_property_update(
     property_name: str | None, property_id: str | None,
     value: str | None, name: str | None, description: str | None,
 ) -> None:
-    """Update the value, name, and/or description of a fact property value."""
+    """Update a fact property value."""
     if not value and not name and not description:
         raise click.UsageError("Provide at least one of --value, --name, or --description.")
     kb: FileKBSource = obj["kb"]
@@ -3456,7 +3456,7 @@ def fact_property_delete(
     property_name: str | None, property_id: str | None,
     yes: bool,
 ) -> None:
-    """Delete a property value from a fact."""
+    """Delete a fact property value."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     fid = _resolve_node(kb, db, FACT, fact_name, fact_id, "fact")
@@ -3479,7 +3479,7 @@ def fact_property_delete(
 
 @fact_property_group.group("extraction")
 def fact_property_extraction_group() -> None:
-    """Provenance extraction management for fact property values."""
+    """Manage fact property value provenance."""
 
 
 @fact_property_extraction_group.command("add")
@@ -3508,7 +3508,7 @@ def fact_property_extraction_add(
     confidence: float | None,
     extraction_type: str,
 ) -> None:
-    """Link additional source text to a fact's existing property value."""
+    """Link source text to a fact property value."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     fid = _resolve_node(kb, db, FACT, fact_name, fact_id, "fact")
@@ -3545,7 +3545,7 @@ def fact_property_extraction_add(
 )
 @click.pass_obj
 def list_cmd(obj: dict, show_provenance: bool, show_detailed: bool, fmt: str) -> None:
-    """List all entities, property values, and facts in the current database."""
+    """List all instance data."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
@@ -3672,7 +3672,7 @@ def list_cmd(obj: dict, show_provenance: bool, show_detailed: bool, fmt: str) ->
               help="Write JSON to this file (default: stdout).")
 @click.pass_obj
 def data_export(obj: dict, show_provenance: bool, output) -> None:
-    """Export the database's instance data (entities, facts, property values) as JSON,
+    """Export instance data as JSON.
     in the shape `kb data import` reads. Does not include schema — use `kb schema export`
     for that, and import it first so `kb data import` has classes/relations/properties
     to resolve names against."""
@@ -3690,7 +3690,7 @@ def data_export(obj: dict, show_provenance: bool, output) -> None:
 @click.argument("input_file", type=click.File("r"))
 @click.pass_obj
 def data_import(obj: dict, input_file) -> None:
-    """Import instance data previously produced by `kb data export`. Referenced
+    """Import instance data from JSON.
     classes/relations/properties must already exist (e.g. via `kb schema import`)."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
@@ -3802,7 +3802,7 @@ def extract_cmd(
     log: bool,
     log_limit: int | None,
 ) -> None:
-    """Extract entities, facts, and property values from free text. By default this
+    """Extract entities and facts from text.
     also expands the schema first (see --no-expand-schema and `kb schema expand`).
 
     Requires the openai extra: pip install 'blue-data-kb-source[openai]'
@@ -3867,7 +3867,7 @@ def answer_cmd(
     obj: dict, question: str, fmt: str, model: str, include_metadata: bool,
     verbose: bool, log: bool, log_limit: int,
 ) -> None:
-    """Answer a natural language question using the knowledge base."""
+    """Answer a question from the knowledge base."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
@@ -3918,7 +3918,7 @@ def validate_cmd(
     obj: dict, statement: str, natural_language: bool, model: str, include_metadata: bool,
     verbose: bool, log: bool, log_limit: int,
 ) -> None:
-    """Return supporting and counter evidence for a statement."""
+    """Find evidence for and against a statement."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
@@ -3982,7 +3982,7 @@ def validate_cmd(
 )
 @click.pass_obj
 def data_search(obj: dict, query: str, types: tuple[str, ...], mode: str, top_k: int, fmt: str) -> None:
-    """Search entities and facts by keyword or semantic similarity."""
+    """Search entities and facts."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     type_filter = [t.upper() for t in types] if types else None

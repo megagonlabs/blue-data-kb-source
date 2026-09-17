@@ -80,7 +80,7 @@ def _store_value(param, value: str) -> str:
 
 @click.group("profile")
 def profile_group() -> None:
-    """Profile and configuration management."""
+    """Manage profiles and configuration."""
 
 
 @profile_group.command("add")
@@ -104,7 +104,7 @@ def profile_add(obj: dict, name: str) -> None:
 @click.option("--confirm", is_flag=True, default=False, help="Skip the confirmation prompt.")
 @click.pass_obj
 def profile_remove(obj: dict, name: str, confirm: bool) -> None:
-    """Delete a profile and everything configured in it."""
+    """Delete a profile and its configuration."""
     store = profile_store(obj["home"])
     if not store.exists(name):
         raise click.ClickException(f"no such profile: {name!r}")
@@ -148,7 +148,7 @@ def profile_list(obj: dict, fmt: str) -> None:
 @click.argument("name")
 @click.pass_obj
 def profile_select(obj: dict, name: str) -> None:
-    """Make a profile the default for subsequent commands."""
+    """Set the default profile."""
     try:
         profile_store(obj["home"]).select(name)
     except ProfileError as exc:
@@ -161,7 +161,7 @@ def profile_select(obj: dict, name: str) -> None:
 @click.option("--format", "fmt", type=click.Choice(["table", "json"]), default="table", show_default=True)
 @click.pass_obj
 def profile_inspect(obj: dict, name: str | None, fmt: str) -> None:
-    """Show every configuration value and where it came from.
+    """Show configuration values and their sources.
 
     Secrets are masked; a `$VAR` reference is shown by name, with whether it
     currently resolves, so you can see what to export.
