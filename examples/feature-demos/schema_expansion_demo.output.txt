@@ -18,29 +18,35 @@ not scripted -- that's the point of an LLM-driven pass.
   [tool result] search_schema -> {'schema_elements': []}
   [tool call]   search_schema({'query': 'HOBBY', 'type': 'class'})
   [tool result] search_schema -> {'schema_elements': []}
-  [tool call]   declare_class({'name': 'PERSON', 'description': 'A human individual.'})
-  [tool result] declare_class -> {'id': '41e9ca09-7aa1-4176-99de-3c794fb04146'}
-  [tool call]   declare_class({'name': 'COMPANY', 'description': 'A business organization or firm.'})
-  [tool result] declare_class -> {'id': '5c3f0d1f-ee34-4112-9fb9-a73f4b8eda82'}
-  [tool call]   declare_class({'name': 'SKILL', 'description': 'An ability or expertise in a particular area.'})
-  [tool result] declare_class -> {'id': '9c812760-211f-434f-a7bd-2bf54e4ff245'}
-  [tool call]   declare_class({'name': 'HOBBY', 'description': 'A leisure activity or interest pursued outside of work.'})
-  [tool result] declare_class -> {'id': '9f5eebbd-9dd6-4c10-a501-e935e146b46e'}
-  [tool call]   declare_relation_type({'name': 'WORKS_AT', 'description': 'Relationship indicating employment of a person at a company.', 'domain': 'PERSON', 'range': 'COMPANY'})
-  [tool result] declare_relation_type -> {'id': 'b7f4b545-494b-4ab2-8db6-e6c507c79c65'}
-  [tool call]   declare_relation_type({'name': 'HAS_SKILL', 'description': 'Relationship indicating a person has a particular skill.', 'domain': 'PERSON', 'range': 'SKILL'})
-  [tool result] declare_relation_type -> {'id': '2c490c06-aa36-441b-8f4c-007b855f3112'}
-  [tool call]   declare_relation_type({'name': 'HAS_HOBBY', 'description': 'Relationship indicating a person has a hobby or leisure interest.', 'domain': 'PERSON', 'range': 'HOBBY'})
-  [tool result] declare_relation_type -> {'id': '45df4b00-1e06-4088-b7db-80da034a8321'}
+  [tool call]   search_schema({'query': 'HAS_SKILL', 'type': 'relation'})
+  [tool result] search_schema -> {'schema_elements': []}
+  [tool call]   search_schema({'query': 'HAS_HOBBY', 'type': 'relation'})
+  [tool result] search_schema -> {'schema_elements': []}
+  [tool call]   search_schema({'query': 'WORKED_AT', 'type': 'relation'})
+  [tool result] search_schema -> {'schema_elements': []}
+  [tool call]   declare_class({'name': 'PERSON', 'description': 'An individual human being.'})
+  [tool result] declare_class -> {'id': '2f232d16-586f-4343-b8b3-3a16366f80ae'}
+  [tool call]   declare_class({'name': 'COMPANY', 'description': 'An organization engaged in commercial, industrial, or professional activities.'})
+  [tool result] declare_class -> {'id': 'f8a8416a-f102-411a-8c9a-5d9781825229'}
+  [tool call]   declare_class({'name': 'SKILL', 'description': 'The ability to do something well; expertise.'})
+  [tool result] declare_class -> {'id': 'f148fa84-5474-4c7a-9034-451c17480735'}
+  [tool call]   declare_class({'name': 'HOBBY', 'description': "An activity done regularly in one's leisure time for pleasure."})
+  [tool result] declare_class -> {'id': '58f9f0cb-8a3f-4cd3-9b76-ef6d949a8a8a'}
+  [tool call]   declare_relation_type({'name': 'HAS_SKILL', 'description': 'Relationship that denotes a PERSON having a specific SKILL.', 'domain': 'PERSON', 'range': 'SKILL'})
+  [tool result] declare_relation_type -> {'id': 'd11455be-34ac-47b2-8c56-bad530772ea6'}
+  [tool call]   declare_relation_type({'name': 'HAS_HOBBY', 'description': 'Relationship that identifies a HOBBY that a PERSON engages in.', 'domain': 'PERSON', 'range': 'HOBBY'})
+  [tool result] declare_relation_type -> {'id': '24d34502-6a6e-4eba-b630-1d1c8549ff8d'}
+  [tool call]   declare_relation_type({'name': 'WORKED_AT', 'description': 'Relationship where a PERSON is employed by a COMPANY.', 'domain': 'PERSON', 'range': 'COMPANY'})
+  [tool result] declare_relation_type -> {'id': '792b79d7-14c5-4f20-bbc6-b8cb1dd312b7'}
 
 Schema after expansion: 4 classes, 3 relations
   CLASS    PERSON
   CLASS    COMPANY
   CLASS    SKILL
   CLASS    HOBBY
-  RELATION WORKS_AT  (PERSON -> COMPANY)
   RELATION HAS_SKILL  (PERSON -> SKILL)
   RELATION HAS_HOBBY  (PERSON -> HOBBY)
+  RELATION WORKED_AT  (PERSON -> COMPANY)
 
 ------------------------------------------------------------
 2. expand_schema again -- a second, related passage. dedup_mode
@@ -53,26 +59,18 @@ more specific subclass of it the model chooses to declare). A new
 ACQUIRED relation is likely, unless dedup_mode judges an existing one
 already covers 'acquired'.
 
-  [tool call]   search_schema({'query': 'acquisition', 'mode': 'keyword', 'type': 'relation'})
+  [tool call]   search_schema({'query': 'ORGANIZATION', 'type': 'class'})
+  [tool result] search_schema -> {'schema_elements': [{'id': 'f8a8416a-f102-411a-8c9a-5d9781825229', 'type': 'CLASS', 'name': 'COMPANY', 'description': 'An organization engaged in commercial, industrial, or professional activities.'}]}
+  [tool call]   search_schema({'query': 'ACQUIRED_RELATION', 'type': 'relation'})
   [tool result] search_schema -> {'schema_elements': []}
-  [tool call]   search_schema({'query': 'TECHNOLOGY_CONSULTING_FIRM', 'mode': 'keyword', 'type': 'class'})
-  [tool result] search_schema -> {'schema_elements': []}
-  [tool call]   declare_class({'name': 'TECHNOLOGY_CONSULTING_FIRM', 'description': 'A company that provides technology-related consulting services.'})
-  [tool result] declare_class -> {'id': '2bb37b13-1e07-4e32-9a9a-1b1dedfed3e5'}
-  [tool call]   declare_relation_type({'name': 'ACQUIRED', 'description': 'Relation indicating that one company has purchased or taken control of another company.', 'domain': 'COMPANY', 'range': 'COMPANY'})
-  [tool result] declare_relation_type -> {'id': '929544cb-0a64-4125-83d2-ed9ba53bfe0b'}
-  [tool call]   add_subclass_of({'child_id': '2bb37b13-1e07-4e32-9a9a-1b1dedfed3e5', 'parent_id': 'COMPANY'})
-  [tool result] add_subclass_of -> {'error': "parent_id 'COMPANY' does not exist in database 'main'. Expected the id of an existing CLASS or RELATION node."}
-  [tool call]   search_schema({'query': 'COMPANY', 'type': 'class'})
-  [tool result] search_schema -> {'schema_elements': [{'id': '5c3f0d1f-ee34-4112-9fb9-a73f4b8eda82', 'type': 'CLASS', 'name': 'COMPANY', 'description': 'A business organization or firm.'}, {'id': '2bb37b13-1e07-4e32-9a9a-1b1dedfed3e5', 'type': 'CLASS', 'name': 'TECHNOLOGY_CONSULTING_FIRM', 'description': 'A company that provides technology-related consulting services.'}]}
-  [tool call]   add_subclass_of({'child_id': '2bb37b13-1e07-4e32-9a9a-1b1dedfed3e5', 'parent_id': '5c3f0d1f-ee34-4112-9fb9-a73f4b8eda82'})
-  [tool result] add_subclass_of -> {}
+  [tool call]   declare_relation_type({'name': 'ACQUIRED', 'description': 'Indicates that one company acquired another company.', 'domain': 'COMPANY', 'range': 'COMPANY'})
+  [tool result] declare_relation_type -> {'id': 'fce2efed-504b-41d6-b11c-2df94e8b862c'}
 
 ------------------------------------------------------------
 3. attach_property -- reuse an existing property on another class
    instead of declaring a same-meaning duplicate under a new name
 ------------------------------------------------------------
-Declared NAME on PERSON (d520866e-9134-4dae-a992-ae7cbdc34977), then attached the same
+Declared NAME on PERSON (568e18f5-e21a-4c14-9e55-b1829116ec87), then attached the same
 property to COMPANY -- one PROPERTY node, two DEFINE_PROPERTY edges,
 instead of a second same-meaning property under a new name.
 

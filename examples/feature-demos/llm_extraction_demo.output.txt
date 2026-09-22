@@ -7,32 +7,72 @@ this schema as needed (e.g. declaring WORKED_AT itself) before extracting
 ------------------------------------------------------------
 2. import_text -- one call, two passes (expand schema, then extract)
 ------------------------------------------------------------
-  [tool call]   search_schema({'query': 'work relationship', 'mode': 'semantic', 'type': 'relation'})
-  [tool result] search_schema -> {'schema_elements': []}
-  [tool call]   declare_relation_type({'name': 'WORKED_AT', 'description': 'Relationship where a person works or has worked at a company', 'domain': 'PERSON', 'range': 'COMPANY'})
-  [tool result] declare_relation_type -> {'id': 'a4022b3a-bfe0-4a66-a68f-d84baa2b1b4f'}
+  [tool call]   get_schema({})
+  [tool result] get_schema -> {'schema': 'Schema:\nEntities:\n  PERSON\n  COMPANY\nRelations:\n'}
+  [tool call]   declare_class({'name': 'ORGANIZATION', 'description': 'An entity such as a company, corporation, or any formal group of people with a common purpose.'})
+  [tool result] declare_class -> {'id': 'e5ed4b34-412a-478d-bc62-88b604cd3bff'}
+  [tool call]   declare_relation_type({'name': 'WORKED_AT', 'description': 'Employment relationship where a PERSON is employed by a COMPANY', 'domain': 'PERSON', 'range': 'COMPANY'})
+  [tool result] declare_relation_type -> {'id': '8ed03d58-25fc-4ac4-a09c-176329c51683'}
+  [tool call]   declare_relation_type({'name': 'SPECIALIZES_IN', 'description': "Indicates a PERSON's area of expertise or specialization.", 'domain': 'PERSON', 'range': 'SKILL'})
+  [tool result] declare_relation_type -> {'error': "range class 'SKILL' not found in 'main'"}
+  [tool call]   declare_class({'name': 'SKILL', 'description': 'A particular ability or expertise a person can have.'})
+  [tool result] declare_class -> {'id': '7781d723-1b0f-4bd6-9925-eddf1f2cda81'}
+  [tool call]   declare_relation_type({'name': 'SPECIALIZES_IN', 'description': "Indicates a PERSON's area of expertise or specialization.", 'domain': 'PERSON', 'range': 'SKILL'})
+  [tool result] declare_relation_type -> {'id': 'b53db5ab-84de-48be-a766-1ae64258e9e8'}
   [tool call]   find_entity({'name': 'Alice Johnson'})
   [tool result] find_entity -> {'id': None}
   [tool call]   find_entity({'name': 'IBM'})
   [tool result] find_entity -> {'id': None}
   [tool call]   find_entity({'name': 'Nimbus Analytics'})
   [tool result] find_entity -> {'id': None}
-  [tool call]   search_schema({'query': 'person', 'mode': 'keyword', 'type': 'class'})
-  [tool result] search_schema -> {'schema_elements': [{'id': 'd9eb1f21-dfce-4a31-9609-3846e0511a98', 'type': 'CLASS', 'name': 'PERSON', 'description': 'A human individual'}]}
-  [tool call]   search_schema({'query': 'company', 'mode': 'keyword', 'type': 'class'})
-  [tool result] search_schema -> {'schema_elements': [{'id': '705f3e3e-37d7-411e-9e10-3283693321c5', 'type': 'CLASS', 'name': 'COMPANY', 'description': 'A business organization'}]}
-  [tool call]   add_entity({'name': 'Alice Johnson', 'description': 'A senior software engineer specializing in distributed systems.', 'class_id': 'd9eb1f21-dfce-4a31-9609-3846e0511a98', 'text': 'Alice Johnson is a senior software engineer at IBM, where she has worked since 2019.'})
-  [tool result] add_entity -> {'id': '236034d9-5815-4346-a2d7-be03709a9a7b'}
-  [tool call]   add_entity({'name': 'IBM', 'description': 'A technology and consulting company headquartered in Armonk, New York.', 'class_id': '705f3e3e-37d7-411e-9e10-3283693321c5', 'text': 'IBM, where she has worked since 2019.'})
-  [tool result] add_entity -> {'id': '0cf1b161-c6ab-432a-940d-2b47b45bffce'}
-  [tool call]   add_entity({'name': 'Nimbus Analytics', 'description': 'A startup where Alice Johnson worked as a backend developer.', 'class_id': '705f3e3e-37d7-411e-9e10-3283693321c5', 'text': 'Nimbus Analytics'})
-  [tool result] add_entity -> {'id': 'c0592238-f46d-468e-bdff-9b779fa3a6f2'}
+  [tool call]   find_entity({'name': 'distributed systems'})
+  [tool result] find_entity -> {'id': None}
+  [tool call]   add_entity({'name': 'Alice Johnson', 'class_id': '864eb3d7-391a-49b0-8240-bbec3c788d34', 'text': 'Alice Johnson is a senior software engineer at IBM, where she has worked since 2019.'})
+  [tool result] add_entity -> {'id': '3471baf9-0ef5-424f-82e3-70a8ec040c81'}
+  [tool call]   add_entity({'name': 'IBM', 'class_id': '52a0fe1b-67f8-4389-b116-de80b4a9acfb', 'text': 'IBM is a technology and consulting company headquartered in Armonk, New York.'})
+  [tool result] add_entity -> {'id': '4ecc1c63-de9a-4fba-9522-e145478c2040'}
+  [tool call]   add_entity({'name': 'Nimbus Analytics', 'class_id': '52a0fe1b-67f8-4389-b116-de80b4a9acfb', 'text': 'Before IBM, she was a backend developer at a startup called Nimbus Analytics.'})
+  [tool result] add_entity -> {'id': '3fed3ebd-d3dc-49bc-8521-0d018e3323c9'}
+  [tool call]   add_entity({'name': 'distributed systems', 'class_id': '7781d723-1b0f-4bd6-9925-eddf1f2cda81', 'text': "Alice specializes in distributed systems and has led IBM's internal knowledge graph initiative since 2022."})
+  [tool result] add_entity -> {'id': 'e41fcb86-3670-4aac-94e3-378559d5dac4'}
+  [tool call]   find_entity({'name': 'IBM'})
+  [tool result] find_entity -> {'id': '4ecc1c63-de9a-4fba-9522-e145478c2040', 'name': 'IBM', 'description': None}
+  [tool call]   find_entity({'name': 'Nimbus Analytics'})
+  [tool result] find_entity -> {'id': '3fed3ebd-d3dc-49bc-8521-0d018e3323c9', 'name': 'Nimbus Analytics', 'description': None}
   [tool call]   search_schema({'query': 'worked at', 'mode': 'keyword', 'type': 'relation'})
-  [tool result] search_schema -> {'schema_elements': [{'id': 'a4022b3a-bfe0-4a66-a68f-d84baa2b1b4f', 'type': 'RELATION', 'name': 'WORKED_AT', 'description': 'Relationship where a person works or has worked at a company'}]}
-  [tool call]   add_fact({'head_entity_id': '236034d9-5815-4346-a2d7-be03709a9a7b', 'tail_entity_id': '0cf1b161-c6ab-432a-940d-2b47b45bffce', 'relation_id': 'a4022b3a-bfe0-4a66-a68f-d84baa2b1b4f', 'text': 'Alice Johnson is a senior software engineer at IBM, where she has worked since 2019.'})
-  [tool result] add_fact -> {'id': '5b65a9f3-db87-460c-adb4-81f5a50c17d0'}
-  [tool call]   add_fact({'head_entity_id': '236034d9-5815-4346-a2d7-be03709a9a7b', 'tail_entity_id': 'c0592238-f46d-468e-bdff-9b779fa3a6f2', 'relation_id': 'a4022b3a-bfe0-4a66-a68f-d84baa2b1b4f', 'text': 'Before IBM, she was a backend developer at a startup called Nimbus Analytics.'})
-  [tool result] add_fact -> {'id': '97305894-06e4-48ff-894d-dfa29af91d68'}
+  [tool result] search_schema -> {'schema_elements': []}
+  [tool call]   search_schema({'query': 'specializes in', 'mode': 'keyword', 'type': 'relation'})
+  [tool result] search_schema -> {'schema_elements': []}
+  [tool call]   find_relation_type({'name': 'WORKED_AT'})
+  [tool result] find_relation_type -> {'id': '8ed03d58-25fc-4ac4-a09c-176329c51683', 'name': 'WORKED_AT', 'description': 'Employment relationship where a PERSON is employed by a COMPANY'}
+  [tool call]   find_relation_type({'name': 'SPECIALIZES_IN'})
+  [tool result] find_relation_type -> {'id': 'b53db5ab-84de-48be-a766-1ae64258e9e8', 'name': 'SPECIALIZES_IN', 'description': "Indicates a PERSON's area of expertise or specialization."}
+  [tool call]   find_fact({'head_entity_id': '3471baf9-0ef5-424f-82e3-70a8ec040c81', 'relation_id': '8ed03d58-25fc-4ac4-a09c-176329c51683', 'tail_entity_id': '4ecc1c63-de9a-4fba-9522-e145478c2040'})
+  [tool result] find_fact -> {'id': None}
+  [tool call]   find_fact({'head_entity_id': '3471baf9-0ef5-424f-82e3-70a8ec040c81', 'relation_id': '8ed03d58-25fc-4ac4-a09c-176329c51683', 'tail_entity_id': '3fed3ebd-d3dc-49bc-8521-0d018e3323c9'})
+  [tool result] find_fact -> {'id': None}
+  [tool call]   find_fact({'head_entity_id': '3471baf9-0ef5-424f-82e3-70a8ec040c81', 'relation_id': 'b53db5ab-84de-48be-a766-1ae64258e9e8', 'tail_entity_id': 'e41fcb86-3670-4aac-94e3-378559d5dac4'})
+  [tool result] find_fact -> {'id': None}
+  [tool call]   add_fact({'head_entity_id': '3471baf9-0ef5-424f-82e3-70a8ec040c81', 'tail_entity_id': '4ecc1c63-de9a-4fba-9522-e145478c2040', 'relation_id': '8ed03d58-25fc-4ac4-a09c-176329c51683', 'text': 'Alice Johnson is a senior software engineer at IBM, where she has worked since 2019.'})
+  [tool result] add_fact -> {'id': '733d00c7-2f90-403f-a50d-e7bd5722e085'}
+  [tool call]   add_fact({'head_entity_id': '3471baf9-0ef5-424f-82e3-70a8ec040c81', 'tail_entity_id': '3fed3ebd-d3dc-49bc-8521-0d018e3323c9', 'relation_id': '8ed03d58-25fc-4ac4-a09c-176329c51683', 'text': 'Before IBM, she was a backend developer at a startup called Nimbus Analytics.'})
+  [tool result] add_fact -> {'id': '4220064e-d264-48d4-9361-25e64c29e788'}
+  [tool call]   add_fact({'head_entity_id': '3471baf9-0ef5-424f-82e3-70a8ec040c81', 'tail_entity_id': 'e41fcb86-3670-4aac-94e3-378559d5dac4', 'relation_id': 'b53db5ab-84de-48be-a766-1ae64258e9e8', 'text': "Alice specializes in distributed systems and has led IBM's internal knowledge graph initiative since 2022."})
+  [tool result] add_fact -> {'id': '38fb98b7-eb28-42ce-b998-2d8efb0fb731'}
+  [tool call]   search_schema({'query': 'start date', 'mode': 'semantic', 'type': 'property'})
+  [tool result] search_schema -> {'schema_elements': []}
+  [tool call]   search_schema({'query': 'role', 'mode': 'semantic', 'type': 'property'})
+  [tool result] search_schema -> {'schema_elements': []}
+  [tool call]   search_schema({'query': 'senior software engineer', 'type': 'property'})
+  [tool result] search_schema -> {'schema_elements': []}
+  [tool call]   search_schema({'query': 'worked since', 'type': 'property'})
+  [tool result] search_schema -> {'schema_elements': []}
+  [tool call]   search_schema({'query': 'backend developer', 'type': 'property'})
+  [tool result] search_schema -> {'schema_elements': []}
+  [tool call]   search_schema({'query': 'headquartered', 'type': 'property'})
+  [tool result] search_schema -> {'schema_elements': []}
+  [tool call]   search_schema({'query': 'led initiative', 'type': 'property'})
+  [tool result] search_schema -> {'schema_elements': []}
 import_text returns None -- its effects are the tool calls printed above:
 first declare_class/declare_relation_type (schema expansion), then
 add_entity/add_fact (extraction), each tagged with text=<the sentence it
@@ -41,12 +81,14 @@ came from>, source_id=<alice-bio.txt>.
 ------------------------------------------------------------
 3. Inspect what got extracted
 ------------------------------------------------------------
-fetch_database_data(compact=True) -> 5 rows:
+fetch_database_data(compact=True) -> 7 rows:
   {'relation_type': 'IS_INSTANCE_OF', 'entity_name': 'Alice Johnson', 'class_name': 'PERSON'}
   {'relation_type': 'IS_INSTANCE_OF', 'entity_name': 'IBM', 'class_name': 'COMPANY'}
   {'relation_type': 'IS_INSTANCE_OF', 'entity_name': 'Nimbus Analytics', 'class_name': 'COMPANY'}
+  {'relation_type': 'IS_INSTANCE_OF', 'entity_name': 'distributed systems', 'class_name': 'SKILL'}
   {'relation_type': 'REPRESENTS', 'entity_name': 'Alice Johnson_WORKED_AT_IBM', 'source_name': 'Alice Johnson', 'target_name': 'IBM', 'relation_name': 'WORKED_AT'}
   {'relation_type': 'REPRESENTS', 'entity_name': 'Alice Johnson_WORKED_AT_Nimbus Analytics', 'source_name': 'Alice Johnson', 'target_name': 'Nimbus Analytics', 'relation_name': 'WORKED_AT'}
-get_metadata on the extracted Alice entity: {'id': '236034d9-5815-4346-a2d7-be03709a9a7b', 'type': 'ENTITY', 'name': 'Alice Johnson', 'class_name': 'PERSON', 'description': 'A senior software engineer specializing in distributed systems.', 'created': '2026-09-04T22:25:09.899233+00:00', 'modified': '2026-09-04T22:25:09.899233+00:00', 'extraction': 'Alice Johnson is a senior software engineer at IBM, where she has worked since 2019.', 'source': "Alice's bio", 'source_original': None}
+  {'relation_type': 'REPRESENTS', 'entity_name': 'Alice Johnson_SPECIALIZES_IN_distributed systems', 'source_name': 'Alice Johnson', 'target_name': 'distributed systems', 'relation_name': 'SPECIALIZES_IN'}
+get_metadata on the extracted Alice entity: {'id': '3471baf9-0ef5-424f-82e3-70a8ec040c81', 'type': 'ENTITY', 'name': 'Alice Johnson', 'class_name': 'PERSON', 'description': None, 'created': '2026-09-22T18:02:33.468701+00:00', 'modified': '2026-09-22T18:02:33.468701+00:00', 'confidence': None, 'evidence': [{'text': 'Alice Johnson is a senior software engineer at IBM, where she has worked since 2019.', 'confidence': None, 'created': '2026-09-22T18:02:33.468769+00:00', 'source': "Alice's bio", 'source_original': None}]}
 
 Demo complete.

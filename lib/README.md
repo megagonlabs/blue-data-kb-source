@@ -427,6 +427,13 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | `await search_schema(database, query)` | `list[SchemaSearchResult]` | Return CLASS/RELATION/PROPERTY nodes whose name or description contains *query* (case-insensitive) |
 | `await consolidate_schema(database, operation, source_names, target_name, predicate?)` | `None` | Fold source elements into the target: rewires every reference, deletes the sources, updates the search index. `operation="merge"` only |
 | `await expand_schema(database, text, depth?, reference?, mcp_servers?, dedup_mode?, model?, on_tool_call?, max_turns?)` | `None` | OpenAI LLM agent that grows the schema (CLASS/RELATION/PROPERTY) grounded by *text*; never touches entities/facts/property values. `depth` (default `1`) — hierarchy levels beyond what's directly evidenced to also propose, linked via `add_subclass_of`. `reference` — `"llm"` (default) or `"mcp"` (also gives the model tools from connected `mcp_servers`, e.g. WordNet). `dedup_mode` (`"search"` default, `"llm"`, or `"none"`) controls how `search_schema` checks for existing elements *and* is auto-applied as a safety-net check before every `declare_class`/`declare_relation_type` call, even if the model skips `search_schema` — pass `"none"` to disable both. Never declares a taxonomic (is-a/type-of/kind-of/subclass-of) name as a `RELATION`; those are rejected in favor of `add_subclass_of`. Requires `openai` (and `mcp` for `reference="mcp"`). |
+| `await update_class(database, class_id, name?, description?)` | `None` | Rename and/or redescribe a CLASS; refreshes `modified`. At least one of `name`/`description` is required |
+| `await update_relation(database, relation_id, name?, description?)` | `None` | As `update_class`, for a RELATION |
+| `await update_property(database, property_id, name?, description?)` | `None` | As `update_class`, for a PROPERTY |
+| `await delete_class(database, class_id)` | `None` | Remove a CLASS. Raises `SchemaError` if it still has entity instances or child classes — delete or re-parent those first |
+| `await delete_relation(database, relation_id)` | `None` | Remove a RELATION. Raises `SchemaError` if it still has fact instances or sub-relations |
+| `await delete_property(database, property_id)` | `None` | Remove a PROPERTY. Raises `SchemaError` if any LITERAL still holds a value for it |
+| `await remove_is_subclass_of(database, child_id, parent_id)` | `None` | Drop one `IS_SUBCLASS_OF` edge; the inverse of `add_is_subclass_of`, and a no-op if the edge is absent |
 
 ---
 
@@ -458,6 +465,17 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | `await answer(database, question, model?, natural_language?, include_metadata?, on_tool_call?, max_turns?)` | `list[dict] \| str \| tuple[..., dict]` | LLM agent answers a natural language question by traversing the instance graph. `include_metadata=True` has the agent call `get_metadata` for entities/facts/properties it cites and returns `(result, metadata)` instead of just `result` — `metadata` is a `dict[node_id, dict]`. With `natural_language=True` too, the prose answer gets a natural-language provenance section appended after the main answer (still paired with the raw `metadata` dict as element 1). `max_turns` (default `25`) caps agent turns; hitting the limit stops the loop silently and returns an empty/default result |
 | `await validate(database, statement, model?, natural_language?, include_metadata?, on_tool_call?, max_turns?)` | `ValidationResult \| str \| tuple[..., dict]` | LLM agent returns supporting and counter evidence for a statement; `include_metadata`/`natural_language`/`max_turns` behave as in `answer` |
 | `await enrich(database, query, depth?, model?, on_tool_call?, max_turns?)` | `list[EnrichmentResult]` | LLM agent traverses the graph up to *depth* hops from seed entities and returns related knowledge; `max_turns` (default `25`) behaves as in `answer` |
+| `await update_entity(database, entity_id, name?, description?)` | `None` | Rename and/or redescribe an ENTITY; refreshes `modified`. At least one of `name`/`description` is required |
+| `await update_fact(database, fact_id, name?, description?)` | `None` | As `update_entity`, for a FACT |
+| `await update_entity_property_value(database, entity_id, property_id, value?, name?, description?)` | `None` | Change an existing value in place. Raises `KnowledgeError` when the entity holds no value for that property |
+| `await update_fact_property_value(database, fact_id, property_id, value?, name?, description?)` | `None` | As above, for a fact's property value |
+| `await delete_entity(database, entity_id, cascade?)` | `None` | Remove an ENTITY and its property values. `cascade=True` also removes the facts it participates in; without it, an entity that still has facts raises `KnowledgeError` |
+| `await delete_fact(database, fact_id)` | `None` | Remove a FACT and its property values |
+| `await delete_entity_property_value(database, entity_id, property_id)` | `None` | Remove the entity's value for that property; raises `KnowledgeError` if there is none |
+| `await delete_fact_property_value(database, fact_id, property_id)` | `None` | As above, for a fact's property value |
+| `await search_data(database, query, k?, mode?, type_filter?)` | `list[DataSearchResult]` | Search ENTITY/FACT nodes by keyword (BM25) or `mode="semantic"` (embeddings). Falls back to a substring scan when the database was registered without search |
+| `await execute_query(query, database?, collection?, optional_properties?)` | `Any` | Run one KB operation described as a structured query dict — the generic `DataSource` entry point, used by the query layer |
+| `await execute_query_nl(query, database?, collection?, schema?, llm_fn?, optional_properties?)` | `Any` | Answer a natural-language question by translating it to a structured query first |
 
 ---
 
@@ -468,6 +486,8 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | `await add_source(database, source, name?, description?, node_id?, original?)` | `str` | Add a `:SOURCE` node; `name` defaults to `source` if omitted; `original` records the source's original date (e.g. publication date), separate from `created` (when it was added to the KB) |
 | `await add_extraction(database, text, name?, description?, node_id?, source_id?, confidence?, extraction_type?, element_id?)` | `str` | Add an `:EXTRACTION` node; optionally wires `EXTRACTED_FROM` to a source (`source_id`) and/or links it to an existing entity/fact/literal (`element_id`) in the same call |
 | `await attach_extraction(database, element_id, extraction_id)` | `None` | Wire `EXTRACTED_FROM` from an `ENTITY`/`FACT`/`LITERAL` to an EXTRACTION that already exists — created up front by `add_extraction` without an `element_id`, or re-wired on snapshot restore. Deduplicated, add-only. Each item still keeps its own EXTRACTION node; this does not share evidence between items |
+| `await update_source(database, source_id, name?, description?, original?)` | `None` | Change a SOURCE's name, description and/or original date |
+| `await delete_source(database, source_id)` | `None` | Remove a SOURCE and the extraction records that point at it |
 
 ---
 
@@ -477,6 +497,7 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 |---|---|
 | `add_change_hook(database, fn)` | Register *fn* (a sync `def`) to be called after every instance-level write to *database*; *fn* receives a single event `dict` |
 | `remove_change_hook(database, fn)` | Deregister a previously added hook for *database* (no-op if not found) |
+| `reindex(database)` | Rebuild the search index for *database* from the graph; synchronous. Raises `KBError` when the database was registered without search |
 
 ---
 

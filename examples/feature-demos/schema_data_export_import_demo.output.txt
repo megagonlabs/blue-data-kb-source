@@ -1,4 +1,4 @@
-File backend directory: /tmp/blue-data-kb-migration-a9i6fp2u
+File backend directory: /tmp/blue-data-kb-migration-d6xtu98g
 
 ------------------------------------------------------------
 1. Seed a MemoryKBSource with schema, data, and provenance
@@ -15,7 +15,7 @@ Importing the same schema twice is safe: has_entity('PERSON')=True, has_entity('
 3. Migrate the data
 ------------------------------------------------------------
 export_database_data: 2 entities, 1 facts
-Each entity carries a 'ref' join key, e.g.: {'ref': 'fb9625b1-f39c-4e25-8857-fbb6dd0c9c42', 'name': 'Alice', 'class': 'PERSON'}
+Each entity carries a 'ref' join key, e.g.: {'ref': '437a74fa-b76b-4c0d-bf6e-f03cee3bd8c8', 'name': 'Alice', 'class': 'PERSON'}
 Migrated KB now has 3 graph rows via fetch_database_data(compact=True)
 
 ------------------------------------------------------------
@@ -26,5 +26,5 @@ Unlike declare_class/declare_relation_type (idempotent by name), add_entity/add_
 never dedupe -- import_database_data mints brand-new ids on every call. Only import
 a given export once, or track what you've already migrated.
 
-Cleaned up /tmp/blue-data-kb-migration-a9i6fp2u
+Cleaned up /tmp/blue-data-kb-migration-d6xtu98g
 Demo complete.

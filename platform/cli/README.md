@@ -187,7 +187,7 @@ Each per-function model falls back to `BLUE_DATA_KB_SOURCE_LLM_MODEL`, then to `
 # 1. Register and select a database
 $ blue-kb database list
 $ blue-kb database register main --search bm25
-Registered database: main
+Registered database: main (graph=file, search=bm25)
 
 $ blue-kb database select main
 
@@ -253,52 +253,71 @@ $ blue-kb data fact property list --fact-id 092733dd-…
 
 # 8. List the full schema
 $ blue-kb schema list
-                      Classes
-┏━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
-┃ Name      ┃ Description             ┃ Properties ┃
-┡━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━┩
-│ COMPANY   │ A business organization │            │
-│ PERSON    │ A human individual      │ AGE        │
-└───────────┴─────────────────────────┴────────────┘
-                          Relations
-┏━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
-┃ Source ┃ Relation  ┃ Target  ┃ Description            ┃ Properties ┃
-┡━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━┩
-│ PERSON │ WORKED_AT │ COMPANY │ Employment relationship │ START_DATE │
-└────────┴───────────┴─────────┴────────────────────────┴────────────┘
-
+                 Classes                  
+┏━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Name         ┃ Description             ┃
+┡━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ COMPANY      │ A business organization │
+│ PERSON       │ A human individual      │
+└──────────────┴─────────────────────────┘
+                Class Properties                 
+┏━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┓
+┃ Class        ┃ Property     ┃ Description     ┃
+┡━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━┩
+│ PERSON       │ AGE          │ Age of a person │
+└──────────────┴──────────────┴─────────────────┘
+                             Relations                              
+┏━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Source     ┃ Relation     ┃ Target     ┃ Description             ┃
+┡━━━━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ PERSON     │ WORKED_AT    │ COMPANY    │ Employment relationship │
+└────────────┴──────────────┴────────────┴─────────────────────────┘
+                 Relation Properties                 
+┏━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┓
+┃ Relation     ┃ Property     ┃ Description         ┃
+┡━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━┩
+│ WORKED_AT    │ START_DATE   │ Start of employment │
+└──────────────┴──────────────┴─────────────────────┘
 # 9. List all instances
 $ blue-kb data list
 # optionally with provenance:
 # $ blue-kb data list --show-provenance
-      Entities
+     Entities      
 ┏━━━━━━━┳━━━━━━━━━┓
 ┃ Name  ┃ Class   ┃
 ┡━━━━━━━╇━━━━━━━━━┩
 │ IBM   │ COMPANY │
 │ Alice │ PERSON  │
 └───────┴─────────┘
-     Property Values
+   Entity Property Values    
 ┏━━━━━━━━┳━━━━━━━━━━┳━━━━━━━┓
 ┃ Entity ┃ Property ┃ Value ┃
 ┡━━━━━━━━╇━━━━━━━━━━╇━━━━━━━┩
 │ Alice  │ AGE      │ 42    │
 └────────┴──────────┴───────┘
-        Facts
+           Facts            
 ┏━━━━━━━┳━━━━━━━━━━━┳━━━━━━┓
 ┃ Head  ┃ Relation  ┃ Tail ┃
 ┡━━━━━━━╇━━━━━━━━━━━╇━━━━━━┩
 │ Alice │ WORKED_AT │ IBM  │
 └───────┴───────────┴──────┘
-
+                 Fact Property Values                 
+┏━━━━━━━┳━━━━━━━━━━━┳━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━┓
+┃ Head  ┃ Relation  ┃ Tail ┃ Property   ┃ Value      ┃
+┡━━━━━━━╇━━━━━━━━━━━╇━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━┩
+│ Alice │ WORKED_AT │ IBM  │ START_DATE │ 1998-06-01 │
+└───────┴───────────┴──────┴────────────┴────────────┘
 # 10. Search the schema
 $ blue-kb schema search employment
-┏━━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃ Type       ┃ Name      ┃ Description             ┃
-┡━━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━┩
-│ RELATION   │ WORKED_AT │ Employment relationship  │
-└────────────┴───────────┴─────────────────────────┘
-
+┏━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Type       ┃ Name       ┃ Description             ┃
+┡━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ RELATION   │ WORKED_AT  │ Employment relationship │
+│ PROPERTY   │ START_DATE │ Start of employment     │
+│ CLASS      │ PERSON     │ A human individual      │
+│ PROPERTY   │ AGE        │ Age of a person         │
+│ CLASS      │ COMPANY    │ A business organization │
+└────────────┴────────────┴─────────────────────────┘
 # Search schema restricted to relations only
 $ blue-kb schema search employment --type relation
 

@@ -23,7 +23,7 @@ blue-data-kb-source/
 │   ├── src/blue_data_kb_source/
 │   └── tests/
 ├── platform/
-│   ├── cli/                    # Command-line interface (kb)
+│   ├── cli/                    # Command-line interface (blue-kb)
 │   │   ├── src/blue_data_kb_cli/
 │   │   └── tests/
 │   ├── mcp/                    # MCP server (blue-data-kb-mcp)

@@ -1,5 +1,5 @@
-Graph directory:   /tmp/blue-data-kb-chromadb-j6dosin2/graph
-ChromaDB directory: /tmp/blue-data-kb-chromadb-j6dosin2/chroma
+Graph directory:   /tmp/blue-data-kb-chromadb-sb2sl48a/graph
+ChromaDB directory: /tmp/blue-data-kb-chromadb-sb2sl48a/chroma
 
 ------------------------------------------------------------
 1. Seed schema and data
@@ -18,5 +18,5 @@ search_schema('employment', mode='semantic'): [('COMPANY', 0.0), ('WORKED_AT', 0
 Reopened KB sees 3 graph rows
 search_data('Alice', mode='semantic') after reconnect: [('Alice', 0.371), ('Alice_WORKED_AT_IBM', 0.169), ('IBM', 0.088)]
 
-Cleaned up /tmp/blue-data-kb-chromadb-j6dosin2
+Cleaned up /tmp/blue-data-kb-chromadb-sb2sl48a
 Demo complete.

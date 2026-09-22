@@ -57,6 +57,36 @@ def test_database_register_file_backend(runner, tmp_path):
     assert (tmp_path / "data" / "mydb.json").exists()
 
 
+def test_bm25_search_works_without_an_explicit_index_dir(runner):
+    """The CLI is one process per command, so an in-memory BM25 corpus is empty
+    on every invocation and `schema search` silently returns nothing. The
+    corpus directory defaults to the graph directory, as --bm25-index-dir has
+    always documented."""
+    invoke(runner, ["database", "register", "main", "--search", "bm25"])
+    invoke(runner, ["--database", "main", "schema", "class", "add", "PERSON", "A human"])
+    invoke(runner, ["--database", "main", "schema", "class", "add", "COMPANY", "A business"])
+    invoke(runner, ["--database", "main", "schema", "relation", "add",
+                    "WORKED_AT", "Employment relationship",
+                    "--domain", "PERSON", "--range", "COMPANY"])
+    rows = invoke_json(runner, ["--database", "main", "schema", "search",
+                                "employment", "--format", "json"])
+    assert any(r["name"] == "WORKED_AT" for r in rows)
+
+
+def test_register_defaults_bm25_index_dir_to_the_graph_directory(runner, tmp_path):
+    data_dir = str(tmp_path / "graphs")
+    invoke(runner, ["database", "register", "main", "--search", "bm25", "--directory", data_dir])
+    cfg = invoke_json(runner, ["--database", "main", "database", "search", "config", "show"])
+    assert cfg["bm25_index_dir"] == data_dir
+
+
+def test_enabling_search_later_also_gets_an_index_dir(runner):
+    invoke(runner, ["database", "register", "main"])
+    invoke(runner, ["--database", "main", "database", "search", "config", "set", "--search", "bm25"])
+    cfg = invoke_json(runner, ["--database", "main", "database", "search", "config", "show"])
+    assert cfg.get("bm25_index_dir")
+
+
 def test_database_register_bm25_search(runner):
     invoke(runner, ["database", "register", "searchable", "--search", "bm25"])
     cfg = invoke_json(runner, ["--database", "searchable", "database", "search", "config", "show"])

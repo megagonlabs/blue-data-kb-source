@@ -1,7 +1,7 @@
 ------------------------------------------------------------
 1. declare_class is idempotent by name
 ------------------------------------------------------------
-declare_class('PERSON', ...) twice -> same id: True (f19864b9-17e5-4726-a21f-eff8ce997528)
+declare_class('PERSON', ...) twice -> same id: True (ee32aebe-8a86-46b2-acbd-7fbc081dc061)
 Description is still the first one: 'A human individual'
 
 ------------------------------------------------------------
@@ -22,16 +22,15 @@ identical IS_SUBCLASS_OF edge in the underlying graph between the same two nodes
 Two different PROPERTY nodes both named 'NAME': True
 
 ------------------------------------------------------------
-5. consolidate_schema('merge') adds a new instance edge, it doesn't move the old one
+5. consolidate_schema('merge') folds the source class into the target
 ------------------------------------------------------------
 Before merge, Acme Corp's class_name: 'ORGANIZATION'
-Acme Corp's IS_INSTANCE_OF edges after merge: ['ORGANIZATION', 'COMPANY']
-get_metadata still reports the first one found: class_name='ORGANIZATION'
-Gotcha: consolidate_schema('merge') ADDS a new IS_INSTANCE_OF edge from each
-instance of a source class to the target class -- it does not remove the edge to
-the source class, and it does not delete the source schema node itself. A merged
-instance ends up belonging to *both* classes; get_metadata's class_name (which
-assumes one class per entity) keeps reporting whichever edge was added first,
-until you clean up the old edges yourself.
+Acme Corp's IS_INSTANCE_OF edges after merge: ['COMPANY']
+get_metadata reports the merge target: class_name='COMPANY'
+ORGANIZATION is gone from the schema: ['COMPANY', 'EMPLOYEE', 'PERSON']
+consolidate_schema('merge') re-points every edge that referenced the source
+class -- instances, subclass links, domain/range, property definitions -- at the
+target, then deletes the source node. Change events are fired for each affected
+node, so a search-enabled KB stops returning the merged-away class as well.
 
 Demo complete.

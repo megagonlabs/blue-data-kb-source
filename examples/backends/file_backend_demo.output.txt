@@ -1,4 +1,4 @@
-Working directory: /tmp/blue-data-kb-demo-89ailacy
+Working directory: /tmp/blue-data-kb-demo-neu1z5rk
 
 ------------------------------------------------------------
 1. Declare schema, add data with provenance
@@ -25,11 +25,9 @@ Alice's metadata:
   type: ENTITY
   name: Alice
   class_name: PERSON
-  created: 2026-08-11T21:01:59.435865+00:00
-  modified: 2026-08-11T21:01:59.435865+00:00
-  extraction: Alice is a software engineer.
-  source: Alice's résumé
-  source_original: 2020-01-15
+  created: 2026-09-22T18:02:12.019782+00:00
+  modified: 2026-09-22T18:02:12.019782+00:00
+  evidence: [{'text': 'Alice is a software engineer.', 'confidence': None, 'created': '2026-09-22T18:02:12.022161+00:00', 'source': "Alice's résumé", 'source_original': '2020-01-15'}]
 
 ------------------------------------------------------------
 5. Schema export / import
@@ -43,5 +41,5 @@ Classes in 'copy' after import: ['COMPANY', 'PERSON']
 Exported data: 4 entities, 1 facts, 1 entity property values
 'copy' now has 6 rows after data import
 
-Cleaned up /tmp/blue-data-kb-demo-89ailacy
+Cleaned up /tmp/blue-data-kb-demo-neu1z5rk
 Demo complete.

@@ -476,6 +476,18 @@ def database_list(fmt: str) -> None:
     console.print(t)
 
 
+def _bm25_dir_for(connection: dict[str, Any]) -> str:
+    """Where a database's BM25 corpus files live.
+
+    The graph directory for a file backend, so the corpus sits beside the data
+    it indexes; the profile's data directory for a backend that has no local
+    directory of its own (neo4j). Corpus files are named
+    `{database}_{collection}_bm25.json`, so one directory serves many databases
+    without collision.
+    """
+    return str(connection.get("directory") or _data_dir())
+
+
 @database_group.command("register")
 @click.argument("name")
 @click.option("--graph-backend", "graph_backend", type=click.Choice(["file", "neo4j"]), default="file", show_default=True)
@@ -522,8 +534,13 @@ def database_register(
     search_cfg: dict[str, Any] | None = None
     if search in ("bm25", "semantic"):
         search_cfg = {"mode": search}
-        if bm25_index_dir:
-            search_cfg["bm25_index_dir"] = bm25_index_dir
+        # Always give BM25 somewhere to persist its corpus. Without a directory
+        # the index lives only in the indexer's memory, and the CLI is one
+        # process per command — so every search would run against an index that
+        # was rebuilt empty microseconds earlier, and `schema search` would
+        # return nothing even for an exact name. `--bm25-index-dir` has always
+        # documented the graph directory as its default; this implements it.
+        search_cfg["bm25_index_dir"] = bm25_index_dir or _bm25_dir_for(connection)
         if search == "semantic":
             vconn: dict[str, Any] = {}
             if vector_backend == "file" and vector_directory:
@@ -748,6 +765,10 @@ def database_search_config_set(
         search_updates["mode"] = search
     if bm25_index_dir:
         search_updates["bm25_index_dir"] = bm25_index_dir
+    elif search in ("bm25", "semantic") and not (load_db_config(db).get("search") or {}).get("bm25_index_dir"):
+        # Turning search on after the fact needs the same corpus directory a
+        # fresh `database register` would have given it.
+        search_updates["bm25_index_dir"] = _bm25_dir_for(load_db_config(db).get("connection") or {})
     if vector_backend or vector_directory or vector_path or redis_host or redis_port is not None or redis_db is not None:
         vconn: dict[str, Any] = {}
         if vector_directory:
