@@ -125,7 +125,7 @@ report = await kb.ingest("main", payload, source_id=src, confidence=0.8)
 # accumulate evidence.
 ```
 
-The CLI mirrors both: `kb data entity assert`, `kb data fact assert`, … and `kb data ingest FILE` (JSON, same ergonomics as `kb data import`).
+The CLI mirrors both: `blue-kb data entity assert`, `blue-kb data fact assert`, … and `blue-kb data ingest FILE` (JSON, same ergonomics as `blue-kb data import`).
 
 ---
 
@@ -322,7 +322,7 @@ await kb.import_database_data("copy", main_data_json)
 
 Entities/facts in the data export carry their original id as a `ref`, used purely as an in-payload join key — entity names aren't guaranteed unique (`add_entity` never dedups), so facts/property values reference their owner by `ref` rather than by name to avoid mis-linking when two entities share a name.
 
-The CLI exposes the same round trip: `kb schema export`/`kb schema import`, then `kb data export`/`kb data import` — see [cli.md](cli.md).
+The CLI exposes the same round trip: `blue-kb schema export`/`blue-kb schema import`, then `blue-kb data export`/`blue-kb data import` — see [cli.md](cli.md).
 
 ---
 

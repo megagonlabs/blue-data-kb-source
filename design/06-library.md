@@ -1,4 +1,4 @@
-# KBDB — Library
+# blue-kb — Library
 
 > External dependencies: `blue-data` provides `DataSource` (base class, incl. the `instantiate()` dotted-path factory), `GraphSource`, `MemoryGraphSource`, `FileGraphSource`, `NEO4JSource`, `VectorSource` and its backends, `DataSchema`, and related base classes.
 
@@ -6,7 +6,7 @@
 
 ## KBSource(GraphSource)
 
-Entry point for all KBDB operations. Abstract base class — must be subclassed together with a concrete `GraphSource` backend using Python MRO. Three such subclasses ship with the library already: `MemoryKBSource` (`memory_kb_source.py`), `FileKBSource` (`file_kb_source.py`), and `NEO4JKBSource` (`neo4j/neo4j_kb_source.py`, kept out of the package's top-level `__init__.py` so importing it — not `import blue_data_kb_source` itself — is what requires the `neo4j` driver). Each overrides `_initialize_connection_properties` to report a `kb/memory`/`kb/file`/`kb/neo4j` connection protocol instead of inheriting the mixed-in `GraphSource` backend's own `graph/*` protocol (see ADR-004 in [13-decision-log.md](13-decision-log.md)). Instantiates and coordinates the `SchemaManager` (which internally owns a `SchemaExpansionEngine`), `KnowledgeManager` (which internally owns a `QueryEngine`), `ProvenanceTracker`, `ChangeNotifier`, `ExtractionEngine`, and — when search is enabled — `KBSearchIndexer`. Every method except the `GraphSource` primitives it inherits (e.g. `create_database`) is `async` and must be awaited.
+Entry point for all blue-kb operations. Abstract base class — must be subclassed together with a concrete `GraphSource` backend using Python MRO. Three such subclasses ship with the library already: `MemoryKBSource` (`memory_kb_source.py`), `FileKBSource` (`file_kb_source.py`), and `NEO4JKBSource` (`neo4j/neo4j_kb_source.py`, kept out of the package's top-level `__init__.py` so importing it — not `import blue_data_kb_source` itself — is what requires the `neo4j` driver). Each overrides `_initialize_connection_properties` to report a `kb/memory`/`kb/file`/`kb/neo4j` connection protocol instead of inheriting the mixed-in `GraphSource` backend's own `graph/*` protocol (see ADR-004 in [13-decision-log.md](13-decision-log.md)). Instantiates and coordinates the `SchemaManager` (which internally owns a `SchemaExpansionEngine`), `KnowledgeManager` (which internally owns a `QueryEngine`), `ProvenanceTracker`, `ChangeNotifier`, `ExtractionEngine`, and — when search is enabled — `KBSearchIndexer`. Every method except the `GraphSource` primitives it inherits (e.g. `create_database`) is `async` and must be awaited.
 
 ### Constructor
 
@@ -111,7 +111,7 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `find_property(database, name)` | `dict \| None` | PROPERTY node by exact name |
 | `fetch_database_schema(database)` | `DataSchema` | Assemble a `DataSchema` object from the current graph |
 | `export_database_schema(database)` | `dict` | `fetch_database_schema(database).to_json()` — portable JSON form |
-| `fetch_meta_schema()` | `DataSchema` | Return the fixed KBDB meta-schema |
+| `fetch_meta_schema()` | `DataSchema` | Return the fixed blue-kb meta-schema |
 | `import_database_schema(database, schema_json)` | `None` | Replay a `DataSchema.to_json()` dict via idempotent `declare_*` calls — safe to import into a database that already has same-named elements |
 | `consolidate_schema(database, operation, source_names, target_name, predicate?)` | `None` | Only `operation="merge"` is implemented; any other value raises `SchemaError`. `predicate` is accepted but unused. Merge rewires every reference onto the target, deletes the source elements, and fires change events so the search index follows. |
 | `expand_schema(database, text, depth?, reference?, mcp_servers?, dedup_mode?, model?, on_tool_call?, on_tool_result?, max_turns?)` | `None` | LLM agent that grows the schema (CLASS/RELATION/PROPERTY only) grounded by `text` — never touches entities/facts/property values. See SchemaExpansionEngine below |
@@ -314,7 +314,7 @@ After a merge, `fetch_database_schema` lists the target only, and each affected 
 
 #### `attach_property(database, target_id, property_id)`
 
-Wires a `DEFINE_PROPERTY` edge from an existing CLASS or RELATION (`target_id`) to an existing PROPERTY (`property_id`). Idempotent — calling it again with the same pair is a no-op, not a duplicate edge. Raises `SchemaError` if `target_id` isn't a CLASS/RELATION or `property_id` isn't a PROPERTY. Exists so a property discovered via `search_schema` on one class/relation can be reused on another instead of `declare_class_property`/`declare_relation_property` creating a same-meaning duplicate under a new name — both `SchemaExpansionEngine` (below) and `kb schema class/relation property attach` use it for exactly this.
+Wires a `DEFINE_PROPERTY` edge from an existing CLASS or RELATION (`target_id`) to an existing PROPERTY (`property_id`). Idempotent — calling it again with the same pair is a no-op, not a duplicate edge. Raises `SchemaError` if `target_id` isn't a CLASS/RELATION or `property_id` isn't a PROPERTY. Exists so a property discovered via `search_schema` on one class/relation can be reused on another instead of `declare_class_property`/`declare_relation_property` creating a same-meaning duplicate under a new name — both `SchemaExpansionEngine` (below) and `blue-kb schema class/relation property attach` use it for exactly this.
 
 #### `expand_schema(database, text, *, depth=1, reference="llm", mcp_servers=None, dedup_mode="search", model="gpt-4o", on_tool_call=None, on_tool_result=None, max_turns=25)`
 

@@ -8,7 +8,7 @@
 blue-data-kb-source/
 ├── lib/            blue-data-kb-source  — the core Python library
 └── platform/
-    ├── cli/        blue-data-kb-cli     — the `kb` command-line tool
+    ├── cli/        blue-data-kb-cli     — the `blue-kb` command-line tool
     ├── mcp/        blue-data-kb-mcp     — the MCP server (`blue-data-kb-mcp`)
     └── api/        (planned)            — REST API, not yet implemented
 ```
@@ -51,7 +51,7 @@ cd platform/mcp && bash scripts/build.sh
 
 - Python 3.10+
 - [`blue-data`](../../blue-data) (local sibling dependency — not yet published)
-- An OpenAI API key (`OPENAI_API_KEY`) for any LLM feature: `import_text`/`kb data extract`, `answer`/`validate`/`enrich`, and semantic search embeddings. Nothing else in the library needs it — schema declaration, instance writes, keyword search, and change hooks are all plain Python with no network calls.
+- An OpenAI API key (`OPENAI_API_KEY`) for any LLM feature: `import_text`/`blue-kb data extract`, `answer`/`validate`/`enrich`, and semantic search embeddings. Nothing else in the library needs it — schema declaration, instance writes, keyword search, and change hooks are all plain Python with no network calls.
 
 None of the three packages are published to PyPI yet — always install from the local checkout as shown above.
 
@@ -115,11 +115,11 @@ The library's benchmark suites (`lib/tests/benchmarks/`) are separate from the d
 
 ## Environment variables
 
-**The CLI** keeps its configuration in a profile — `~/.kb/.profiles`, managed with `kb profile config` — so nothing below needs exporting in normal use:
+**The CLI** keeps its configuration in a profile — `~/.blue-kb/.profiles`, managed with `blue-kb profile config` — so nothing below needs exporting in normal use:
 
 ```bash
-kb profile config          # walk through the required parameters
-kb profile inspect         # every value, and which tier set it
+blue-kb profile config          # walk through the required parameters
+blue-kb profile inspect         # every value, and which tier set it
 ```
 
 Exporting a variable directly still overrides the profile, which is the documented precedence: **command option > environment variable > profile > default**. The full parameter table is in [cli.md](cli.md#profiles-and-configuration).
@@ -128,10 +128,10 @@ Exporting a variable directly still overrides the profile, which is the document
 
 | Variable | Used by | Purpose |
 |---|---|---|
-| `OPENAI_API_KEY` | lib, CLI, MCP | Required for any LLM operation. For the CLI, set it in a profile (`kb profile config OPENAI_API_KEY`) rather than exporting it |
-| `BLUE_DATA_KB_SOURCE_HOME` | CLI | Where the CLI keeps `.profiles`, `.selected.profile` and `.selected.database` (default `~/.kb`). Environment-only — it is where profiles are read from, so it cannot come from one |
-| `BLUE_DATA_KB_SOURCE_DATA_DIR` | CLI | Directory for `registry.json` and file-backed databases (default `~/.kb`) |
-| `BLUE_DATA_KB_SOURCE_DATABASE` | CLI | Default `--database` when not passed explicitly and no `kb database select` has been made |
+| `OPENAI_API_KEY` | lib, CLI, MCP | Required for any LLM operation. For the CLI, set it in a profile (`blue-kb profile config OPENAI_API_KEY`) rather than exporting it |
+| `BLUE_DATA_KB_SOURCE_HOME` | CLI | Where the CLI keeps `.profiles`, `.selected.profile` and `.selected.database` (default `~/.blue-kb`). Environment-only — it is where profiles are read from, so it cannot come from one |
+| `BLUE_DATA_KB_SOURCE_DATA_DIR` | CLI | Directory for `registry.json` and file-backed databases (default `~/.blue-kb`) |
+| `BLUE_DATA_KB_SOURCE_DATABASE` | CLI | Default `--database` when not passed explicitly and no `blue-kb database select` has been made |
 | `BLUE_DATA_KB_SOURCE_*` | MCP server | The same names as the CLI's, read from the environment only — the MCP server has no profile support. Full table in [mcp.md](mcp.md#configuration-reference) |
 
 ---
@@ -140,4 +140,4 @@ Exporting a variable directly still overrides the profile, which is the document
 
 - New to the project? Start with [quickstart.md](quickstart.md).
 - Building against the library directly? See [guide.md](guide.md) and [api-reference.md](api-reference.md).
-- Using the `kb` CLI or the MCP server day to day? See [cli.md](cli.md) / [mcp.md](mcp.md).
+- Using the `blue-kb` CLI or the MCP server day to day? See [cli.md](cli.md) / [mcp.md](mcp.md).

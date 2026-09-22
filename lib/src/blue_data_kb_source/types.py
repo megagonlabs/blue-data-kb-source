@@ -5,7 +5,7 @@ from typing import Literal
 
 
 class KBError(Exception):
-    """Base exception for all KBDB errors."""
+    """Base exception for all blue-kb errors."""
 
 
 class SchemaError(KBError):

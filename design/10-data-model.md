@@ -1,8 +1,8 @@
-# KBDB — Data Model
+# blue-kb — Data Model
 
 ## Overview
 
-KBDB stores all data as a typed property graph. Every piece of knowledge — schema elements and instance data alike — is represented as a node or an edge, each carrying a label that identifies its role. The graph is divided into named databases; a single `KBSource` instance may hold multiple independent databases.
+blue-kb stores all data as a typed property graph. Every piece of knowledge — schema elements and instance data alike — is represented as a node or an edge, each carrying a label that identifies its role. The graph is divided into named databases; a single `KBSource` instance may hold multiple independent databases.
 
 The graph has two distinct layers that are kept strictly separate:
 
@@ -329,7 +329,7 @@ One EXTRACTION node is created per item. The same SOURCE node may be the target 
 
 ## 4. Meta-Schema
 
-The meta-schema is a fixed `DataSchema` that describes KBDB's own graph structure — the node labels and edge types — using the same CLASS/RELATION/PROPERTY vocabulary as any other KBDB schema. It is returned by `fetch_meta_schema()` and never stored in any user database.
+The meta-schema is a fixed `DataSchema` that describes blue-kb's own graph structure — the node labels and edge types — using the same CLASS/RELATION/PROPERTY vocabulary as any other blue-kb schema. It is returned by `fetch_meta_schema()` and never stored in any user database.
 
 It allows any agent or tool to inspect the structure of the KB graph itself without hard-coding label names, enabling generic graph traversal, introspection, and tooling.
 

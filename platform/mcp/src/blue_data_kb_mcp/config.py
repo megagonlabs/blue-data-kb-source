@@ -1,7 +1,7 @@
 """KBSource singleton factory — reads all config from environment variables.
 
-Unlike the `kb` CLI (`platform/cli/src/blue_data_kb_cli/config.py`), which resolves a
-per-database backend from `~/.kb/registry.json`, this server owns a single KBSource
+Unlike the `blue-kb` CLI (`platform/cli/src/blue_data_kb_cli/config.py`), which resolves a
+per-database backend from `~/.blue-kb/registry.json`, this server owns a single KBSource
 instance for the process lifetime, configured entirely by BLUE_DATA_KB_SOURCE_* env
 vars. Those variable names are deliberately the same ones the CLI uses (see its
 `profile_spec.json`), so a value means the same thing in both; this server simply
@@ -48,7 +48,7 @@ def reset_kb() -> None:
     _kb = None
 
 
-# Model resolution, per function, matching the `kb` CLI exactly: a
+# Model resolution, per function, matching the `blue-kb` CLI exactly: a
 # function-specific variable falls back to the KB-wide one, then to the
 # family-wide one, then to the built-in default. The CLI resolves these from a
 # profile; this server reads them from the environment only, and has no
@@ -80,7 +80,7 @@ def model_for(function: str | None = None) -> str:
 # ---------------------------------------------------------------------------
 
 def _directory() -> str:
-    return str(Path(os.environ.get("BLUE_DATA_KB_SOURCE_DATA_DIR", "~/.kb")).expanduser())
+    return str(Path(os.environ.get("BLUE_DATA_KB_SOURCE_DATA_DIR", "~/.blue-kb")).expanduser())
 
 
 def _neo4j_connection() -> dict[str, Any]:

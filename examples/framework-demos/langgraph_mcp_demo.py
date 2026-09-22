@@ -20,7 +20,7 @@ Run:
 
 The blue-data-kb-mcp server is launched automatically as a subprocess (stdio
 transport), pointed at a scratch directory via BLUE_DATA_KB_SOURCE_DATA_DIR
-so it never touches ~/.kb. BLUE_DATA_KB_SOURCE_SEARCH=bm25 turns on ranked
+so it never touches ~/.blue-kb. BLUE_DATA_KB_SOURCE_SEARCH=bm25 turns on ranked
 keyword search for the search_schema/search_data tools -- no embedding API
 calls needed for that part, only the ReAct agent's own reasoning uses the
 model.

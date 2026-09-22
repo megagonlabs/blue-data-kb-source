@@ -1,4 +1,4 @@
-# KBDB — API / Interface Spec
+# blue-kb — API / Interface Spec
 
 Four external interfaces are planned over the core library: the Python library itself, a REST API, an MCP server, and a CLI. Today the **Python library**, the **CLI**, and the **MCP server** exist in the repository; the REST API is design-stage only (see [07-repo-organization.md](07-repo-organization.md), which lists `api/` as "Planned" and `mcp/` as "Implemented"). No business logic belongs in any interface layer — REST/MCP/CLI are meant to stay thin adapters over the Python library. Authentication and authorization are left to the deployment layer.
 
@@ -688,7 +688,7 @@ supports async functions natively.
 
 The server holds one `KBSource` instance for the process lifetime, built from `BLUE_DATA_KB_SOURCE_*`
 env vars (`platform/mcp/src/blue_data_kb_mcp/config.py:get_kb()`) — **not** the CLI's
-`~/.kb/registry.json`; `database` is a plain string parameter on every tool (default `"default"`),
+`~/.blue-kb/registry.json`; `database` is a plain string parameter on every tool (default `"default"`),
 since `KBSource` already supports multiple logical databases on one backend. See
 `platform/mcp/README.md`'s Configuration reference for the full env var table.
 
@@ -723,40 +723,40 @@ surfaces to MCP clients — `platform/mcp/src/blue_data_kb_mcp/server.py`).
 
 ## 4. CLI
 
-Built with Click (argument parsing) and Rich (output). All commands are thin wrappers over the Python library; Click handlers use `asyncio.run()` to call async library methods (`platform/cli/src/blue_data_kb_cli/commands.py`). Per-database configuration (graph backend, search) is stored in `{BLUE_DATA_KB_SOURCE_DATA_DIR}/registry.json` (default `~/.kb/`), managed by `platform/cli/src/blue_data_kb_cli/config.py`. Everything else — data directory, default database, LLM models, extraction defaults, API keys — comes from the selected profile in `~/.kb/.profiles`, via `kb profile` (`platform/cli/src/blue_data_kb_cli/profile.py`) over the shared `blue_data.utils.config` engine.
+Built with Click (argument parsing) and Rich (output). All commands are thin wrappers over the Python library; Click handlers use `asyncio.run()` to call async library methods (`platform/cli/src/blue_data_kb_cli/commands.py`). Per-database configuration (graph backend, search) is stored in `{BLUE_DATA_KB_SOURCE_DATA_DIR}/registry.json` (default `~/.blue-kb/`), managed by `platform/cli/src/blue_data_kb_cli/config.py`. Everything else — data directory, default database, LLM models, extraction defaults, API keys — comes from the selected profile in `~/.blue-kb/.profiles`, via `blue-kb profile` (`platform/cli/src/blue_data_kb_cli/profile.py`) over the shared `blue_data.utils.config` engine.
 
 ### Global options
 
 ```
-kb [--database DB] GROUP [SUBGROUP] COMMAND [OPTIONS]
+blue-kb [--database DB] GROUP [SUBGROUP] COMMAND [OPTIONS]
 ```
 
 | Option | Description |
 |--------|-------------|
-| `--profile NAME` | Configuration profile. Overrides `BLUE_DATA_PROFILE`; otherwise the profile last chosen with `kb profile select`, or `"default"`. |
-| `--database DB` | Target database. Falls back to the database last chosen with `kb database select`, then the profile's `BLUE_DATA_KB_SOURCE_DATABASE`, then `"default"`. Auto-created (file-backed) on first use if not already registered. |
+| `--profile NAME` | Configuration profile. Overrides `BLUE_DATA_PROFILE`; otherwise the profile last chosen with `blue-kb profile select`, or `"default"`. |
+| `--database DB` | Target database. Falls back to the database last chosen with `blue-kb database select`, then the profile's `BLUE_DATA_KB_SOURCE_DATABASE`, then `"default"`. Auto-created (file-backed) on first use if not already registered. |
 
 ---
 
-### `kb database` — database lifecycle and configuration
+### `blue-kb database` — database lifecycle and configuration
 
 ```
-kb database list [--format table|json]
-kb database register NAME [--graph-backend file|neo4j] [--directory DIR]
+blue-kb database list [--format table|json]
+blue-kb database register NAME [--graph-backend file|neo4j] [--directory DIR]
                            [--neo4j-uri URI] [--neo4j-user USER] [--neo4j-password PW]
                            [--search none|bm25|semantic] [--bm25-index-dir DIR]
                            [--vector-backend memory|file|chromadb|redis]
                            [--vector-directory DIR] [--vector-path PATH]
                            [--redis-host HOST] [--redis-port PORT] [--redis-db N]
                            [--embedding-provider openai] [--embedding-model MODEL]
-kb database create NAME
-kb database delete NAME [--yes]
-kb database select NAME
-kb database config show
-kb database config set [--graph-backend file|neo4j] [--directory DIR]
+blue-kb database create NAME
+blue-kb database delete NAME [--yes]
+blue-kb database select NAME
+blue-kb database config show
+blue-kb database config set [--graph-backend file|neo4j] [--directory DIR]
                         [--neo4j-uri URI] [--neo4j-user USER] [--neo4j-password PW]
-kb database search config show
-kb database search config set [--search none|bm25|semantic] [--bm25-index-dir DIR]
+blue-kb database search config show
+blue-kb database search config set [--search none|bm25|semantic] [--bm25-index-dir DIR]
                                [--vector-backend ...] [--embedding-provider openai] [--embedding-model MODEL]
 ```
 
@@ -768,33 +768,33 @@ rather than a file-backed one with search silently off.
 
 **Example**
 ```
-$ kb database register main --search bm25
+$ blue-kb database register main --search bm25
 Registered database: main (graph=file, search=bm25)
 
-$ kb database create scratch
+$ blue-kb database create scratch
 Created database: scratch
 ```
 
 ---
 
-### `kb schema` — cross-cutting schema operations
+### `blue-kb schema` — cross-cutting schema operations
 
 ```
-kb schema list [--format table|json]
-kb schema search QUERY [--type class|relation|property]... [--mode keyword|semantic] [--top-k N] [--format table|json]
-kb schema export [--output|-o FILE]
-kb schema import INPUT_FILE
-kb schema expand TEXT [--depth N] [--reference llm|mcp] [--mcp-server JSON]...
+blue-kb schema list [--format table|json]
+blue-kb schema search QUERY [--type class|relation|property]... [--mode keyword|semantic] [--top-k N] [--format table|json]
+blue-kb schema export [--output|-o FILE]
+blue-kb schema import INPUT_FILE
+blue-kb schema expand TEXT [--depth N] [--reference llm|mcp] [--mcp-server JSON]...
                  [--dedup-mode search|llm|none] [--model MODEL] [-v|--verbose] [-l|--log] [--log-limit N]
 ```
 
-`schema list` prints classes, class properties, class hierarchy, relations, relation properties, and relation hierarchy in one pass. `schema search` runs in keyword mode by default (works without search enabled, unranked); `--mode semantic` requires the database to be registered with `--search semantic`. `schema export`/`schema import` round-trip the full schema as JSON (`DataSchema.to_json()`/`from_json()`); import declares idempotently, so re-importing the same file is safe. Export/import instance data separately with `kb data export`/`kb data import` below — import the schema first so data import has classes/relations/properties to resolve names against.
+`schema list` prints classes, class properties, class hierarchy, relations, relation properties, and relation hierarchy in one pass. `schema search` runs in keyword mode by default (works without search enabled, unranked); `--mode semantic` requires the database to be registered with `--search semantic`. `schema export`/`schema import` round-trip the full schema as JSON (`DataSchema.to_json()`/`from_json()`); import declares idempotently, so re-importing the same file is safe. Export/import instance data separately with `blue-kb data export`/`blue-kb data import` below — import the schema first so data import has classes/relations/properties to resolve names against.
 
-`schema expand` runs the schema-growth LLM agent (`KBSource.expand_schema`, §1) grounded by `TEXT` — declares `CLASS`/`RELATION`/`PROPERTY` only, never entities/facts. `--depth` (default `1`) controls how many hierarchy levels beyond what's directly evidenced also get proposed, linked via `add_is_subclass_of` (never as a declared relation — a taxonomic name like `IS_A`/`TYPE_OF`/`SUBCLASS_OF` is rejected). `--reference mcp` additionally gives the model tools from `--mcp-server` (repeatable JSON, e.g. a WordNet server via `platform/wordnet-mcp`) to ground names/hierarchy placement. `--dedup-mode` controls how it checks for an existing element before declaring a new one (`search` default / `llm` / `none`), and is auto-applied as a safety-net check before every new `CLASS`/`RELATION`, even if the model skips `search_schema`. Run once, then `kb data extract --no-expand-schema` to extract many documents against the resulting schema without re-expanding it each time.
+`schema expand` runs the schema-growth LLM agent (`KBSource.expand_schema`, §1) grounded by `TEXT` — declares `CLASS`/`RELATION`/`PROPERTY` only, never entities/facts. `--depth` (default `1`) controls how many hierarchy levels beyond what's directly evidenced also get proposed, linked via `add_is_subclass_of` (never as a declared relation — a taxonomic name like `IS_A`/`TYPE_OF`/`SUBCLASS_OF` is rejected). `--reference mcp` additionally gives the model tools from `--mcp-server` (repeatable JSON, e.g. a WordNet server via `platform/wordnet-mcp`) to ground names/hierarchy placement. `--dedup-mode` controls how it checks for an existing element before declaring a new one (`search` default / `llm` / `none`), and is auto-applied as a safety-net check before every new `CLASS`/`RELATION`, even if the model skips `search_schema`. Run once, then `blue-kb data extract --no-expand-schema` to extract many documents against the resulting schema without re-expanding it each time.
 
 **Example**
 ```
-$ kb schema search "employment"
+$ blue-kb schema search "employment"
 
 ┌──────────┬───────────┬────────────────────────────────────────────────────────┐
 │ Type     │ Name      │ Description                                            │
@@ -806,139 +806,139 @@ $ kb schema search "employment"
 
 ---
 
-### `kb schema class` — class declaration and hierarchy
+### `blue-kb schema class` — class declaration and hierarchy
 
 ```
-kb schema class add NAME DESCRIPTION
-kb schema class assert NAME [assert options]
-kb schema class list [--format table|json]
-kb schema class update (--class NAME | --class-id ID) [--name NEW] [--description NEW]
-kb schema class delete (--class NAME | --class-id ID) [--yes]
+blue-kb schema class add NAME DESCRIPTION
+blue-kb schema class assert NAME [assert options]
+blue-kb schema class list [--format table|json]
+blue-kb schema class update (--class NAME | --class-id ID) [--name NEW] [--description NEW]
+blue-kb schema class delete (--class NAME | --class-id ID) [--yes]
 
-kb schema class parent add    (--class ... | --class-id ...) (--parent ... | --parent-id ...)
-kb schema class parent assert CHILD PARENT [assert options]
-kb schema class parent remove (--class ... | --class-id ...) (--parent ... | --parent-id ...)
-kb schema class parent list   (--class ... | --class-id ...) [--recursive] [--format table|json|tree]
-kb schema class child  list   (--class ... | --class-id ...) [--recursive] [--format table|json|tree]
+blue-kb schema class parent add    (--class ... | --class-id ...) (--parent ... | --parent-id ...)
+blue-kb schema class parent assert CHILD PARENT [assert options]
+blue-kb schema class parent remove (--class ... | --class-id ...) (--parent ... | --parent-id ...)
+blue-kb schema class parent list   (--class ... | --class-id ...) [--recursive] [--format table|json|tree]
+blue-kb schema class child  list   (--class ... | --class-id ...) [--recursive] [--format table|json|tree]
 
-kb schema class property add    NAME DESCRIPTION (--class ... | --class-id ...)
-kb schema class property attach (--property ... | --property-id ...) (--class ... | --class-id ...)
-kb schema class property assert NAME --class NAME [assert options]
-kb schema class property list   [--class ...] [--class-id ...] [--format table|json]
-kb schema class property update (--property ... | --property-id ...) [--name NEW] [--description NEW]
-kb schema class property delete (--property ... | --property-id ...) [--yes]
+blue-kb schema class property add    NAME DESCRIPTION (--class ... | --class-id ...)
+blue-kb schema class property attach (--property ... | --property-id ...) (--class ... | --class-id ...)
+blue-kb schema class property assert NAME --class NAME [assert options]
+blue-kb schema class property list   [--class ...] [--class-id ...] [--format table|json]
+blue-kb schema class property update (--property ... | --property-id ...) [--name NEW] [--description NEW]
+blue-kb schema class property delete (--property ... | --property-id ...) [--yes]
 ```
 
 `property attach` wires an *existing* property onto a class (idempotent) — reuse it instead of declaring a same-meaning duplicate under a new name.
 
 **Example**
 ```
-$ kb schema class add EMPLOYEE "A person employed by an organization"
+$ blue-kb schema class add EMPLOYEE "A person employed by an organization"
 Added class: EMPLOYEE (id: ...)
 
-$ kb schema class parent add --class EMPLOYEE --parent PERSON
+$ blue-kb schema class parent add --class EMPLOYEE --parent PERSON
 EMPLOYEE is now a subclass of PERSON
 ```
 
 ---
 
-### `kb schema relation` — relation declaration and hierarchy
+### `blue-kb schema relation` — relation declaration and hierarchy
 
-Mirrors `kb schema class` exactly, with `--relation`/`--relation-id` in place of `--class`/`--class-id`, plus domain/range on declaration:
+Mirrors `blue-kb schema class` exactly, with `--relation`/`--relation-id` in place of `--class`/`--class-id`, plus domain/range on declaration:
 
 ```
-kb schema relation add NAME DESCRIPTION [--domain CLASS] [--range CLASS]
-kb schema relation assert NAME --domain C... --range C... [--is-symmetric] [assert options]
-kb schema relation list [--format table|json]
-kb schema relation update (--relation ... | --relation-id ...) [--name NEW] [--description NEW]
-kb schema relation delete (--relation ... | --relation-id ...) [--yes]
+blue-kb schema relation add NAME DESCRIPTION [--domain CLASS] [--range CLASS]
+blue-kb schema relation assert NAME --domain C... --range C... [--is-symmetric] [assert options]
+blue-kb schema relation list [--format table|json]
+blue-kb schema relation update (--relation ... | --relation-id ...) [--name NEW] [--description NEW]
+blue-kb schema relation delete (--relation ... | --relation-id ...) [--yes]
 
-kb schema relation parent add/remove/list   (--relation ... | --relation-id ...) (--parent ... | --parent-id ...)
-kb schema relation parent assert CHILD PARENT [assert options]
-kb schema relation child  list              (--relation ... | --relation-id ...)
+blue-kb schema relation parent add/remove/list   (--relation ... | --relation-id ...) (--parent ... | --parent-id ...)
+blue-kb schema relation parent assert CHILD PARENT [assert options]
+blue-kb schema relation child  list              (--relation ... | --relation-id ...)
 
-kb schema relation domain attach/list       (--relation ... | --relation-id ...) (--class ... | --class-id ...)
-kb schema relation range  attach/list       (--relation ... | --relation-id ...) (--class ... | --class-id ...)
+blue-kb schema relation domain attach/list       (--relation ... | --relation-id ...) (--class ... | --class-id ...)
+blue-kb schema relation range  attach/list       (--relation ... | --relation-id ...) (--class ... | --class-id ...)
 
-kb schema relation property add/attach/list/update/delete   (same shape as class property)
-kb schema relation property assert NAME --relation NAME [assert options]
+blue-kb schema relation property add/attach/list/update/delete   (same shape as class property)
+blue-kb schema relation property assert NAME --relation NAME [assert options]
 ```
 
 **Example**
 ```
-$ kb schema relation add WORKED_AT "Employment relationship" --domain EMPLOYEE --range COMPANY
+$ blue-kb schema relation add WORKED_AT "Employment relationship" --domain EMPLOYEE --range COMPANY
 Added relation: WORKED_AT (id: ...)
 ```
 
 ---
 
-### `kb data` — instance data, export/import, search, and reindexing
+### `blue-kb data` — instance data, export/import, search, and reindexing
 
 ```
-kb data list [--show-provenance] [--show-detailed] [--format table|json]
-kb data ingest FILE [--format table|json] [assert options]
-kb data export [--show-provenance] [--output|-o FILE]
-kb data import INPUT_FILE
-kb data search QUERY [--type entity|fact]... [--mode keyword|semantic] [--top-k N] [--format table|json]
-kb data reindex
+blue-kb data list [--show-provenance] [--show-detailed] [--format table|json]
+blue-kb data ingest FILE [--format table|json] [assert options]
+blue-kb data export [--show-provenance] [--output|-o FILE]
+blue-kb data import INPUT_FILE
+blue-kb data search QUERY [--type entity|fact]... [--mode keyword|semantic] [--top-k N] [--format table|json]
+blue-kb data reindex
 ```
 
-`data list` prints entities, entity property values, facts, and fact property values. `--show-provenance` expands each row into one row per piece of evidence, with its own score, text, and source (via its `EXTRACTED_FROM` chain). `--show-detailed` adds each row's own `description`/`created`/`modified`, and a FACT's derived confidence; combined with `--show-provenance` it additionally shows the linked source's `original` date, after the Source column. `--format table` renders `created`/`modified` as human-readable local dates (via `arrow`, e.g. "Aug 7, 2026 5:48 PM"); `--format json` keeps raw ISO-8601 timestamps. `data export`/`data import` round-trip instance data (entities, facts, property values) as portable, ref-based JSON — schema isn't included (export/import that separately via `kb schema export`/`kb schema import` first, so `data import` has classes/relations/properties to resolve names against). `data reindex` rebuilds the BM25/vector index from the current graph contents; it errors if the database wasn't registered with `--search bm25`/`semantic`.
+`data list` prints entities, entity property values, facts, and fact property values. `--show-provenance` expands each row into one row per piece of evidence, with its own score, text, and source (via its `EXTRACTED_FROM` chain). `--show-detailed` adds each row's own `description`/`created`/`modified`, and a FACT's derived confidence; combined with `--show-provenance` it additionally shows the linked source's `original` date, after the Source column. `--format table` renders `created`/`modified` as human-readable local dates (via `arrow`, e.g. "Aug 7, 2026 5:48 PM"); `--format json` keeps raw ISO-8601 timestamps. `data export`/`data import` round-trip instance data (entities, facts, property values) as portable, ref-based JSON — schema isn't included (export/import that separately via `blue-kb schema export`/`blue-kb schema import` first, so `data import` has classes/relations/properties to resolve names against). `data reindex` rebuilds the BM25/vector index from the current graph contents; it errors if the database wasn't registered with `--search bm25`/`semantic`.
 
-The `assert` commands and `kb data ingest` are the ingest path's CLI surface. They share
+The `assert` commands and `blue-kb data ingest` are the ingest path's CLI surface. They share
 one option block — `[--description D] [--source NAME|--source-id ID] [--confidence F]
 [--extraction-type text_span|external_record|assertion]` (default `assertion`),
 `[--schema-creation-mode llm|none]` (default `llm`), `[--model M]` — and one output register:
 `Asserted <kind>: <label> (<outcome>, id: ...)` where the outcome is `created`, `reused,
 <match> match`, or `deduped, evidence attached`, followed by indented `created:` /
 `widened:` lines exposing the cascade (the `AssertResult` audit surface). Ambiguous names
-fail with the candidates listed in the error message and nothing written. `kb data ingest
+fail with the candidates listed in the error message and nothing written. `blue-kb data ingest
 FILE` reads the ten-arm JSON payload (`-` for stdin), prints the report summary and a
 Failures table, or the full report as JSON under `--format json`.
 
 ---
 
-### `kb data source` — provenance sources
+### `blue-kb data source` — provenance sources
 
 ```
-kb data source add SOURCE [--name NAME] [--description DESC] [--original DATE]
-kb data source list [--show-detailed] [--format table|json]
-kb data source update (--source NAME | --source-id ID) [--name NEW] [--description NEW] [--original NEW]
-kb data source delete (--source NAME | --source-id ID) [--yes]
+blue-kb data source add SOURCE [--name NAME] [--description DESC] [--original DATE]
+blue-kb data source list [--show-detailed] [--format table|json]
+blue-kb data source update (--source NAME | --source-id ID) [--name NEW] [--description NEW] [--original NEW]
+blue-kb data source delete (--source NAME | --source-id ID) [--yes]
 ```
 
 `--original` records the source's own date (e.g. a document's publication date) — a caller-supplied string, distinct from `created` (when the source was added to the KB). `source list --show-detailed` adds Created/Modified columns to the table (`--format json` always includes `original`/`created`/`modified`).
 
 **Example**
 ```
-$ kb data source add resume_alice --name "Alice's résumé" --original 2020-01-15
+$ blue-kb data source add resume_alice --name "Alice's résumé" --original 2020-01-15
 Added source: resume_alice (id: ...)
 ```
 
 ---
 
-### `kb data entity` — entity instances
+### `blue-kb data entity` — entity instances
 
 ```
-kb data entity add [--name NAME] (--class NAME | --class-id ID) [--description DESC]
+blue-kb data entity add [--name NAME] (--class NAME | --class-id ID) [--description DESC]
                     [--text TEXT] (--source NAME | --source-id ID)
-kb data entity assert NAME [--class NAME] [assert options]
-kb data entity list [--show-provenance] [--format table|json]
-kb data entity update (--entity NAME | --entity-id ID) [--name NEW] [--description NEW]
-kb data entity delete (--entity NAME | --entity-id ID) [--cascade] [--yes]
+blue-kb data entity assert NAME [--class NAME] [assert options]
+blue-kb data entity list [--show-provenance] [--format table|json]
+blue-kb data entity update (--entity NAME | --entity-id ID) [--name NEW] [--description NEW]
+blue-kb data entity delete (--entity NAME | --entity-id ID) [--cascade] [--yes]
 
-kb data entity class attach/list (--entity ... | --entity-id ...) (--class ... | --class-id ...)
+blue-kb data entity class attach/list (--entity ... | --entity-id ...) (--class ... | --class-id ...)
 
-kb data entity extraction add (--entity ... | --entity-id ...) --text TEXT (--source ... | --source-id ...)
+blue-kb data entity extraction add (--entity ... | --entity-id ...) --text TEXT (--source ... | --source-id ...)
 
-kb data entity property set VALUE (--entity ... | --entity-id ...) (--property ... | --property-id ...)
+blue-kb data entity property set VALUE (--entity ... | --entity-id ...) (--property ... | --property-id ...)
                                    [--type NUMBER|DATE|BOOLEAN|STRING] [--text TEXT] [--source ... | --source-id ...]
-kb data entity property assert --entity E --property P --value V [--type T] [assert options]
-kb data entity property list   (--entity ... | --entity-id ...) [--show-provenance] [--format table|json]
-kb data entity property update (--entity ... | --entity-id ...) (--property ... | --property-id ...)
+blue-kb data entity property assert --entity E --property P --value V [--type T] [assert options]
+blue-kb data entity property list   (--entity ... | --entity-id ...) [--show-provenance] [--format table|json]
+blue-kb data entity property update (--entity ... | --entity-id ...) (--property ... | --property-id ...)
                                 [--value NEW] [--name NEW] [--description NEW]
-kb data entity property delete (--entity ... | --entity-id ...) (--property ... | --property-id ...) [--yes]
-kb data entity property extraction add (--entity ... | --entity-id ...) (--property ... | --property-id ...)
+blue-kb data entity property delete (--entity ... | --entity-id ...) (--property ... | --property-id ...) [--yes]
+blue-kb data entity property extraction add (--entity ... | --entity-id ...) (--property ... | --property-id ...)
                                         --text TEXT (--source ... | --source-id ...)
 ```
 
@@ -946,35 +946,35 @@ kb data entity property extraction add (--entity ... | --entity-id ...) (--prope
 
 **Example**
 ```
-$ kb data entity add --name Alice --class EMPLOYEE --text "Alice is a software engineer."
+$ blue-kb data entity add --name Alice --class EMPLOYEE --text "Alice is a software engineer."
 Added entity: Alice (id: ...)
 
-$ kb data entity property set 30 --entity Alice --property AGE --type NUMBER
+$ blue-kb data entity property set 30 --entity Alice --property AGE --type NUMBER
 Set entity property (literal id: ...)
 ```
 
 ---
 
-### `kb data fact` — facts (relation instances)
+### `blue-kb data fact` — facts (relation instances)
 
 ```
-kb data fact add (--head NAME | --head-id ID) (--relation NAME | --relation-id ID) (--tail NAME | --tail-id ID)
+blue-kb data fact add (--head NAME | --head-id ID) (--relation NAME | --relation-id ID) (--tail NAME | --tail-id ID)
                   [--name NAME] [--description DESC] [--text TEXT] (--source ... | --source-id ...)
-kb data fact assert --head H --relation R --tail T [--name N] [assert options]
-kb data fact list [--show-provenance] [--format table|json]
-kb data fact update (--fact NAME | --fact-id ID) [--name NEW] [--description NEW]
-kb data fact delete (--fact NAME | --fact-id ID) [--yes]
+blue-kb data fact assert --head H --relation R --tail T [--name N] [assert options]
+blue-kb data fact list [--show-provenance] [--format table|json]
+blue-kb data fact update (--fact NAME | --fact-id ID) [--name NEW] [--description NEW]
+blue-kb data fact delete (--fact NAME | --fact-id ID) [--yes]
 
-kb data fact extraction add (--fact ... | --fact-id ...) --text TEXT (--source ... | --source-id ...)
+blue-kb data fact extraction add (--fact ... | --fact-id ...) --text TEXT (--source ... | --source-id ...)
 
-kb data fact property set VALUE (--fact NAME | --fact-id ID) (--property ... | --property-id ...)
+blue-kb data fact property set VALUE (--fact NAME | --fact-id ID) (--property ... | --property-id ...)
                                  [--type NUMBER|DATE|BOOLEAN|STRING] [--text TEXT] [--source ... | --source-id ...]
-kb data fact property assert --head H --relation R --tail T --property P --value V [--type T] [assert options]
-kb data fact property list   (--fact NAME | --fact-id ID) [--show-provenance] [--format table|json]
-kb data fact property update (--fact NAME | --fact-id ID) (--property ... | --property-id ...)
+blue-kb data fact property assert --head H --relation R --tail T --property P --value V [--type T] [assert options]
+blue-kb data fact property list   (--fact NAME | --fact-id ID) [--show-provenance] [--format table|json]
+blue-kb data fact property update (--fact NAME | --fact-id ID) (--property ... | --property-id ...)
                               [--value NEW] [--name NEW] [--description NEW]
-kb data fact property delete (--fact NAME | --fact-id ID) (--property ... | --property-id ...) [--yes]
-kb data fact property extraction add (--fact NAME | --fact-id ID) (--property ... | --property-id ...)
+blue-kb data fact property delete (--fact NAME | --fact-id ID) (--property ... | --property-id ...) [--yes]
+blue-kb data fact property extraction add (--fact NAME | --fact-id ID) (--property ... | --property-id ...)
                                       --text TEXT (--source ... | --source-id ...)
 ```
 
@@ -982,35 +982,35 @@ Note: a fact's name is auto-generated as `Head_RELATION_Tail` when `fact add` is
 
 **Example**
 ```
-$ kb data fact add --head Alice --relation WORKED_AT --tail IBM --text "Alice joined IBM in June 1998."
+$ blue-kb data fact add --head Alice --relation WORKED_AT --tail IBM --text "Alice joined IBM in June 1998."
 Added fact (id: ...)
 ```
 
 ---
 
-### `kb data extract` / `kb data answer` / `kb data validate` — LLM operations
+### `blue-kb data extract` / `blue-kb data answer` / `blue-kb data validate` — LLM operations
 
 ```
-kb data extract TEXT [--query Q]... (--source NAME | --source-id ID) [--model MODEL]
+blue-kb data extract TEXT [--query Q]... (--source NAME | --source-id ID) [--model MODEL]
                  [--expand-schema|--no-expand-schema] [--schema-expansion-target text|queries]...
                  [--schema-expansion-depth N] [--schema-expansion-mode llm|mcp]
                  [--schema-expansion-mcp-server JSON]... [--schema-expansion-dedup-mode search|llm|none]
                  [-v|--verbose] [-l|--log] [--log-limit N]
-kb data answer QUESTION [--format table|json|nl] [--model MODEL] [--include-metadata] [-v] [-l] [--log-limit N]
-kb data validate STATEMENT [--natural-language] [--model MODEL] [--include-metadata] [-v] [-l] [--log-limit N]
+blue-kb data answer QUESTION [--format table|json|nl] [--model MODEL] [--include-metadata] [-v] [-l] [--log-limit N]
+blue-kb data validate STATEMENT [--natural-language] [--model MODEL] [--include-metadata] [-v] [-l] [--log-limit N]
 ```
 
-All three require `OPENAI_API_KEY` (and the `openai` extra installed). `-v/--verbose` shows tool call arguments in the status line; `-l/--log` also prints each tool call and its result on its own persistent line; `--log-limit` sets the truncation length for verbose/log output (default 80). `extract` never declares new schema itself — it only resolves mentions against the schema as it currently stands, skipping anything with no match. `--expand-schema` (default: on) runs `kb schema expand` first, grounded by `--schema-expansion-target` (any combination of `text`/`queries`, default both); `--schema-expansion-depth`/`--schema-expansion-mode`/`--schema-expansion-mcp-server`/`--schema-expansion-dedup-mode` mirror `kb schema expand`'s `--depth`/`--reference`/`--mcp-server`/`--dedup-mode` one-to-one. Use `--no-expand-schema` to extract only, against a schema already expanded once via `kb schema expand`.
+All three require `OPENAI_API_KEY` (and the `openai` extra installed). `-v/--verbose` shows tool call arguments in the status line; `-l/--log` also prints each tool call and its result on its own persistent line; `--log-limit` sets the truncation length for verbose/log output (default 80). `extract` never declares new schema itself — it only resolves mentions against the schema as it currently stands, skipping anything with no match. `--expand-schema` (default: on) runs `blue-kb schema expand` first, grounded by `--schema-expansion-target` (any combination of `text`/`queries`, default both); `--schema-expansion-depth`/`--schema-expansion-mode`/`--schema-expansion-mcp-server`/`--schema-expansion-dedup-mode` mirror `blue-kb schema expand`'s `--depth`/`--reference`/`--mcp-server`/`--dedup-mode` one-to-one. Use `--no-expand-schema` to extract only, against a schema already expanded once via `blue-kb schema expand`.
 
 `--include-metadata` (on `answer`/`validate`) has the agent additionally call `get_metadata` for each entity/fact/property value it cites, and surfaces created/modified/confidence/evidence info alongside the result: a second "Metadata" table (`--format table`, or unadorned `answer`/`validate` output), a `metadata` key alongside `result` (`--format json`), or folded into the prose as a follow-up section after the main answer (`--format nl` / `--natural-language`).
 
 **Example**
 ```
-$ kb data extract "Alice joined IBM as a software engineer in June 1998." \
+$ blue-kb data extract "Alice joined IBM as a software engineer in June 1998." \
     --query "Where did Alice work?" --query "When did she start?"
 Extraction complete.
 
-$ kb data answer "Where did Alice work?" --format table
+$ blue-kb data answer "Where did Alice work?" --format table
 
 ┌───────┬───────────┬────────┬────────────────────────────────┐
 │ Entity│ Relation  │ Value  │ Provenance                     │
@@ -1018,7 +1018,7 @@ $ kb data answer "Where did Alice work?" --format table
 │ Alice │ WORKED_AT │ IBM    │ Alice joined IBM in June 1998. │
 └───────┴───────────┴────────┴────────────────────────────────┘
 
-$ kb data validate "Alice worked at IBM."
+$ blue-kb data validate "Alice worked at IBM."
 
 Supporting:
   • Alice —WORKED_AT→ IBM

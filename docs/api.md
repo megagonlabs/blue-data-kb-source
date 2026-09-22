@@ -7,7 +7,7 @@ Until it's built, a full request/response sketch of what a REST adapter over `KB
 In the meantime, the same operations are available via:
 
 - the [Python library](api-reference.md) directly,
-- the [`kb` CLI](cli.md), or
+- the [`blue-kb` CLI](cli.md), or
 - the [MCP server](mcp.md), for LLM agent access.
 
 This page will be filled in with the real endpoint reference once `platform/api/` is implemented, following the same pattern as [cli.md](cli.md) and [mcp.md](mcp.md).

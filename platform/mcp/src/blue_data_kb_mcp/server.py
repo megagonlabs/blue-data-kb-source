@@ -2,7 +2,7 @@
 
 Exposes KBSource operations as MCP tools so LLM clients (Claude Desktop, Claude
 Code, etc.) can build and query a knowledge base. Read and additive-write only —
-no update_*/delete_* tools; corrections go through the `kb` CLI or the library
+no update_*/delete_* tools; corrections go through the `blue-kb` CLI or the library
 directly.
 
 Tool groups

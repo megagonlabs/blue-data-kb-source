@@ -131,7 +131,7 @@ def _four_stage_done():
 
 
 async def test_related_data_absent_without_search_indexer(kb):
-    """No search_indexer configured (the default `kb` fixture): the system
+    """No search_indexer configured (the default `blue-kb` fixture): the system
     prompt says so plainly rather than silently omitting the section."""
     responses = _four_stage_done()
     with patch("openai.AsyncOpenAI", responses) as factory:

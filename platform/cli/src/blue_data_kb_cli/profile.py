@@ -1,4 +1,4 @@
-"""`kb profile` — the profile command group, over blue_data.utils.config.
+"""`blue-kb profile` — the profile command group, over blue_data.utils.config.
 
 The engine (spec, `.profiles` I/O, precedence, secrets) lives in
 `blue_data.utils.config` so every Blue CLI can share it; this module is the
@@ -75,7 +75,7 @@ def _store_value(param, value: str) -> str:
 
 
 # ------------------------------------------------------------------ #
-# kb profile                                                          #
+# blue-kb profile                                                          #
 # ------------------------------------------------------------------ #
 
 @click.group("profile")
@@ -94,7 +94,7 @@ def profile_add(obj: dict, name: str) -> None:
         raise click.ClickException(str(exc)) from None
     console.print(
         f"Created profile: [bold]{name}[/bold]\n"
-        f"[dim]Configure it with `kb profile config` "
+        f"[dim]Configure it with `blue-kb profile config` "
         f"(add `--profile {name}` if it is not the selected one).[/dim]"
     )
 
@@ -133,7 +133,7 @@ def profile_list(obj: dict, fmt: str) -> None:
         ))
         return
     if not names:
-        console.print("[dim](no profiles — run `kb profile add NAME`)[/dim]")
+        console.print("[dim](no profiles — run `blue-kb profile add NAME`)[/dim]")
         return
     t = Table(show_header=True, header_style="bold")
     t.add_column("Profile")
@@ -224,9 +224,9 @@ def profile_config(obj: dict, param: str | None, value: str | None, profile_name
     """Set configuration values.
 
     \b
-    kb profile config                  walk through every required parameter
-    kb profile config PARAM            prompt for one parameter
-    kb profile config PARAM VALUE      set one parameter directly
+    blue-kb profile config                  walk through every required parameter
+    blue-kb profile config PARAM            prompt for one parameter
+    blue-kb profile config PARAM VALUE      set one parameter directly
 
     Secrets are never taken as VALUE on the command line — a secret parameter
     always prompts, so it stays out of shell history. Enter `$VAR` at the
@@ -262,7 +262,7 @@ def profile_config(obj: dict, param: str | None, value: str | None, profile_name
         if one.is_secret:
             raise click.ClickException(
                 f"{one.name} is a secret and cannot be set on the command line, where it "
-                f"would land in shell history. Run `kb profile config {one.name}` and enter "
+                f"would land in shell history. Run `blue-kb profile config {one.name}` and enter "
                 f"it at the prompt, or enter `$VAR` there to reference an environment variable."
             )
         try:

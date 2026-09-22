@@ -16,7 +16,7 @@ def vcr_cassette_dir() -> str:
 
 @pytest.fixture
 def kb():
-    """Override the global `kb` fixture, which builds a KBSource with no search
+    """Override the global `blue-kb` fixture, which builds a KBSource with no search
     index — see `runner.make_kb` for why that silently zeroes fact scores."""
     from ..common import runner
 

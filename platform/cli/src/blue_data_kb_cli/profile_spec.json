@@ -1,6 +1,6 @@
 {
   "BLUE_DATA_KB_SOURCE_DATA_DIR": {
-    "default": "~/.kb",
+    "default": "~/.blue-kb",
     "prompt": "Directory holding the database registry and file-backed graph data",
     "required": true,
     "cast": "directory"
@@ -22,7 +22,7 @@
   },
   "BLUE_DATA_KB_SOURCE_EXTRACTION_LLM_MODEL": {
     "default": null,
-    "prompt": "LLM model for `kb data extract`",
+    "prompt": "LLM model for `blue-kb data extract`",
     "required": false,
     "cast": "str",
     "inherits": [
@@ -32,7 +32,7 @@
   },
   "BLUE_DATA_KB_SOURCE_QUERY_LLM_MODEL": {
     "default": null,
-    "prompt": "LLM model for `kb data answer`",
+    "prompt": "LLM model for `blue-kb data answer`",
     "required": false,
     "cast": "str",
     "inherits": [
@@ -42,7 +42,7 @@
   },
   "BLUE_DATA_KB_SOURCE_VALIDATION_LLM_MODEL": {
     "default": null,
-    "prompt": "LLM model for `kb data validate`",
+    "prompt": "LLM model for `blue-kb data validate`",
     "required": false,
     "cast": "str",
     "inherits": [
@@ -52,7 +52,7 @@
   },
   "BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_LLM_MODEL": {
     "default": null,
-    "prompt": "LLM model for `kb schema expand` (and expansion inside `kb data extract`)",
+    "prompt": "LLM model for `blue-kb schema expand` (and expansion inside `blue-kb data extract`)",
     "required": false,
     "cast": "str",
     "inherits": [
@@ -72,7 +72,7 @@
   },
   "BLUE_DATA_KB_SOURCE_INGESTION_LLM_MODEL": {
     "default": null,
-    "prompt": "LLM model for `kb data ingest` judges",
+    "prompt": "LLM model for `blue-kb data ingest` judges",
     "required": false,
     "cast": "str",
     "inherits": [

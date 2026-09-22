@@ -1,4 +1,4 @@
-"""Per-database registry and KBSource factory for the kb CLI.
+"""Per-database registry and KBSource factory for the blue-kb CLI.
 
 Registered databases are persisted via blue-data's `DataRegistry`, backed by a
 `FileJSONSource` at `{BLUE_DATA_KB_SOURCE_DATA_DIR}/registry.json`. Each database is a `DataRegistry`
@@ -15,14 +15,14 @@ into a working search indexer, vector source, and embedding function (see
 Example persisted record properties for a semantic-search-enabled database:
   {
     "_class": "blue_data_kb_source.file_kb_source.FileKBSource",
-    "connection": {"directory": "~/.kb"},
+    "connection": {"directory": "~/.blue-kb"},
     "search": {
       "mode": "semantic",
-      "bm25_index_dir": "~/.kb/bm25",
+      "bm25_index_dir": "~/.blue-kb/bm25",
       "vector": {
         "_class": "blue_data.source.vector.file_vector_source.FileVectorSource",
         "name": "kb_vectors",
-        "connection": {"directory": "~/.kb/vectors"}
+        "connection": {"directory": "~/.blue-kb/vectors"}
       },
       "embedding": {"provider": "openai", "model": "text-embedding-3-small"}
     }
@@ -55,7 +55,7 @@ _VECTOR_CLASS_BY_BACKEND = {
 }
 
 
-CLI_HOME_DEFAULT = "~/.kb"
+CLI_HOME_DEFAULT = "~/.blue-kb"
 
 
 def _cli_home() -> str:

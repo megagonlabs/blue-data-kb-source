@@ -376,7 +376,7 @@ await kb.import_database_data("copy", main_data_json)
 
 Entities/facts in the export carry their original id as a `ref` purely as an in-payload join key (entity names aren't guaranteed unique — `add_entity` never dedups — so facts/property values reference their owner by `ref`, not by name, to avoid mis-linking when two entities share a name).
 
-The CLI exposes the same round trip: `kb schema export -o schema.json` / `kb schema import schema.json`, then `kb data export -o data.json` / `kb data import data.json` (see [CLI usage](../platform/cli/README.md)).
+The CLI exposes the same round trip: `blue-kb schema export -o schema.json` / `blue-kb schema import schema.json`, then `blue-kb data export -o data.json` / `blue-kb data import data.json` (see [CLI usage](../platform/cli/README.md)).
 
 For runnable versions of the patterns above with real captured output, see
 [examples/backends/](../examples/backends/) (one script per `GraphSource`/`VectorSource`
@@ -443,7 +443,7 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | `await add_entity_property_value_extraction(database, entity_id, property_id, text, source_id?, confidence?, extraction_type?)` | `str` | Link a new text span to an entity's existing property value (resolved via `entity_id`+`property_id`); raises if no such value exists |
 | `await add_fact_property_value_extraction(database, fact_id, property_id, text, source_id?, confidence?, extraction_type?)` | `str` | Link a new text span to a fact's existing property value (resolved via `fact_id`+`property_id`); raises if no such value exists |
 | `await attach_entity_class(database, entity_id, class_id)` | `None` | Attach an existing CLASS to an existing ENTITY — deduplicated, add-only (no detach counterpart). An entity's *additional* class; `add_entity(class_id=…)` wires the first |
-| `await fetch_database_data(database, include_provenance?, compact?, detailed?)` | `dict \| list` | `compact=False` (default): raw `{nodes, edges}` graph form (already includes each node's full `properties`, so `detailed` has no effect here). `compact=True`: flat denormalized rows (entity/class, property/value, fact head/relation/tail), the shape `kb data list`/`kb data list --format json` uses; `include_provenance=True` adds each row's `evidence`, one record per EXTRACTION on it (via its EXTRACTED_FROM chain); `detailed=True` adds each row's own `description`/`created`/`modified` (the entity for entity rows, the literal for property rows, the fact for fact rows), plus a FACT's derived `confidence` |
+| `await fetch_database_data(database, include_provenance?, compact?, detailed?)` | `dict \| list` | `compact=False` (default): raw `{nodes, edges}` graph form (already includes each node's full `properties`, so `detailed` has no effect here). `compact=True`: flat denormalized rows (entity/class, property/value, fact head/relation/tail), the shape `blue-kb data list`/`blue-kb data list --format json` uses; `include_provenance=True` adds each row's `evidence`, one record per EXTRACTION on it (via its EXTRACTED_FROM chain); `detailed=True` adds each row's own `description`/`created`/`modified` (the entity for entity rows, the literal for property rows, the fact for fact rows), plus a FACT's derived `confidence` |
 | `await export_database_data(database, include_provenance?)` | `dict` | Portable, name-based export of entities/facts/property values (schema not included — export/import that separately first); symmetric with `import_database_data` |
 | `await import_database_data(database, data)` | `None` | Populate *database* from an `export_database_data` dict; resolves classes/relations/properties **by name** against the target database's current schema, raising `KnowledgeError` if a reference can't be resolved |
 | `await get_metadata(database, node_id)` | `dict` | Metadata for a single entity, fact, or property-value (literal) id: created/modified, `confidence` (a FACT's derived score, `None` on the other two), and an `evidence` record per EXTRACTION — raises `KnowledgeError` if `node_id` isn't one of those three types |
@@ -524,7 +524,7 @@ Name-based, resolve-or-create counterparts to the knowledge write operations: re
 
 | Exception | When raised |
 |---|---|
-| `KBError` | Base class for all KBDB errors |
+| `KBError` | Base class for all blue-kb errors |
 | `SchemaError` | Schema validation or consistency failures (e.g. missing domain class, a `class_id` that isn't a CLASS node) |
 | `KnowledgeError` | Knowledge-layer write or query failures (e.g. an `entity_id` that doesn't exist, or refers to a FACT instead) |
 | `ExtractionError` | LLM extraction failures (e.g. missing `openai` package) |

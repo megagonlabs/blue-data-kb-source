@@ -294,7 +294,7 @@ go without a real key.)*
 No KB-specific code on the LangGraph side at all — a `create_react_agent` ReAct agent
 freely chooses among all 26 tools auto-discovered via `langchain_mcp_adapters` from the
 real `blue-data-kb-mcp` server, launched automatically as a subprocess (stdio transport,
-pointed at a scratch directory so it never touches `~/.kb`). Contrast with the direct
+pointed at a scratch directory so it never touches `~/.blue-kb`). Contrast with the direct
 demo's fixed pipeline: here the LLM decides which tools to call and in what order.
 
 ```bash

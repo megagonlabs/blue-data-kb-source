@@ -7,7 +7,7 @@ Read and additive-write only — there are no `update_*`/`delete_*` tools. An LL
 agent connected through this server can declare schema, add entities/facts/
 property values with provenance, search, answer questions, validate statements,
 and enrich around a topic — but it cannot rewrite or delete existing data.
-Corrections go through the `kb` CLI or the Python library directly.
+Corrections go through the `blue-kb` CLI or the Python library directly.
 
 ---
 
@@ -31,7 +31,7 @@ pip install -e ".[neo4j,chromadb,redis,search]"
 ## Running
 
 ```bash
-# Default: ephemeral file-backed KB at ~/.kb, no search
+# Default: ephemeral file-backed KB at ~/.blue-kb, no search
 blue-data-kb-mcp
 
 # Persistent KB in a specific directory, with BM25 keyword search
@@ -54,11 +54,11 @@ BLUE_DATA_KB_SOURCE_SEARCH=semantic OPENAI_API_KEY=sk-... \
 tools (each runs its own LLM agent loop) and for `BLUE_DATA_KB_SOURCE_SEARCH=semantic`
 (embeddings).
 
-Note: this server does **not** read the `kb` CLI's `~/.kb/registry.json` — it
+Note: this server does **not** read the `blue-kb` CLI's `~/.blue-kb/registry.json` — it
 owns one independently-configured `KBSource` for the process lifetime (see
-Architecture below). `BLUE_DATA_KB_SOURCE_DATA_DIR` defaults to the same `~/.kb`
+Architecture below). `BLUE_DATA_KB_SOURCE_DATA_DIR` defaults to the same `~/.blue-kb`
 directory the CLI's file backend uses by default, so pointing both at their
-defaults gives practical (not automatic) continuity between `kb` and this server.
+defaults gives practical (not automatic) continuity between `blue-kb` and this server.
 
 ---
 
@@ -96,14 +96,14 @@ If `blue-data-kb-mcp` is not on the system PATH, use the full path:
 
 ## Configuration reference
 
-All configuration is via environment variables — there is no config file, and this server never reads the `kb` CLI's profiles. The variable *names* are deliberately shared with the CLI, so a value means the same thing in both; only the source differs.
+All configuration is via environment variables — there is no config file, and this server never reads the `blue-kb` CLI's profiles. The variable *names* are deliberately shared with the CLI, so a value means the same thing in both; only the source differs.
 
 ### Graph backend
 
 | Variable | Default | Description |
 |---|---|---|
 | `BLUE_DATA_KB_SOURCE_GRAPH_BACKEND` | `file` | `file` — JSON files on disk. `neo4j` — Neo4j graph database. |
-| `BLUE_DATA_KB_SOURCE_DATA_DIR` | `~/.kb` | File backend directory. Same default the `kb` CLI's file backend uses. |
+| `BLUE_DATA_KB_SOURCE_DATA_DIR` | `~/.blue-kb` | File backend directory. Same default the `blue-kb` CLI's file backend uses. |
 | `BLUE_DATA_KB_SOURCE_NEO4J_URI` | — | Neo4j bolt URI, e.g. `bolt://localhost:7687`. Used when `BLUE_DATA_KB_SOURCE_GRAPH_BACKEND=neo4j`. |
 | `BLUE_DATA_KB_SOURCE_NEO4J_USER` | `neo4j` | Neo4j username. |
 | `BLUE_DATA_KB_SOURCE_NEO4J_PASSWORD` | — | Neo4j password. |
@@ -121,7 +121,7 @@ All configuration is via environment variables — there is no config file, and 
 
 | Variable | Default | Description |
 |---|---|---|
-| `BLUE_DATA_KB_SOURCE_LLM_MODEL` | `gpt-4o` | Default model when a call omits `model`. A per-function variable overrides it — `BLUE_DATA_KB_SOURCE_{EXTRACTION,QUERY,VALIDATION,SCHEMA_EXPANSION,ENRICHMENT}_LLM_MODEL` — and it in turn falls back to the family-wide `BLUE_DATA_LLM_MODEL`. These are the same names, and the same precedence, the `kb` CLI uses. |
+| `BLUE_DATA_KB_SOURCE_LLM_MODEL` | `gpt-4o` | Default model when a call omits `model`. A per-function variable overrides it — `BLUE_DATA_KB_SOURCE_{EXTRACTION,QUERY,VALIDATION,SCHEMA_EXPANSION,ENRICHMENT}_LLM_MODEL` — and it in turn falls back to the family-wide `BLUE_DATA_LLM_MODEL`. These are the same names, and the same precedence, the `blue-kb` CLI uses. |
 
 ---
 
@@ -377,7 +377,7 @@ blue_data_kb_mcp.config   ← singleton KBSource factory (BLUE_DATA_KB_SOURCE_* 
 The server holds a single `KBSource` instance per process. All tool calls share
 that instance; `database` is a plain string argument selecting a logical
 database within it (multiple databases are supported on one backend). Unlike
-the `kb` CLI, this server does not read `~/.kb/registry.json` — it depends
+the `blue-kb` CLI, this server does not read `~/.blue-kb/registry.json` — it depends
 only on `blue-data-kb-source`, not on `blue-data-kb-cli`, so it stays an
 independently deployable unit (see `design/07-repo-organization.md`).
 

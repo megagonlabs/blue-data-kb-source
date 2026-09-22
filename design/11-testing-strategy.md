@@ -1,10 +1,10 @@
-# KBDB — Testing Strategy
+# blue-kb — Testing Strategy
 
 ## Overview
 
 **There is no CI in this repository yet** (see [12-deployment-ops.md](12-deployment-ops.md) §7) — everything below describes how to run tests locally; none of it runs automatically today.
 
-KBDB has three real test tiers, spread across independently-installed packages:
+blue-kb has three real test tiers, spread across independently-installed packages:
 
 - **`lib/tests/unit/`** — fast, offline unit tests for the library, doubling `MemoryKBSource` for the graph backend and `unittest.mock.patch` for OpenAI calls
 - **`lib/tests/benchmarks/`** — gold-standard-case suites for `import_text`/`answer`/`validate`/`enrich` and the ingestion judges against real OpenAI responses (via VCR cassettes), scored by LLM-judge alignment (extraction/querying) or deterministically (judges); a heavier, opt-in tier, not part of the default `pytest` run
@@ -69,7 +69,7 @@ Each `lib/tests/unit/` subdirectory carries an `__init__.py` so pytest doesn't c
 
 ## 3. Graph Store Test Double
 
-KBDB's storage backend is abstracted by `GraphSource`. The unit-test double is `MemoryKBSource` — a concrete subclass that mixes `KBSource` with `MemoryGraphSource` from `blue-data`. It requires no setup, holds state in-process, and is discarded after each test.
+blue-kb's storage backend is abstracted by `GraphSource`. The unit-test double is `MemoryKBSource` — a concrete subclass that mixes `KBSource` with `MemoryGraphSource` from `blue-data`. It requires no setup, holds state in-process, and is discarded after each test.
 
 No separate mock or stub is needed: the same code path that runs against Neo4j in production runs against `MemoryKBSource` in tests.
 
@@ -211,7 +211,7 @@ async def populated_kb(kb) -> MemoryKBSource:
 
 Interface tests live in each interface's **own package**, not under `lib/tests/` — each adapter is a separate deployable unit (see [07-repo-organization.md](07-repo-organization.md)) with its own test suite and fixtures rather than importing `lib/tests/conftest.py`.
 
-- **CLI** (`platform/cli/tests/unit/`) — tested via Click's `CliRunner`, pointed at an isolated `tmp_path` per test via `BLUE_DATA_KB_SOURCE_HOME`/`BLUE_DATA_KB_SOURCE_DATA_DIR` (`conftest.py`, which also clears every spec parameter so a developer's own exported keys cannot change what the tests observe, and asserts afterwards that nothing was written to the real `~/.kb`); `extract`/`answer`/`validate` tests mock `openai.AsyncOpenAI` the same way `lib/tests/unit/` does.
+- **CLI** (`platform/cli/tests/unit/`) — tested via Click's `CliRunner`, pointed at an isolated `tmp_path` per test via `BLUE_DATA_KB_SOURCE_HOME`/`BLUE_DATA_KB_SOURCE_DATA_DIR` (`conftest.py`, which also clears every spec parameter so a developer's own exported keys cannot change what the tests observe, and asserts afterwards that nothing was written to the real `~/.blue-kb`); `extract`/`answer`/`validate` tests mock `openai.AsyncOpenAI` the same way `lib/tests/unit/` does.
 - **MCP Server** (`platform/mcp/tests/test_tools.py`) — an `autouse` fixture builds a `MemoryKBSource`, injects it as the module-level singleton via `config.reset_kb()`/monkeypatching `get_kb`, and tests call the `@mcp.tool()`-decorated async functions directly, asserting on the JSON string each returns.
 - **REST API** — doesn't exist yet (`platform/api/` is empty); no tests exist for it.
 
@@ -219,7 +219,7 @@ Interface tests live in each interface's **own package**, not under `lib/tests/`
 
 ## 9. Neo4j — not covered by an automated test today
 
-A `Neo4jGraphSource`/`NEO4JSource` backend is real and wired into both the CLI (`kb database register --graph-backend neo4j`) and the MCP server (`BLUE_DATA_KB_SOURCE_GRAPH_BACKEND=neo4j`), but no automated test — unit or otherwise — currently runs against a live Neo4j instance. There is no `lib/tests/integration/` directory. Manual verification against Neo4j has been done ad hoc (e.g. `examples/backends/neo4j_backend_demo.py`); building a real Neo4j-backed test suite (structurally similar to the `MemoryKBSource`-backed unit tests, swapping the fixture backend) is open work, not yet started.
+A `Neo4jGraphSource`/`NEO4JSource` backend is real and wired into both the CLI (`blue-kb database register --graph-backend neo4j`) and the MCP server (`BLUE_DATA_KB_SOURCE_GRAPH_BACKEND=neo4j`), but no automated test — unit or otherwise — currently runs against a live Neo4j instance. There is no `lib/tests/integration/` directory. Manual verification against Neo4j has been done ad hoc (e.g. `examples/backends/neo4j_backend_demo.py`); building a real Neo4j-backed test suite (structurally similar to the `MemoryKBSource`-backed unit tests, swapping the fixture backend) is open work, not yet started.
 
 ---
 

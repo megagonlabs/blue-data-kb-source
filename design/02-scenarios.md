@@ -1,4 +1,4 @@
-# KBDB — Scenarios
+# blue-kb — Scenarios
 
 ## Scenario 1: Defining a Domain Schema
 
@@ -249,18 +249,18 @@ A developer wants to look up schema elements or instance data directly by keywor
 
 A team registers a database with semantic search enabled:
 ```bash
-kb database register main --search semantic --embedding-model text-embedding-3-small
+blue-kb database register main --search semantic --embedding-model text-embedding-3-small
 ```
 
 After loading the employment schema and extracting Alice's résumé, they search the schema for a concept without knowing the exact class name:
 ```bash
-kb --database main schema search "place of employment" --mode semantic --type relation
+blue-kb --database main schema search "place of employment" --mode semantic --type relation
 # → WORKED_AT   RELATION   "Employment relationship"
 ```
 
 And search the data for matching entities or facts:
 ```bash
-kb --database main data search "Alice IBM" --mode keyword --type fact --top-k 5
+blue-kb --database main data search "Alice IBM" --mode keyword --type fact --top-k 5
 # → Alice —WORKED_AT→ IBM   FACT   "Alice joined IBM in June 1998."
 ```
 
@@ -301,4 +301,4 @@ The agent:
 3. Declares `ROBOT`, `MANUFACTURER`, `INDUSTRIAL_ROBOT` and the `MANUFACTURES` relation; wires `INDUSTRIAL_ROBOT` under `ROBOT` via `add_subclass_of` — not a declared `IS_A`/`KIND_OF` relation
 4. At `depth=1`, also proposes `MACHINE` as a parent of `ROBOT`, since it's one hop beyond what's directly evidenced
 
-The CLI equivalent is `kb schema expand "..." --reference mcp --mcp-server '{"transport":"stdio","command":"blue-data-wordnet-mcp"}' --dedup-mode llm`. Once the schema is judged stable, subsequent documents are extracted against it with `kb data extract --no-expand-schema` (or `import_text(..., expand_schema=False)`), without paying for another expansion pass each time.
+The CLI equivalent is `blue-kb schema expand "..." --reference mcp --mcp-server '{"transport":"stdio","command":"blue-data-wordnet-mcp"}' --dedup-mode llm`. Once the schema is judged stable, subsequent documents are extracted against it with `blue-kb data extract --no-expand-schema` (or `import_text(..., expand_schema=False)`), without paying for another expansion pass each time.

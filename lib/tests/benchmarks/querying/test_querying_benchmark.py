@@ -6,7 +6,7 @@ prints/writes scores so drift is visible, but the harness itself erroring is
 the only failure mode. For live, multi-model runs (and to (re)record
 cassettes) use `run.py` in this directory instead.
 
-Unlike extraction's `test_case`, this doesn't take the shared `kb` fixture —
+Unlike extraction's `test_case`, this doesn't take the shared `blue-kb` fixture —
 `run_query_case` builds its own KB per run since the search backend
 (`enable_search`/`vector_source`/`embedding_fn`) is a construction-time choice
 driven by the case's `search_mode`, not a per-call argument.

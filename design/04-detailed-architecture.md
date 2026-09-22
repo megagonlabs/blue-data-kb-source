@@ -1,4 +1,4 @@
-# KBDB — Detailed Architecture
+# blue-kb — Detailed Architecture
 
 ## External Interfaces
 
@@ -6,7 +6,7 @@ All four interfaces are thin adapters over the Python library. They each ultimat
 
 | Interface | Technology | Primary Use | Status |
 |-----------|-----------|-------------|--------|
-| Python Library | Native Python API | Embedding KBDB directly in Python applications and pipelines | Implemented |
+| Python Library | Native Python API | Embedding blue-kb directly in Python applications and pipelines | Implemented |
 | MCP Server | MCP protocol | LLM agent tool use (e.g. Claude) | Implemented |
 | CLI | Click + Rich | Development, debugging, schema inspection, and scripting | Implemented |
 | REST API | FastAPI (HTTP/JSON) | Non-Python consumers and microservice deployments | **Planned, not yet implemented** |
@@ -23,7 +23,7 @@ Exposes schema declaration, instance writes, text extraction with its schema exp
 
 Nothing under this heading exists in the repository yet — no FastAPI application, no route handlers, `platform/api/` is an empty directory. The description below is a forward-looking sketch, not current behavior; see [09-api-interface-spec.md](09-api-interface-spec.md) §2 for the full speculative endpoint design.
 
-HTTP interface built with FastAPI. Endpoints map to the core schema and knowledge operations. Enables non-Python services and remote clients to interact with KBDB over the network.
+HTTP interface built with FastAPI. Endpoints map to the core schema and knowledge operations. Enables non-Python services and remote clients to interact with blue-kb over the network.
 
 ### CLI
 
@@ -126,7 +126,7 @@ The Schema Layer manages the typed vocabulary of the knowledge base. It is the a
 - Wire domain and range constraints from relation types to classes
 - Reuse an existing property across classes/relations (`attach_property`), instead of a same-meaning duplicate being declared under a new name
 - Export the schema to a portable JSON representation and import it from that representation into any database
-- Expose the meta-schema — the fixed description of KBDB's own graph structure — for agent introspection
+- Expose the meta-schema — the fixed description of blue-kb's own graph structure — for agent introspection
 - Search schema elements by natural language query or keywords
 - Consolidate schema elements: today, only merging redundant classes, properties, or relations into one target is implemented (see below) — splitting is not
 - Grow the schema itself from free text via an LLM agent (`expand_schema`, owned internally as a Schema Expansion Engine — see below) — a separate concern from the Extraction Engine (§4), which only ever *uses* the schema, never grows it
@@ -428,7 +428,7 @@ Semantic search requires a vector source and embedding function at construction 
 
 ## 6. Graph Store
 
-The Graph Store persists all schema and instance data as a typed graph of nodes and edges. It is fully abstract: the same KBDB operations run without modification against any supported backend.
+The Graph Store persists all schema and instance data as a typed graph of nodes and edges. It is fully abstract: the same blue-kb operations run without modification against any supported backend.
 
 **Responsibilities**
 
@@ -442,5 +442,5 @@ The Graph Store persists all schema and instance data as a typed graph of nodes 
 | Backend | Characteristics | Typical Use |
 |---------|----------------|------------|
 | Memory | In-process, non-persistent | Development, testing, short-lived pipelines |
-| File | JSON file per database, persistent, single-process | CLI default (`~/.kb/`, or the profile's `BLUE_DATA_KB_SOURCE_DATA_DIR`), no server required |
+| File | JSON file per database, persistent, single-process | CLI default (`~/.blue-kb/`, or the profile's `BLUE_DATA_KB_SOURCE_DATA_DIR`), no server required |
 | Neo4j | Persistent, concurrent, queryable with Cypher | Production deployments |

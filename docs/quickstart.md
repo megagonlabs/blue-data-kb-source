@@ -1,6 +1,6 @@
 # Quick Start
 
-The fastest way to see the knowledge base in action is the `kb` CLI — no Python code required. See [installation.md](installation.md) if you haven't installed anything yet.
+The fastest way to see the knowledge base in action is the `blue-kb` CLI — no Python code required. See [installation.md](installation.md) if you haven't installed anything yet.
 
 ```bash
 cd lib && bash scripts/install.sh
@@ -9,11 +9,11 @@ cd ../platform/cli && bash scripts/install.sh
 
 ## 1. Create a database
 
-Databases persist as JSON files under `~/.kb/` by default (override with `export BLUE_DATA_KB_SOURCE_DATA_DIR=/path/to/dir`, or `kb profile config BLUE_DATA_KB_SOURCE_DATA_DIR /path/to/dir`).
+Databases persist as JSON files under `~/.blue-kb/` by default (override with `export BLUE_DATA_KB_SOURCE_DATA_DIR=/path/to/dir`, or `blue-kb profile config BLUE_DATA_KB_SOURCE_DATA_DIR /path/to/dir`).
 
 ```bash
-kb database create main
-kb database select main
+blue-kb database create main
+blue-kb database select main
 ```
 
 ## 2. Declare a schema
@@ -21,10 +21,10 @@ kb database select main
 Classes, relations, and properties — the typed vocabulary your data will use.
 
 ```bash
-kb schema class add PERSON "A human individual"
-kb schema class add COMPANY "A business organization"
-kb schema relation add WORKED_AT "Employment relationship" --domain PERSON --range COMPANY
-kb schema class property add AGE "Age of a person" --class PERSON
+blue-kb schema class add PERSON "A human individual"
+blue-kb schema class add COMPANY "A business organization"
+blue-kb schema relation add WORKED_AT "Employment relationship" --domain PERSON --range COMPANY
+blue-kb schema class property add AGE "Age of a person" --class PERSON
 ```
 
 ## 3. Add data
@@ -32,20 +32,20 @@ kb schema class property add AGE "Age of a person" --class PERSON
 Entities and facts, referenced by name — no IDs to track by hand. `--text` records the verbatim source span for provenance.
 
 ```bash
-kb data entity add --name Alice --class PERSON --text "Alice is a software engineer."
-kb data entity add --name IBM --class COMPANY
+blue-kb data entity add --name Alice --class PERSON --text "Alice is a software engineer."
+blue-kb data entity add --name IBM --class COMPANY
 
-kb data fact add --head Alice --relation WORKED_AT --tail IBM \
+blue-kb data fact add --head Alice --relation WORKED_AT --tail IBM \
     --text "Alice joined IBM in June 1998."
 
-kb data entity property set 30 --entity Alice --property AGE --type NUMBER
+blue-kb data entity property set 30 --entity Alice --property AGE --type NUMBER
 ```
 
 ## 4. Look at what you built
 
 ```bash
-kb schema list
-kb data list
+blue-kb schema list
+blue-kb data list
 ```
 
 ```
@@ -66,13 +66,13 @@ kb data list
 
 ## 5. Ask questions (needs `OPENAI_API_KEY`)
 
-Store the key in your profile once, rather than exporting it in every shell — it is written to `~/.kb/.profiles` (mode `0600`) and never echoed back:
+Store the key in your profile once, rather than exporting it in every shell — it is written to `~/.blue-kb/.profiles` (mode `0600`) and never echoed back:
 
 ```bash
-kb profile config OPENAI_API_KEY        # prompts; enter the key, or $OPENAI_API_KEY to reference the variable
+blue-kb profile config OPENAI_API_KEY        # prompts; enter the key, or $OPENAI_API_KEY to reference the variable
 
-kb data answer "Where did Alice work?"
-kb data validate "Alice worked at IBM"
+blue-kb data answer "Where did Alice work?"
+blue-kb data validate "Alice worked at IBM"
 ```
 
 An exported `OPENAI_API_KEY` still works and takes precedence. See [cli.md](cli.md#profiles-and-configuration) for the full parameter list.
@@ -81,10 +81,10 @@ An exported `OPENAI_API_KEY` still works and takes precedence. See [cli.md](cli.
 
 ## 6. Or let an LLM read the text for you
 
-Instead of steps 2–3, `kb data extract` can populate schema and data itself from a passage:
+Instead of steps 2–3, `blue-kb data extract` can populate schema and data itself from a passage:
 
 ```bash
-kb data extract \
+blue-kb data extract \
     "Alice joined IBM as a software engineer in June 1998. She later moved to Google in 2005." \
     --query "Where did Alice work?" --query "When did she start?"
 ```
@@ -140,5 +140,5 @@ See [mcp.md](mcp.md) for the Claude Desktop config and full tool reference.
 
 - [features.md](features.md) — what the library can do, at a glance
 - [guide.md](guide.md) — task-oriented walkthrough of the Python API
-- [cli.md](cli.md) — full `kb` command reference
+- [cli.md](cli.md) — full `blue-kb` command reference
 - [mcp.md](mcp.md) — full MCP tool reference

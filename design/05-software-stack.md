@@ -1,4 +1,4 @@
-# KBDB — Software Stack
+# blue-kb — Software Stack
 
 > Interfaces marked **provisional** are initial suggestions based on expected usage patterns. They will be revised once the respective component is implemented and inspected.
 
@@ -41,7 +41,7 @@ The `OPENAI_API_KEY` environment variable is read by the `openai` SDK automatica
 
 ## Storage
 
-Storage is provided by `blue-data` via the `GraphSource` abstract base class. KBDB interacts only with the `GraphSource` interface and does not depend on any specific backend implementation.
+Storage is provided by `blue-data` via the `GraphSource` abstract base class. blue-kb interacts only with the `GraphSource` interface and does not depend on any specific backend implementation.
 
 ### GraphSource
 
@@ -66,7 +66,7 @@ Used for: all schema nodes (CLASS, RELATION, PROPERTY), all instance nodes (ENTI
 | File | `FileGraphSource` | Yes (JSON file per database) | CLI default — single-process persistence with no server |
 | Neo4j | `Neo4jGraphSource` | Yes | Production deployments requiring durability and concurrent access |
 
-All three backends are provided by `blue-data`. KBDB selects a backend via Python MRO — the application subclasses `KBSource` alongside the chosen `GraphSource` concrete class, with no conditional logic in KBDB itself.
+All three backends are provided by `blue-data`. blue-kb selects a backend via Python MRO — the application subclasses `KBSource` alongside the chosen `GraphSource` concrete class, with no conditional logic in blue-kb itself.
 
 ---
 
@@ -116,7 +116,7 @@ FastAPI provides automatic OpenAPI schema generation and async request handling.
 |---------|--------|
 | Library | `mcp[cli]` (official MCP Python SDK), pinned `>=1.0.0,<2.0.0` |
 
-Exposes 26 KBDB schema, schema-expansion, knowledge, query, extraction, and provenance operations as MCP tools (`FastMCP`) for consumption by LLM agents; tool handlers delegate directly to the Python library. The version pin is deliberate: `mcp==2.0.0` renamed `mcp.server.fastmcp.FastMCP` to `mcp.server.MCPServer`, a breaking import-path change — staying on `1.x` keeps `FastMCP` importable at the path the server code uses.
+Exposes 26 blue-kb schema, schema-expansion, knowledge, query, extraction, and provenance operations as MCP tools (`FastMCP`) for consumption by LLM agents; tool handlers delegate directly to the Python library. The version pin is deliberate: `mcp==2.0.0` renamed `mcp.server.fastmcp.FastMCP` to `mcp.server.MCPServer`, a breaking import-path change — staying on `1.x` keeps `FastMCP` importable at the path the server code uses.
 
 ### WordNet MCP Server
 
@@ -131,7 +131,7 @@ A standalone MCP server, unrelated to `KBSource` — it has no dependency on `bl
 
 ### CLI
 
-**Implemented** — `platform/cli/` (package `blue-data-kb-cli`, console script `kb`)
+**Implemented** — `platform/cli/` (package `blue-data-kb-cli`, console script `blue-kb`)
 
 | Concern | Choice |
 |---------|--------|
@@ -160,7 +160,7 @@ Unit tests exercise the full KB API using the in-memory backend with no external
 
 ### blue-data
 
-Provides the `GraphSource` abstract base class and all concrete graph backends consumed by KBDB.
+Provides the `GraphSource` abstract base class and all concrete graph backends consumed by blue-kb.
 
 **Classes used:**
 

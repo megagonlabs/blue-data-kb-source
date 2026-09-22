@@ -73,7 +73,7 @@ def test_database_search_config_set(runner):
 def test_database_select_changes_default(runner):
     invoke(runner, ["--database", "main", "database", "create", "main"])
     invoke(runner, ["database", "select", "main"])
-    # Now a bare `kb schema list` (no --database) should target "main".
+    # Now a bare `blue-kb schema list` (no --database) should target "main".
     result = invoke(runner, ["schema", "list"])
     assert "no schema declared" in result.output
 

@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-kb = "blue_data_kb_cli.commands:cli"
+blue-kb = "blue_data_kb_cli.commands:cli"
 
 [project.optional-dependencies]
 dev    = ["pytest", "pytest-asyncio"]

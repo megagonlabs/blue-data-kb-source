@@ -416,7 +416,7 @@ async def test_add_source_returns_id():
 
 
 # ---------------------------------------------------------------------------
-# Configuration naming — shared with the `kb` CLI
+# Configuration naming — shared with the `blue-kb` CLI
 # ---------------------------------------------------------------------------
 
 def test_model_resolution_matches_the_cli_precedence(monkeypatch):
@@ -459,7 +459,7 @@ def test_every_variable_this_server_reads_is_a_name_the_cli_also_uses():
         / "platform" / "cli" / "src" / "blue_data_kb_cli" / "profile_spec.json"
     )
     known = set(json.loads(spec_path.read_text()))
-    # Per-database backend settings are configured by `kb database register`
+    # Per-database backend settings are configured by `blue-kb database register`
     # flags rather than by a profile parameter, so they have no spec entry —
     # the flag name is the CLI's counterpart and is checked by review, not here.
     backend_only = {

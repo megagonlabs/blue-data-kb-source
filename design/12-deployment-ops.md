@@ -1,14 +1,14 @@
-# KBDB — Deployment / Ops
+# blue-kb — Deployment / Ops
 
 ## Overview
 
-KBDB is distributed today as four independent PyPI packages, installed and run locally or embedded in another Python process — there is no server deployment, container image, or CI/CD pipeline yet. The sections below are split into **Today** (what actually exists and how to use it) and **Planned** (the target operational picture for when a server-shaped deployment — REST API, Docker image, managed observability — is built). Do not treat anything under a "Planned" heading as available now.
+blue-kb is distributed today as four independent PyPI packages, installed and run locally or embedded in another Python process — there is no server deployment, container image, or CI/CD pipeline yet. The sections below are split into **Today** (what actually exists and how to use it) and **Planned** (the target operational picture for when a server-shaped deployment — REST API, Docker image, managed observability — is built). Do not treat anything under a "Planned" heading as available now.
 
 ---
 
 ## 1. Versioning
 
-KBDB follows [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`). Each of the four packages below declares its own version in its own `pyproject.toml` and is versioned independently — there is no single repo-wide version today.
+blue-kb follows [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`). Each of the four packages below declares its own version in its own `pyproject.toml` and is versioned independently — there is no single repo-wide version today.
 
 - **PATCH** — bug fixes, no interface changes
 - **MINOR** — backwards-compatible new features
@@ -23,7 +23,7 @@ Four separate PyPI packages, none of them published yet — installed today from
 | Package | Path | Console script | Depends on |
 |---|---|---|---|
 | `blue-data-kb-source` | `lib/` | — (library only) | `blue-data` (local path) |
-| `blue-data-kb-cli` | `platform/cli/` | `kb` | `blue-data-kb-source>=0.1.0` |
+| `blue-data-kb-cli` | `platform/cli/` | `blue-kb` | `blue-data-kb-source>=0.1.0` |
 | `blue-data-kb-mcp` | `platform/mcp/` | `blue-data-kb-mcp` | `blue-data-kb-source>=0.1.0` |
 | `blue-data-wordnet-mcp` | `platform/wordnet-mcp/` | `blue-data-wordnet-mcp` | none (`mcp[cli]`, `nltk` only — no `blue-data-kb-source`/`blue-data` at all) |
 
@@ -45,7 +45,7 @@ None of the four packages are published to PyPI yet — `pip install blue-data-k
 
 ```bash
 cd lib && bash scripts/install.sh                 # installs blue-data (local path) + this package
-cd ../platform/cli && bash scripts/install.sh      # + kb CLI
+cd ../platform/cli && bash scripts/install.sh      # + blue-kb CLI
 cd ../platform/mcp && bash scripts/install.sh      # + blue-data-kb-mcp server
 cd ../platform/wordnet-mcp && bash scripts/install.sh  # + blue-data-wordnet-mcp server (independent of the above)
 ```
@@ -54,23 +54,23 @@ cd ../platform/wordnet-mcp && bash scripts/install.sh  # + blue-data-wordnet-mcp
 
 ## 3. Configuration (Today)
 
-The CLI is configured by **profiles** — `~/.kb/.profiles`, managed with `kb profile config`; the MCP server has no profile support and is configured purely by environment variables. The two share **variable names** deliberately — a `BLUE_DATA_KB_SOURCE_*` value means the same thing in both — but not configuration: the MCP server never reads the CLI's profiles or its `registry.json`, and takes every value from the environment.
+The CLI is configured by **profiles** — `~/.blue-kb/.profiles`, managed with `blue-kb profile config`; the MCP server has no profile support and is configured purely by environment variables. The two share **variable names** deliberately — a `BLUE_DATA_KB_SOURCE_*` value means the same thing in both — but not configuration: the MCP server never reads the CLI's profiles or its `registry.json`, and takes every value from the environment.
 
-### CLI (`kb`) — `platform/cli/src/blue_data_kb_cli/config.py`
+### CLI (`blue-kb`) — `platform/cli/src/blue_data_kb_cli/config.py`
 
 | Variable | Default | Description |
 |---|---|---|
-| `BLUE_DATA_KB_SOURCE_HOME` | `~/.kb` | CLI state: `.profiles`, `.selected.profile`, `.selected.database`. Environment-only — it is where the profiles themselves are read from, so it cannot come from one |
-| `BLUE_DATA_KB_SOURCE_DATA_DIR` | `~/.kb` | Directory holding `registry.json` (per-database backend/search config) and file-backed graph data |
-| `BLUE_DATA_KB_SOURCE_DATABASE` | `default` | Which database `--database` falls back to, when no `kb database select` has been made |
-| `OPENAI_API_KEY` | — | Required for `kb schema expand`/`kb data extract`/`answer`/`validate`, and for the `assert`/`ingest` commands under `--schema-creation-mode llm` (the default; `none` needs no key) |
+| `BLUE_DATA_KB_SOURCE_HOME` | `~/.blue-kb` | CLI state: `.profiles`, `.selected.profile`, `.selected.database`. Environment-only — it is where the profiles themselves are read from, so it cannot come from one |
+| `BLUE_DATA_KB_SOURCE_DATA_DIR` | `~/.blue-kb` | Directory holding `registry.json` (per-database backend/search config) and file-backed graph data |
+| `BLUE_DATA_KB_SOURCE_DATABASE` | `default` | Which database `--database` falls back to, when no `blue-kb database select` has been made |
+| `OPENAI_API_KEY` | — | Required for `blue-kb schema expand`/`blue-kb data extract`/`answer`/`validate`, and for the `assert`/`ingest` commands under `--schema-creation-mode llm` (the default; `none` needs no key) |
 | `BLUE_DATA_LLM_MODEL`, `BLUE_DATA_KB_SOURCE_*_LLM_MODEL` | `gpt-4o` | The model each LLM command uses. A function-specific value falls back to `BLUE_DATA_KB_SOURCE_LLM_MODEL`, then to `BLUE_DATA_LLM_MODEL` |
-| `BLUE_DATA_KB_SOURCE_EXTRACTION_*` | — | Extraction defaults (`EFFORT`, `MAX_CONCURRENCY`, `MAX_TURNS`, `RELATED_DATA_K`, `EXPAND_SCHEMA`), each overridable by the matching `kb data extract` option |
+| `BLUE_DATA_KB_SOURCE_EXTRACTION_*` | — | Extraction defaults (`EFFORT`, `MAX_CONCURRENCY`, `MAX_TURNS`, `RELATED_DATA_K`, `EXPAND_SCHEMA`), each overridable by the matching `blue-kb data extract` option |
 | `BLUE_DATA_CLI_FORMAT`, `BLUE_DATA_CLI_LOG_LIMIT` | `table`, `80` | Family-wide CLI output defaults |
 
-Every row except `BLUE_DATA_KB_SOURCE_HOME` is normally set in a profile rather than exported — `kb profile config` writes them to `~/.kb/.profiles` (mode `0600`), and the CLI exports the resolved values into its own environment at startup so everything that already reads configuration from the environment keeps working unchanged. Exporting one directly still wins, which is the documented precedence: **command option > environment > profile > default**. The full parameter table is in [docs/cli.md](../docs/cli.md#profiles-and-configuration); the engine is `blue_data.utils.config` in the `blue-data` repo, shared with the rest of the CLI family.
+Every row except `BLUE_DATA_KB_SOURCE_HOME` is normally set in a profile rather than exported — `blue-kb profile config` writes them to `~/.blue-kb/.profiles` (mode `0600`), and the CLI exports the resolved values into its own environment at startup so everything that already reads configuration from the environment keeps working unchanged. Exporting one directly still wins, which is the documented precedence: **command option > environment > profile > default**. The full parameter table is in [docs/cli.md](../docs/cli.md#profiles-and-configuration); the engine is `blue_data.utils.config` in the `blue-data` repo, shared with the rest of the CLI family.
 
-Per-database backend and search configuration (graph backend, Neo4j connection, search mode, vector backend) is **not** environment-variable-driven — it's set via `kb database register ...` flags and persisted in `{BLUE_DATA_KB_SOURCE_DATA_DIR}/registry.json`. See [09-api-interface-spec.md](09-api-interface-spec.md) §4 for the full flag reference.
+Per-database backend and search configuration (graph backend, Neo4j connection, search mode, vector backend) is **not** environment-variable-driven — it's set via `blue-kb database register ...` flags and persisted in `{BLUE_DATA_KB_SOURCE_DATA_DIR}/registry.json`. See [09-api-interface-spec.md](09-api-interface-spec.md) §4 for the full flag reference.
 
 ### MCP server (`blue-data-kb-mcp`) — `platform/mcp/src/blue_data_kb_mcp/config.py`
 
@@ -79,7 +79,7 @@ A completely separate `BLUE_DATA_KB_SOURCE_*` namespace, since the server owns o
 | Variable | Default | Description |
 |---|---|---|
 | `BLUE_DATA_KB_SOURCE_GRAPH_BACKEND` | `file` | `file` \| `neo4j` |
-| `BLUE_DATA_KB_SOURCE_DATA_DIR` | `~/.kb` | File backend directory |
+| `BLUE_DATA_KB_SOURCE_DATA_DIR` | `~/.blue-kb` | File backend directory |
 | `BLUE_DATA_KB_SOURCE_NEO4J_URI` / `_USER` / `_PASSWORD` | — | Neo4j connection, when `GRAPH_BACKEND=neo4j` |
 | `BLUE_DATA_KB_SOURCE_SEARCH` | `none` | `none` \| `bm25` \| `semantic` |
 | `BLUE_DATA_KB_SOURCE_VECTOR_BACKEND` | `memory` | `memory` \| `file` \| `chromadb` \| `redis`, when `SEARCH=semantic` |
@@ -93,17 +93,17 @@ The MCP server runs over **stdio transport** (`mcp.run()`, launched as a subproc
 
 ### WordNet MCP server (`blue-data-wordnet-mcp`) — `platform/wordnet-mcp/src/blue_data_wordnet_mcp/server.py`
 
-No environment variables at all — the server is fully self-contained, holding no `KBSource` and needing no backend configuration. It runs over stdio the same way the MCP server does, either standalone (`blue-data-wordnet-mcp`) or spawned automatically by `expand_schema(reference="mcp", mcp_servers=[{"transport": "stdio", "command": "blue-data-wordnet-mcp"}])`/`kb schema expand --reference mcp --mcp-server '...'`. The one piece of "configuration" is the WordNet corpus itself: downloaded lazily via `nltk.download()` on first tool call (one-time network access), or pre-fetched with `python -m nltk.downloader wordnet omw-1.4`.
+No environment variables at all — the server is fully self-contained, holding no `KBSource` and needing no backend configuration. It runs over stdio the same way the MCP server does, either standalone (`blue-data-wordnet-mcp`) or spawned automatically by `expand_schema(reference="mcp", mcp_servers=[{"transport": "stdio", "command": "blue-data-wordnet-mcp"}])`/`blue-kb schema expand --reference mcp --mcp-server '...'`. The one piece of "configuration" is the WordNet corpus itself: downloaded lazily via `nltk.download()` on first tool call (one-time network access), or pre-fetched with `python -m nltk.downloader wordnet omw-1.4`.
 
 ---
 
 ## 4. Storage Backend (Today)
 
-KBDB does not bundle or manage a graph backend. Three are available (see [05-software-stack.md](05-software-stack.md)):
+blue-kb does not bundle or manage a graph backend. Three are available (see [05-software-stack.md](05-software-stack.md)):
 
 - **Memory** — in-process, no persistence, no setup. Default for tests and short-lived scripts.
 - **File** — JSON-file-backed, one file per database, no server required. The CLI's and MCP server's default.
-- **Neo4j** — the operator provisions their own instance and provides connection details via `kb database register --neo4j-uri ...` (CLI) or `BLUE_DATA_KB_SOURCE_NEO4J_*` (MCP server). Neo4j must be reachable before KBDB will use it; there is no bundled Neo4j container or `docker-compose.yml` in this repository.
+- **Neo4j** — the operator provisions their own instance and provides connection details via `blue-kb database register --neo4j-uri ...` (CLI) or `BLUE_DATA_KB_SOURCE_NEO4J_*` (MCP server). Neo4j must be reachable before blue-kb will use it; there is no bundled Neo4j container or `docker-compose.yml` in this repository.
 
 ---
 

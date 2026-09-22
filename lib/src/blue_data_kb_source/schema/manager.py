@@ -417,7 +417,7 @@ class SchemaManager:
         if self._source.get_neighbors(database, class_id, edge_type=IS_SUBCLASS_OF, direction="in"):
             raise SchemaError(
                 "Class is a parent of other classes. "
-                "Remove subclass relationships first with `kb schema class parent remove`."
+                "Remove subclass relationships first with `blue-kb schema class parent remove`."
             )
         self._source.delete_node(database, class_id)
         self._fire({"type": "class_deleted", "database": database, "id": class_id})
@@ -429,7 +429,7 @@ class SchemaManager:
         if self._source.get_neighbors(database, relation_id, edge_type=IS_SUBCLASS_OF, direction="in"):
             raise SchemaError(
                 "Relation is a parent of other relations. "
-                "Remove subclass relationships first with `kb schema relation parent remove`."
+                "Remove subclass relationships first with `blue-kb schema relation parent remove`."
             )
         self._source.delete_node(database, relation_id)
         self._fire({"type": "relation_deleted", "database": database, "id": relation_id})

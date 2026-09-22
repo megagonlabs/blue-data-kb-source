@@ -1,4 +1,4 @@
-# KBDB — Coding Style
+# blue-kb — Coding Style
 
 ## Tooling
 

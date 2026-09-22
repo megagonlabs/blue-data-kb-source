@@ -11,7 +11,7 @@ A typed knowledge-base graph layer with schema management, LLM-based knowledge e
 - **Extract** entities, facts, and property values from free text using an OpenAI LLM agent that extends the schema as needed.
 - **Query** the knowledge base in natural language — answer questions, validate statements, and enrich queries by traversing the graph.
 - **Observe** writes via database-scoped change hooks that fire synchronously with enriched event payloads.
-- **Connect an LLM agent** directly via the MCP server, or drive everything from the `kb` CLI.
+- **Connect an LLM agent** directly via the MCP server, or drive everything from the `blue-kb` CLI.
 
 See [docs/features.md](docs/features.md) for the full list with examples.
 
@@ -42,7 +42,7 @@ blue-data-kb-source/
 
 - Python 3.10+
 - [`blue-data`](../blue-data/lib) (local dependency)
-- OpenAI API key — needed for LLM extraction (`import_text` / `kb extract`) and LLM querying (`answer` / `validate` / `enrich`)
+- OpenAI API key — needed for LLM extraction (`import_text` / `blue-kb extract`) and LLM querying (`answer` / `validate` / `enrich`)
 
 ```bash
 export OPENAI_API_KEY=sk-...
@@ -55,34 +55,34 @@ export OPENAI_API_KEY=sk-...
 cd lib && bash scripts/install.sh && cd ..
 cd platform/cli && bash scripts/install.sh && cd ../..
 
-# Databases persist under ~/.kb/ by default; override with:
-export BLUE_DATA_KB_SOURCE_DATA_DIR=/path/to/my-kb   # or: kb profile config BLUE_DATA_KB_SOURCE_DATA_DIR /path/to/my-kb
+# Databases persist under ~/.blue-kb/ by default; override with:
+export BLUE_DATA_KB_SOURCE_DATA_DIR=/path/to/my-kb   # or: blue-kb profile config BLUE_DATA_KB_SOURCE_DATA_DIR /path/to/my-kb
 
 # Create a database and declare a schema
-kb database create main
-kb --database main schema class add PERSON "A human individual"
-kb --database main schema class add COMPANY "A business organization"
-kb --database main schema relation add WORKED_AT "Employment relationship" \
+blue-kb database create main
+blue-kb --database main schema class add PERSON "A human individual"
+blue-kb --database main schema class add COMPANY "A business organization"
+blue-kb --database main schema relation add WORKED_AT "Employment relationship" \
     --domain PERSON --range COMPANY
-kb --database main schema class property add AGE "Age of a person" --class PERSON
+blue-kb --database main schema class property add AGE "Age of a person" --class PERSON
 
 # Add entities and a fact by name
-kb --database main data entity add --name Alice --class PERSON \
+blue-kb --database main data entity add --name Alice --class PERSON \
     --text "Alice is a software engineer."
-kb --database main data entity add --name IBM --class COMPANY
-kb --database main data fact add \
+blue-kb --database main data entity add --name IBM --class COMPANY
+blue-kb --database main data fact add \
     --head Alice --relation WORKED_AT --tail IBM \
     --text "Alice joined IBM in June 1998."
-kb --database main data entity property set 30 --entity Alice --property AGE --type NUMBER
+blue-kb --database main data entity property set 30 --entity Alice --property AGE --type NUMBER
 
 # Show schema and instances
-kb --database main schema list
-kb --database main data list
+blue-kb --database main schema list
+blue-kb --database main data list
 
 # LLM query and extraction (both require OPENAI_API_KEY)
-kb --database main data answer "Where did Alice work?"
-kb --database main data validate "Alice worked at IBM"
-kb --database main data extract \
+blue-kb --database main data answer "Where did Alice work?"
+blue-kb --database main data validate "Alice worked at IBM"
+blue-kb --database main data extract \
     "Alice joined IBM as a software engineer in June 1998. She later moved to Google in 2005." \
     --query "Where did Alice work?" --query "When did she start?"
 ```
@@ -96,6 +96,6 @@ For runnable scripts with real captured output — one per storage/search backen
 | Package | Description |
 |---|---|
 | [lib/](lib/README.md) | `blue-data-kb-source` — core Python library |
-| [platform/cli/](platform/cli/README.md) | `blue-data-kb-cli` — `kb` CLI |
+| [platform/cli/](platform/cli/README.md) | `blue-data-kb-cli` — `blue-kb` CLI |
 | [platform/mcp/](platform/mcp/README.md) | `blue-data-kb-mcp` — MCP server for LLM agent tool use |
 | [platform/wordnet-mcp/](platform/wordnet-mcp/README.md) | `blue-data-wordnet-mcp` — standalone MCP server exposing WordNet lexical lookups; optionally connected by `expand_schema(reference="mcp")` to ground new schema names and hierarchy placement |

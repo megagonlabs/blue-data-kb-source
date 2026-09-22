@@ -1,10 +1,10 @@
-"""Click command groups for the kb CLI.
+"""Click command groups for the blue-kb CLI.
 
-Databases are registered in {BLUE_DATA_KB_SOURCE_DATA_DIR}/registry.json (defaults to ~/.kb).
+Databases are registered in {BLUE_DATA_KB_SOURCE_DATA_DIR}/registry.json (defaults to ~/.blue-kb).
 That value, and every other configuration parameter, comes from the selected
-profile in ~/.kb/.profiles — see `kb profile --help`.
+profile in ~/.blue-kb/.profiles — see `blue-kb profile --help`.
 Each entry stores the graph backend and optional search configuration.  Run
-`kb database register` to create and configure a new database.
+`blue-kb database register` to create and configure a new database.
 
 FileGraphSource persists each database as a JSON file — no explicit save step
 is needed.  The graph backend (neo4j, …) is chosen per database in the registry.
@@ -344,7 +344,7 @@ class _CommandContext(dict):
 
     The root group used to construct the target database — creating it if
     absent — on every single invocation, including commands that never touch
-    one: `kb profile list` would leave a `default.json` and a `registry.json`
+    one: `blue-kb profile list` would leave a `default.json` and a `registry.json`
     behind. Commands still read `obj["kb"]` exactly as before; it simply isn't
     built until one of them actually asks for it.
     """
@@ -366,26 +366,26 @@ class _CommandContext(dict):
     envvar="BLUE_DATA_PROFILE",
     default=None,
     help="Configuration profile. Overrides BLUE_DATA_PROFILE. "
-         "Defaults to the selection in ~/.kb/.selected.profile.",
+         "Defaults to the selection in ~/.blue-kb/.selected.profile.",
 )
 @click.option(
     "--database",
     default=None,
-    help="Target database. Defaults to the selection in ~/.kb/.selected.database, "
+    help="Target database. Defaults to the selection in ~/.blue-kb/.selected.database, "
          "then BLUE_DATA_KB_SOURCE_DATABASE from the profile.",
 )
 @click.pass_context
 def cli(ctx: click.Context, profile_name: str | None, database: str | None) -> None:
-    """kb — Knowledge Base CLI.
+    """blue-kb — Knowledge Base CLI.
 
-    Configuration lives in profiles: `kb profile config` to set values,
-    `kb profile inspect` to see them and where each came from.
-    Run `kb database register` to create and configure a database.
+    Configuration lives in profiles: `blue-kb profile config` to set values,
+    `blue-kb profile inspect` to see them and where each came from.
+    Run `blue-kb database register` to create and configure a database.
     """
     home = _cli_home()
 
     # A fresh install gets its `default` profile here, rather than being told to
-    # run `kb profile add` before anything works. Keyed on the profiles file, so
+    # run `blue-kb profile add` before anything works. Keyed on the profiles file, so
     # a profile the user removed on purpose is not resurrected on the next
     # command.
     profile_store(home).initialize()
@@ -440,7 +440,7 @@ def _extraction_default(obj: dict, param: str, option):
 
 
 # ------------------------------------------------------------------ #
-# kb database                                                          #
+# blue-kb database                                                          #
 # ------------------------------------------------------------------ #
 
 @cli.group("database")
@@ -462,7 +462,7 @@ def database_list(fmt: str) -> None:
         console.print_json(json.dumps({r["name"]: r["properties"] for r in records}))
         return
     if not records:
-        console.print("[dim](no databases registered — run `kb database register NAME`)[/dim]")
+        console.print("[dim](no databases registered — run `blue-kb database register NAME`)[/dim]")
         return
     t = Table(show_header=True, header_style="bold")
     t.add_column("Database")
@@ -644,7 +644,7 @@ def database_select(name: str) -> None:
 
 
 # ------------------------------------------------------------------ #
-# kb database config                                                   #
+# blue-kb database config                                                   #
 # ------------------------------------------------------------------ #
 
 @database_group.group("config")
@@ -694,7 +694,7 @@ def database_config_set(
 
 
 # ------------------------------------------------------------------ #
-# kb database search config                                            #
+# blue-kb database search config                                            #
 # ------------------------------------------------------------------ #
 
 @database_group.group("search")
@@ -775,7 +775,7 @@ def database_search_config_set(
 
 
 # ------------------------------------------------------------------ #
-# kb schema                                                            #
+# blue-kb schema                                                            #
 # ------------------------------------------------------------------ #
 
 @cli.group("schema")
@@ -924,7 +924,7 @@ def schema_import(obj: dict, input_file) -> None:
 
 
 # ------------------------------------------------------------------ #
-# kb schema class                                                      #
+# blue-kb schema class                                                      #
 # ------------------------------------------------------------------ #
 
 @schema_group.group("class")
@@ -1019,7 +1019,7 @@ def schema_class_update(
 
 
 # ------------------------------------------------------------------ #
-# kb schema class parent / child                                       #
+# blue-kb schema class parent / child                                       #
 # ------------------------------------------------------------------ #
 
 def _build_parent_tree(kb: FileKBSource, db: str, class_id: str, label: str, tree: Tree, visited: set[str]) -> None:
@@ -1409,7 +1409,7 @@ def schema_class_delete(
 
 
 # ------------------------------------------------------------------ #
-# kb schema relation                                                   #
+# blue-kb schema relation                                                   #
 # ------------------------------------------------------------------ #
 
 @schema_group.group("relation")
@@ -1521,7 +1521,7 @@ def schema_relation_update(
 
 
 # ------------------------------------------------------------------ #
-# kb schema relation parent / child                                    #
+# blue-kb schema relation parent / child                                    #
 # ------------------------------------------------------------------ #
 
 def _build_relation_parent_tree(kb: FileKBSource, db: str, relation_id: str, tree: Tree, visited: set[str]) -> None:
@@ -1711,7 +1711,7 @@ def schema_relation_child_list(
 
 
 # ------------------------------------------------------------------ #
-# kb schema relation domain / range                                    #
+# blue-kb schema relation domain / range                                    #
 # ------------------------------------------------------------------ #
 
 
@@ -2162,7 +2162,7 @@ def schema_expand(
     log_limit: int | None,
 ) -> None:
     """Grow the schema from text, without extracting data.
-    extracting any data. Run separately from `kb data extract`, so the same
+    extracting any data. Run separately from `blue-kb data extract`, so the same
     expanded schema can be reused across many extraction calls.
 
     Requires the openai extra: pip install 'blue-data-kb-source[openai]'
@@ -2190,7 +2190,7 @@ def schema_expand(
 
 
 # ------------------------------------------------------------------ #
-# kb data                                                              #
+# blue-kb data                                                              #
 # ------------------------------------------------------------------ #
 
 @cli.group("data")
@@ -2222,7 +2222,7 @@ def data_reindex(obj: dict) -> None:
 
 
 # ------------------------------------------------------------------ #
-# kb data source                                                       #
+# blue-kb data source                                                       #
 # ------------------------------------------------------------------ #
 
 @data_group.command("ingest")
@@ -2408,11 +2408,11 @@ def source_delete(
 
 
 # ------------------------------------------------------------------ #
-# kb data extraction                                                   #
+# blue-kb data extraction                                                   #
 # ------------------------------------------------------------------ #
 
 # ------------------------------------------------------------------ #
-# kb data entity                                                       #
+# blue-kb data entity                                                       #
 # ------------------------------------------------------------------ #
 
 @data_group.group("entity")
@@ -2587,7 +2587,7 @@ def entity_delete(
 
 
 # ------------------------------------------------------------------ #
-# kb data entity class                                                 #
+# blue-kb data entity class                                                 #
 # ------------------------------------------------------------------ #
 
 
@@ -2666,7 +2666,7 @@ def entity_class_list(
 
 
 # ------------------------------------------------------------------ #
-# kb data entity extraction                                            #
+# blue-kb data entity extraction                                            #
 # ------------------------------------------------------------------ #
 
 @entity_group.group("extraction")
@@ -2720,7 +2720,7 @@ def entity_extraction_add(
 
 
 # ------------------------------------------------------------------ #
-# kb entity property                                                   #
+# blue-kb entity property                                                   #
 # ------------------------------------------------------------------ #
 
 @entity_group.group("property")
@@ -2775,8 +2775,8 @@ def entity_property_set(
 
     \b
     Examples:
-      kb data entity property set 42 --entity Alice --property AGE --type NUMBER
-      kb data entity property set "1990-03-15" --entity Alice --property BIRTH_DATE --type DATE
+      blue-kb data entity property set 42 --entity Alice --property AGE --type NUMBER
+      blue-kb data entity property set "1990-03-15" --entity Alice --property BIRTH_DATE --type DATE
     """
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
@@ -2936,7 +2936,7 @@ def entity_property_delete(
 
 
 # ------------------------------------------------------------------ #
-# kb data entity property extraction                                   #
+# blue-kb data entity property extraction                                   #
 # ------------------------------------------------------------------ #
 
 @entity_property_group.group("extraction")
@@ -2991,7 +2991,7 @@ def entity_property_extraction_add(
 
 
 # ------------------------------------------------------------------ #
-# kb data fact                                                         #
+# blue-kb data fact                                                         #
 # ------------------------------------------------------------------ #
 
 @data_group.group("fact")
@@ -3202,7 +3202,7 @@ def fact_delete(
 
 
 # ------------------------------------------------------------------ #
-# kb data fact extraction                                              #
+# blue-kb data fact extraction                                              #
 # ------------------------------------------------------------------ #
 
 @fact_group.group("extraction")
@@ -3256,7 +3256,7 @@ def fact_extraction_add(
 
 
 # ------------------------------------------------------------------ #
-# kb fact property                                                     #
+# blue-kb fact property                                                     #
 # ------------------------------------------------------------------ #
 
 @fact_group.group("property")
@@ -3311,7 +3311,7 @@ def fact_property_set(
 
     \b
     Example:
-      kb data fact property set "1998-06-01" --fact-id <uuid> --property START_DATE --type DATE
+      blue-kb data fact property set "1998-06-01" --fact-id <uuid> --property START_DATE --type DATE
     """
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
@@ -3474,7 +3474,7 @@ def fact_property_delete(
 
 
 # ------------------------------------------------------------------ #
-# kb data fact property extraction                                     #
+# blue-kb data fact property extraction                                     #
 # ------------------------------------------------------------------ #
 
 @fact_property_group.group("extraction")
@@ -3529,7 +3529,7 @@ def fact_property_extraction_add(
 
 
 # ------------------------------------------------------------------ #
-# kb data list                                                         #
+# blue-kb data list                                                         #
 # ------------------------------------------------------------------ #
 
 @data_group.command("list")
@@ -3663,7 +3663,7 @@ def list_cmd(obj: dict, show_provenance: bool, show_detailed: bool, fmt: str) ->
 
 
 # ------------------------------------------------------------------ #
-# kb data export / import                                              #
+# blue-kb data export / import                                              #
 # ------------------------------------------------------------------ #
 
 @data_group.command("export")
@@ -3673,8 +3673,8 @@ def list_cmd(obj: dict, show_provenance: bool, show_detailed: bool, fmt: str) ->
 @click.pass_obj
 def data_export(obj: dict, show_provenance: bool, output) -> None:
     """Export instance data as JSON.
-    in the shape `kb data import` reads. Does not include schema — use `kb schema export`
-    for that, and import it first so `kb data import` has classes/relations/properties
+    in the shape `blue-kb data import` reads. Does not include schema — use `blue-kb schema export`
+    for that, and import it first so `blue-kb data import` has classes/relations/properties
     to resolve names against."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
@@ -3691,7 +3691,7 @@ def data_export(obj: dict, show_provenance: bool, output) -> None:
 @click.pass_obj
 def data_import(obj: dict, input_file) -> None:
     """Import instance data from JSON.
-    classes/relations/properties must already exist (e.g. via `kb schema import`)."""
+    classes/relations/properties must already exist (e.g. via `blue-kb schema import`)."""
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
@@ -3706,7 +3706,7 @@ def data_import(obj: dict, input_file) -> None:
 
 
 # ------------------------------------------------------------------ #
-# kb data extract                                                      #
+# blue-kb data extract                                                      #
 # ------------------------------------------------------------------ #
 
 @data_group.command("extract")
@@ -3803,7 +3803,7 @@ def extract_cmd(
     log_limit: int | None,
 ) -> None:
     """Extract entities and facts from text.
-    also expands the schema first (see --no-expand-schema and `kb schema expand`).
+    also expands the schema first (see --no-expand-schema and `blue-kb schema expand`).
 
     Requires the openai extra: pip install 'blue-data-kb-source[openai]'
     and OPENAI_API_KEY in the environment.
@@ -3844,7 +3844,7 @@ def extract_cmd(
 
 
 # ------------------------------------------------------------------ #
-# kb data answer                                                       #
+# blue-kb data answer                                                       #
 # ------------------------------------------------------------------ #
 
 @data_group.command("answer")
@@ -3900,7 +3900,7 @@ def answer_cmd(
 
 
 # ------------------------------------------------------------------ #
-# kb data validate                                                     #
+# blue-kb data validate                                                     #
 # ------------------------------------------------------------------ #
 
 @data_group.command("validate")

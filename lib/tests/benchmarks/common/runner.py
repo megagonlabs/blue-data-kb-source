@@ -101,7 +101,7 @@ class RunResult:
 async def run_case(kb: KBSource, case: Case, model: str, schema_discovery_mode: str) -> RunResult:
     """Run one case end to end against a freshly created database on *kb*.
 
-    Uses `overwrite=True` so repeated calls against a shared `kb` instance (as
+    Uses `overwrite=True` so repeated calls against a shared `blue-kb` instance (as
     `run.py` does when comparing several models/modes) each start from a clean
     database instead of accumulating entities/facts from prior runs, which
     could otherwise contaminate `find_entity`/`link_extraction` lookups.

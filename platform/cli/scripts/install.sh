@@ -15,4 +15,4 @@ pip install -e "$LIB_ROOT"
 echo "Installing blue-data-kb-cli..."
 pip install -e "$CLI_ROOT"
 
-echo "Done. Run: kb --help"
+echo "Done. Run: blue-kb --help"

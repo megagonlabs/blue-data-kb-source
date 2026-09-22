@@ -1,4 +1,4 @@
-# KBDB — High Level Architecture
+# blue-kb — High Level Architecture
 
 ## Diagram
 
@@ -13,7 +13,7 @@
                                   │
                                   ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                               KBDB                                  │
+│                               blue-kb                                  │
 │                                                                     │
 │   ┌─────────────────────────────────────────────────────────────┐   │
 │   │                         Schema Layer                        │   │
@@ -65,15 +65,15 @@ Two layers hold the basic operations, one per level: the Schema Layer for the sc
 
 ### External Interfaces
 
-Four interface adapters sit in front of KBDB and delegate to the core library. They share no internal logic — each is a thin translation layer over the Python library.
+Four interface adapters sit in front of blue-kb and delegate to the core library. They share no internal logic — each is a thin translation layer over the Python library.
 
-**Python Library** — Native Python API (`KBSource` and related classes). Used to embed KBDB directly in Python applications and agentic pipelines.
+**Python Library** — Native Python API (`KBSource` and related classes). Used to embed blue-kb directly in Python applications and agentic pipelines.
 
-**MCP Server** — Exposes schema declaration, instance writes, text extraction with its schema expansion pass, and query operations as MCP tools, enabling LLM agents to interact with KBDB within an agentic context. A separate, standalone WordNet MCP server (`platform/wordnet-mcp`) can optionally be connected by the Schema Expansion Engine below to ground new names and hierarchy placement — it is not part of this server.
+**MCP Server** — Exposes schema declaration, instance writes, text extraction with its schema expansion pass, and query operations as MCP tools, enabling LLM agents to interact with blue-kb within an agentic context. A separate, standalone WordNet MCP server (`platform/wordnet-mcp`) can optionally be connected by the Schema Expansion Engine below to ground new names and hierarchy placement — it is not part of this server.
 
 **CLI** — Command-line interface (Click + Rich). Used for interactive development, debugging, scripting, and schema inspection.
 
-**REST API — planned, not yet implemented.** `platform/api/` is an empty directory today; nothing under this heading exists in the repository. HTTP/JSON interface (FastAPI), sketched to enable non-Python services and remote clients to call KBDB over the network — see [09-api-interface-spec.md](09-api-interface-spec.md) §2 for the speculative design.
+**REST API — planned, not yet implemented.** `platform/api/` is an empty directory today; nothing under this heading exists in the repository. HTTP/JSON interface (FastAPI), sketched to enable non-Python services and remote clients to call blue-kb over the network — see [09-api-interface-spec.md](09-api-interface-spec.md) §2 for the speculative design.
 
 ### Schema Layer
 
@@ -83,7 +83,7 @@ Manages the typed vocabulary of the knowledge base — classes, relation types, 
 - Maintains hierarchical relationships between classes (subclass) and between relations (sub-relation)
 - Supports domain and range constraints that specify the valid head and tail types for each relation
 - Exports the schema to a portable representation and imports it from that representation into any database
-- Exposes the meta-schema — a fixed description of KBDB's own graph structure — for introspection by agents and tools
+- Exposes the meta-schema — a fixed description of blue-kb's own graph structure — for introspection by agents and tools
 - Supports schema consolidation: merging or splitting classes, relations, and properties, propagating the resulting changes to all affected instances
 - Supports schema search: filtering schema elements by natural language query or keywords, enabling agents and tools to discover what the schema already captures before declaring new elements — delegated to the Search Indexer when search is enabled for the database, otherwise served directly by the Schema Manager
 - Supports LLM-driven schema growth from free text (`expand_schema`): declares new classes, relations, and properties grounded in a text passage, distinct from and never overlapping with the Extraction Engine's job of populating instances against the schema
@@ -145,6 +145,6 @@ Stores all schema and instance data as a typed graph of nodes and edges. The sto
 
 **Memory** — In-process graph store. Used for development, testing, and short-lived pipelines where persistence is not required.
 
-**File** — JSON-file-backed graph store, one file per database. The default backend for the CLI, persisting databases under `~/.kb/` (or the profile's `BLUE_DATA_KB_SOURCE_DATA_DIR`) without requiring an external database server.
+**File** — JSON-file-backed graph store, one file per database. The default backend for the CLI, persisting databases under `~/.blue-kb/` (or the profile's `BLUE_DATA_KB_SOURCE_DATA_DIR`) without requiring an external database server.
 
 **Neo4j** — Persistent graph database backend. Used for production deployments where the knowledge base must survive process restarts and support concurrent access.

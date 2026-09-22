@@ -172,12 +172,12 @@ Each mixes `KBSource` in with a concrete `GraphSource` via Python MRO under the 
 
 ## CLI
 
-A full command-line interface (`kb`) over the library — schema, data, search, provenance, LLM operations, database/backend management.
+A full command-line interface (`blue-kb`) over the library — schema, data, search, provenance, LLM operations, database/backend management.
 
 ```bash
-kb schema class add PERSON "A human individual"
-kb data entity add --name Alice --class PERSON
-kb data answer "Where did Alice work?"
+blue-kb schema class add PERSON "A human individual"
+blue-kb data entity add --name Alice --class PERSON
+blue-kb data answer "Where did Alice work?"
 ```
 
 See [cli.md](cli.md) for the full command reference.

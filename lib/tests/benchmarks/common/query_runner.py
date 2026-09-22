@@ -31,7 +31,7 @@ def _build_kb(search_mode: str) -> KBSource:
     matching DataSource's own signature), unlike extraction's
     `schema_discovery_mode` which is a per-call `import_text` argument — so,
     unlike `runner.run_case`, this owns KB construction rather than taking a
-    pre-built `kb` from the caller.
+    pre-built `blue-kb` from the caller.
     """
     if search_mode == "keyword":
         # Real in-memory BM25 (rank-bm25), not the raw substring fallback used

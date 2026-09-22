@@ -1,4 +1,4 @@
-"""`kb profile` — the command group, and the configuration it drives."""
+"""`blue-kb profile` — the command group, and the configuration it drives."""
 import json
 from pathlib import Path
 
@@ -25,7 +25,7 @@ def test_spec_merges_the_family_parameters_with_this_cli_s_own():
 
 
 def test_only_four_parameters_are_asked_on_a_first_run():
-    """`kb profile config` walks the required set; keeping it small is the
+    """`blue-kb profile config` walks the required set; keeping it small is the
     difference between a usable first run and an interrogation."""
     assert [p.name for p in cli_spec().required()] == [
         "OPENAI_API_KEY",
@@ -278,7 +278,7 @@ def test_model_options_no_longer_hardcode_a_default():
 def test_profile_commands_do_not_create_a_database(runner, tmp_path):
     """Configuration commands have no business touching the graph. The root
     group used to build — and create — the target database on every
-    invocation, so `kb profile list` left a default.json behind."""
+    invocation, so `blue-kb profile list` left a default.json behind."""
     invoke(runner, ["profile", "add", "staging"])
     invoke(runner, ["profile", "list"])
     invoke(runner, ["profile", "config", "BLUE_DATA_LLM_MODEL", "gpt-4o"])
@@ -299,7 +299,7 @@ def test_a_database_command_still_creates_its_database(runner, tmp_path):
 # ------------------------------------------------------------------ #
 
 def test_the_first_command_creates_the_default_profile(runner, tmp_path):
-    """A fresh install must not tell the user to run `kb profile add` before
+    """A fresh install must not tell the user to run `blue-kb profile add` before
     anything works."""
     assert not (tmp_path / ".profiles").exists()
     out = json.loads(invoke(runner, ["profile", "list", "--format", "json"]).output)
