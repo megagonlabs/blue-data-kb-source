@@ -164,7 +164,8 @@ Same shape: `name`, `description`, `class_id`/`relation_id` (optional owner),
 #### `add_is_subclass_of`
 
 `child_id`, `parent_id`, `database` — both ids must be the same kind (both
-classes or both relations). Returns `{"status": "ok"}`.
+classes or both relations). Idempotent; a self-loop or an edge that would create
+a cycle returns an error. Returns `{"status": "ok"}`.
 
 #### `attach_property`
 

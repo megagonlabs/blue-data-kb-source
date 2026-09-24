@@ -452,6 +452,11 @@ class SchemaManager:
         self._source.delete_edge(database, child_id, IS_SUBCLASS_OF, parent_id)
 
     async def add_is_subclass_of(self, database: str, child_id: str, parent_id: str) -> None:
+        """Wire *child_id* IS_SUBCLASS_OF *parent_id* (idempotent).
+
+        Both must be the same kind (CLASS or RELATION). Raises SchemaError on a
+        self-loop or when the edge would close a cycle in the hierarchy.
+        """
         child_node = self._require_class_or_relation(database, child_id, "child_id")
         parent_node = self._require_class_or_relation(database, parent_id, "parent_id")
         child_label = child_node.get("label", "")
@@ -462,6 +467,19 @@ class SchemaManager:
                 f"{parent_label} node — a subclass relationship requires both to be the same kind "
                 "(both CLASS or both RELATION)."
             )
+        child_name = child_node.get("properties", {}).get("name")
+        parent_name = parent_node.get("properties", {}).get("name")
+        if child_id == parent_id:
+            raise SchemaError(f"{child_name} ({child_id}) cannot be a subclass of itself.")
+        nbs = self._source.get_neighbors(database, child_id, edge_type=IS_SUBCLASS_OF, direction="out")
+        if any(nb["node"]["id"] == parent_id for nb in nbs):
+            return
+        descendants = self._hierarchy_walk(database, child_id, "in", max_hops=None)
+        if any(node["id"] == parent_id for node in descendants):
+            raise SchemaError(
+                f"{parent_name} ({parent_id}) is already a descendant of {child_name} ({child_id}) — "
+                "adding this subclass relationship would create a cycle."
+            )
         self._source.add_edge(database, child_id, IS_SUBCLASS_OF, parent_id, properties=edge_stamped())
         event_type = "class_subclass" if child_label == CLASS else "relation_subclass"
         self._fire({
@@ -469,9 +487,9 @@ class SchemaManager:
             "database": database,
             "id": child_id,
             "child_id":   child_id,
-            "child_name":  child_node.get("properties",  {}).get("name"),
+            "child_name":  child_name,
             "parent_id":  parent_id,
-            "parent_name": parent_node.get("properties", {}).get("name"),
+            "parent_name": parent_name,
         })
 
     async def attach_relation_domain(self, database: str, relation_id: str, class_id: str) -> None:

@@ -130,7 +130,7 @@ backends/ scripts' incidental use of the same calls.
 ### Schema declaration (`schema_declaration_demo.py`)
 
 `declare_class`/`declare_relation_type`/`declare_class_property` idempotency semantics,
-class hierarchy via `add_is_subclass_of`, property scoping by `class_id`, and
+class hierarchy via `add_is_subclass_of` (idempotent; self-loops and cycles rejected), property scoping by `class_id`, and
 `consolidate_schema("merge")` — which folds the source class into the target: instances
 are rewired, the source class is deleted, and the search index is updated to match.
 

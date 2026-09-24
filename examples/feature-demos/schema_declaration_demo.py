@@ -10,6 +10,7 @@ another.
 import asyncio
 
 from blue_data_kb_source import MemoryKBSource
+from blue_data_kb_source.types import SchemaError
 
 DIVIDER = "-" * 60
 
@@ -53,9 +54,15 @@ async def main():
     await kb.add_is_subclass_of("main", child_id=employee, parent_id=person)
     schema = await kb.fetch_database_schema("main")
     print(f"EMPLOYEE is_subclass_of PERSON: {schema.has_relation('EMPLOYEE', 'IS_SUBCLASS_OF', 'PERSON')}")
-    print("Gotcha: add_is_subclass_of does not dedupe -- calling it again adds a second,")
-    print("identical IS_SUBCLASS_OF edge in the underlying graph between the same two nodes.")
     await kb.add_is_subclass_of("main", child_id=employee, parent_id=person)
+    parents = kb.get_neighbors("main", employee, edge_type="IS_SUBCLASS_OF", direction="out")
+    print(f"add_is_subclass_of twice -> still one edge: {len(parents) == 1}")
+    for child, parent, label in [(person, person, "PERSON -> PERSON"),
+                                 (person, employee, "PERSON -> EMPLOYEE")]:
+        try:
+            await kb.add_is_subclass_of("main", child_id=child, parent_id=parent)
+        except SchemaError as exc:
+            print(f"{label} rejected: {exc}")
 
     print()
     print(DIVIDER)

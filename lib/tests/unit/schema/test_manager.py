@@ -294,6 +294,45 @@ async def test_add_is_subclass_of_wires_edge(kb):
     assert any(nb["node"]["id"] == parent_id for nb in nbs)
 
 
+async def test_add_is_subclass_of_is_idempotent(kb):
+    parent_id = await kb.declare_class("test", "PERSON",   "")
+    child_id  = await kb.declare_class("test", "EMPLOYEE", "")
+    events = _collect_events(kb, "test")
+    await kb.add_is_subclass_of("test", child_id, parent_id)
+    await kb.add_is_subclass_of("test", child_id, parent_id)
+    nbs = kb.get_neighbors("test", child_id, edge_type="IS_SUBCLASS_OF", direction="out")
+    assert [nb["node"]["id"] for nb in nbs] == [parent_id]
+    assert [e["type"] for e in events] == ["class_subclass"]
+
+
+async def test_add_is_subclass_of_rejects_self_loop(kb):
+    person = await kb.declare_class("test", "PERSON", "")
+    with pytest.raises(SchemaError, match="itself"):
+        await kb.add_is_subclass_of("test", person, person)
+    assert kb.get_neighbors("test", person, edge_type="IS_SUBCLASS_OF", direction="out") == []
+
+
+async def test_add_is_subclass_of_rejects_cycle(kb):
+    person   = await kb.declare_class("test", "PERSON",   "")
+    employee = await kb.declare_class("test", "EMPLOYEE", "")
+    intern   = await kb.declare_class("test", "INTERN",   "")
+    await kb.add_is_subclass_of("test", employee, person)
+    await kb.add_is_subclass_of("test", intern, employee)
+    for child, parent in [(person, employee), (person, intern)]:
+        with pytest.raises(SchemaError, match="cycle"):
+            await kb.add_is_subclass_of("test", child, parent)
+    assert kb.get_neighbors("test", person, edge_type="IS_SUBCLASS_OF", direction="out") == []
+
+
+async def test_add_is_subclass_of_rejects_relation_cycle(kb):
+    await kb.declare_class("test", "PERSON", "")
+    a = await kb.declare_relation_type("test", "KNOWS", "", domain="PERSON", range="PERSON")
+    b = await kb.declare_relation_type("test", "MET", "", domain="PERSON", range="PERSON")
+    await kb.add_is_subclass_of("test", b, a)
+    with pytest.raises(SchemaError, match="cycle"):
+        await kb.add_is_subclass_of("test", a, b)
+
+
 # ------------------------------------------------------------------ #
 # Domain / range widening                                              #
 # ------------------------------------------------------------------ #
@@ -795,7 +834,8 @@ async def test_get_class_ancestors_survives_cycle(kb):
     a = await kb.declare_class("test", "A", "")
     b = await kb.declare_class("test", "B", "")
     await kb.add_is_subclass_of("test", a, b)
-    await kb.add_is_subclass_of("test", b, a)
+    # add_is_subclass_of rejects cycles, so write the malformed edge directly.
+    kb.add_edge("test", b, "IS_SUBCLASS_OF", a)
     unbounded = await kb.get_class_ancestors("test", a, max_hops=None)
     assert {n["properties"]["name"] for n in unbounded} == {"B"}
 
