@@ -2166,6 +2166,11 @@ def schema_search(obj: dict, query: str, types: tuple[str, ...], mode: str, top_
     ),
 )
 @click.option("--model", default=None, help="OpenAI model. Default: the profile's model for this command.")
+@click.option(
+    "--timeout", "timeout", type=float, default=None,
+    help="Give up after this many seconds overall (0 = no limit); elements declared before then "
+         "are kept. Default: the profile's BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_TIMEOUT.",
+)
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Show tool call arguments in the status line.")
 @click.option("--log", "-l", is_flag=True, default=False, help="Also log each tool call and its result on its own line (in addition to the status line).")
 @click.option("--log-limit", type=int, default=None, help="Max characters per truncated verbose/log line. Default: the profile's BLUE_DATA_CLI_LOG_LIMIT.")
@@ -2178,6 +2183,7 @@ def schema_expand(
     mcp_servers_raw: tuple[str, ...],
     dedup_mode: str,
     model: str,
+    timeout: float | None,
     verbose: bool,
     log: bool,
     log_limit: int | None,
@@ -2192,6 +2198,8 @@ def schema_expand(
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     mcp_servers = _parse_mcp_servers(mcp_servers_raw)
+    if timeout is None:
+        timeout = obj["config"].get("BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_TIMEOUT")
     try:
         with console.status("Expanding schema…") as status:
             on_call, on_result = _status_tool_callbacks(status, "Expanding", verbose, log, _log_limit(obj, log_limit))
@@ -2204,6 +2212,7 @@ def schema_expand(
                 model=_model_for(obj, "SCHEMA_EXPANSION", model),
                 on_tool_call=on_call,
                 on_tool_result=on_result,
+                timeout=timeout or None,
             ))
     except KBError as exc:
         raise click.ClickException(str(exc))

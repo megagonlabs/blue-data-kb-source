@@ -131,6 +131,36 @@ def test_schema_expand_dedup_mode_none_omits_search_schema_tool(runner):
     assert "declare_class" in tool_names
 
 
+def _mock_openai_stalled():
+    """Patch openai.AsyncOpenAI so every model call hangs, like a stalled request."""
+    import asyncio
+
+    async def _hang(*args, **kwargs):
+        await asyncio.sleep(3600)
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(side_effect=_hang)
+    return MagicMock(return_value=mock_client)
+
+
+def test_schema_expand_timeout_fails_with_a_clear_error(runner):
+    with patch("openai.AsyncOpenAI", _mock_openai_stalled()):
+        result = runner.invoke(cli, DB + [
+            "schema", "expand", "Alice joined IBM.", "--model", "gpt-5", "--timeout", "0.2",
+        ])
+    assert result.exit_code != 0
+    assert "timed out after 0.2s" in result.output
+    assert "'gpt-5'" in result.output
+
+
+def test_schema_expand_timeout_defaults_to_the_profile_value(runner):
+    with patch("blue_data_kb_source.KBSource.expand_schema", new=AsyncMock()) as expand:
+        invoke(runner, DB + ["schema", "expand", "Alice joined IBM."])
+        assert expand.call_args.kwargs["timeout"] == 1800
+        invoke(runner, DB + ["schema", "expand", "Alice joined IBM.", "--timeout", "0"])
+        assert expand.call_args.kwargs["timeout"] is None
+
+
 def test_answer_table_format(runner):
     _seed(runner)
     payload = [{"entity": "Alice", "relation": "WORKED_AT", "value": None, "provenance": "Alice joined IBM in June 1998."}]

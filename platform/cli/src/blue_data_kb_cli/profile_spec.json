@@ -90,6 +90,12 @@
       "BLUE_DATA_LLM_MODEL"
     ]
   },
+  "BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_TIMEOUT": {
+    "default": 1800,
+    "prompt": "Seconds before `blue-kb schema expand` gives up (0 = no limit)",
+    "required": false,
+    "cast": "float"
+  },
   "BLUE_DATA_KB_SOURCE_EXTRACTION_EFFORT": {
     "default": "low",
     "prompt": "Extraction effort \u2014 low, medium, or high (1/2/3 passes over the text)",

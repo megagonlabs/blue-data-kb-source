@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from contextlib import AsyncExitStack
 from typing import TYPE_CHECKING, Any, Callable, Literal
@@ -414,6 +415,46 @@ class SchemaExpansionEngine:
         on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
         on_tool_result: Callable[[str, dict[str, Any], Any], None] | None = None,
         max_turns: int = 25,
+        timeout: float | None = None,
+    ) -> None:
+        """Run the expansion agent. *timeout* caps the whole run in seconds — every model
+        turn, tool call, and judge call — and raises SchemaError on expiry; None (default)
+        means no cap. Without one, a stalled request waits out the OpenAI client's own
+        600 s timeout and its silent retries, which is how a slow reasoning model can sit
+        for many minutes with nothing printed. Declarations made before expiry are kept."""
+        progress = {"turns": 0}
+        run = self._expand_schema_run(
+            database, text, depth=depth, reference=reference, mcp_servers=mcp_servers,
+            dedup_mode=dedup_mode, model=model, on_tool_call=on_tool_call,
+            on_tool_result=on_tool_result, max_turns=max_turns, progress=progress,
+        )
+        if timeout is None:
+            await run
+            return
+        try:
+            await asyncio.wait_for(run, timeout)
+        except asyncio.TimeoutError:
+            raise SchemaError(
+                f"schema expansion with model {model!r} timed out after {timeout:g}s, "
+                f"{progress['turns']} of at most {max_turns} model turn(s) in; schema elements "
+                "declared before the timeout were kept. Reasoning models can take a minute "
+                "per turn — raise the timeout for them."
+            ) from None
+
+    async def _expand_schema_run(
+        self,
+        database: str,
+        text: str,
+        *,
+        depth: int,
+        reference: Literal["llm", "mcp"],
+        mcp_servers: list[dict[str, Any]] | None,
+        dedup_mode: Literal["search", "llm", "none"],
+        model: str,
+        on_tool_call: Callable[[str, dict[str, Any]], None] | None,
+        on_tool_result: Callable[[str, dict[str, Any], Any], None] | None,
+        max_turns: int,
+        progress: dict[str, int],
     ) -> None:
         try:
             import openai
@@ -453,6 +494,7 @@ class SchemaExpansionEngine:
                 if turns >= max_turns:
                     break
                 turns += 1
+                progress["turns"] = turns
                 response = await client.chat.completions.create(
                     model=model,
                     messages=messages,  # type: ignore[arg-type]

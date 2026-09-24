@@ -563,6 +563,7 @@ class SchemaManager:
         on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
         on_tool_result: Callable[[str, dict[str, Any], Any], None] | None = None,
         max_turns: int = 25,
+        timeout: float | None = None,
     ) -> None:
         """Grow the schema (classes, relations, properties) grounded by *text*.
 
@@ -581,6 +582,7 @@ class SchemaManager:
             on_tool_call=on_tool_call,
             on_tool_result=on_tool_result,
             max_turns=max_turns,
+            timeout=timeout,
         )
 
     # ------------------------------------------------------------------ #

@@ -603,3 +603,33 @@ async def test_expand_schema_property_check_skipped_for_exact_name_redeclaration
 
     assert client.chat.completions.create.call_count == 2
     assert calls[0][1] == {"id": start}
+
+
+
+# ------------------------------------------------------------------ #
+# timeout (#106)                                                       #
+# ------------------------------------------------------------------ #
+
+async def test_expand_schema_timeout_raises_and_keeps_earlier_declarations(kb):
+    """A stalled model call must not hang the run: the overall timeout fires with a
+    clear error, and what was declared before it stays declared."""
+    import asyncio
+    from blue_data_kb_source.types import SchemaError
+
+    first = _tool_call_response("declare_class", {"name": "PERSON", "description": "A human individual"})
+
+    async def create(*args, **kwargs):
+        if create.calls == 0:
+            create.calls += 1
+            return first
+        await asyncio.sleep(3600)
+    create.calls = 0
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(side_effect=create)
+    with patch("openai.AsyncOpenAI", return_value=mock_client):
+        with pytest.raises(SchemaError, match=r"timed out after 0.2s, 2 of at most 25 model turn"):
+            await kb.expand_schema("test", "Alice is a person.", dedup_mode="none", timeout=0.2)
+
+    schema = await kb.fetch_database_schema("test")
+    assert "PERSON" in schema.entities

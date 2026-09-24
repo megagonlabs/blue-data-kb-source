@@ -114,7 +114,7 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `fetch_meta_schema()` | `DataSchema` | Return the fixed blue-kb meta-schema |
 | `import_database_schema(database, schema_json)` | `None` | Replay a `DataSchema.to_json()` dict via idempotent `declare_*` calls — safe to import into a database that already has same-named elements |
 | `consolidate_schema(database, operation, source_names, target_name, predicate?)` | `None` | Only `operation="merge"` is implemented; any other value raises `SchemaError`. `predicate` is accepted but unused. Merge rewires every reference onto the target, deletes the source elements, and fires change events so the search index follows. |
-| `expand_schema(database, text, depth?, reference?, mcp_servers?, dedup_mode?, model?, on_tool_call?, on_tool_result?, max_turns?)` | `None` | LLM agent that grows the schema (CLASS/RELATION/PROPERTY only) grounded by `text` — never touches entities/facts/property values. See SchemaExpansionEngine below |
+| `expand_schema(database, text, depth?, reference?, mcp_servers?, dedup_mode?, model?, on_tool_call?, on_tool_result?, max_turns?, timeout?)` | `None` | LLM agent that grows the schema (CLASS/RELATION/PROPERTY only) grounded by `text` — never touches entities/facts/property values. See SchemaExpansionEngine below |
 
 `declare_relation_type` wires the initial DOMAIN/RANGE edges inline (`domain`/`range` are required there), and re-declaring never re-wires them — post-declaration widening is what `attach_relation_domain`/`attach_relation_range` are for.
 
@@ -316,7 +316,7 @@ After a merge, `fetch_database_schema` lists the target only, and each affected 
 
 Wires a `DEFINE_PROPERTY` edge from an existing CLASS or RELATION (`target_id`) to an existing PROPERTY (`property_id`). Idempotent — calling it again with the same pair is a no-op, not a duplicate edge. Raises `SchemaError` if `target_id` isn't a CLASS/RELATION or `property_id` isn't a PROPERTY. Exists so a property discovered via `search_schema` on one class/relation can be reused on another instead of `declare_class_property`/`declare_relation_property` creating a same-meaning duplicate under a new name — both `SchemaExpansionEngine` (below) and `blue-kb schema class/relation property attach` use it for exactly this.
 
-#### `expand_schema(database, text, *, depth=1, reference="llm", mcp_servers=None, dedup_mode="search", model="gpt-4o", on_tool_call=None, on_tool_result=None, max_turns=25)`
+#### `expand_schema(database, text, *, depth=1, reference="llm", mcp_servers=None, dedup_mode="search", model="gpt-4o", on_tool_call=None, on_tool_result=None, max_turns=25, timeout=None)`
 
 Thin delegation to `SchemaExpansionEngine.expand_schema` (below) — `SchemaManager` owns one `SchemaExpansionEngine` instance, constructed with a reference back to itself so the engine's tool dispatch can call `declare_class`/`add_is_subclass_of`/`attach_property`/etc. directly.
 
@@ -796,7 +796,7 @@ SchemaExpansionEngine(source, schema_manager, search_indexer=None)
 
 ### Methods
 
-#### `expand_schema(database, text, *, depth=1, reference="llm", mcp_servers=None, dedup_mode="search", model="gpt-4o", on_tool_call=None, on_tool_result=None, max_turns=25)`
+#### `expand_schema(database, text, *, depth=1, reference="llm", mcp_servers=None, dedup_mode="search", model="gpt-4o", on_tool_call=None, on_tool_result=None, max_turns=25, timeout=None)`
 
 **Parameters**
 
@@ -812,6 +812,7 @@ SchemaExpansionEngine(source, schema_manager, search_indexer=None)
 - `model` — OpenAI model to use for the agent loop (and for `dedup_mode="llm"`'s judge call)
 - `on_tool_call` / `on_tool_result` — optional callbacks invoked with `(tool_name, arguments)` / `(tool_name, arguments, result)` for each tool call the agent makes (including MCP tool calls)
 - `max_turns` (default `25`) — caps the number of agent turns; hitting the limit stops the loop silently
+- `timeout` (default `None` = no limit) — caps the whole run in seconds (every model turn, tool call, and judge call), via `asyncio.wait_for`; on expiry raises `SchemaError` naming the model and how many turns completed. Elements declared before expiry are kept. Without it, a stalled request waits out the OpenAI client's own 600 s timeout plus its silent retries
 
 **Tool set:** `get_schema`, `search_schema` (unless `dedup_mode="none"`), `declare_class`, `declare_class_property`, `declare_relation_type`, `declare_relation_property`, `add_subclass_of` (dispatches to `SchemaManager.add_is_subclass_of`), `attach_property` — plus, when `reference="mcp"`, every tool from each connected server.
 
