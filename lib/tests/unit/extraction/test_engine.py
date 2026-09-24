@@ -790,6 +790,64 @@ async def test_gap_stage_skipped_when_the_entity_stage_resolved_nothing(kb):
     assert factory.return_value.chat.completions.create.call_count == 4
 
 
+async def test_attach_entity_class_adds_a_second_class_instead_of_an_entity(kb):
+    """A descriptive phrase for an entity already found ("Alice ... as a staff
+    engineer") types that entity, rather than becoming a phrase-named entity."""
+    person = await kb.declare_class("test", "PERSON", "A human individual")
+    engineer = await kb.declare_class("test", "ENGINEER", "A person who builds software")
+
+    responses = _mock_openai_sequence(
+        _tool_call_response("add_entity", {"name": "Alice", "class_id": person}),
+        _text_response("done"),   # ends the entity stage — ENGINEER got nothing
+        _tool_call_response("attach_entity_class", {"entity_id": "Alice", "class_id": engineer}),
+        _text_response("done"),   # ends the gap stage
+        _text_response("done"),   # relations — prompt captured below
+        _text_response("done"),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Alice joined Google as a staff engineer.", expand_schema=False)
+
+    entities = kb.match_nodes("test", label="ENTITY")
+    assert [e["properties"]["name"] for e in entities] == ["Alice"]
+    classes = await kb.get_entity_classes("test", entities[0]["id"])
+    assert {c["properties"]["name"] for c in classes} == {"PERSON", "ENGINEER"}
+    relation_prompt = factory.return_value.chat.completions.create.call_args_list[4].kwargs["messages"][0]["content"]
+    assert "Alice (PERSON, ENGINEER)" in relation_prompt or "Alice (ENGINEER, PERSON)" in relation_prompt
+
+
+async def test_gap_stage_counts_every_class_of_an_entity(kb):
+    """An entity carrying a second class covers that class too — otherwise the
+    gap stage re-hunts it and invents a phrase-named instance."""
+    person = await kb.declare_class("test", "PERSON", "A human individual")
+    engineer = await kb.declare_class("test", "ENGINEER", "A person who builds software")
+
+    responses = _mock_openai_sequence(
+        _tool_call_response("add_entity", {"name": "Alice", "class_id": person}),
+        _tool_call_response("attach_entity_class", {"entity_id": "Alice", "class_id": engineer}),
+        _text_response("done"),   # ends the entity stage — both classes covered
+        _text_response("done"),   # relations
+        _text_response("done"),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Alice is a staff engineer.", expand_schema=False)
+
+    prompts = [c.kwargs["messages"][0]["content"] for c in factory.return_value.chat.completions.create.call_args_list]
+    assert not any("gap recovery" in p for p in prompts)
+
+
+def test_extraction_prompts_forbid_coercing_into_the_nearest_element():
+    from blue_data_kb_source.extraction.engine import (
+        STAGE_ENTITIES, STAGE_RELATIONS, _STAGE_WORKFLOWS, _SYSTEM_PROMPT_TEMPLATE,
+    )
+
+    assert "Fit, not nearest" in _SYSTEM_PROMPT_TEMPLATE
+    assert "not WORKED_AT" in _SYSTEM_PROMPT_TEMPLATE
+    assert "skipped because" in _STAGE_WORKFLOWS[STAGE_ENTITIES]
+    assert "never reuse the nearest" in _STAGE_WORKFLOWS[STAGE_RELATIONS]
+
+
 async def test_gap_stage_cannot_add_facts_or_property_values(kb):
     from blue_data_kb_source.extraction.engine import STAGE_ENTITY_GAPS, _STAGE_TOOL_NAMES
 

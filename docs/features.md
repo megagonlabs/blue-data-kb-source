@@ -73,7 +73,7 @@ The model is instructed never to declare a CLASS/RELATION named after a specific
 
 ## LLM knowledge extraction
 
-`import_text` reads a passage of free text and populates entities, facts, and property values *against the schema as it currently stands* — each wired to its own per-item provenance record. It never declares new schema itself (a mention with no matching element is skipped); by default it runs `expand_schema` first (`expand_schema=True`), so a single call still grows the schema and extracts against it.
+`import_text` reads a passage of free text and populates entities, facts, and property values *against the schema as it currently stands* — each wired to its own per-item provenance record. It never declares new schema itself (a mention with no matching element is skipped, not coerced into the nearest element of a different kind — a university is not filed as a COMPANY, "studied at" is not recorded as WORKED_AT); by default it runs `expand_schema` first (`expand_schema=True`), so a single call still grows the schema and extracts against it.
 
 ```python
 await kb.import_text(

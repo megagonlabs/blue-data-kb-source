@@ -161,6 +161,26 @@ _TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "attach_entity_class",
+            "description": (
+                "Record that an ENTITY that already exists is also an instance of another "
+                "CLASS (idempotent) — e.g. \"Alice ... as a staff engineer\" makes the existing "
+                "PERSON Alice an ENGINEER too. Use this instead of add_entity for a descriptive "
+                "phrase that refers to an entity already found. Returns {}."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "entity_id": {"type": "string", "description": "id of an existing ENTITY node, as returned by find_entity or add_entity — never a name"},
+                    "class_id": {"type": "string", "description": "id of an existing CLASS node, as returned by find_class or search_schema — never a name"},
+                },
+                "required": ["entity_id", "class_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "add_fact",
             "description": "Add a FACT (relation instance between two entities). Returns {id}.",
             "parameters": {
@@ -262,6 +282,18 @@ This pass only extracts against the schema as it currently stands — it never
 declares new CLASSes, RELATIONs, or PROPERTIES. If nothing in the current schema
 covers something in the text (use search_schema to check), skip that item rather
 than inventing a schema element for it.
+
+Fit, not nearest. A mention belongs to a CLASS only if it genuinely is a member of
+that class as the class's name and description define it, and a relationship
+belongs to a RELATION only if the text states that same relationship. When the
+closest element in the schema is a *different* kind of thing, it does not cover
+the mention — skip it rather than coerce it into the nearest fit:
+  - a university, school, agency, or team is not a COMPANY described as a business
+  - "completed a PhD at", "studied at", or "holds a degree from" is not WORKED_AT
+  - a job title or role ("staff engineer", "director") is not itself a PERSON or
+    an instance of a class of people — the person holding it is
+A skipped mention costs nothing; a coerced one writes a false statement into the
+KB that its provenance makes look sourced.
 {pass_note}
 {workflow}
 
@@ -340,8 +372,8 @@ _LATER_PASS_NOTE_TEMPLATE = (
 )
 
 _STAGE_TOOL_NAMES: dict[str, list[str]] = {
-    STAGE_ENTITIES: ["get_schema", "search_schema", "find_class", "find_entity", "add_entity", "link_extraction"],
-    STAGE_ENTITY_GAPS: ["get_schema", "search_schema", "find_class", "find_entity", "add_entity", "link_extraction"],
+    STAGE_ENTITIES: ["get_schema", "search_schema", "find_class", "find_entity", "add_entity", "attach_entity_class", "link_extraction"],
+    STAGE_ENTITY_GAPS: ["get_schema", "search_schema", "find_class", "find_entity", "add_entity", "attach_entity_class", "link_extraction"],
     STAGE_RELATIONS: ["get_schema", "search_schema", "find_relation_type", "find_fact", "add_fact", "link_extraction"],
     STAGE_ENTITY_PROPERTIES: ["get_schema", "search_schema", "find_literal", "add_entity_property_value", "link_extraction"],
     STAGE_FACT_PROPERTIES: ["get_schema", "search_schema", "find_literal", "add_fact_property_value", "link_extraction"],
@@ -363,10 +395,20 @@ This is the complete list of classes; account for every one of them:
 {classes}
 
 For each class above, find every mention in the text that is an instance of
-it. For each mention: call find_entity first. If it already exists, call
+it — one that really is a member of the class as its description defines it
+(see "Fit, not nearest" above). Being the closest class on the list is not
+enough: a mention whose kind no class covers is skipped, not filed under the
+nearest one. For each mention: call find_entity first. If it already exists, call
 link_extraction with its id and the new text span instead of add_entity.
 Otherwise call add_entity, passing that class's id from the list above. Use
 names exactly as they appear in the text.
+
+A descriptive phrase that refers back to an entity already named in the text —
+"Alice ... as a staff engineer", "Bob Chen, a director" — is not a separate
+entity: it describes that one. Never add the phrase itself ("staff engineer",
+"director") as an instance of its own. If the phrase puts that entity in
+another class on the list (a staff engineer is an ENGINEER), call
+attach_entity_class with the entity's id and that class's id instead.
 
 You do not need search_schema to find a class on that list — it is already
 complete. Use search_schema only to check some *other* concept in the text
@@ -374,7 +416,9 @@ that none of the listed classes seems to cover; if nothing matches, skip that
 mention.
 
 When you have finished, report each class on the list with the instances you
-added or linked for it, or "none".\
+added or linked for it, or "none". Then list the mentions you skipped because
+no class on the list covers their kind (e.g. "Stanford University — a
+university; no class for educational institutions"), or "none".\
 """,
     STAGE_ENTITY_GAPS: """\
 Stage: entity gap recovery. An entity pass over this text already ran and
@@ -389,10 +433,14 @@ re-read the text once more for these classes and nothing else:
 
 {missing_classes}
 
-For each class above, find any instance the earlier pass missed. Call
+For each class above, find any instance the earlier pass missed — a genuine
+member of the class as its description defines it, never a mention of some
+other kind that merely resembles it (see "Fit, not nearest" above). Call
 find_entity first; if it already exists, call link_extraction with its id and
 the new text span, otherwise call add_entity with that class's id from the
-list above. Add nothing for a class the text genuinely does not mention, and
+list above. When the instance is an entity listed above under another class
+(the text calls Alice a staff engineer, and ENGINEER is missing), call
+attach_entity_class for it rather than adding a new entity. Add nothing for a class the text genuinely does not mention, and
 do not revisit classes that are not on the list above.\
 """,
     STAGE_RELATIONS: """\
@@ -404,8 +452,11 @@ Entities already resolved for this text (id, name, class):
 {entities}
 
 For each relationship the text states between two of the entities above: find
-the RELATION type via search_schema. If no matching RELATION exists, skip the
-relationship. Otherwise call find_fact using the ids above as
+the RELATION type via search_schema. It matches only if its name and
+description state the same relationship the text does — not a neighbouring one
+(studying or earning a degree somewhere is not working there; being managed by
+someone is not working at them). If no RELATION states it, skip the
+relationship; never reuse the nearest available one. Otherwise call find_fact using the ids above as
 head_entity_id/tail_entity_id. If the fact already exists, call
 link_extraction with its id and the new text span instead of add_fact.
 Otherwise call add_fact.\
@@ -485,7 +536,7 @@ def _missing_classes(
     classes: list[dict[str, Any]], entities: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
     """Classes the entity stage produced no instance for — the gap stage's worklist."""
-    covered = {e["class_name"] for e in entities if e.get("class_name")}
+    covered = {name for e in entities for name in e.get("class_names") or ()}
     return [c for c in classes if c["name"] not in covered]
 
 
@@ -502,7 +553,8 @@ def _render_resolved_entities(entities: list[dict[str, Any]]) -> str:
         return "(none resolved in this pass)"
     lines = []
     for e in entities:
-        suffix = f" ({e['class_name']})" if e.get("class_name") else ""
+        names = e.get("class_names") or ()
+        suffix = f" ({', '.join(names)})" if names else ""
         lines.append(f"- id={e['id']}  {e['name']}{suffix}")
     return "\n".join(lines)
 
@@ -562,9 +614,11 @@ class _ExtractionContext:
         )
 
     def extend(self, field_name: str, items: list[dict[str, Any]]) -> None:
+        # A later pass's entry replaces an earlier one with the same id — it is
+        # newer (e.g. an entity that since gained a class via attach_entity_class).
         current = getattr(self, field_name)
-        seen = {i["id"] for i in current}
-        current.extend(i for i in items if i["id"] not in seen)
+        newer = {i["id"]: i for i in items}
+        current[:] = [newer.pop(i["id"], i) for i in current] + list(newer.values())
 
 
 def _render_prior_extraction(ctx: _ExtractionContext) -> str:
@@ -946,7 +1000,9 @@ class ExtractionEngine:
                 ),
                 text=text,
             )
-            entities = _merge_entities(entities, self._resolved_entities(database, gap_calls))
+            # Re-resolved from both stages' calls rather than merged, so an entity
+            # the gap stage attached another class to carries its current classes.
+            entities = self._resolved_entities(database, entity_calls + gap_calls)
         carried.extend("entities", entities)
 
         relation_calls = await self._run_stage(
@@ -1098,6 +1154,8 @@ class ExtractionEngine:
                 ids.add(result["id"])
             elif name == "link_extraction" and args.get("element_id"):
                 ids.add(args["element_id"])
+            elif name == "attach_entity_class" and not (isinstance(result, dict) and "error" in result):
+                ids.add(args["entity_id"])
         resolved = []
         for eid in ids:
             node = self._source.get_node(database, eid)
@@ -1107,7 +1165,7 @@ class ExtractionEngine:
             resolved.append({
                 "id": eid,
                 "name": node_name(node),
-                "class_name": node_name(classes[0]) if classes else None,
+                "class_names": [node_name(c) for c in classes],
             })
         return resolved
 
@@ -1460,6 +1518,10 @@ class ExtractionEngine:
         # every write goes through. KnowledgeManager's write semantics are
         # untouched — this is the extraction agent declining to create a second
         # copy of something it can already see.
+        if fn == "attach_entity_class":
+            await self._knowledge.attach_entity_class(database, args["entity_id"], args["class_id"])
+            return {}
+
         if fn == "add_entity":
             existing = await self._existing_entity_id(database, args["name"])
             if existing is not None:
