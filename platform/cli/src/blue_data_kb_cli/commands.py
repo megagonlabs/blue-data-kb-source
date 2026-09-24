@@ -214,6 +214,32 @@ def _resolve_node(
     raise click.ClickException(f"Provide --{what.lower()} or --{what.lower()}-id")
 
 
+def _resolve_source(
+    kb: FileKBSource, db: str, source: str | None, source_id: str | None
+) -> str:
+    """SOURCE node id from --source-id, or from --source matched against the source's
+    display name first and then the key given to `data source add` (the two differ
+    whenever --name was passed there). A miss lists the known sources."""
+    if source_id:
+        return source_id
+    if not source:
+        raise click.ClickException("Provide --source or --source-id")
+    for prop in ("name", "source"):
+        nodes = kb.match_nodes(db, label=SOURCE, properties={prop: source})
+        if nodes:
+            return nodes[0]["id"]
+    known = [
+        (n.get("properties", {}).get("name", ""), n.get("properties", {}).get("source", ""))
+        for n in kb.match_nodes(db, label=SOURCE)
+    ]
+    listing = ", ".join(
+        f"'{name}'" if name == key else f"'{name}' (key '{key}')" for name, key in sorted(known)
+    ) or "none — add one with `blue-kb data source add`"
+    raise click.ClickException(
+        f"source '{source}' not found in database '{db}' by name or key. Known sources: {listing}"
+    )
+
+
 def _resolve_owned_property(
     kb: FileKBSource,
     db: str,
@@ -246,7 +272,7 @@ def _assert_kwargs(obj: dict, source_name, source_id,
     db: str = obj["db"]
     resolved_source_id = None
     if source_name or source_id:
-        resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
+        resolved_source_id = _resolve_source(kb, db, source_name, source_id)
     return {
         "source_id": resolved_source_id, "confidence": confidence,
         "extraction_type": extraction_type, "schema_creation_mode": schema_creation_mode,
@@ -273,7 +299,7 @@ _ASSERT_OPTIONS = [
     click.option("--description", default=None,
                  help="Optional description (judge-generated when omitted under "
                       "--schema-creation-mode llm)."),
-    click.option("--source", "source_name", default=None, help="Source name."),
+    click.option("--source", "source_name", default=None, help="Source: its name or the key given to `data source add`."),
     click.option("--source-id", default=None, help="Source node ID (overrides --source)."),
     click.option("--confidence", type=float, default=None,
                  help="Confidence in [0.0, 1.0] for the recorded assertion."),
@@ -2257,7 +2283,7 @@ def data_reindex(obj: dict) -> None:
 
 @data_group.command("ingest")
 @click.argument("input_file", type=click.File("r"))
-@click.option("--source", "source_name", default=None, help="Source name.")
+@click.option("--source", "source_name", default=None, help="Source: its name or the key given to `data source add`.")
 @click.option("--source-id", default=None, help="Source node ID (overrides --source).")
 @click.option("--confidence", type=float, default=None,
               help="Run-level confidence default; rows may override.")
@@ -2285,7 +2311,7 @@ def data_ingest(obj, input_file, source_name, source_id, confidence, extraction_
         raise click.ClickException(f"Invalid JSON in {input_file.name}: {exc}")
     resolved_source_id = None
     if source_name or source_id:
-        resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
+        resolved_source_id = _resolve_source(kb, db, source_name, source_id)
     try:
         report = _run(kb.ingest(
             db, payload, source_id=resolved_source_id, confidence=confidence,
@@ -2386,7 +2412,7 @@ def source_list(obj: dict, show_detailed: bool, fmt: str) -> None:
 
 
 @source_group.command("update")
-@click.option("--source",      "source_name", default=None, help="Source name.")
+@click.option("--source",      "source_name", default=None, help="Source: its name or the key given to `data source add`.")
 @click.option("--source-id",                  default=None, help="Source node ID (overrides --source).")
 @click.option("--name",                       default=None, help="New name.")
 @click.option("--description",                default=None, help="New description.")
@@ -2401,7 +2427,7 @@ def source_update(
         raise click.UsageError("Provide at least one of --name, --description, or --original.")
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
-    sid = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
+    sid = _resolve_source(kb, db, source_name, source_id)
     try:
         _run(kb.update_source(db, sid, name=name, description=description, original=original))
     except KBError as exc:
@@ -2410,7 +2436,7 @@ def source_update(
 
 
 @source_group.command("delete")
-@click.option("--source",    "source_name", default=None, help="Source name.")
+@click.option("--source",    "source_name", default=None, help="Source: its name or the key given to `data source add`.")
 @click.option("--source-id",               default=None, help="Source node ID (overrides --source).")
 @click.option("--yes",       is_flag=True,  default=False, help="Skip confirmation prompt.")
 @click.pass_obj
@@ -2424,7 +2450,7 @@ def source_delete(
     """
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
-    sid = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
+    sid = _resolve_source(kb, db, source_name, source_id)
     label = source_name or source_id
     if not yes:
         click.confirm(
@@ -2456,7 +2482,7 @@ def entity_group() -> None:
 @click.option("--class-id",                    default=None, help="Class node ID (overrides --class).")
 @click.option("--description",                 default=None, help="Optional description.")
 @click.option("--text",                        default=None, help="Source text span (creates provenance).")
-@click.option("--source",      "source_name",  default=None, help="Source name.")
+@click.option("--source",      "source_name",  default=None, help="Source: its name or the key given to `data source add`.")
 @click.option("--source-id",                   default=None, help="Source node ID (overrides --source).")
 @click.option("--confidence",      type=float, default=None,
               help="Confidence in [0.0, 1.0] for the recorded assertion; requires --text.")
@@ -2491,7 +2517,7 @@ def entity_add(
         resolved_class_id = _resolve_node(kb, db, CLASS, class_name, class_id, "class")
     resolved_source_id: str | None = None
     if source_name or source_id:
-        resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
+        resolved_source_id = _resolve_source(kb, db, source_name, source_id)
     try:
         entity_id = _run(kb.add_entity(
             db, name, description=description,
@@ -2708,7 +2734,7 @@ def entity_extraction_group() -> None:
 @click.option("--entity",      "entity_name", default=None, help="Entity name.")
 @click.option("--entity-id",                  default=None, help="Entity node ID (overrides --entity).")
 @click.option("--text",        required=True, help="New source text span.")
-@click.option("--source",      "source_name", default=None, help="Source name.")
+@click.option("--source",      "source_name", default=None, help="Source: its name or the key given to `data source add`.")
 @click.option("--source-id",                  default=None, help="Source node ID (overrides --source).")
 @click.option("--confidence",     type=float, default=None,
               help="Confidence in [0.0, 1.0] for the recorded assertion.")
@@ -2738,7 +2764,7 @@ def entity_extraction_add(
     eid = _resolve_node(kb, db, ENTITY, entity_name, entity_id, "entity")
     resolved_source_id: str | None = None
     if source_name or source_id:
-        resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
+        resolved_source_id = _resolve_source(kb, db, source_name, source_id)
     try:
         extraction_id = _run(kb.add_entity_extraction(
             db, eid, text, source_id=resolved_source_id,
@@ -2773,7 +2799,7 @@ def entity_property_group() -> None:
     help="Value type (inferred if omitted).",
 )
 @click.option("--text",                          default=None, help="Source text span (creates provenance).")
-@click.option("--source",       "source_name",   default=None, help="Source name.")
+@click.option("--source",       "source_name",   default=None, help="Source: its name or the key given to `data source add`.")
 @click.option("--source-id",                     default=None, help="Source node ID (overrides --source).")
 @click.option("--confidence",        type=float, default=None,
               help="Confidence in [0.0, 1.0] for the recorded assertion; requires --text.")
@@ -2816,7 +2842,7 @@ def entity_property_set(
         pid = _resolve_node(kb, db, PROPERTY, property_name, property_id, "property")
     resolved_source_id: str | None = None
     if source_name or source_id:
-        resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
+        resolved_source_id = _resolve_source(kb, db, source_name, source_id)
     coerced = _coerce_value(value, literal_type)
     try:
         lit_id = _run(kb.add_entity_property_value(
@@ -2980,7 +3006,7 @@ def entity_property_extraction_group() -> None:
 @click.option("--property",     "property_name", default=None, help="Property name.")
 @click.option("--property-id",                   default=None, help="Property node ID (overrides --property).")
 @click.option("--text",                          required=True, help="New source text span.")
-@click.option("--source",       "source_name",   default=None, help="Source name.")
+@click.option("--source",       "source_name",   default=None, help="Source: its name or the key given to `data source add`.")
 @click.option("--source-id",                     default=None, help="Source node ID (overrides --source).")
 @click.option("--confidence",        type=float, default=None,
               help="Confidence in [0.0, 1.0] for the recorded assertion.")
@@ -3007,7 +3033,7 @@ def entity_property_extraction_add(
     pid = _resolve_node(kb, db, PROPERTY, property_name, property_id, "property")
     resolved_source_id: str | None = None
     if source_name or source_id:
-        resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
+        resolved_source_id = _resolve_source(kb, db, source_name, source_id)
     try:
         extraction_id = _run(
             kb.add_entity_property_value_extraction(
@@ -3039,7 +3065,7 @@ def fact_group() -> None:
 @click.option("--tail",        "tail_name",     default=None, help="Tail entity name.")
 @click.option("--tail-id",                      default=None, help="Tail entity node ID (overrides --tail).")
 @click.option("--text",                         default=None, help="Source text span (creates provenance).")
-@click.option("--source",      "source_name",   default=None, help="Source name.")
+@click.option("--source",      "source_name",   default=None, help="Source: its name or the key given to `data source add`.")
 @click.option("--source-id",                    default=None, help="Source node ID (overrides --source).")
 @click.option("--confidence",       type=float, default=None,
               help="Confidence in [0.0, 1.0] for the recorded assertion; requires --text.")
@@ -3087,7 +3113,7 @@ def fact_add(
         tail_entity_id = _resolve_node(kb, db, ENTITY, tail_name, tail_id, "entity")
     resolved_source_id: str | None = None
     if source_name or source_id:
-        resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
+        resolved_source_id = _resolve_source(kb, db, source_name, source_id)
     try:
         fact_id = _run(kb.add_fact(
             db,
@@ -3244,7 +3270,7 @@ def fact_extraction_group() -> None:
 @click.option("--fact",        "fact_name",   default=None, help="Fact name.")
 @click.option("--fact-id",                    default=None, help="Fact node ID (overrides --fact).")
 @click.option("--text",        required=True, help="New source text span.")
-@click.option("--source",      "source_name", default=None, help="Source name.")
+@click.option("--source",      "source_name", default=None, help="Source: its name or the key given to `data source add`.")
 @click.option("--source-id",                  default=None, help="Source node ID (overrides --source).")
 @click.option("--confidence",     type=float, default=None,
               help="Confidence in [0.0, 1.0] for the recorded assertion.")
@@ -3274,7 +3300,7 @@ def fact_extraction_add(
     fid = _resolve_node(kb, db, FACT, fact_name, fact_id, "fact")
     resolved_source_id: str | None = None
     if source_name or source_id:
-        resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
+        resolved_source_id = _resolve_source(kb, db, source_name, source_id)
     try:
         extraction_id = _run(kb.add_fact_extraction(
             db, fid, text, source_id=resolved_source_id,
@@ -3309,7 +3335,7 @@ def fact_property_group() -> None:
     help="Value type (inferred if omitted).",
 )
 @click.option("--text",                       default=None, help="Source text span (creates provenance).")
-@click.option("--source",    "source_name",   default=None, help="Source name.")
+@click.option("--source",    "source_name",   default=None, help="Source: its name or the key given to `data source add`.")
 @click.option("--source-id",                  default=None, help="Source node ID (overrides --source).")
 @click.option("--confidence",     type=float, default=None,
               help="Confidence in [0.0, 1.0] for the recorded assertion; requires --text.")
@@ -3351,7 +3377,7 @@ def fact_property_set(
         pid = _resolve_node(kb, db, PROPERTY, property_name, property_id, "property")
     resolved_source_id: str | None = None
     if source_name or source_id:
-        resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
+        resolved_source_id = _resolve_source(kb, db, source_name, source_id)
     coerced = _coerce_value(value, literal_type)
     try:
         lit_id = _run(kb.add_fact_property_value(
@@ -3518,7 +3544,7 @@ def fact_property_extraction_group() -> None:
 @click.option("--property",     "property_name", default=None, help="Property name.")
 @click.option("--property-id",                   default=None, help="Property node ID (overrides --property).")
 @click.option("--text",                          required=True, help="New source text span.")
-@click.option("--source",       "source_name",   default=None, help="Source name.")
+@click.option("--source",       "source_name",   default=None, help="Source: its name or the key given to `data source add`.")
 @click.option("--source-id",                     default=None, help="Source node ID (overrides --source).")
 @click.option("--confidence",        type=float, default=None,
               help="Confidence in [0.0, 1.0] for the recorded assertion.")
@@ -3545,7 +3571,7 @@ def fact_property_extraction_add(
     pid = _resolve_node(kb, db, PROPERTY, property_name, property_id, "property")
     resolved_source_id: str | None = None
     if source_name or source_id:
-        resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
+        resolved_source_id = _resolve_source(kb, db, source_name, source_id)
     try:
         extraction_id = _run(
             kb.add_fact_property_value_extraction(
@@ -3742,7 +3768,7 @@ def data_import(obj: dict, input_file) -> None:
 @data_group.command("extract")
 @click.argument("text")
 @click.option("--query",     "queries",     multiple=True, help="Guiding question (repeatable).")
-@click.option("--source",    "source_name", default=None,  help="Source name for provenance.")
+@click.option("--source",    "source_name", default=None,  help="Source: its name or the key given to `data source add`.")
 @click.option("--source-id",               default=None,  help="Source node ID (overrides --source).")
 @click.option("--model", default=None, help="OpenAI model. Default: the profile's model for this command.")
 @click.option(
@@ -3842,7 +3868,7 @@ def extract_cmd(
     db: str = obj["db"]
     resolved_source_id: str | None = None
     if source_name or source_id:
-        resolved_source_id = _resolve_node(kb, db, SOURCE, source_name, source_id, "source")
+        resolved_source_id = _resolve_source(kb, db, source_name, source_id)
     schema_expansion_mcp_servers = _parse_mcp_servers(schema_expansion_mcp_servers_raw)
     # The flag pair defaults to None, so "not given" is distinguishable from an
     # explicit --expand-schema and the profile can supply the default.

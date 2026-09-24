@@ -444,6 +444,35 @@ def test_show_provenance_expands_one_row_per_evidence(runner):
     assert result.output.count("WORKED_AT") == 1   # the fact is named once, not per row
 
 
+def test_source_option_accepts_the_key_given_to_source_add(runner):
+    """--source resolves the positional key from `data source add`, not just --name (#107)."""
+    _seed_schema_and_entities(runner)
+    invoke(runner, DB + ["data", "source", "add", "techcrunch_2005", "--name", "TechCrunch profile"])
+    for source in ("techcrunch_2005", "TechCrunch profile"):
+        invoke(runner, DB + [
+            "data", "fact", "add", "--head", "Alice", "--relation", "WORKED_AT", "--tail", "IBM",
+            "--text", f"Alice joined IBM ({source}).", "--source", source,
+        ])
+    kb = _make_kb("main")
+    source = kb.match_nodes("main", label="SOURCE")[0]
+    linked = kb.get_neighbors("main", source["id"], edge_type="EXTRACTED_FROM", direction="in")
+    assert len(linked) == 2
+
+
+def test_unknown_source_error_lists_known_sources_by_name_and_key(runner):
+    _seed_schema_and_entities(runner)
+    invoke(runner, DB + ["data", "source", "add", "techcrunch_2005", "--name", "TechCrunch profile"])
+    invoke(runner, DB + ["data", "source", "add", "cv"])
+    result = runner.invoke(cli, DB + [
+        "data", "fact", "add", "--head", "Alice", "--relation", "WORKED_AT", "--tail", "IBM",
+        "--text", "Alice joined IBM.", "--source", "techcrunch",
+    ])
+    assert result.exit_code != 0
+    assert "not found in database 'main' by name or key" in result.output
+    assert "'TechCrunch profile' (key 'techcrunch_2005')" in result.output
+    assert "'cv'" in result.output and "key 'cv'" not in result.output
+
+
 def test_row_without_evidence_still_lists(runner):
     _seed_schema_and_entities(runner)
     invoke(runner, DB + [
