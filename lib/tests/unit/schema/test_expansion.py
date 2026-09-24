@@ -202,6 +202,7 @@ async def test_expand_schema_add_subclass_of_links_hierarchy(kb):
 
     factory, _ = _mock_openai_sequence(
         _tool_call_response("add_subclass_of", {"child_id": employee, "parent_id": person}),
+        _tool_call_response("return_verdict", {"is_subtype": True, "reason": "An employee is a person."}),
         _text_response("done"),
     )
     with patch("openai.AsyncOpenAI", factory):
@@ -212,6 +213,55 @@ async def test_expand_schema_add_subclass_of_links_hierarchy(kb):
         r["name"] == "IS_SUBCLASS_OF" and r["source"] == "EMPLOYEE" and r["target"] == "PERSON"
         for r in schema.relations.values()
     )
+
+
+async def test_expand_schema_add_subclass_of_rejects_implausible_link(kb):
+    """The judge vetoes an is-a link between merely related classes (issue #103:
+    COMPANY under ENGINEER), and the agent is told why."""
+    engineer = await kb.declare_class("test", "ENGINEER", "A person who designs and builds software")
+    company = await kb.declare_class("test", "COMPANY", "A business organization")
+
+    calls = []
+    factory, client = _mock_openai_sequence(
+        _tool_call_response("add_subclass_of", {"child_id": company, "parent_id": engineer}),
+        _tool_call_response("return_verdict", {"is_subtype": False, "reason": "A company employs engineers; it is not one."}),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", factory):
+        await kb.expand_schema(
+            "test", "Alice is an engineer at Google.", dedup_mode="none",
+            on_tool_result=lambda name, args, result: calls.append((name, result)),
+        )
+
+    assert kb.get_neighbors("test", company, edge_type="IS_SUBCLASS_OF", direction="out") == []
+    assert "not a subtype" in calls[0][1]["error"]
+    judge_prompt = client.chat.completions.create.call_args_list[1].kwargs["messages"][1]["content"]
+    assert "COMPANY — A business organization" in judge_prompt
+    assert "ENGINEER — A person who designs" in judge_prompt
+
+
+async def test_expand_schema_add_subclass_of_skips_judge_for_malformed_pairs(kb):
+    """Self-loops, mixed kinds and repeats are settled by add_is_subclass_of itself —
+    no judge call is spent on them."""
+    person = await kb.declare_class("test", "PERSON", "A human individual")
+    engineer = await kb.declare_class("test", "ENGINEER", "")
+    await kb.add_is_subclass_of("test", engineer, person)
+
+    calls = []
+    factory, client = _mock_openai_sequence(
+        _tool_call_response("add_subclass_of", {"child_id": person, "parent_id": person}),
+        _tool_call_response("add_subclass_of", {"child_id": engineer, "parent_id": person}),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", factory):
+        await kb.expand_schema(
+            "test", "Alice is an engineer.", dedup_mode="none",
+            on_tool_result=lambda name, args, result: calls.append((name, result)),
+        )
+
+    assert client.chat.completions.create.call_count == 3
+    assert "itself" in calls[0][1]["error"]
+    assert calls[1][1] == {}
 
 
 async def test_expand_schema_attach_property_reuses_existing_property(kb):

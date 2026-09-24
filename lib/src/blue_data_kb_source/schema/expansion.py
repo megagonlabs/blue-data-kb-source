@@ -216,7 +216,11 @@ between two named individuals (e.g. no ALICE_WORKED_AT_UNITED_NATIONS).
 
 Hierarchy between two CLASSes or two RELATIONs (is-a / type-of / kind-of /
 subclass-of) is a *structural* link, wired with add_subclass_of — it is never a
-declared RELATION. Never call declare_relation_type with a name like IS_A, TYPE_OF,
+declared RELATION. Link X under Y only when every X is necessarily a Y (an
+ENGINEER is a PERSON). Things that are merely related are not subtypes: a TEAM
+is part of a COMPANY, a DEGREE is held by a PERSON, a UNIVERSITY is not a
+COMPANY — those are RELATIONs or nothing. Each add_subclass_of is checked for
+this, and a link that fails comes back as an error with the reason. Never call declare_relation_type with a name like IS_A, TYPE_OF,
 KIND_OF, or SUBCLASS_OF; use add_subclass_of on the two existing CLASS or RELATION
 ids instead. declare_relation_type is only for semantic relationships that hold
 between instances — WORKED_AT, LIVES_IN, and even meronymy like PART_OF (e.g. an
@@ -569,6 +573,9 @@ class SchemaExpansionEngine:
             return {"id": pid}
 
         if fn == "add_subclass_of":
+            rejection = await self._judge_subclass(database, args["child_id"], args["parent_id"], model)
+            if rejection:
+                return {"error": rejection}
             await self._schema.add_is_subclass_of(database, args["child_id"], args["parent_id"])
             return {}
 
@@ -650,6 +657,89 @@ class SchemaExpansionEngine:
             if not existing_ids & lineage:
                 return False
         return True
+
+    async def _judge_subclass(
+        self, database: str, child_id: str, parent_id: str, model: str
+    ) -> str | None:
+        """Ask the LLM whether every CHILD is necessarily a PARENT before an is-a edge is
+        written. The expansion agent otherwise links whatever seems topically nearby —
+        TEAM under COMPANY, DEGREE under JOB_TITLE, COMPANY under ENGINEER — and a wrong
+        edge silently widens every domain/range and ancestor check built on it.
+
+        Returns a rejection message for the agent, or None to proceed. Malformed pairs
+        (missing ids, mixed kinds, self-loops) and already-present edges skip the judge
+        and fall through to add_is_subclass_of, which reports or no-ops them itself."""
+        import openai
+
+        from blue_data_kb_source._constants import IS_SUBCLASS_OF
+
+        child = self._source.get_node(database, child_id)
+        parent = self._source.get_node(database, parent_id)
+        if (
+            not child or not parent or child_id == parent_id
+            or child.get("label") != parent.get("label")
+            or child.get("label") not in (CLASS, RELATION)
+        ):
+            return None
+        existing = self._source.get_neighbors(database, child_id, edge_type=IS_SUBCLASS_OF, direction="out")
+        if any(nb["node"]["id"] == parent_id for nb in existing):
+            return None
+
+        def describe(node: dict) -> str:
+            props = node.get("properties", {})
+            desc = props.get("description") or "(no description)"
+            return f"{props.get('name', '')} — {desc}"
+
+        kind = child["label"]
+        judge_tool = {
+            "type": "function",
+            "function": {
+                "name": "return_verdict",
+                "description": "Say whether the child is a genuine subtype of the parent.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "is_subtype": {"type": "boolean"},
+                        "reason": {"type": "string", "description": "One short sentence."},
+                    },
+                    "required": ["is_subtype", "reason"],
+                },
+            },
+        }
+        client = openai.AsyncOpenAI()
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        f"You check proposed is-a (subtype) links between two KB {kind}es. The link "
+                        "is valid only if every instance of the child is necessarily also an "
+                        "instance of the parent, as their names and descriptions define them — "
+                        "e.g. ENGINEER is a PERSON. Being related is not enough: a part, member, "
+                        "location, holder, or product of something is not a subtype of it (a TEAM "
+                        "is not a COMPANY, a DEGREE is not a JOB_TITLE, a COMPANY is not an "
+                        "ENGINEER, a UNIVERSITY is not a COMPANY described as a business)."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"Child: {describe(child)}\nParent: {describe(parent)}",
+                },
+            ],
+            tools=[judge_tool],  # type: ignore[arg-type]
+            tool_choice={"type": "function", "function": {"name": "return_verdict"}},  # type: ignore[arg-type]
+        )
+        verdict = json.loads(response.choices[0].message.tool_calls[0].function.arguments)
+        if verdict.get("is_subtype"):
+            return None
+        child_name = child.get("properties", {}).get("name")
+        parent_name = parent.get("properties", {}).get("name")
+        return (
+            f"Rejected: {child_name} is not a subtype of {parent_name} — {verdict.get('reason', '')} "
+            "Only link X under Y when every X is necessarily a Y; if the two are related some "
+            "other way, that is a RELATION (declare_relation_type), or nothing at all."
+        )
 
     async def _judge_similar_schema(
         self,

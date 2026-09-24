@@ -832,7 +832,8 @@ SchemaExpansionEngine(source, schema_manager, search_indexer=None)
    - Receive tool calls from the LLM
    - `search_schema`: dispatch to `KBSearchIndexer.search_schema` (if configured) or `SchemaManager.find_schema`, unless `dedup_mode="llm"` — then dispatch to the LLM-judge path instead
    - `declare_class`/`declare_relation_type`: run the automatic dedup check first (`_auto_dedup_check`, per `dedup_mode`); if a close-enough element is already found, return its id instead of creating a new one; `declare_relation_type` additionally rejects a taxonomic name outright before this check
-   - `declare_class_property`/`declare_relation_property`/`add_subclass_of`/`attach_property`: dispatch straight to the matching `SchemaManager` method
+   - `add_subclass_of`: first ask a forced-tool LLM judge (`_judge_subclass`) whether every CHILD is necessarily a PARENT, given both names and descriptions; on "no", return `{error}` with the judge's reason instead of writing the edge. Malformed pairs (missing ids, mixed kinds, self-loops) and already-present edges skip the judge and go straight to `SchemaManager.add_is_subclass_of`, which reports or no-ops them itself
+   - `declare_class_property`/`declare_relation_property`/`attach_property`: dispatch straight to the matching `SchemaManager` method
    - an `mcp__`-prefixed call: dispatch to the connected MCP session instead of local tool dispatch
    - Return tool results to the LLM
 4. Exit when the LLM returns without further tool calls, or `max_turns` is reached
