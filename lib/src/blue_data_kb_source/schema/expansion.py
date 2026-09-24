@@ -177,6 +177,12 @@ _TAXONOMIC_RELATION_NAMES = {
     "INSTANCE_OF", "IS_INSTANCE_OF", "IS_SUBCLASS_OF", "IS_KIND_OF", "IS_TYPE_OF",
 }
 
+# Minimum cosine similarity at which the automatic pre-declare check treats an existing
+# element as the same concept. Keyword (BM25) hits never auto-merge: sharing a word
+# like "person" or "relationship" says nothing about synonymy, and merging on it
+# silently swallowed STUDIED_AT/MANAGED_BY/HAS_ROLE into WORKED_AT (issue #101).
+_SEMANTIC_DEDUP_MIN_SCORE = 0.9
+
 _SYSTEM_PROMPT_TEMPLATE = """\
 You are a knowledge base (KB) schema expansion agent.
 
@@ -241,7 +247,10 @@ Workflow:
    EMPLOYED_AT relation when WORKED_AT already means the same thing). Declaring a
    class/relation also runs an automatic duplicate check as a safety net, but don't
    rely on that — searching first is cheaper and is also how you find a parent to
-   attach to in step 4.
+   attach to in step 4. If that check redirects a declaration to an existing
+   element, the result carries "reused_existing" naming it: if that element really
+   is a different concept from the one you meant, declare yours again under a more
+   specific name rather than treating it as done.
 3. When search_schema turns up an existing PROPERTY that covers the concept you
    need on a *different* class/relation than the one that already defines it, call
    attach_property to reuse it there instead of declare_class_property /
@@ -342,6 +351,29 @@ async def _call_mcp_tool(dispatch: dict[str, tuple[Any, str]], name: str, argume
         if text is not None:
             return text
     return json.dumps({"content": [str(c) for c in result.content]})
+
+
+def _as_list(value: str | list[str]) -> list[str]:
+    return [value] if isinstance(value, str) else list(value)
+
+
+def _reused_result(existing: SchemaSearchResult, requested_name: str) -> dict[str, Any]:
+    """Tool result for a declaration the auto-dedup check redirected to *existing* — naming
+    the reused element so the model can tell a real synonym from a wrong merge. A plain
+    re-declaration of the same name is just the existing id, as declare_* returns it."""
+    from blue_data_kb_source.schema.manager import _canonicalize_schema_name
+
+    if _canonicalize_schema_name(requested_name) == existing.name:
+        return {"id": existing.id}
+    return {
+        "id": existing.id,
+        "reused_existing": {"type": existing.type, "name": existing.name, "description": existing.description},
+        "note": (
+            f"No new element was created: {requested_name!r} was judged to mean the same as the "
+            f"existing {existing.type} {existing.name!r}. If it is a different concept, declare it "
+            "again under a more specific name."
+        ),
+    }
 
 
 class SchemaExpansionEngine:
@@ -490,11 +522,11 @@ class SchemaExpansionEngine:
             ]}
 
         if fn == "declare_class":
-            dup_id = await self._auto_dedup_check(
+            dup = await self._auto_dedup_check(
                 database, CLASS, args["name"], args["description"], dedup_mode, model
             )
-            if dup_id:
-                return {"id": dup_id}
+            if dup:
+                return _reused_result(dup, args["name"])
             cid = await self._schema.declare_class(database, name=args["name"], description=args["description"])
             return {"id": cid}
 
@@ -511,11 +543,12 @@ class SchemaExpansionEngine:
                     "relationship between instances — declare_relation_type is not for this. "
                     "Use add_subclass_of on the two existing CLASS or RELATION ids instead."
                 )}
-            dup_id = await self._auto_dedup_check(
-                database, RELATION, args["name"], args["description"], dedup_mode, model
+            dup = await self._auto_dedup_check(
+                database, RELATION, args["name"], args["description"], dedup_mode, model,
+                domain=args["domain"], range_=args["range"],
             )
-            if dup_id:
-                return {"id": dup_id}
+            if dup:
+                return _reused_result(dup, args["name"])
             rid = await self._schema.declare_relation_type(
                 database,
                 name=args["name"],
@@ -553,24 +586,70 @@ class SchemaExpansionEngine:
         description: str,
         dedup_mode: Literal["search", "llm", "none"],
         model: str,
-    ) -> str | None:
+        *,
+        domain: str | list[str] | None = None,
+        range_: str | list[str] | None = None,
+    ) -> SchemaSearchResult | None:
         """Best-effort near-duplicate lookup run before creating a CLASS/RELATION node, regardless
         of whether the model called search_schema itself first — otherwise declare_class /
         declare_relation_type only dedup on an exact name match, so e.g. WORKED_AT and EMPLOYED_AT
-        would sail through as two separate relations. Returns the id of a close-enough existing
-        element to reuse, or None to proceed with creating a new one. A no-op when
-        dedup_mode="none"."""
+        would sail through as two separate relations. Returns a same-meaning existing element to
+        reuse, or None to proceed with creating a new one. A no-op when dedup_mode="none".
+
+        Only strong evidence counts: the LLM judge's verdict (dedup_mode="llm") or a semantic
+        hit at or above _SEMANTIC_DEDUP_MIN_SCORE. Keyword-only search never auto-merges. A
+        RELATION candidate must also have a domain and range hierarchy-compatible with the
+        requested ones, so a same-sounding relation between different classes stays separate."""
         if dedup_mode == "none":
             return None
         query = f"{name}: {description}" if description else name
+        if type_filter == RELATION and domain is not None and range_ is not None:
+            query += f" (domain: {_as_list(domain)}, range: {_as_list(range_)})"
         if dedup_mode == "llm":
             results = await self._judge_similar_schema(database, query, type_filter, model)
-        elif self._search_indexer is not None:
-            mode = "semantic" if self._search_indexer.has_semantic else "keyword"
-            results = self._search_indexer.search_schema(database, query, k=5, mode=mode, type_filter=type_filter)
+        elif self._search_indexer is not None and self._search_indexer.has_semantic:
+            results = [
+                r for r in self._search_indexer.search_schema(
+                    database, query, k=5, mode="semantic", type_filter=type_filter
+                )
+                if r.score is not None and r.score >= _SEMANTIC_DEDUP_MIN_SCORE
+            ]
         else:
-            results = await self._schema.find_schema(database, query, type_filter=type_filter)
-        return results[0].id if results else None
+            return None
+        for result in results:
+            if type_filter != RELATION or await self._relation_ends_compatible(
+                database, result.id, domain, range_
+            ):
+                return result
+        return None
+
+    async def _relation_ends_compatible(
+        self,
+        database: str,
+        relation_id: str,
+        domain: str | list[str] | None,
+        range_: str | list[str] | None,
+    ) -> bool:
+        """Whether *relation_id*'s domain and range each share a class lineage (the class
+        itself, an ancestor, or a descendant) with the requested domain and range names."""
+        from blue_data_kb_source.schema.manager import _canonicalize_schema_name
+
+        if domain is None or range_ is None:
+            return True
+        ends = await self._schema.get_relation_domain_range(database, relation_id)
+        for requested, existing in ((domain, ends["domain"]), (range_, ends["range"])):
+            existing_ids = {node["id"] for node in existing}
+            lineage: set[str] = set()
+            for class_name in _as_list(requested):
+                cls = await self._schema.find_class(database, _canonicalize_schema_name(class_name))
+                if cls is None:
+                    continue
+                lineage.add(cls["id"])
+                for walk in (self._schema.get_class_ancestors, self._schema.get_class_descendants):
+                    lineage.update(n["id"] for n in await walk(database, cls["id"], max_hops=None))
+            if not existing_ids & lineage:
+                return False
+        return True
 
     async def _judge_similar_schema(
         self,

@@ -282,10 +282,123 @@ async def test_expand_schema_auto_dedup_catches_relation_synonym_without_search(
             on_tool_result=lambda name, args, result: calls.append((name, result)),
         )
 
-    assert calls[0] == ("declare_relation_type", {"id": worked_at})
+    name, result = calls[0]
+    assert name == "declare_relation_type"
+    assert result["id"] == worked_at
+    assert result["reused_existing"]["name"] == "WORKED_AT"
     schema = await kb.fetch_database_schema("test")
     assert not any(r["name"] == "EMPLOYED_AT" for r in schema.relations.values())
     _ = person, company
+
+
+async def _seed_employment(kb):
+    await kb.declare_class("test", "PERSON", "A human individual")
+    await kb.declare_class("test", "COMPANY", "A business organization")
+    await kb.declare_class("test", "UNIVERSITY", "An institution of higher education")
+    return await kb.declare_relation_type(
+        "test", "WORKED_AT", "Employment relationship between a person and a company",
+        domain="PERSON", range="COMPANY",
+    )
+
+
+async def test_expand_schema_search_dedup_ignores_keyword_overlap():
+    """A BM25 hit sharing only words like 'person'/'relationship' must not swallow a new
+    concept into an existing one (issue #101: STUDIED_AT/MANAGED_BY -> WORKED_AT)."""
+    from blue_data_kb_source import MemoryKBSource
+    kb = MemoryKBSource(name="dedup-bm25", properties={"search": {"mode": "bm25"}})
+    kb.create_database("test")
+    worked_at = await _seed_employment(kb)
+
+    calls = []
+    factory, _ = _mock_openai_sequence(
+        _tool_call_response("declare_class", {"name": "ROLE", "description": "A job title held by a person at a company"}),
+        _tool_call_response(
+            "declare_relation_type",
+            {"name": "STUDIED_AT", "description": "Education relationship between a person and a university",
+             "domain": "PERSON", "range": "UNIVERSITY"},
+        ),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", factory):
+        await kb.expand_schema(
+            "test", "Alice studied at CMU and is a staff engineer.", dedup_mode="search",
+            on_tool_result=lambda name, args, result: calls.append((name, result)),
+        )
+
+    schema = await kb.fetch_database_schema("test")
+    assert "ROLE" in schema.entities
+    assert any(r["name"] == "STUDIED_AT" for r in schema.relations.values())
+    assert all("reused_existing" not in result for _, result in calls)
+    assert calls[1][1]["id"] != worked_at
+
+
+async def test_expand_schema_llm_dedup_rejects_relation_with_incompatible_ends(kb):
+    """Even when the judge calls two relations synonyms, a candidate whose domain/range
+    don't line up with the requested classes is not reused."""
+    worked_at = await _seed_employment(kb)
+    factory, _ = _mock_openai_sequence(
+        _tool_call_response(
+            "declare_relation_type",
+            {"name": "ATTENDED", "description": "A person was at an institution",
+             "domain": "PERSON", "range": "UNIVERSITY"},
+        ),
+        _tool_call_response("return_matches", {"matching_ids": [worked_at]}),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", factory):
+        await kb.expand_schema("test", "Alice attended CMU.", dedup_mode="llm")
+
+    schema = await kb.fetch_database_schema("test")
+    assert any(r["name"] == "ATTENDED" for r in schema.relations.values())
+
+
+async def test_expand_schema_llm_dedup_reuses_relation_on_subclass_domain(kb):
+    """A requested domain that is a subclass of the existing relation's domain still counts
+    as compatible, so a genuine synonym is reused."""
+    worked_at = await _seed_employment(kb)
+    engineer = await kb.declare_class("test", "ENGINEER", "A software engineer")
+    await kb.add_is_subclass_of("test", engineer, (await kb.find_class("test", "PERSON"))["id"])
+    calls = []
+    factory, _ = _mock_openai_sequence(
+        _tool_call_response(
+            "declare_relation_type",
+            {"name": "EMPLOYED_BY", "description": "Employment", "domain": "ENGINEER", "range": "COMPANY"},
+        ),
+        _tool_call_response("return_matches", {"matching_ids": [worked_at]}),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", factory):
+        await kb.expand_schema(
+            "test", "Alice is employed by Google.", dedup_mode="llm",
+            on_tool_result=lambda name, args, result: calls.append((name, result)),
+        )
+
+    assert calls[0][1]["id"] == worked_at
+
+
+@pytest.mark.parametrize("score, reused", [(0.95, True), (0.7, False)])
+async def test_expand_schema_semantic_dedup_applies_score_cutoff(kb, score, reused):
+    from blue_data_kb_source.types import SchemaSearchResult
+    company = await kb.declare_class("test", "COMPANY", "A business organization")
+    stub = MagicMock()
+    stub.has_semantic = True
+    stub.search_schema.return_value = [SchemaSearchResult(
+        id=company, type="CLASS", name="COMPANY", description="A business organization", score=score,
+    )]
+    kb._schema._expansion._search_indexer = stub
+    calls = []
+    factory, _ = _mock_openai_sequence(
+        _tool_call_response("declare_class", {"name": "FIRM", "description": "A business"}),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", factory):
+        await kb.expand_schema(
+            "test", "Acme is a firm.", dedup_mode="search",
+            on_tool_result=lambda name, args, result: calls.append((name, result)),
+        )
+
+    assert (calls[0][1]["id"] == company) is reused
+    assert ("reused_existing" in calls[0][1]) is reused
 
 
 # ------------------------------------------------------------------ #
