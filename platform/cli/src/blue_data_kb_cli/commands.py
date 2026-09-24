@@ -240,6 +240,35 @@ def _resolve_source(
     )
 
 
+def _resolve_instance_property(
+    kb: FileKBSource, db: str, owner_id: str, property_name: str | None, property_id: str | None
+) -> str:
+    """PROPERTY id for a value on an ENTITY or FACT *owner_id*, preferring the property of
+    that name defined on the owner's own classes (or relation) and their ancestors. Two
+    classes can each define a same-named property (STANDARD.VERSION and POLICY.VERSION);
+    a database-wide name lookup picked whichever came first and the write was then
+    rejected as not defined for the owner. Falls back to the database-wide lookup."""
+    if property_id:
+        return property_id
+    if not property_name:
+        raise click.ClickException("Provide --property or --property-id")
+    owner = kb.get_node(db, owner_id) or {}
+    if owner.get("label") == ENTITY:
+        schema_ids = [c["id"] for c in _run(kb.get_entity_classes(db, owner_id))]
+        ancestors = kb.get_class_ancestors
+    else:
+        relation = _run(kb.get_fact_parts(db, owner_id)).get("relation")
+        schema_ids = [relation["id"]] if relation else []
+        ancestors = kb.get_relation_ancestors
+    for sid in list(schema_ids):
+        schema_ids += [a["id"] for a in _run(ancestors(db, sid, max_hops=None))]
+    for sid in schema_ids:
+        for nb in kb.get_neighbors(db, sid, edge_type=DEFINE_PROPERTY, direction="out"):
+            if nb["node"].get("properties", {}).get("name") == property_name:
+                return nb["node"]["id"]
+    return _resolve_node(kb, db, PROPERTY, property_name, None, "property")
+
+
 def _resolve_owned_property(
     kb: FileKBSource,
     db: str,
@@ -2839,7 +2868,7 @@ def entity_property_set(
     eid = _resolve_node(kb, db, ENTITY, entity_name, entity_id, "entity")
     pid: str | None = None
     if property_name or property_id:
-        pid = _resolve_node(kb, db, PROPERTY, property_name, property_id, "property")
+        pid = _resolve_instance_property(kb, db, eid, property_name, property_id)
     resolved_source_id: str | None = None
     if source_name or source_id:
         resolved_source_id = _resolve_source(kb, db, source_name, source_id)
@@ -2952,7 +2981,7 @@ def entity_property_update(
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     eid = _resolve_node(kb, db, ENTITY, entity_name, entity_id, "entity")
-    pid = _resolve_node(kb, db, PROPERTY, property_name, property_id, "property")
+    pid = _resolve_instance_property(kb, db, eid, property_name, property_id)
     coerced = _coerce_value(value, None) if value is not None else None
     try:
         _run(kb.update_entity_property_value(db, eid, pid, value=coerced, name=name, description=description))
@@ -2978,7 +3007,7 @@ def entity_property_delete(
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     eid = _resolve_node(kb, db, ENTITY, entity_name, entity_id, "entity")
-    pid = _resolve_node(kb, db, PROPERTY, property_name, property_id, "property")
+    pid = _resolve_instance_property(kb, db, eid, property_name, property_id)
     if not yes:
         click.confirm(
             f"Delete property '{property_name or property_id}' value from entity '{entity_name or entity_id}'?",
@@ -3030,7 +3059,7 @@ def entity_property_extraction_add(
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     eid = _resolve_node(kb, db, ENTITY, entity_name, entity_id, "entity")
-    pid = _resolve_node(kb, db, PROPERTY, property_name, property_id, "property")
+    pid = _resolve_instance_property(kb, db, eid, property_name, property_id)
     resolved_source_id: str | None = None
     if source_name or source_id:
         resolved_source_id = _resolve_source(kb, db, source_name, source_id)
@@ -3374,7 +3403,7 @@ def fact_property_set(
     fid = _resolve_node(kb, db, FACT, fact_name, fact_id, "fact")
     pid: str | None = None
     if property_name or property_id:
-        pid = _resolve_node(kb, db, PROPERTY, property_name, property_id, "property")
+        pid = _resolve_instance_property(kb, db, fid, property_name, property_id)
     resolved_source_id: str | None = None
     if source_name or source_id:
         resolved_source_id = _resolve_source(kb, db, source_name, source_id)
@@ -3490,7 +3519,7 @@ def fact_property_update(
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     fid = _resolve_node(kb, db, FACT, fact_name, fact_id, "fact")
-    pid = _resolve_node(kb, db, PROPERTY, property_name, property_id, "property")
+    pid = _resolve_instance_property(kb, db, fid, property_name, property_id)
     coerced = _coerce_value(value, None) if value is not None else None
     try:
         _run(kb.update_fact_property_value(db, fid, pid, value=coerced, name=name, description=description))
@@ -3516,7 +3545,7 @@ def fact_property_delete(
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     fid = _resolve_node(kb, db, FACT, fact_name, fact_id, "fact")
-    pid = _resolve_node(kb, db, PROPERTY, property_name, property_id, "property")
+    pid = _resolve_instance_property(kb, db, fid, property_name, property_id)
     if not yes:
         click.confirm(
             f"Delete property '{property_name or property_id}' value from fact '{fact_name or fact_id}'?",
@@ -3568,7 +3597,7 @@ def fact_property_extraction_add(
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     fid = _resolve_node(kb, db, FACT, fact_name, fact_id, "fact")
-    pid = _resolve_node(kb, db, PROPERTY, property_name, property_id, "property")
+    pid = _resolve_instance_property(kb, db, fid, property_name, property_id)
     resolved_source_id: str | None = None
     if source_name or source_id:
         resolved_source_id = _resolve_source(kb, db, source_name, source_id)

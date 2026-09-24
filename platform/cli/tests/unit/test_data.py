@@ -473,6 +473,21 @@ def test_unknown_source_error_lists_known_sources_by_name_and_key(runner):
     assert "'cv'" in result.output and "key 'cv'" not in result.output
 
 
+def test_property_name_resolves_on_the_owners_own_class(runner):
+    """Two classes each defining VERSION: setting it on a POLICY entity must pick
+    POLICY.VERSION, not whichever VERSION the database lists first."""
+    for cls in ("STANDARD", "POLICY"):
+        invoke(runner, DB + ["schema", "class", "add", cls, ""])
+        invoke(runner, DB + ["schema", "class", "property", "add", "VERSION", f"{cls} version", "--class", cls])
+    invoke(runner, DB + ["data", "entity", "add", "--name", "S17", "--class", "STANDARD"])
+    invoke(runner, DB + ["data", "entity", "add", "--name", "Policy v1", "--class", "POLICY"])
+    invoke(runner, DB + ["data", "entity", "property", "set", "1", "--entity", "S17", "--property", "VERSION"])
+    invoke(runner, DB + ["data", "entity", "property", "set", "2", "--entity", "Policy v1", "--property", "VERSION"])
+    invoke(runner, DB + ["data", "entity", "property", "update", "--value", "3", "--entity", "Policy v1", "--property", "VERSION"])
+    result = invoke(runner, DB + ["data", "entity", "property", "list", "--entity", "Policy v1"])
+    assert "3" in result.output
+
+
 def test_row_without_evidence_still_lists(runner):
     _seed_schema_and_entities(runner)
     invoke(runner, DB + [
