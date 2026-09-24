@@ -265,6 +265,9 @@ _ANSWER_NL_PROMPT = """\
 You are given a question and structured answers retrieved from a knowledge base.
 Write a clear, concise natural language answer based solely on the provided results.
 If the results are empty, say that no relevant information was found.
+The knowledge base records only what it has evidence for: when something the answer
+depends on is missing from the results, say it is not on record — not that it does not
+exist — and, where the results make it clear, what would resolve it.
 
 Question: {question}
 
@@ -509,6 +512,11 @@ class QueryEngine:
 
         while True:
             if turns >= max_turns:
+                # Out of turns without a return_result: force one final call so what the
+                # agent gathered is still delivered, rather than silently answering
+                # nothing. A question whose answer is partly an *absence* (no audit record
+                # on file) is exactly the kind that keeps an agent searching to the limit.
+                result_payload = await self._force_return_result(client, model, messages)
                 break
             turns += 1
             response = await client.chat.completions.create(
@@ -533,16 +541,7 @@ class QueryEngine:
             if not msg.tool_calls:
                 # LLM gave a prose response instead of calling return_result.
                 # Force one extra turn so the accumulated context is serialised.
-                forced = await client.chat.completions.create(
-                    model=model,
-                    messages=messages,
-                    tools=_TOOLS,
-                    tool_choice={"type": "function", "function": {"name": "return_result"}},
-                )
-                forced_msg = forced.choices[0].message
-                if forced_msg.tool_calls:
-                    forced_args = json.loads(forced_msg.tool_calls[0].function.arguments)
-                    result_payload = forced_args.get("result")
+                result_payload = await self._force_return_result(client, model, messages)
                 break
 
             done = False
@@ -576,6 +575,20 @@ class QueryEngine:
 
         # print(f"Final result payload: {result_payload}")
         return (result_payload, metadata_acc) if include_metadata else result_payload
+
+    async def _force_return_result(self, client: Any, model: str, messages: list[dict[str, Any]]) -> Any:
+        """One extra model call restricted to return_result, serialising what the
+        conversation has gathered so far; None if the model still returns nothing."""
+        forced = await client.chat.completions.create(
+            model=model,
+            messages=messages,  # type: ignore[arg-type]
+            tools=_TOOLS,       # type: ignore[arg-type]
+            tool_choice={"type": "function", "function": {"name": "return_result"}},
+        )
+        forced_msg = forced.choices[0].message
+        if forced_msg.tool_calls:
+            return json.loads(forced_msg.tool_calls[0].function.arguments).get("result")
+        return None
 
     # ------------------------------------------------------------------ #
     # Single-turn completion                                               #

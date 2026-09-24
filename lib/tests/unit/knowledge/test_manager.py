@@ -913,7 +913,24 @@ async def test_answer_stops_after_max_turns(populated_kb):
     with patch("openai.AsyncOpenAI", factory):
         results = await populated_kb.answer("test", "Where did Alice work?", max_turns=3)
     assert results == []
-    assert mock_client.chat.completions.create.call_count == 3
+    # 3 turns, then one forced return_result call (which this mock never honours).
+    assert mock_client.chat.completions.create.call_count == 4
+
+
+async def test_answer_out_of_turns_still_returns_what_was_gathered(populated_kb):
+    """Running out of turns forces a final return_result instead of silently answering
+    nothing — the agent may have found everything but kept searching for evidence that
+    doesn't exist."""
+    rows = [{"supplier": "Atlas Components", "audit_record": None}]
+    explore = _tool_call_response("get_schema", {}, call_id="call_explore")
+    final = _tool_call_response("return_result", {"result": rows}, call_id="call_final")
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(side_effect=[explore, explore, final])
+    with patch("openai.AsyncOpenAI", MagicMock(return_value=mock_client)):
+        results = await populated_kb.answer("test", "Can we onboard Atlas?", max_turns=2)
+    assert results == rows
+    forced_kwargs = mock_client.chat.completions.create.call_args_list[2].kwargs
+    assert forced_kwargs["tool_choice"] == {"type": "function", "function": {"name": "return_result"}}
 
 
 # ------------------------------------------------------------------ #
