@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -543,9 +544,9 @@ class KBSearchIndexer:
         if not doc_ids:
             return []
 
-        tokenized = [corpus[nid].lower().split() for nid in doc_ids]
+        tokenized = [_bm25_tokens(corpus[nid]) for nid in doc_ids]
         bm25 = BM25Plus(tokenized)
-        scores = bm25.get_scores(query.lower().split())
+        scores = bm25.get_scores(_bm25_tokens(query))
         ranked = sorted(zip(doc_ids, scores.tolist()), key=lambda x: x[1], reverse=True)
         # print(f"BM25 ranked results: {ranked}")
         # print(ranked)
@@ -584,6 +585,16 @@ class KBSearchIndexer:
 # ------------------------------------------------------------------ #
 # Helpers                                                              #
 # ------------------------------------------------------------------ #
+
+_BM25_TOKEN = re.compile(r"[0-9a-z]+")
+
+
+def _bm25_tokens(text: str) -> list[str]:
+    """Lowercased alphanumeric runs. Splitting on whitespace alone left schema names
+    whole (`worked_at`), so a natural-language query like "worked at" never matched
+    WORKED_AT and search_schema came back empty for an element that exists."""
+    return _BM25_TOKEN.findall(text.lower())
+
 
 def _normalise_type_filter(type_filter: str | list[str] | None) -> set[str]:
     if not type_filter:

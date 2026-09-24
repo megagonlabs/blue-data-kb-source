@@ -143,6 +143,20 @@ async def test_bm25_index_matches_tokens_not_substrings():
     assert [(h.node_id, h.match_type, h.score) for h in hits] == [(entity_id, "search", None)]
 
 
+async def test_bm25_schema_search_splits_snake_case_names():
+    """"worked at" must find WORKED_AT — whitespace-only tokenizing kept the name
+    as a single `worked_at` token that no natural-language query could match."""
+    kb = MemoryKBSource(name="bm25-snake", properties={"search": {"mode": "bm25"}})
+    kb.create_database("test")
+    await kb.declare_class("test", "PERSON", "A human individual")
+    await kb.declare_class("test", "COMPANY", "A business organization")
+    rel = await kb.declare_relation_type(
+        "test", "WORKED_AT", "Employment relationship", domain="PERSON", range="COMPANY"
+    )
+    hits = kb._search_indexer.search_schema("test", "worked at", k=5, type_filter="RELATION")
+    assert [h.id for h in hits] == [rel]
+
+
 async def test_index_backed_schema_resolution_uses_the_schema_collection():
     kb = MemoryKBSource(name="resolver-schema", properties={"search": {"mode": "bm25"}})
     kb.create_database("test")
