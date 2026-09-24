@@ -45,7 +45,7 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | Method | Returns | Description |
 |---|---|---|
 | `await declare_class(database, name, description, class_id?)` | `str` | Add a `CLASS` node; `name` is canonicalized to `UPPER_SNAKE_CASE` first, so `"Person"` and `"PERSON"` resolve to the same node |
-| `await declare_relation_type(database, name, description, is_symmetric?, relation_id?, *, domain, range)` | `str` | Add a `RELATION` node; `domain`/`range` are required (keyword-only), accept a class name or list of names, and wire `DOMAIN`/`RANGE` edges; `name` and every `domain`/`range` name are canonicalized to `UPPER_SNAKE_CASE` first |
+| `await declare_relation_type(database, name, description, is_symmetric?, relation_id?, *, domain, range)` | `str` | Add a `RELATION` node; `domain`/`range` are required (keyword-only), accept a class name or list of names, and wire `DOMAIN`/`RANGE` edges; `name` and every `domain`/`range` name are canonicalized to `UPPER_SNAKE_CASE` first. `IS_SUBCLASS_OF`/`IS_INSTANCE_OF` are reserved for the KB's own structural edges and raise `SchemaError` |
 | `await declare_class_property(database, name, description, property_id?, class_id?)` | `str` | Add a `PROPERTY` node; optionally wires `DEFINE_PROPERTY` from a class; `name` is canonicalized to `UPPER_SNAKE_CASE` first |
 | `await declare_relation_property(database, name, description, property_id?, relation_id?)` | `str` | Add a `PROPERTY` node; optionally wires `DEFINE_PROPERTY` from a relation; `name` is canonicalized to `UPPER_SNAKE_CASE` first |
 | `await update_class(database, class_id, name?, description?)` | `None` | Update a class's name/description (refreshes `modified`) |
@@ -71,7 +71,7 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | `await find_property(database, name)` | `dict \| None` | `PROPERTY` node by exact name |
 | `await fetch_database_schema(database)` | `DataSchema` | Build a `DataSchema` from the classes/relations declared in *database* |
 | `await export_database_schema(database)` | `dict` | `fetch_database_schema(database).to_json()` — portable JSON, symmetric with `import_database_schema` |
-| `await import_database_schema(database, schema_json)` | `None` | Populate *database* from a `DataSchema.to_json()`/`export_database_schema` dict |
+| `await import_database_schema(database, schema_json)` | `None` | Populate *database* from a `DataSchema.to_json()`/`export_database_schema` dict; `IS_SUBCLASS_OF` entries (class and relation hierarchy) are re-wired with `add_is_subclass_of` after everything else is declared, so export → import → export round-trips unchanged |
 | `await fetch_meta_schema()` | `DataSchema` | The fixed `DataSchema` describing the KB's own node/edge taxonomy (not database-specific) |
 | `await search_schema(database, query, k?, mode?, type_filter?)` | `list[SchemaSearchResult]` | Search classes/relations/properties by keyword or semantic similarity |
 | `await consolidate_schema(database, operation, source_names, target_name, predicate?)` | `None` | Fold source elements into the target: rewires every reference, deletes the sources, updates the search index. `operation="merge"` only today |
@@ -107,7 +107,7 @@ Note: `declare_relation_type` wires the initial `DOMAIN`/`RANGE` edges inline (`
 |---|---|---|
 | `await fetch_database_data(database, include_provenance?, compact?, detailed?)` | `dict \| list` | `compact=False` (default): raw `{nodes, edges}` graph form. `compact=True`: flat denormalized rows. `include_provenance=True` adds each row's `evidence`, one record per EXTRACTION. `detailed=True` adds each row's own `description`/`created`/`modified`, plus confidence on fact rows |
 | `await export_database_data(database, include_provenance?)` | `dict` | Portable, ref-based export of entities/facts/property values; symmetric with `import_database_data` |
-| `await import_database_data(database, data)` | `None` | Populate *database* from an `export_database_data` dict; resolves classes/relations/properties **by name** against the target's current schema |
+| `await import_database_data(database, data)` | `None` | Populate *database* from an `export_database_data` dict; resolves classes/relations/properties **by name** against the target's current schema. All or nothing: if any item fails (e.g. a fact that doesn't conform to domain/range), everything the call created — entities, their facts and values, and provenance — is removed before the error propagates |
 | `await get_metadata(database, node_id)` | `dict` | Metadata for a single entity, fact, or property-value (`LITERAL`) id: `created`/`modified`, `confidence` (a FACT's derived score, `None` on the other two), and an `evidence` record per EXTRACTION — raises `KnowledgeError` for any other node type |
 | `await get_entity_classes(database, entity_id)` | `list[dict]` | `CLASS` nodes the entity is an instance of, via `IS_INSTANCE_OF` |
 | `await get_fact_parts(database, fact_id)` | `dict` | The fact's first `HEAD`/`RELATION`/`TAIL` nodes, as `{"head": ..., "relation": ..., "tail": ...}` with `None` for unwired parts |

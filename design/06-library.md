@@ -85,7 +85,7 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `declare_class(database, name, description, class_id?)` | `str` | Declare a CLASS node (idempotent); `name` is canonicalized to `UPPER_SNAKE_CASE` |
-| `declare_relation_type(database, name, description, is_symmetric?, relation_id?, *, domain, range)` | `str` | Declare a RELATION node; `domain`/`range` are required (keyword-only); wires DOMAIN/RANGE edges inline; `name` and every `domain`/`range` class name are canonicalized to `UPPER_SNAKE_CASE` |
+| `declare_relation_type(database, name, description, is_symmetric?, relation_id?, *, domain, range)` | `str` | Declare a RELATION node; `domain`/`range` are required (keyword-only); wires DOMAIN/RANGE edges inline; `name` and every `domain`/`range` class name are canonicalized to `UPPER_SNAKE_CASE`. `IS_SUBCLASS_OF`/`IS_INSTANCE_OF` are reserved for the KB's own structural edges and raise `SchemaError` |
 | `declare_class_property(database, name, description, property_id?, class_id?)` | `str` | Declare a PROPERTY node; wires DEFINE_PROPERTY from a class; `name` is canonicalized to `UPPER_SNAKE_CASE` |
 | `declare_relation_property(database, name, description, property_id?, relation_id?)` | `str` | Declare a PROPERTY node; wires DEFINE_PROPERTY from a relation; `name` is canonicalized to `UPPER_SNAKE_CASE` |
 | `update_class(database, class_id, name?, description?)` | `None` | Update a CLASS node's name/description; not idempotent |
@@ -112,7 +112,7 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `fetch_database_schema(database)` | `DataSchema` | Assemble a `DataSchema` object from the current graph |
 | `export_database_schema(database)` | `dict` | `fetch_database_schema(database).to_json()` — portable JSON form |
 | `fetch_meta_schema()` | `DataSchema` | Return the fixed blue-kb meta-schema |
-| `import_database_schema(database, schema_json)` | `None` | Replay a `DataSchema.to_json()` dict via idempotent `declare_*` calls — safe to import into a database that already has same-named elements |
+| `import_database_schema(database, schema_json)` | `None` | Replay a `DataSchema.to_json()` dict via idempotent `declare_*` calls — safe to import into a database that already has same-named elements; `IS_SUBCLASS_OF` entries (class and relation hierarchy) are re-wired with `add_is_subclass_of` after everything else is declared, so export → import → export round-trips unchanged |
 | `consolidate_schema(database, operation, source_names, target_name, predicate?)` | `None` | Only `operation="merge"` is implemented; any other value raises `SchemaError`. `predicate` is accepted but unused. Merge rewires every reference onto the target, deletes the source elements, and fires change events so the search index follows. |
 | `expand_schema(database, text, depth?, reference?, mcp_servers?, dedup_mode?, model?, on_tool_call?, on_tool_result?, max_turns?, timeout?)` | `None` | LLM agent that grows the schema (CLASS/RELATION/PROPERTY only) grounded by `text` — never touches entities/facts/property values. See SchemaExpansionEngine below |
 
@@ -141,7 +141,7 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `attach_entity_class(database, entity_id, class_id)` | `None` | Attach an existing CLASS to an existing ENTITY via IS_INSTANCE_OF; deduplicated, and add-only — no detach counterpart. Supplies an entity's *additional* class; `add_entity(class_id=…)` wires the first at creation |
 | `fetch_database_data(database, include_provenance?, compact?, detailed?)` | `dict \| list` | Fetch all instance data in the database |
 | `export_database_data(database, include_provenance?)` | `dict` | Portable, `ref`-keyed JSON export of entities/facts/property values (schema not included — export/import schema separately first) |
-| `import_database_data(database, data)` | `None` | Import from `export_database_data`'s format; resolves CLASS/RELATION/PROPERTY **by name** against the target's current schema. **Not idempotent** — re-importing the same export duplicates every entity/fact/property value, unlike schema import |
+| `import_database_data(database, data)` | `None` | Import from `export_database_data`'s format; resolves CLASS/RELATION/PROPERTY **by name** against the target's current schema. **Not idempotent** — re-importing the same export duplicates every entity/fact/property value, unlike schema import. All or nothing: if any item fails (e.g. a fact that doesn't conform to domain/range), everything the call created — entities, their facts and values, and provenance — is removed before the error propagates |
 | `get_metadata(database, node_id)` | `dict` | Metadata for one entity, fact, or property-value id: created/modified timestamps, `confidence` (a FACT's derived score, `None` on the other two), and `evidence`, one record per EXTRACTION; raises `KnowledgeError` for any other node type |
 | `get_entity_classes(database, entity_id)` | `list[dict]` | CLASS nodes the entity is an instance of, via IS_INSTANCE_OF |
 | `get_fact_parts(database, fact_id)` | `dict` | The fact's first HEAD / RELATION / TAIL nodes, as `{"head": ..., "relation": ..., "tail": ...}` with `None` for unwired parts |

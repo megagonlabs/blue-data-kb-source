@@ -919,7 +919,30 @@ class KnowledgeManager:
         populated via `import_database_schema`) — raises `KnowledgeError` if
         a referenced schema element or `ref`/`owner_ref` join key can't be
         resolved, rather than silently dropping the link.
+
+        All or nothing: if any item fails (an unresolvable reference, a fact that
+        doesn't conform to its relation's domain/range, ...), everything this call
+        created is removed again before the error propagates, so a failed import
+        never leaves half its entities behind.
         """
+        extractions_before = {n["id"] for n in self._source.match_nodes(database, label=EXTRACTION)}
+        created_entities: list[str] = []
+        try:
+            await self._import_database_data(database, data, created_entities)
+        except BaseException:
+            # Entities cascade to the facts and property values hanging off them —
+            # every fact and value in an import is between/on imported entities.
+            for entity_id in reversed(created_entities):
+                if self._source.get_node(database, entity_id) is not None:
+                    await self.delete_entity(database, entity_id, cascade=True)
+            for node in self._source.match_nodes(database, label=EXTRACTION):
+                if node["id"] not in extractions_before:
+                    self._source.delete_node(database, node["id"])
+            raise
+
+    async def _import_database_data(
+        self, database: str, data: dict, created_entities: list[str]
+    ) -> None:
         ref_to_id: dict[str, str] = {}
 
         for ent in data.get("entities", []):
@@ -928,6 +951,7 @@ class KnowledgeManager:
                 database, ent.get("name"), description=ent.get("description"),
                 class_id=class_id, text=ent.get("extraction"),
             )
+            created_entities.append(new_id)
             if ent.get("ref") is not None:
                 ref_to_id[ent["ref"]] = new_id
 

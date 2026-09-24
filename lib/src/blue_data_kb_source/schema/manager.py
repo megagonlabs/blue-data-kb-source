@@ -57,6 +57,12 @@ _NODE_UPDATED_EVENT = {
 }
 
 
+# Structural edge names that must never also exist as a declared RELATION: a RELATION
+# named IS_SUBCLASS_OF looks like a hierarchy in exports and listings while carrying
+# none of its meaning (#108).
+_RESERVED_RELATION_NAMES = frozenset({IS_SUBCLASS_OF, IS_INSTANCE_OF})
+
+
 def _canonicalize_schema_name(name: str) -> str:
     """Canonicalize a CLASS/RELATION/PROPERTY name to UPPER_SNAKE_CASE.
 
@@ -229,6 +235,12 @@ class SchemaManager:
         range: str | list[str],
     ) -> str:
         name = _canonicalize_schema_name(name)
+        if name in _RESERVED_RELATION_NAMES:
+            raise SchemaError(
+                f"'{name}' is one of the KB's own structural edges, not a relation type — "
+                "use add_is_subclass_of for a class/relation hierarchy, and an entity's class "
+                "for instance-of."
+            )
         domain_names: list[str] = [
             _canonicalize_schema_name(d) for d in ([domain] if isinstance(domain, str) else (domain or []))
         ]
@@ -840,8 +852,14 @@ class SchemaManager:
                 )
 
         rel_data: dict[str, dict] = {}
+        subclass_pairs: list[tuple[str, str]] = []
         for rel_obj in schema.relations.values():
             rel_name = rel_obj["name"]
+            # fetch_database_schema writes each IS_SUBCLASS_OF edge (class or relation
+            # hierarchy) as a relations entry; it is structure, not a relation type.
+            if rel_name == IS_SUBCLASS_OF:
+                subclass_pairs.append((rel_obj.get("source", ""), rel_obj.get("target", "")))
+                continue
             if rel_name not in rel_data:
                 rel_data[rel_name] = {
                     "description": rel_obj.get("description", ""),
@@ -868,6 +886,22 @@ class SchemaManager:
                     description=attr_obj.get("description", "") if isinstance(attr_obj, dict) else "",
                     relation_id=relation_id,
                 )
+
+        # Wired last, once every class and relation exists. A child name that is a
+        # class resolves as a class hierarchy edge, otherwise as a relation one.
+        for child_name, parent_name in subclass_pairs:
+            if child_name in class_ids:
+                child = await self.find_class(database, child_name)
+                parent = await self.find_class(database, parent_name)
+            else:
+                child = await self.find_relation_type(database, child_name)
+                parent = await self.find_relation_type(database, parent_name)
+            if child is None or parent is None:
+                raise SchemaError(
+                    f"IS_SUBCLASS_OF entry {child_name!r} -> {parent_name!r} names an element "
+                    "that isn't declared in the imported schema."
+                )
+            await self.add_is_subclass_of(database, child["id"], parent["id"])
 
     # ------------------------------------------------------------------ #
     # Search and consolidation                                             #

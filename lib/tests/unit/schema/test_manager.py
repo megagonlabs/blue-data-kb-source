@@ -490,6 +490,57 @@ async def test_import_database_schema_roundtrip(kb):
     assert "WORKS_AT" in copy_rel_names
 
 
+async def _hierarchy_schema(kb):
+    person = await kb.declare_class("test", "PERSON", "A human individual")
+    engineer = await kb.declare_class("test", "ENGINEER", "A software engineer")
+    await kb.add_is_subclass_of("test", engineer, person)
+    await kb.declare_class("test", "COMPANY", "A business organization")
+    worked_at = await kb.declare_relation_type(
+        "test", "WORKED_AT", "Employment", domain="PERSON", range="COMPANY"
+    )
+    employed_by = await kb.declare_relation_type(
+        "test", "EMPLOYED_BY", "Formal employment", domain="PERSON", range="COMPANY"
+    )
+    await kb.add_is_subclass_of("test", employed_by, worked_at)
+    await kb.declare_relation_property("test", "START_DATE", "Start of employment", relation_id=worked_at)
+
+
+async def test_import_database_schema_round_trips_the_hierarchy(kb):
+    """IS_SUBCLASS_OF entries come back as hierarchy edges, not as a declared
+    RELATION named IS_SUBCLASS_OF (#108) — so export -> import -> export is stable."""
+    await _hierarchy_schema(kb)
+    exported = await kb.export_database_schema("test")
+    kb.create_database("copy")
+    await kb.import_database_schema("copy", exported)
+
+    assert await kb.export_database_schema("copy") == exported
+    assert await kb.find_relation_type("copy", "IS_SUBCLASS_OF") is None
+    engineer = await kb.find_class("copy", "ENGINEER")
+    assert [n["properties"]["name"] for n in await kb.get_class_ancestors("copy", engineer["id"])] == ["PERSON"]
+    employed_by = await kb.find_relation_type("copy", "EMPLOYED_BY")
+    assert [n["properties"]["name"] for n in await kb.get_relation_ancestors("copy", employed_by["id"])] == ["WORKED_AT"]
+
+
+async def test_data_import_after_schema_import_accepts_subclass_conforming_fact(kb):
+    await _hierarchy_schema(kb)
+    alice = await kb.add_entity("test", "Alice", class_id=(await kb.find_class("test", "ENGINEER"))["id"])
+    ibm = await kb.add_entity("test", "IBM", class_id=(await kb.find_class("test", "COMPANY"))["id"])
+    await kb.add_fact("test", head_entity_id=alice, tail_entity_id=ibm,
+                      relation_id=(await kb.find_relation_type("test", "WORKED_AT"))["id"])
+
+    kb.create_database("copy")
+    await kb.import_database_schema("copy", await kb.export_database_schema("test"))
+    await kb.import_database_data("copy", await kb.export_database_data("test"))
+    assert len(kb.match_nodes("copy", label="FACT")) == 1
+
+
+@pytest.mark.parametrize("name", ["IS_SUBCLASS_OF", "is instance of"])
+async def test_declare_relation_type_rejects_structural_edge_names(kb, name):
+    await kb.declare_class("test", "PERSON", "")
+    with pytest.raises(SchemaError, match="structural edges"):
+        await kb.declare_relation_type("test", name, "", domain="PERSON", range="PERSON")
+
+
 async def test_import_database_schema_returns_none(kb):
     schema_json = (await kb.fetch_database_schema("test")).to_json()
     kb.create_database("copy")

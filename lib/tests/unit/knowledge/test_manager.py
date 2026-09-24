@@ -1157,6 +1157,34 @@ async def test_import_database_data_round_trip(kb):
     assert len(kb.match_nodes("copy", label="LITERAL")) == 2
 
 
+async def test_import_database_data_is_all_or_nothing(kb):
+    """A fact that fails domain/range mid-import removes the entities (and their
+    provenance) already written for it, instead of leaving them half-imported (#108)."""
+    person = await kb.declare_class("test", "PERSON", "")
+    await kb.declare_class("test", "ROBOT", "")
+    await kb.declare_class("test", "COMPANY", "")
+    await kb.declare_relation_type("test", "WORKED_AT", "", domain="PERSON", range="COMPANY")
+    kb.create_database("copy")
+    await kb.import_database_schema("copy", await kb.export_database_schema("test"))
+    existing = await kb.add_entity("copy", "Pre-existing", class_id=(await kb.find_class("copy", "PERSON"))["id"],
+                                   text="Already here.")
+
+    data = {
+        "entities": [
+            {"ref": "e1", "name": "R2", "class": "ROBOT", "extraction": "R2 worked at IBM."},
+            {"ref": "e2", "name": "IBM", "class": "COMPANY", "extraction": "R2 worked at IBM."},
+        ],
+        "facts": [{"ref": "f1", "relation": "WORKED_AT", "head_ref": "e1", "tail_ref": "e2"}],
+    }
+    with pytest.raises(KnowledgeError, match="domain/range"):
+        await kb.import_database_data("copy", data)
+
+    assert [n["id"] for n in kb.match_nodes("copy", label="ENTITY")] == [existing]
+    assert kb.match_nodes("copy", label="FACT") == []
+    assert len(kb.match_nodes("copy", label="EXTRACTION")) == 1
+    _ = person
+
+
 async def test_import_database_data_missing_class_raises(kb):
     data = {"entities": [{"ref": "e1", "name": "Alice", "class": "GHOST"}]}
     with pytest.raises(KBError) as exc:
