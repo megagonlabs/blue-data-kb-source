@@ -496,3 +496,110 @@ async def test_expand_schema_mcp_reference_bridges_external_tools(kb):
     assert any(name.startswith("mcp__server0__lookup_synsets") for name in seen_tools["first"])
     schema = await kb.fetch_database_schema("test")
     assert "DOG" in schema.entities
+
+
+# ------------------------------------------------------------------ #
+# owner-scoped property check (#104)                                   #
+# ------------------------------------------------------------------ #
+
+async def _employment(kb):
+    await kb.declare_class("test", "PERSON", "A human individual")
+    await kb.declare_class("test", "COMPANY", "A business organization")
+    worked_at = await kb.declare_relation_type(
+        "test", "WORKED_AT", "Employment relationship", domain="PERSON", range="COMPANY"
+    )
+    start = await kb.declare_relation_property("test", "START_DATE", "Start of employment", relation_id=worked_at)
+    return worked_at, start
+
+
+def _relation_property_names(kb, relation_id):
+    return sorted(
+        nb["node"]["properties"]["name"]
+        for nb in kb.get_neighbors("test", relation_id, edge_type="DEFINE_PROPERTY", direction="out")
+    )
+
+
+async def test_expand_schema_property_check_reuses_same_owner_synonym(kb):
+    worked_at, start = await _employment(kb)
+    calls = []
+    factory, client = _mock_openai_sequence(
+        _tool_call_response("declare_relation_property", {
+            "relation_id": worked_at, "name": "JOIN_DATE", "description": "The date a person joined a company.",
+        }),
+        _tool_call_response("return_property_check", {
+            "describes_owner": True, "same_as_id": start, "reason": "Both are when the employment began.",
+        }),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", factory):
+        await kb.expand_schema(
+            "test", "Alice joined Google in 2005.",
+            on_tool_result=lambda name, args, result: calls.append((name, result)),
+        )
+
+    assert calls[0][1]["id"] == start
+    assert calls[0][1]["reused_existing"]["name"] == "START_DATE"
+    assert _relation_property_names(kb, worked_at) == ["START_DATE"]
+    check_prompt = client.chat.completions.create.call_args_list[1].kwargs["messages"][1]["content"]
+    assert "RELATION WORKED_AT — Employment relationship (from PERSON to COMPANY)" in check_prompt
+    assert f"{start}: START_DATE — Start of employment" in check_prompt
+
+
+async def test_expand_schema_property_check_rejects_misplaced_property(kb):
+    worked_at, _ = await _employment(kb)
+    calls = []
+    factory, _ = _mock_openai_sequence(
+        _tool_call_response("declare_relation_property", {
+            "relation_id": worked_at, "name": "DEGREE", "description": "The degree received from the educational institution.",
+        }),
+        _tool_call_response("return_property_check", {
+            "describes_owner": False, "same_as_id": "", "reason": "A degree describes an education, not an employment.",
+        }),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", factory):
+        await kb.expand_schema(
+            "test", "Alice holds a master's degree from CMU.",
+            on_tool_result=lambda name, args, result: calls.append((name, result)),
+        )
+
+    assert "does not describe WORKED_AT" in calls[0][1]["error"]
+    assert _relation_property_names(kb, worked_at) == ["START_DATE"]
+
+
+async def test_expand_schema_property_check_with_dedup_none_still_checks_placement(kb):
+    worked_at, start = await _employment(kb)
+    factory, client = _mock_openai_sequence(
+        _tool_call_response("declare_relation_property", {
+            "relation_id": worked_at, "name": "END_DATE", "description": "End of employment",
+        }),
+        _tool_call_response("return_property_check", {
+            "describes_owner": True, "same_as_id": start, "reason": "(ignored: no candidates offered)",
+        }),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", factory):
+        await kb.expand_schema("test", "Alice left IBM in 2005.", dedup_mode="none")
+
+    check_prompt = client.chat.completions.create.call_args_list[1].kwargs["messages"][1]["content"]
+    assert "Owner's existing properties:\n(none)" in check_prompt
+    assert _relation_property_names(kb, worked_at) == ["END_DATE", "START_DATE"]
+
+
+async def test_expand_schema_property_check_skipped_for_exact_name_redeclaration(kb):
+    worked_at, start = await _employment(kb)
+    calls = []
+    factory, client = _mock_openai_sequence(
+        _tool_call_response("declare_relation_property", {
+            "relation_id": worked_at, "name": "start date", "description": "When the job began",
+        }),
+        _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", factory):
+        await kb.expand_schema(
+            "test", "Alice joined Google in 2005.",
+            on_tool_result=lambda name, args, result: calls.append((name, result)),
+        )
+
+    assert client.chat.completions.create.call_count == 2
+    assert calls[0][1] == {"id": start}

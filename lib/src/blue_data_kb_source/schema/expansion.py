@@ -255,7 +255,12 @@ Workflow:
    element, the result carries "reused_existing" naming it: if that element really
    is a different concept from the one you meant, declare yours again under a more
    specific name rather than treating it as done.
-3. When search_schema turns up an existing PROPERTY that covers the concept you
+3. Declare a PROPERTY on the CLASS or RELATION it actually describes — a degree
+   belongs to an education relationship or a person, never to an employment
+   relation; if the right owner doesn't exist yet, declare it first. Each
+   property declaration is checked for this and for a same-meaning property the
+   owner already has (the result then carries "reused_existing").
+   When search_schema turns up an existing PROPERTY that covers the concept you
    need on a *different* class/relation than the one that already defines it, call
    attach_property to reuse it there instead of declare_class_property /
    declare_relation_property under a new name.
@@ -535,6 +540,11 @@ class SchemaExpansionEngine:
             return {"id": cid}
 
         if fn == "declare_class_property":
+            verdict = await self._check_property(
+                database, args["class_id"], args["name"], args["description"], dedup_mode, model
+            )
+            if verdict is not None:
+                return verdict
             pid = await self._schema.declare_class_property(
                 database, name=args["name"], description=args["description"], class_id=args["class_id"]
             )
@@ -564,6 +574,11 @@ class SchemaExpansionEngine:
             return {"id": rid}
 
         if fn == "declare_relation_property":
+            verdict = await self._check_property(
+                database, args["relation_id"], args["name"], args["description"], dedup_mode, model
+            )
+            if verdict is not None:
+                return verdict
             pid = await self._schema.declare_relation_property(
                 database,
                 name=args["name"],
@@ -657,6 +672,130 @@ class SchemaExpansionEngine:
             if not existing_ids & lineage:
                 return False
         return True
+
+    async def _check_property(
+        self,
+        database: str,
+        owner_id: str,
+        name: str,
+        description: str,
+        dedup_mode: Literal["search", "llm", "none"],
+        model: str,
+    ) -> dict[str, Any] | None:
+        """Owner-scoped check run before a PROPERTY is declared on a CLASS/RELATION: does
+        the property describe that owner at all (no DEGREE on an employment relation), and
+        does it mean the same as a property the owner already has (JOIN_DATE next to
+        START_DATE)? Neither is visible to search — BM25 shares no token between JOIN_DATE
+        and START_DATE — so this is one forced-tool LLM call over the owner's own
+        properties, which stays small however large the schema grows.
+
+        Returns a tool result to send back instead of declaring (the reused property, or
+        an error explaining the misplacement), or None to proceed. The same-meaning half
+        is skipped when dedup_mode="none"; placement is always checked. A missing owner or
+        an exact-name redeclaration falls through to declare_*_property, which handles it."""
+        import openai
+
+        from blue_data_kb_source._constants import DEFINE_PROPERTY, DOMAIN, RANGE
+        from blue_data_kb_source.schema.manager import _canonicalize_schema_name
+
+        owner = self._source.get_node(database, owner_id)
+        if not owner or owner.get("label") not in (CLASS, RELATION):
+            return None
+        existing = [
+            nb["node"] for nb in self._source.get_neighbors(
+                database, owner_id, edge_type=DEFINE_PROPERTY, direction="out"
+            )
+        ]
+        canonical = _canonicalize_schema_name(name)
+        if any(p.get("properties", {}).get("name") == canonical for p in existing):
+            return None
+        candidates = existing if dedup_mode != "none" else []
+
+        owner_props = owner.get("properties", {})
+        owner_str = f"{owner['label']} {owner_props.get('name', '')} — {owner_props.get('description') or '(no description)'}"
+        if owner["label"] == RELATION:
+            ends = {
+                edge: [nb["node"].get("properties", {}).get("name") for nb in
+                       self._source.get_neighbors(database, owner_id, edge_type=edge, direction="out")]
+                for edge in (DOMAIN, RANGE)
+            }
+            owner_str += f" (from {', '.join(ends[DOMAIN]) or '?'} to {', '.join(ends[RANGE]) or '?'})"
+        candidates_str = "\n".join(
+            f"- {p['id']}: {p.get('properties', {}).get('name')} — {p.get('properties', {}).get('description') or ''}"
+            for p in candidates
+        ) or "(none)"
+
+        check_tool = {
+            "type": "function",
+            "function": {
+                "name": "return_property_check",
+                "description": "Report whether the proposed property belongs on this owner, and whether it duplicates one it already has.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "describes_owner": {
+                            "type": "boolean",
+                            "description": "true if the property is an attribute of the owner itself (of each of its instances)",
+                        },
+                        "same_as_id": {
+                            "type": "string",
+                            "description": "id of an existing property of the owner that means the same thing, or empty string if none",
+                        },
+                        "reason": {"type": "string", "description": "One short sentence."},
+                    },
+                    "required": ["describes_owner", "same_as_id", "reason"],
+                },
+            },
+        }
+        client = openai.AsyncOpenAI()
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You check a PROPERTY proposed for a KB CLASS or RELATION. First: is it an "
+                        "attribute of the owner itself? A property of a RELATION describes one "
+                        "instance of that relationship (an employment's START_DATE or SALARY); a "
+                        "property of a CLASS describes one member (a person's BIRTH_DATE). A value "
+                        "that belongs to some other concept — a DEGREE on an employment relation, "
+                        "a company's FOUNDED_YEAR on a person — does not describe the owner. "
+                        "Second: does it mean the same as one of the owner's existing properties, "
+                        "judged by meaning, not wording (JOIN_DATE and START_DATE on an employment "
+                        "both mean when it began)? Be conservative: only report a match when they "
+                        "clearly are the same attribute."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Owner: {owner_str}\n"
+                        f"Proposed property: {canonical} — {description}\n"
+                        f"Owner's existing properties:\n{candidates_str}"
+                    ),
+                },
+            ],
+            tools=[check_tool],  # type: ignore[arg-type]
+            tool_choice={"type": "function", "function": {"name": "return_property_check"}},  # type: ignore[arg-type]
+        )
+        verdict = json.loads(response.choices[0].message.tool_calls[0].function.arguments)
+        same = next((p for p in candidates if p["id"] == verdict.get("same_as_id")), None)
+        if same is not None:
+            props = same.get("properties", {})
+            return _reused_result(
+                SchemaSearchResult(
+                    id=same["id"], type=PROPERTY,
+                    name=props.get("name", ""), description=props.get("description") or "",
+                ),
+                name,
+            )
+        if not verdict.get("describes_owner", True):
+            return {"error": (
+                f"Rejected: {canonical} does not describe {owner_props.get('name')} — "
+                f"{verdict.get('reason', '')} Declare it on the CLASS or RELATION it does "
+                "describe; if that element doesn't exist yet, declare it first."
+            )}
+        return None
 
     async def _judge_subclass(
         self, database: str, child_id: str, parent_id: str, model: str
