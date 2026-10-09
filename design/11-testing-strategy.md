@@ -10,7 +10,7 @@ blue-kb has three real test tiers, spread across independently-installed package
 - **`lib/tests/benchmarks/`** — gold-standard-case suites for `import_text`/`answer`/`validate`/`enrich` and the ingestion judges against real OpenAI responses (via VCR cassettes), scored by LLM-judge alignment (extraction/querying) or deterministically (judges); a heavier, opt-in tier, not part of the default `pytest` run
 - **`platform/cli/tests/`** and **`platform/mcp/tests/`** — adapter-layer tests for the CLI and MCP server, each in their own package with their own fixtures
 
-There is no Neo4j-backed integration test suite today — the Neo4j backend (via the `blue-data` dependency) is real and wired into both the CLI and MCP server, but nothing currently tests against a live Neo4j instance.
+The unit suite can also run against a live Neo4j server (opt-in, see §9); it isn't part of the default run.
 
 ---
 
@@ -217,9 +217,16 @@ Interface tests live in each interface's **own package**, not under `lib/tests/`
 
 ---
 
-## 9. Neo4j — not covered by an automated test today
+## 9. Neo4j — the unit suite, opt-in
 
-A `Neo4jGraphSource`/`NEO4JSource` backend is real and wired into both the CLI (`blue-kb database register --graph-backend neo4j`) and the MCP server (`BLUE_DATA_KB_SOURCE_GRAPH_BACKEND=neo4j`), but no automated test — unit or otherwise — currently runs against a live Neo4j instance. There is no `lib/tests/integration/` directory. Manual verification against Neo4j has been done ad hoc (e.g. `examples/backends/neo4j_backend_demo.py`); building a real Neo4j-backed test suite (structurally similar to the `MemoryKBSource`-backed unit tests, swapping the fixture backend) is open work, not yet started.
+The whole `lib/tests/unit` suite runs against a live Neo4j server when `KB_TEST_BACKEND=neo4j` is set: `lib/tests/conftest.py` then turns every `MemoryKBSource` the tests build (through the fixtures or directly) into a `NEO4JKBSource` on that server, **wiped when it is created** — so point it at a throwaway server only:
+
+```bash
+docker run -d --rm --name kb-test-neo4j -p 127.0.0.1:17692:7687 -e NEO4J_AUTH=neo4j/<password> neo4j:5-community
+cd lib && KB_TEST_BACKEND=neo4j KB_NEO4J_PORT=17692 KB_NEO4J_PASSWORD=<password> pytest tests/unit
+```
+
+`KB_NEO4J_HOST` (default `127.0.0.1`) and `KB_NEO4J_USER` (default `neo4j`) are also read. It isn't in CI yet (#81); it takes about a minute and a half on Neo4j 5 Community. As of #120 it passes apart from the WordNet MCP bridge test, which also needs `blue-data-wordnet-mcp` installed.
 
 ---
 

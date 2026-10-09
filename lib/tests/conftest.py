@@ -1,6 +1,31 @@
+import os
+
 import pytest
 
-from blue_data_kb_source import MemoryKBSource
+import blue_data_kb_source
+
+# Opt-in: run the suite against Neo4j instead of the in-memory backend (#120, #81).
+#   KB_TEST_BACKEND=neo4j KB_NEO4J_PORT=17691 KB_NEO4J_PASSWORD=... pytest tests/unit
+# Every MemoryKBSource the tests build (via the fixtures below or directly) becomes a
+# NEO4JKBSource on that server, wiped when it is created — so use a throwaway server.
+if os.environ.get("KB_TEST_BACKEND") == "neo4j":
+    from blue_data_kb_source.neo4j.neo4j_kb_source import NEO4JKBSource
+
+    class _Neo4jTestKB(NEO4JKBSource):
+        def __init__(self, name, properties=None):
+            props = dict(properties or {})
+            props["connection"] = {
+                "protocol": "bolt", "host": os.environ.get("KB_NEO4J_HOST", "127.0.0.1"),
+                "port": int(os.environ.get("KB_NEO4J_PORT", "7687")),
+                "user": os.environ.get("KB_NEO4J_USER", "neo4j"),
+                "password": os.environ["KB_NEO4J_PASSWORD"],
+            }
+            super().__init__(name, properties=props)
+            self._run_query("MATCH (n) DETACH DELETE n", database="neo4j", read=False)
+
+    blue_data_kb_source.MemoryKBSource = _Neo4jTestKB
+
+from blue_data_kb_source import MemoryKBSource  # noqa: E402  (after the optional swap)
 
 
 @pytest.fixture

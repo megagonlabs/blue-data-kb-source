@@ -420,3 +420,16 @@ Architectural decisions are recorded here as they are made, throughout the desig
 
 **Consequences:** MCP clients that passed `mcp_servers` must now have the operator set the environment variable; nothing is deployed, so there is no migration. An agent can still choose whether to use the reference servers (`reference`), just not which ones. The variable has no CLI profile counterpart because the CLI takes servers per command.
 
+---
+
+## ADR-033 — Neo4j Backend: `NEO4JKBSource` Owns Its Graph Primitives
+
+**Date:** 2026-10-09
+**Status:** Accepted
+
+**Decision:** `NEO4JKBSource` implements the ten graph primitives the KB layer uses (`add_node`, `get_node`, `update_node`, `delete_node`, `match_nodes`, `add_edge`, `update_edge`, `delete_edge`, `match_edges`, `get_neighbors`) and the `GRAPH.*` dispatch itself, with its own Cypher, instead of inheriting them from blue-data's `NEO4JSource`. Results follow the memory/file contract exactly: `{id, label, properties}` nodes, `{node, edge, direction}` neighbors, insertion order, None-valued keys kept. Ids are stable strings in `_id`; every node is tagged with its logical database in `_kb_db`, and every query filters on it.
+
+**Rationale:** The KB layer is written against the memory/file shapes, and `NEO4JSource` returns different ones (`node_id` for `id`, neighbors without `edge`/`direction`) and runs `execute_query` as raw Cypher — 49 of the unit tests failed on Neo4j, including `get_metadata`, schema merge and the extraction agent's `find_entity` (#120). Separately, `NEO4JSource` maps every logical database onto Neo4j Community's single database, so `main` and `copy` shared one graph — which the import/export round-trip and every multi-database use silently depend on not happening. Fixing the shapes in blue-data would be the better long-term home (one contract for every `GraphSource`), but it is a cross-repo change late in the 1.0 cycle; doing it here also lets the KB own the database isolation, which is KB-level semantics.
+
+**Consequences:** The unit suite now runs against Neo4j (`KB_TEST_BACKEND=neo4j`, see 11-testing-strategy.md §9) and passes. Graph data written to Neo4j by the earlier `NEO4JKBSource` lacks `_id`/`_kb_db` and is not visible to this one — acceptable because nothing is deployed. `add_edge` to a missing endpoint creates nothing and doesn't raise, matching the memory/file backends, where such an edge is stored but never surfaces. A raw Cypher string passed to `execute_query` still runs as native Cypher and sees the internal properties. If blue-data adopts one result contract, these overrides can shrink to the isolation logic.
+
