@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Literal
 from blue_data.source.graph.graph_source import GraphSource
 
 from blue_data_kb_source._constants import ENTITY, EXTRACTED_FROM, EXTRACTION, FACT, LITERAL, SOURCE
-from blue_data_kb_source.checks import require_node_type, require_node_type_one_of
+from blue_data_kb_source.checks import require_free_id, require_node_type, require_node_type_one_of
 from blue_data_kb_source.knowledge.helpers import recompute_fact_confidence
 from blue_data_kb_source.timestamps import edge_stamped, stamped, touched
 from blue_data_kb_source.types import ProvenanceError
@@ -40,6 +40,7 @@ class ProvenanceTracker:
     ) -> str:
         if name is None:
             name = source
+        require_free_id(self._source, database, node_id, "node_id", ProvenanceError)
         return self._source.add_node(
             database,
             SOURCE,
@@ -67,6 +68,7 @@ class ProvenanceTracker:
             raise ProvenanceError(f"confidence must be within [0.0, 1.0], got {confidence!r}.")
         if name is None:
             name = text
+        require_free_id(self._source, database, node_id, "node_id", ProvenanceError)
         n = self._source.add_node(
             database,
             EXTRACTION,

@@ -22,7 +22,7 @@ from blue_data_kb_source._constants import (
     EXTRACTION,
     TAIL,
 )
-from blue_data_kb_source.checks import require_node_type, require_node_type_one_of
+from blue_data_kb_source.checks import require_free_id, require_node_type, require_node_type_one_of
 from blue_data_kb_source.knowledge.engine import QueryEngine
 from blue_data_kb_source.knowledge.helpers import (
     cast_literal_value,
@@ -147,6 +147,7 @@ class KnowledgeManager:
             require_node_type(self._source, database, class_id, CLASS, "class_id", KnowledgeError)
         if source_id is not None:
             require_node_type(self._source, database, source_id, SOURCE, "source_id", KnowledgeError)
+        require_free_id(self._source, database, entity_id, "entity_id", KnowledgeError)
         node_id = self._source.add_node(
             database,
             ENTITY,
@@ -205,6 +206,7 @@ class KnowledgeManager:
             tail_name = self._node_name(database, tail_entity_id) or "?"
             rel_name = self._node_name(database, relation_id) or "?"
             name = f"{head_name}_{rel_name}_{tail_name}"
+        require_free_id(self._source, database, fact_id, "fact_id", KnowledgeError)
         node_id = self._source.add_node(
             database,
             FACT,
@@ -260,6 +262,7 @@ class KnowledgeManager:
                 literal_type = "STRING"
         else:
             value = cast_literal_value(value, literal_type)
+        require_free_id(self._source, database, node_id, "node_id", KnowledgeError)
         lid = self._source.add_node(
             database,
             LITERAL,

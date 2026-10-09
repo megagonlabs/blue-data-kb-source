@@ -103,7 +103,7 @@ All configuration is via environment variables — there is no config file, and 
 | Variable | Default | Description |
 |---|---|---|
 | `BLUE_DATA_KB_SOURCE_GRAPH_BACKEND` | `file` | `file` — JSON files on disk. `neo4j` — Neo4j graph database. |
-| `BLUE_DATA_KB_SOURCE_DATA_DIR` | `~/.blue-kb` | File backend directory. Same default the `blue-kb` CLI's file backend uses. |
+| `BLUE_DATA_KB_SOURCE_DATA_DIR` | `~/.blue-kb` | File backend directory. Same default the `blue-kb` CLI's file backend uses. Every tool's `database` argument names a database inside it — 1–64 letters, digits, `_` or `-` — and path-like values (separators, `..`, absolute paths) are rejected, so a tool call can't read or write outside this directory. |
 | `BLUE_DATA_KB_SOURCE_NEO4J_URI` | — | Neo4j bolt URI, e.g. `bolt://localhost:7687`. Used when `BLUE_DATA_KB_SOURCE_GRAPH_BACKEND=neo4j`. |
 | `BLUE_DATA_KB_SOURCE_NEO4J_USER` | `neo4j` | Neo4j username. |
 | `BLUE_DATA_KB_SOURCE_NEO4J_PASSWORD` | — | Neo4j password. |

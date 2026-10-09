@@ -12,6 +12,7 @@ actionable error instead.
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -72,3 +73,46 @@ def require_node_type_one_of(
             f"but a {expected} node id was expected."
         )
     return node
+
+
+_DATABASE_NAME = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_-]{0,63}")
+
+
+def require_database_name(database: str) -> str:
+    """Return *database* if it is a plain database name — letters, digits, `_` and `-`,
+    at most 64 characters — and raise KBError otherwise.
+
+    File-backed stores turn the name into a file path (`<dir>/<database>.json`, the
+    BM25 corpus files), so a separator, `..` or an absolute path would read or write
+    outside the data directory. Callers include MCP tool arguments, i.e. text an
+    agent chose (#116).
+    """
+    from blue_data_kb_source.types import KBError
+
+    if not isinstance(database, str) or not _DATABASE_NAME.fullmatch(database):
+        raise KBError(
+            f"invalid database name {database!r}: use 1-64 letters, digits, '_' or '-' "
+            "(no path separators, '..' or absolute paths)"
+        )
+    return database
+
+
+def require_free_id(
+    source: "GraphSource",
+    database: str,
+    node_id: str | None,
+    param_name: str,
+    error_cls: type[Exception],
+) -> None:
+    """Raise *error_cls* if a caller-supplied *node_id* for a new node is already taken.
+
+    GraphSource.add_node doesn't check: the memory/file backends silently replace the
+    node holding that id (an entity could become a CLASS), and Neo4j creates a second
+    node answering to the same id (#117). None — let the backend mint an id — passes.
+    """
+    if node_id is not None and source.get_node(database, node_id) is not None:
+        raise error_cls(
+            f"{param_name} {node_id!r} is already the id of an existing node; "
+            "omit it to have one generated, or pass an unused id."
+        )
+

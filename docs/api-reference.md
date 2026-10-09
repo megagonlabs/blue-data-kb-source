@@ -251,7 +251,9 @@ All inherit from `KBError`.
 | `ProvenanceError` | Provenance-tracking failures |
 | `IngestionError` | An assert's resolve phase failed — ambiguity (candidates attached), a judge crash, a collapsed edge; nothing was written |
 
-Methods that take an id referencing an *existing* node (`class_id`, `entity_id`, `fact_id`, `source_id`, ...) validate the node exists and is the expected type before doing anything, raising with the offending id and expected type otherwise. Ids naming a *new* node being created (e.g. `class_id` passed to `declare_class` to force a specific id) aren't checked this way.
+Methods that take an id referencing an *existing* node (`class_id`, `entity_id`, `fact_id`, `source_id`, ...) validate the node exists and is the expected type before doing anything, raising with the offending id and expected type otherwise. Ids naming a *new* node being created (e.g. `class_id` passed to `declare_class` to force a specific id) must be unused: an id that already belongs to any node raises the method's error (`SchemaError`, `KnowledgeError` or `ProvenanceError`) and nothing is written. Omit the id to have one generated.
+
+`database` is a plain name, not a path: 1–64 letters, digits, `_` or `-`. File-backed stores reject anything else (path separators, `..`, absolute paths) with `KBError` before touching the disk, since the name becomes part of the file path.
 
 ---
 

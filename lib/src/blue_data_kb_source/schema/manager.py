@@ -24,7 +24,7 @@ from blue_data_kb_source._constants import (
     SOURCE,
     TAIL,
 )
-from blue_data_kb_source.checks import require_node_type, require_node_type_one_of
+from blue_data_kb_source.checks import require_free_id, require_node_type, require_node_type_one_of
 from blue_data_kb_source.schema.expansion import SchemaExpansionEngine
 from blue_data_kb_source.timestamps import edge_stamped, stamped, touched
 from blue_data_kb_source.types import SchemaError, SchemaSearchResult
@@ -213,6 +213,7 @@ class SchemaManager:
         node = await self.find_class(database, name)
         if node:
             return node["id"]
+        require_free_id(self._source, database, class_id, "class_id", SchemaError)
         node_id = self._source.add_node(
             database,
             CLASS,
@@ -276,6 +277,7 @@ class SchemaManager:
             if cls is None:
                 raise SchemaError(f"range class '{class_name}' not found in '{database}'")
             range_ids.append(cls["id"])
+        require_free_id(self._source, database, relation_id, "relation_id", SchemaError)
         rid = self._source.add_node(
             database,
             RELATION,
@@ -309,6 +311,7 @@ class SchemaManager:
             node = await self.find_property(database, name)
             if node:
                 return node["id"]
+        require_free_id(self._source, database, property_id, "property_id", SchemaError)
         node_id = self._source.add_node(
             database,
             PROPERTY,
@@ -344,6 +347,7 @@ class SchemaManager:
             node = await self.find_property(database, name)
             if node:
                 return node["id"]
+        require_free_id(self._source, database, property_id, "property_id", SchemaError)
         node_id = self._source.add_node(
             database,
             PROPERTY,

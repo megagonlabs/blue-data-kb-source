@@ -24,6 +24,7 @@ from blue_data_kb_source._constants import (
     REPRESENTS,
     TAIL,
 )
+from blue_data_kb_source.checks import require_database_name
 from blue_data_kb_source.types import DataSearchResult, KBError, SchemaSearchResult
 
 if TYPE_CHECKING:
@@ -405,6 +406,7 @@ class KBSearchIndexer:
         return self._meta.setdefault(database, {}).setdefault(collection, {})
 
     def _corpus_file_path(self, database: str, collection: str) -> Path:
+        require_database_name(database)  # the name becomes part of the file path (#116)
         return Path(self._corpus_dir) / f"{database}_{collection}_bm25.json"  # type: ignore[arg-type]
 
     def _load_corpus_from_file(self, database: str, collection: str) -> None:
