@@ -161,6 +161,14 @@ def test_schema_expand_timeout_defaults_to_the_profile_value(runner):
         assert expand.call_args.kwargs["timeout"] is None
 
 
+def test_extract_caps_schema_expansion_with_the_profile_timeout(runner):
+    with patch("blue_data_kb_source.KBSource.import_text", new=AsyncMock()) as imp:
+        invoke(runner, DB + ["data", "extract", "Alice joined IBM."])
+        assert imp.call_args.kwargs["schema_expansion_timeout"] == 1800
+        invoke(runner, DB + ["data", "extract", "Alice joined IBM.", "--schema-expansion-timeout", "0"])
+        assert imp.call_args.kwargs["schema_expansion_timeout"] is None
+
+
 def test_answer_table_format(runner):
     _seed(runner)
     payload = [{"entity": "Alice", "relation": "WORKED_AT", "value": None, "provenance": "Alice joined IBM in June 1998."}]

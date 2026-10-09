@@ -106,6 +106,15 @@ def schema_expansion_mcp_servers() -> list[dict[str, Any]]:
     return servers
 
 
+def schema_expansion_timeout() -> float | None:
+    """Overall cap, in seconds, on one expand_schema run — the same variable and default
+    as the CLI's profile (BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_TIMEOUT, 1800; 0 = none).
+    Without it a stalled model or reference server held the tool call forever (#113)."""
+    raw = os.environ.get("BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_TIMEOUT", "1800").strip()
+    value = float(raw) if raw else 0.0
+    return value or None
+
+
 # ---------------------------------------------------------------------------
 # Directory / connection helpers
 # ---------------------------------------------------------------------------

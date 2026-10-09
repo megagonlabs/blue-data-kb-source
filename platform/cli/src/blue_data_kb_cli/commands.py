@@ -3865,6 +3865,11 @@ def data_import(obj: dict, input_file) -> None:
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Show tool call arguments in the status line.")
 @click.option("--log", "-l", is_flag=True, default=False, help="Also log each tool call and its result on its own line (in addition to the status line).")
 @click.option("--log-limit", type=int, default=None, help="Max characters per truncated verbose/log line. Default: the profile's BLUE_DATA_CLI_LOG_LIMIT.")
+@click.option(
+    "--schema-expansion-timeout", "schema_expansion_timeout", type=float, default=None,
+    help="Give up on schema expansion after this many seconds overall (0 = no limit). "
+         "Default: the profile's BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_TIMEOUT.",
+)
 @click.pass_obj
 def extract_cmd(
     obj: dict,
@@ -3879,6 +3884,7 @@ def extract_cmd(
     schema_expansion_mode: str,
     schema_expansion_mcp_servers_raw: tuple[str, ...],
     schema_expansion_dedup_mode: str,
+    schema_expansion_timeout: float | None,
     effort: str | None,
     max_concurrency: int | None,
     max_turns: int | None,
@@ -3921,6 +3927,10 @@ def extract_cmd(
                                 schema_expansion_mode=schema_expansion_mode,
                                 schema_expansion_mcp_servers=schema_expansion_mcp_servers,
                                 schema_expansion_dedup_mode=schema_expansion_dedup_mode,
+                                schema_expansion_timeout=(
+                                    schema_expansion_timeout if schema_expansion_timeout is not None
+                                    else obj["config"].get("BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_TIMEOUT")
+                                ) or None,
                                 on_tool_call=on_call,
                                 on_tool_result=on_result))
     except KBError as exc:

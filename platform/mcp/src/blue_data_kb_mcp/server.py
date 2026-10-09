@@ -61,6 +61,7 @@ from blue_data_kb_mcp.config import (
     get_kb,
     model_for,
     schema_expansion_mcp_servers,
+    schema_expansion_timeout,
 )
 
 mcp = FastMCP(
@@ -708,6 +709,7 @@ async def expand_schema(
             mcp_servers=_reference_servers(reference),
             dedup_mode=dedup_mode,
             model=model or model_for("SCHEMA_EXPANSION"),
+            timeout=schema_expansion_timeout(),
         )
         return _ok({"status": "ok"})
     except Exception as e:
@@ -765,6 +767,7 @@ async def import_text(
             schema_expansion_depth=schema_expansion_depth,
             schema_expansion_mode=schema_expansion_mode,
             schema_expansion_mcp_servers=reference_servers,
+            schema_expansion_timeout=schema_expansion_timeout(),
             schema_expansion_dedup_mode=schema_expansion_dedup_mode,
         )
         return _ok({"status": "ok"})

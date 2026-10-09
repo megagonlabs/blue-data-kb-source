@@ -633,3 +633,74 @@ async def test_expand_schema_timeout_raises_and_keeps_earlier_declarations(kb):
 
     schema = await kb.fetch_database_schema("test")
     assert "PERSON" in schema.entities
+
+
+# ------------------------------------------------------------------ #
+# reference MCP servers can't hang the run (#113)                      #
+# ------------------------------------------------------------------ #
+
+import sys as _sys
+import time as _time
+
+_SLOW_SERVER = '''
+import time
+from mcp.server.fastmcp import FastMCP
+mcp = FastMCP("slow")
+
+@mcp.tool()
+def slow(word: str) -> str:
+    time.sleep(60)
+    return word
+
+mcp.run()
+'''
+
+
+async def test_dead_reference_server_fails_its_startup_handshake_clearly(kb):
+    pytest.importorskip("mcp")
+    from blue_data_kb_source.types import SchemaError
+
+    start = _time.monotonic()
+    with pytest.raises(SchemaError, match="did not complete its startup handshake within 1s"):
+        await kb.expand_schema("test", "x", reference="mcp", mcp_servers=[
+            {"name": "dead", "transport": "stdio", "command": "sleep", "args": ["3600"], "startup_timeout": 1}
+        ])
+    assert _time.monotonic() - start < 20
+
+
+async def test_overall_timeout_while_connecting_blames_the_servers_not_the_model(kb):
+    pytest.importorskip("mcp")
+    from blue_data_kb_source.types import SchemaError
+
+    with pytest.raises(SchemaError, match="while connecting to its reference MCP servers"):
+        await kb.expand_schema("test", "x", reference="mcp", timeout=1, mcp_servers=[
+            {"name": "dead", "transport": "stdio", "command": "sleep", "args": ["3600"]}
+        ])
+
+
+async def test_hanging_reference_tool_call_times_out_and_returns_an_error(kb, tmp_path):
+    pytest.importorskip("mcp")
+    server = tmp_path / "slow_server.py"
+    server.write_text(_SLOW_SERVER)
+    results = []
+    factory, _ = _mock_openai_sequence(
+        _tool_call_response("mcp__slow__slow", {"word": "dog"}),
+        _text_response("done"),
+    )
+    start = _time.monotonic()
+    with patch("openai.AsyncOpenAI", factory):
+        await kb.expand_schema(
+            "test", "x", reference="mcp", dedup_mode="none",
+            mcp_servers=[{"name": "slow", "transport": "stdio", "command": _sys.executable,
+                          "args": [str(server)], "call_timeout": 1}],
+            on_tool_result=lambda name, args, result: results.append((name, result)),
+        )
+    assert _time.monotonic() - start < 30
+    assert results and "error" in results[0][1]
+
+
+async def test_import_text_forwards_its_schema_expansion_timeout(kb):
+    with patch.object(kb._schema, "expand_schema", new=AsyncMock()) as expand, \
+         patch.object(kb._extraction, "import_text", new=AsyncMock()):
+        await kb.import_text("test", "x", schema_expansion_timeout=42)
+    assert expand.call_args.kwargs["timeout"] == 42

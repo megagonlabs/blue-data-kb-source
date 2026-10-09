@@ -1080,6 +1080,7 @@ class KBSource(GraphSource, ABC):
         schema_expansion_mode: Literal["llm", "mcp"] = "llm",
         schema_expansion_mcp_servers: list[dict[str, Any]] | None = None,
         schema_expansion_dedup_mode: Literal["search", "llm", "none"] = "search",
+        schema_expansion_timeout: float | None = None,
         on_tool_call: Callable[[str, dict], None] | None = None,
         on_tool_result: Callable[[str, dict, Any], None] | None = None,
         max_turns: int = 25,
@@ -1106,6 +1107,7 @@ class KBSource(GraphSource, ABC):
                 on_tool_call=on_tool_call,
                 on_tool_result=on_tool_result,
                 max_turns=max_turns,
+                timeout=schema_expansion_timeout,
             )
         await self._extraction.import_text(
             database, text, queries, model, source_id,

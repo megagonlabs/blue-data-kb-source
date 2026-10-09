@@ -559,3 +559,16 @@ def test_neo4j_physical_database_is_operator_config(monkeypatch):
     assert config_module._neo4j_connection()["database"] == "kb_store"
     monkeypatch.delenv("BLUE_DATA_KB_SOURCE_NEO4J_DATABASE")
     assert "database" not in config_module._neo4j_connection()  # library default: neo4j
+
+
+async def test_expansion_tools_apply_the_overall_timeout(monkeypatch, kb):
+    monkeypatch.delenv("BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_TIMEOUT", raising=False)
+    with patch.object(kb, "expand_schema", new=AsyncMock()) as expand, \
+         patch.object(kb, "import_text", new=AsyncMock()) as imp:
+        await expand_schema("x", database=DB)
+        await import_text("x", database=DB)
+        assert expand.call_args.kwargs["timeout"] == 1800
+        assert imp.call_args.kwargs["schema_expansion_timeout"] == 1800
+        monkeypatch.setenv("BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_TIMEOUT", "0")
+        await expand_schema("x", database=DB)
+        assert expand.call_args.kwargs["timeout"] is None

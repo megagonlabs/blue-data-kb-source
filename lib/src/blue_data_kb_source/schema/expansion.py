@@ -300,20 +300,31 @@ _MCP_NOTE = (
 )
 
 
+# Per-server limits for reference MCP servers, overridable per entry with
+# "startup_timeout" / "call_timeout" (seconds). Without them a server that starts but
+# never answers — a wrong command waiting on stdin, one logging to stdout and corrupting
+# JSON-RPC — blocked the handshake forever, and so did a stuck tool call (#113).
+_MCP_STARTUP_TIMEOUT = 30.0
+_MCP_CALL_TIMEOUT = 120.0   # WordNet's first call downloads its corpus
+
+
 async def _connect_mcp_servers(
     mcp_servers: list[dict[str, Any]], stack: AsyncExitStack
-) -> tuple[list[dict[str, Any]], dict[str, tuple[Any, str]]]:
+) -> tuple[list[dict[str, Any]], dict[str, tuple[Any, str, Any]]]:
     """Connect to each configured MCP server (stdio/sse/streamable_http), returning
     OpenAI-shaped tool specs — name-prefixed per server as 'mcp__<server>__<tool>' to
     avoid collisions across servers — and a name -> (session, original_name) map for
     dispatch. All connections live for the duration of *stack*."""
+    from datetime import timedelta
+
+    import anyio
     from mcp import ClientSession
     from mcp.client.sse import sse_client
     from mcp.client.stdio import StdioServerParameters, stdio_client
     from mcp.client.streamable_http import streamablehttp_client
 
     tool_specs: list[dict[str, Any]] = []
-    dispatch: dict[str, tuple[Any, str]] = {}
+    dispatch: dict[str, tuple[Any, str, Any]] = {}
 
     for i, cfg in enumerate(mcp_servers):
         server_name = cfg.get("name") or f"server{i}"
@@ -335,9 +346,23 @@ async def _connect_mcp_servers(
             raise SchemaError(f"unknown MCP transport '{transport}' for server '{server_name}'")
 
         read, write = streams[0], streams[1]
+        # The call timeout is applied per tool call, not to the session: as a session
+        # default it would also bound the handshake, which startup_timeout governs.
+        call_timeout = timedelta(seconds=float(cfg.get("call_timeout", _MCP_CALL_TIMEOUT)))
         session = await stack.enter_async_context(ClientSession(read, write))
-        await session.initialize()
-        listed = await session.list_tools()
+        startup_timeout = float(cfg.get("startup_timeout", _MCP_STARTUP_TIMEOUT))
+        try:
+            # anyio, not asyncio.wait_for: the MCP client's task groups must be entered
+            # and exited from this same task.
+            with anyio.fail_after(startup_timeout):
+                await session.initialize()
+                listed = await session.list_tools()
+        except TimeoutError:
+            raise SchemaError(
+                f"reference MCP server {server_name!r} did not complete its startup handshake "
+                f"within {startup_timeout:g}s — check its command or URL (a stdio server must speak "
+                "MCP on stdout and log to stderr), or raise its \"startup_timeout\""
+            ) from None
         for tool in listed.tools:
             prefixed = f"mcp__{server_name}__{tool.name}"
             tool_specs.append({
@@ -348,19 +373,57 @@ async def _connect_mcp_servers(
                     "parameters": tool.inputSchema,
                 },
             })
-            dispatch[prefixed] = (session, tool.name)
+            dispatch[prefixed] = (session, tool.name, call_timeout)
 
     return tool_specs, dispatch
 
 
-async def _call_mcp_tool(dispatch: dict[str, tuple[Any, str]], name: str, arguments: dict[str, Any]) -> str:
-    session, original_name = dispatch[name]
-    result = await session.call_tool(original_name, arguments)
+async def _call_mcp_tool(dispatch: dict[str, tuple[Any, str, Any]], name: str, arguments: dict[str, Any]) -> str:
+    session, original_name, call_timeout = dispatch[name]
+    result = await session.call_tool(original_name, arguments, read_timeout_seconds=call_timeout)
     for block in result.content:
         text = getattr(block, "text", None)
         if text is not None:
             return text
     return json.dumps({"content": [str(c) for c in result.content]})
+
+
+try:
+    _BaseExceptionGroup = BaseExceptionGroup  # type: ignore[name-defined]  # 3.11+
+except NameError:  # 3.10: the backport anyio depends on
+    from exceptiongroup import BaseExceptionGroup as _BaseExceptionGroup
+
+
+def _leaf_errors(group: BaseException) -> list[BaseException]:
+    if isinstance(group, _BaseExceptionGroup):
+        return [leaf for e in group.exceptions for leaf in _leaf_errors(e)]
+    return [group]
+
+
+async def _unwrapped(coro: Any, progress: dict[str, Any]) -> Any:
+    """Await *coro*, re-raising a single error from inside the MCP client's task groups as
+    itself. Otherwise a clear SchemaError ("server X didn't complete its handshake") or a
+    spawn failure reaches the caller as "unhandled errors in a TaskGroup (1 sub-exception)".
+
+    Once the model loop has finished, stream errors raised while the MCP connections close
+    are ignored: a server still busy with a call that timed out answers into a closed
+    stream, which is teardown noise, not a failed run."""
+    import anyio
+
+    teardown = (anyio.BrokenResourceError, anyio.ClosedResourceError)
+    try:
+        return await coro
+    except _BaseExceptionGroup as group:
+        leaves = _leaf_errors(group)
+        if progress.get("done") and all(isinstance(e, teardown) for e in leaves):
+            return None
+        if len(leaves) == 1 and isinstance(leaves[0], Exception):
+            raise leaves[0] from None
+        raise
+    except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+        if progress.get("done"):
+            return None
+        raise
 
 
 def _as_list(value: str | list[str]) -> list[str]:
@@ -422,18 +485,24 @@ class SchemaExpansionEngine:
         means no cap. Without one, a stalled request waits out the OpenAI client's own
         600 s timeout and its silent retries, which is how a slow reasoning model can sit
         for many minutes with nothing printed. Declarations made before expiry are kept."""
-        progress = {"turns": 0}
+        progress: dict[str, Any] = {"turns": 0, "phase": "model"}
         run = self._expand_schema_run(
             database, text, depth=depth, reference=reference, mcp_servers=mcp_servers,
             dedup_mode=dedup_mode, model=model, on_tool_call=on_tool_call,
             on_tool_result=on_tool_result, max_turns=max_turns, progress=progress,
         )
         if timeout is None:
-            await run
+            await _unwrapped(run, progress)
             return
         try:
-            await asyncio.wait_for(run, timeout)
+            await asyncio.wait_for(_unwrapped(run, progress), timeout)
         except asyncio.TimeoutError:
+            if progress["phase"] == "connecting":
+                raise SchemaError(
+                    f"schema expansion timed out after {timeout:g}s while connecting to its "
+                    "reference MCP servers, before any model turn — the servers, not the model, "
+                    "are the problem; check their command or URL."
+                ) from None
             raise SchemaError(
                 f"schema expansion with model {model!r} timed out after {timeout:g}s, "
                 f"{progress['turns']} of at most {max_turns} model turn(s) in; schema elements "
@@ -454,7 +523,7 @@ class SchemaExpansionEngine:
         on_tool_call: Callable[[str, dict[str, Any]], None] | None,
         on_tool_result: Callable[[str, dict[str, Any], Any], None] | None,
         max_turns: int,
-        progress: dict[str, int],
+        progress: dict[str, Any],
     ) -> None:
         try:
             import openai
@@ -484,9 +553,11 @@ class SchemaExpansionEngine:
 
         async with AsyncExitStack() as stack:
             tools = list(base_tools)
-            mcp_dispatch: dict[str, tuple[Any, str]] = {}
+            mcp_dispatch: dict[str, tuple[Any, str, Any]] = {}
             if reference == "mcp":
+                progress["phase"] = "connecting"
                 mcp_tools, mcp_dispatch = await _connect_mcp_servers(mcp_servers or [], stack)
+                progress["phase"] = "model"
                 tools = tools + mcp_tools
 
             turns = 0
@@ -540,6 +611,7 @@ class SchemaExpansionEngine:
                         "tool_call_id": tc.id,
                         "content": content_str,
                     })
+            progress["done"] = True  # the model loop finished; only teardown is left
 
     async def _dispatch_tool(
         self,
