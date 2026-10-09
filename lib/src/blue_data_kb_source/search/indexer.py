@@ -24,6 +24,7 @@ from blue_data_kb_source._constants import (
     REPRESENTS,
     TAIL,
 )
+from blue_data_kb_source._json_io import write_json_atomic
 from blue_data_kb_source.checks import require_database_name
 from blue_data_kb_source.types import DataSearchResult, KBError, SchemaSearchResult
 
@@ -425,8 +426,7 @@ class KBSearchIndexer:
         path = self._corpus_file_path(database, collection)
         corpus = self._corpus.get(database, {}).get(collection, {})
         meta = self._meta.get(database, {}).get(collection, {})
-        with open(path, "w") as f:
-            json.dump({"corpus": corpus, "meta": meta}, f)
+        write_json_atomic(path, {"corpus": corpus, "meta": meta})
 
     def _upsert(self, database: str, collection: str, node_id: str, text: str, node_type: str, name: str) -> None:
         self._get_corpus(database, collection)[node_id] = text

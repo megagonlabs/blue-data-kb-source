@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Any, Callable, Literal
 
 from blue_data.source.graph.graph_source import GraphSource
@@ -258,10 +259,14 @@ class KnowledgeManager:
                 literal_type = "BOOLEAN"
             elif isinstance(value, (int, float)):
                 literal_type = "NUMBER"
+            elif isinstance(value, (date, datetime)):
+                literal_type = "DATE"
             else:
                 literal_type = "STRING"
-        else:
-            value = cast_literal_value(value, literal_type)
+        # Always cast, inferred type included: a STRING is stored as str and a DATE as an
+        # ISO string, so every stored value is a JSON scalar. An uncast datetime.date
+        # made the file backend's save fail partway (#118).
+        value = cast_literal_value(value, literal_type)
         require_free_id(self._source, database, node_id, "node_id", KnowledgeError)
         lid = self._source.add_node(
             database,

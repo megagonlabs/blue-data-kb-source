@@ -101,6 +101,8 @@ def cast_literal_value(value, literal_type: str):
             return False
         raise KnowledgeError(f"value {value!r} is not a valid BOOLEAN")
     if literal_type == "DATE":
+        if not isinstance(value, str) and hasattr(value, "isoformat"):
+            return value.isoformat()  # datetime.date / datetime.datetime
         return normalize_date(value if isinstance(value, str) else str(value))
     if literal_type == "STRING":
         return value if isinstance(value, str) else str(value)
