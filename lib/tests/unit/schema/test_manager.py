@@ -1054,3 +1054,74 @@ async def test_find_relation_type_and_property_by_name(kb):
     assert found_prop is not None and found_prop["id"] == prop
     assert await kb.find_relation_type("test", "MISSING") is None
     assert await kb.find_property("test", "MISSING") is None
+
+
+# ------------------------------------------------------------------ #
+# renames and merges keep declare_*'s integrity rules (#114)           #
+# ------------------------------------------------------------------ #
+
+async def test_rename_cannot_duplicate_a_class_name(kb):
+    await kb.declare_class("test", "PERSON", "")
+    human = await kb.declare_class("test", "HUMAN", "")
+    with pytest.raises(SchemaError, match="already exists"):
+        await kb.update_class("test", human, name="person")
+    assert kb.get_node("test", human)["properties"]["name"] == "HUMAN"
+
+
+async def test_rename_is_canonicalized(kb):
+    rel_from = await kb.declare_class("test", "PERSON", "")
+    rel = await kb.declare_relation_type("test", "WORKS_AT", "", domain="PERSON", range="PERSON")
+    await kb.update_relation("test", rel, name="works at-company")
+    assert kb.get_node("test", rel)["properties"]["name"] == "WORKS_AT_COMPANY"
+    _ = rel_from
+
+
+async def test_rename_cannot_use_a_reserved_relation_name(kb):
+    await kb.declare_class("test", "PERSON", "")
+    rel = await kb.declare_relation_type("test", "KNOWS", "", domain="PERSON", range="PERSON")
+    with pytest.raises(SchemaError, match="structural edges"):
+        await kb.update_relation("test", rel, name="is_subclass_of")
+
+
+async def test_property_rename_is_unique_per_owner_only(kb):
+    person = await kb.declare_class("test", "PERSON", "")
+    standard = await kb.declare_class("test", "STANDARD", "")
+    await kb.declare_class_property("test", "AGE", "", class_id=person)
+    height = await kb.declare_class_property("test", "HEIGHT", "", class_id=person)
+    std_code = await kb.declare_class_property("test", "CODE", "", class_id=standard)
+    with pytest.raises(SchemaError, match="already has a property named 'AGE'"):
+        await kb.update_property("test", height, name="AGE")
+    await kb.update_property("test", std_code, name="AGE")  # another owner: fine
+    assert kb.get_node("test", std_code)["properties"]["name"] == "AGE"
+
+
+@pytest.mark.parametrize("chain, sources, target", [
+    (["EMPLOYEE", "PERSON", "AGENT"], ["EMPLOYEE"], "AGENT"),
+    (["A", "B", "C"], ["A", "C"], "AC"),
+])
+async def test_merge_that_would_close_a_hierarchy_cycle_is_refused(kb, chain, sources, target):
+    ids = [await kb.declare_class("test", n, "") for n in chain]
+    for child, parent in zip(ids, ids[1:]):
+        await kb.add_is_subclass_of("test", child, parent)
+    before = sorted(n["properties"]["name"] for n in kb.match_nodes("test", label="CLASS"))
+    with pytest.raises(SchemaError, match="would create a cycle"):
+        await kb.consolidate_schema("test", "merge", sources, target)
+    assert sorted(n["properties"]["name"] for n in kb.match_nodes("test", label="CLASS")) == before
+
+
+async def test_merge_without_a_cycle_still_rewires_the_hierarchy(kb):
+    person = await kb.declare_class("test", "PERSON", "")
+    employee = await kb.declare_class("test", "EMPLOYEE", "")
+    staff = await kb.declare_class("test", "STAFF", "")
+    await kb.add_is_subclass_of("test", employee, person)
+    await kb.add_is_subclass_of("test", staff, person)
+    await kb.consolidate_schema("test", "merge", ["STAFF"], "EMPLOYEE")
+    assert [n["properties"]["name"] for n in await kb.get_class_ancestors("test", employee)] == ["PERSON"]
+    assert kb.get_node("test", staff) is None
+
+
+async def test_merge_into_a_reserved_relation_name_is_refused(kb):
+    await kb.declare_class("test", "PERSON", "")
+    await kb.declare_relation_type("test", "KIND_OF", "", domain="PERSON", range="PERSON")
+    with pytest.raises(SchemaError, match="structural edges"):
+        await kb.consolidate_schema("test", "merge", ["KIND_OF"], "is_subclass_of")

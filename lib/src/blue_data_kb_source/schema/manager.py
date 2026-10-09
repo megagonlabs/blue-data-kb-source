@@ -392,6 +392,8 @@ class SchemaManager:
         description: str | None = None,
     ) -> None:
         require_node_type(self._source, database, class_id, CLASS, "class_id", SchemaError)
+        if name is not None:
+            name = self._checked_name(database, class_id, CLASS, name)
         props = {k: v for k, v in {"name": name, "description": description}.items() if v is not None}
         if not props:
             raise SchemaError("At least one of name or description must be provided.")
@@ -406,6 +408,8 @@ class SchemaManager:
         description: str | None = None,
     ) -> None:
         require_node_type(self._source, database, relation_id, RELATION, "relation_id", SchemaError)
+        if name is not None:
+            name = self._checked_name(database, relation_id, RELATION, name)
         props = {k: v for k, v in {"name": name, "description": description}.items() if v is not None}
         if not props:
             raise SchemaError("At least one of name or description must be provided.")
@@ -420,11 +424,43 @@ class SchemaManager:
         description: str | None = None,
     ) -> None:
         require_node_type(self._source, database, property_id, PROPERTY, "property_id", SchemaError)
+        if name is not None:
+            name = self._checked_name(database, property_id, PROPERTY, name)
         props = {k: v for k, v in {"name": name, "description": description}.items() if v is not None}
         if not props:
             raise SchemaError("At least one of name or description must be provided.")
         self._source.update_node(database, property_id, touched(props))
         self._fire({"type": "property_updated", "database": database, "id": property_id})
+
+    def _checked_name(self, database: str, node_id: str, label: str, name: str) -> str:
+        """The canonical form of *name* for renaming *node_id*, under the rules declare_*
+        enforce: canonicalized, not a reserved relation name, and not already taken —
+        by another node of the same label, or for a property by another property of
+        the same owner (properties are owner-scoped, so VERSION may exist on two
+        classes). Renames used to write the name as given (#114)."""
+        name = _canonicalize_schema_name(name)
+        if label == RELATION and name in _RESERVED_RELATION_NAMES:
+            raise SchemaError(
+                f"'{name}' is one of the KB's own structural edges, not a relation type."
+            )
+        if label == PROPERTY:
+            for owner in self._source.get_neighbors(database, node_id, edge_type=DEFINE_PROPERTY, direction="in"):
+                siblings = self._source.get_neighbors(
+                    database, owner["node"]["id"], edge_type=DEFINE_PROPERTY, direction="out"
+                )
+                if any(sib["node"]["id"] != node_id and sib["node"].get("properties", {}).get("name") == name
+                       for sib in siblings):
+                    owner_name = owner["node"].get("properties", {}).get("name")
+                    raise SchemaError(f"{owner_name} already has a property named {name!r}.")
+            return name
+        clash = [n for n in self._source.match_nodes(database, label=label, properties={"name": name})
+                 if n["id"] != node_id]
+        if clash:
+            raise SchemaError(
+                f"a {label} named {name!r} already exists ({clash[0]['id']}); merge the two with "
+                "consolidate_schema instead of renaming one onto the other."
+            )
+        return name
 
     async def delete_class(self, database: str, class_id: str) -> None:
         require_node_type(self._source, database, class_id, CLASS, "class_id", SchemaError)
@@ -1018,6 +1054,41 @@ class SchemaManager:
             affected.add(other_id)
         return affected
 
+    def _refuse_merge_cycle(
+        self, database: str, source_ids: list[str], target_id: str | None, target_name: str
+    ) -> None:
+        """Raise if folding *source_ids* into the target would close a hierarchy cycle.
+
+        _rewire_edges re-points every IS_SUBCLASS_OF edge of a source at the target,
+        which can close a loop through a third node (EMPLOYEE → PERSON → AGENT, merge
+        EMPLOYEE into AGENT → AGENT ⇄ PERSON) — a state add_is_subclass_of refuses, and
+        one an export of the KB can't be re-imported from (#114). Simulate the merged
+        hierarchy and look for a cycle before writing anything.
+        """
+        merged = target_id or "<new merge target>"
+        fold = {sid: merged for sid in source_ids}
+        graph: dict[str, set[str]] = {}
+        for e in self._source.match_edges(database, edge_type=IS_SUBCLASS_OF):
+            a, b = fold.get(e["source_id"], e["source_id"]), fold.get(e["target_id"], e["target_id"])
+            if a != b:  # edges between merge participants become self-loops and are dropped
+                graph.setdefault(a, set()).add(b)
+
+        state: dict[str, int] = {}  # 1 = on the current path, 2 = done
+
+        def on_cycle(node: str) -> bool:
+            state[node] = 1
+            for nxt in graph.get(node, ()):
+                if state.get(nxt) == 1 or (nxt not in state and on_cycle(nxt)):
+                    return True
+            state[node] = 2
+            return False
+
+        if merged in graph and on_cycle(merged):
+            raise SchemaError(
+                f"merging into {target_name!r} would create a cycle in the class/relation "
+                "hierarchy; remove one of the subclass links first."
+            )
+
     async def _merge_schema(
         self,
         database: str,
@@ -1035,8 +1106,17 @@ class SchemaManager:
         """
         source_nodes, label = self._find_merge_sources(database, source_names)
         target_name = _canonicalize_schema_name(target_name)
+        if label == RELATION and target_name in _RESERVED_RELATION_NAMES:
+            raise SchemaError(
+                f"'{target_name}' is one of the KB's own structural edges, not a relation type."
+            )
 
         existing_target = self._source.match_nodes(database, label=label, properties={"name": target_name})
+        # Checked before anything is written, so a refused merge leaves the graph as it was.
+        self._refuse_merge_cycle(
+            database, [n["id"] for n in source_nodes],
+            existing_target[0]["id"] if existing_target else None, target_name,
+        )
         if existing_target:
             target_id = existing_target[0]["id"]
         else:
