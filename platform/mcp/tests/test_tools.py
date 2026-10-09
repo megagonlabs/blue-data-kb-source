@@ -471,6 +471,7 @@ def test_every_variable_this_server_reads_is_a_name_the_cli_also_uses():
         "BLUE_DATA_KB_SOURCE_NEO4J_URI",
         "BLUE_DATA_KB_SOURCE_NEO4J_USER",
         "BLUE_DATA_KB_SOURCE_NEO4J_PASSWORD",
+        "BLUE_DATA_KB_SOURCE_NEO4J_DATABASE",
         # The CLI takes reference servers per command (`--mcp-server`); only this
         # server needs them as operator config, since its callers mustn't supply them.
         "BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_MCP_SERVERS",
@@ -551,3 +552,10 @@ async def test_malformed_server_config_is_reported(monkeypatch, kb):
     monkeypatch.setenv("BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_MCP_SERVERS", '{"command": "x"}')
     result = json.loads(await expand_schema("x", reference="mcp", database=DB))
     assert "must be a JSON list" in result["error"]
+
+
+def test_neo4j_physical_database_is_operator_config(monkeypatch):
+    monkeypatch.setenv("BLUE_DATA_KB_SOURCE_NEO4J_DATABASE", "kb_store")
+    assert config_module._neo4j_connection()["database"] == "kb_store"
+    monkeypatch.delenv("BLUE_DATA_KB_SOURCE_NEO4J_DATABASE")
+    assert "database" not in config_module._neo4j_connection()  # library default: neo4j

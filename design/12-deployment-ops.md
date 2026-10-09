@@ -81,6 +81,7 @@ A completely separate `BLUE_DATA_KB_SOURCE_*` namespace, since the server owns o
 | `BLUE_DATA_KB_SOURCE_GRAPH_BACKEND` | `file` | `file` \| `neo4j` |
 | `BLUE_DATA_KB_SOURCE_DATA_DIR` | `~/.blue-kb` | File backend directory |
 | `BLUE_DATA_KB_SOURCE_NEO4J_URI` / `_USER` / `_PASSWORD` | — | Neo4j connection, when `GRAPH_BACKEND=neo4j` |
+| `BLUE_DATA_KB_SOURCE_NEO4J_DATABASE` | `neo4j` | Physical Neo4j database; logical KB databases are tags inside it (ADR-033), so tool calls can't select another one (#132) |
 | `BLUE_DATA_KB_SOURCE_SEARCH` | `none` | `none` \| `bm25` \| `semantic` |
 | `BLUE_DATA_KB_SOURCE_VECTOR_BACKEND` | `memory` | `memory` \| `file` \| `chromadb` \| `redis`, when `SEARCH=semantic` |
 | `BLUE_DATA_KB_SOURCE_EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model, when `SEARCH=semantic` |

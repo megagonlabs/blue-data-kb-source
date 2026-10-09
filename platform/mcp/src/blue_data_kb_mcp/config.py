@@ -126,6 +126,11 @@ def _neo4j_connection() -> dict[str, Any]:
     password = os.environ.get("BLUE_DATA_KB_SOURCE_NEO4J_PASSWORD")
     if password:
         connection["password"] = password
+    # The single physical Neo4j database the KB uses. Tool calls' `database` argument
+    # only selects a logical KB database inside it, never another Neo4j database (#132).
+    physical = os.environ.get("BLUE_DATA_KB_SOURCE_NEO4J_DATABASE")
+    if physical:
+        connection["database"] = physical
     return connection
 
 

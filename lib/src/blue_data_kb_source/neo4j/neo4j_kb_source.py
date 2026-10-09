@@ -79,13 +79,28 @@ class NEO4JKBSource(KBSource, NEO4JSource):
       filters on it (relationships only ever join nodes of one database).
 
     Ids are stable strings kept in `_id` (a uuid unless the caller supplied one), never
-    Neo4j element ids. `transaction_id` is passed through to NEO4JSource's native
+    Neo4j element ids. All of it lives in one physical Neo4j database, `connection
+    ["database"]` (default `neo4j`) — the `database` argument only ever picks the tag. `transaction_id` is passed through to NEO4JSource's native
     transactions unchanged.
     """
 
     def _initialize_connection_properties(self) -> None:
         super()._initialize_connection_properties()
         self.properties["connection"]["protocol"] = "kb/neo4j"
+        # The one physical Neo4j database this KB lives in. Logical KB databases are
+        # `_kb_db` tags inside it (see below), never separate Neo4j databases.
+        self.properties["connection"].setdefault("database", "neo4j")
+
+    def _override_database(self, database):
+        """Every query and transaction runs in the configured physical database.
+
+        NEO4JSource maps a logical name onto a physical Neo4j database on Enterprise
+        (and onto `neo4j` on Community). Here logical databases are `_kb_db` tags, so a
+        caller-supplied name — an MCP tool argument, i.e. text an agent chose — can
+        never select another physical database the credentials reach, `system` or
+        another application's included (#132).
+        """
+        return self.properties["connection"]["database"]
 
     # ------------------------------------------------------------------ #
     # helpers                                                              #

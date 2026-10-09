@@ -114,3 +114,21 @@ async def test_unused_explicit_id_is_still_honoured(kb, creator):
 async def test_redeclaring_an_existing_class_by_name_stays_idempotent(kb):
     person = kb._ids["person"]
     assert await kb.declare_class("t", "PERSON", "", class_id=person) == person
+
+
+# ------------------------------------------------------------------ #
+# Neo4j: `database` never selects a physical Neo4j database (#132)     #
+# ------------------------------------------------------------------ #
+
+@pytest.mark.parametrize("configured, expected", [(None, "neo4j"), ("kb_store", "kb_store")])
+@pytest.mark.parametrize("requested", ["main", "system", "other_app"])
+def test_neo4j_queries_always_run_in_the_configured_physical_database(configured, expected, requested):
+    pytest.importorskip("neo4j")
+    from blue_data_kb_source.neo4j.neo4j_kb_source import NEO4JKBSource
+
+    connection = {"host": "127.0.0.1", "port": 1}  # never contacted: the driver connects lazily
+    if configured:
+        connection["database"] = configured
+    kb = NEO4JKBSource(name="kb", properties={"connection": connection})
+    kb._edition = "enterprise"  # where NEO4JSource would honour the requested name
+    assert kb._override_database(requested) == expected
