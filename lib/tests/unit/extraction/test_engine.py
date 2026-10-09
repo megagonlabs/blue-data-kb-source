@@ -283,7 +283,7 @@ async def test_find_entity_tool_returns_id_name_description(kb):
             expand_schema=False,
             on_tool_result=lambda name, args, res: results.append((name, res)),
         )
-    assert ("find_entity", {"id": alice, "name": "Alice", "description": "An engineer"}) in results
+    assert ("find_entity", {"id": alice, "name": "Alice", "description": "An engineer", "classes": []}) in results
 
 
 async def test_find_entity_tool_falls_back_to_normalized_match(kb):
@@ -300,7 +300,7 @@ async def test_find_entity_tool_falls_back_to_normalized_match(kb):
             expand_schema=False,
             on_tool_result=lambda name, args, res: results.append((name, res)),
         )
-    assert ("find_entity", {"id": ibm, "name": "IBM", "description": "A company"}) in results
+    assert ("find_entity", {"id": ibm, "name": "IBM", "description": "A company", "classes": []}) in results
 
 
 async def test_find_entity_tool_unrelated_name_still_returns_null_id(kb):
@@ -1702,3 +1702,55 @@ def test_same_value_matches_one_date_written_under_two_literal_types():
     assert not _same_value(("March 2019", "DATE"), ("April 2019", "DATE"))
     assert not _same_value(("Senior Project Manager", None), ("Project Management", None))
     assert not _same_value(("28", "NUMBER"), ("29", "NUMBER"))
+
+
+# ------------------------------------------------------------------ #
+# same-named entities of different classes stay distinct (#115)        #
+# ------------------------------------------------------------------ #
+
+async def _apples(kb):
+    company = await kb.declare_class("test", "COMPANY", "A business")
+    fruit = await kb.declare_class("test", "FRUIT", "An edible fruit")
+    apple_inc = await kb.add_entity("test", "Apple", class_id=company)
+    return company, fruit, apple_inc
+
+
+async def _dispatch(kb, fn, args, text="Apple makes phones. An apple a day."):
+    return await kb._extraction._dispatch_tool("test", fn, args, None, text)
+
+
+async def test_add_entity_does_not_collapse_onto_a_same_named_entity_of_another_class(kb):
+    company, fruit, apple_inc = await _apples(kb)
+    result = await _dispatch(kb, "add_entity", {"name": "Apple", "class_id": fruit, "text": "An apple a day."})
+    assert result["id"] != apple_inc and not result.get("deduped")
+    classes = {c["properties"]["name"] for c in await kb.get_entity_classes("test", apple_inc)}
+    assert classes == {"COMPANY"}
+
+
+async def test_add_entity_picks_the_same_named_entity_of_its_own_class(kb):
+    company, fruit, apple_inc = await _apples(kb)
+    apple_fruit = (await _dispatch(kb, "add_entity", {"name": "Apple", "class_id": fruit, "text": "An apple a day."}))["id"]
+    again = await _dispatch(kb, "add_entity", {"name": "apple", "class_id": fruit, "text": "An apple a day."})
+    assert again["id"] == apple_fruit
+    company_again = await _dispatch(kb, "add_entity", {"name": "Apple", "class_id": company, "text": "Apple makes phones."})
+    assert company_again["id"] == apple_inc
+
+
+async def test_add_entity_still_dedupes_across_a_subclass(kb):
+    person = await kb.declare_class("test", "PERSON", "")
+    engineer = await kb.declare_class("test", "ENGINEER", "")
+    await kb.add_is_subclass_of("test", engineer, person)
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    result = await _dispatch(kb, "add_entity", {"name": "Alice", "class_id": engineer, "text": "Alice is an engineer."},
+                             text="Alice is an engineer.")
+    assert result["id"] == alice
+
+
+async def test_find_entity_reports_classes_and_other_same_named_entities(kb):
+    company, fruit, apple_inc = await _apples(kb)
+    result = await _dispatch(kb, "find_entity", {"name": "Apple", "class_id": fruit})
+    assert result["id"] is None
+    assert result["other_matches"] == [{"id": apple_inc, "classes": ["COMPANY"]}]
+    by_company = await _dispatch(kb, "find_entity", {"name": "Apple", "class_id": company})
+    assert (by_company["id"], by_company["classes"]) == (apple_inc, ["COMPANY"])
+    assert "other_matches" not in by_company

@@ -73,10 +73,19 @@ _TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "find_entity",
-            "description": "Look up an ENTITY node by name. Returns {id, name, description} or {id: null}.",
+            "description": (
+                "Look up an ENTITY node by name. Names aren't unique — \"Apple\" the company and "
+                "\"Apple\" the fruit are different entities — so pass class_id when you know which "
+                "kind you mean; only an entity of that class (or a parent/child class) matches. "
+                "Returns {id, name, description, classes, other_matches} or {id: null}; "
+                "other_matches lists same-named entities of other classes, which are NOT this one."
+            ),
             "parameters": {
                 "type": "object",
-                "properties": {"name": {"type": "string"}},
+                "properties": {
+                    "name": {"type": "string"},
+                    "class_id": {"type": "string", "description": "id of the CLASS the mention belongs to, as returned by find_class or search_schema — never a name (optional)"},
+                },
                 "required": ["name"],
             },
         },
@@ -1339,22 +1348,45 @@ class ExtractionEngine:
             coerced[arg] = f"{value} -> {resolved}"
         return coerced, unresolved
 
-    async def _existing_entity_id(self, database: str, name: str) -> str | None:
+    async def _same_named_entities(self, database: str, name: str) -> list[str]:
+        """Ids of entities standing for *name*: exact matches first, then the
+        case/whitespace/punctuation-insensitive tier, so "ibm" finds an existing "IBM".
+        The search tier is excluded — a semantically similar but distinct entity is not
+        the same entity."""
+        ids = [n["id"] for n in self._source.match_nodes(database, label=ENTITY, properties={"name": name})]
+        for c in await self._resolver.resolve_entity(database, name, k=10, include_search=False):
+            if c.node_id not in ids:
+                ids.append(c.node_id)
+        return ids
+
+    async def _class_lineage(self, database: str, class_id: str) -> set[str]:
+        lineage = {class_id}
+        for walk in (self._schema.get_class_ancestors, self._schema.get_class_descendants):
+            try:
+                lineage |= {n["id"] for n in await walk(database, class_id, max_hops=None)}
+            except Exception:
+                pass  # not a CLASS id: only an exact class match will count
+        return lineage
+
+    async def _existing_entity_id(
+        self, database: str, name: str, class_id: str | None = None
+    ) -> str | None:
         """Id of an entity already standing for *name*, or None.
 
-        find_entity is a deliberately frozen exact-match lookup (see
-        resolution/resolver.py); this adds the case/whitespace/punctuation-
-        insensitive tier on top, so "ibm" resolves to an existing "IBM"
-        instead of forking it. The search tier is excluded — a semantically
-        similar but distinct entity is not the same entity.
+        Names aren't unique, so with *class_id* a same-named entity only counts when
+        it is untyped or one of its classes is *class_id*, an ancestor or a descendant
+        of it: "Apple" as a FRUIT must not collapse onto "Apple" the COMPANY (#115).
+        Without *class_id* the first same-named entity is returned, as before.
         """
-        node = await self._knowledge.find_entity(database, name)
-        if node is not None:
-            return node["id"]
-        candidates = await self._resolver.resolve_entity(
-            database, name, k=1, include_search=False
-        )
-        return candidates[0].node_id if candidates else None
+        ids = await self._same_named_entities(database, name)
+        if class_id is None or not ids:
+            return ids[0] if ids else None
+        lineage = await self._class_lineage(database, class_id)
+        for eid in ids:
+            classes = {c["id"] for c in entity_classes(self._source, database, eid)}
+            if not classes or classes & lineage:
+                return eid
+        return None
 
     def _existing_literal_id(
         self,
@@ -1488,12 +1520,23 @@ class ExtractionEngine:
             return {"id": None}
 
         if fn == "find_entity":
-            eid = await self._existing_entity_id(database, args["name"])
+            eid = await self._existing_entity_id(database, args["name"], args.get("class_id"))
+            others = [
+                {"id": oid, "classes": [node_name(c) for c in entity_classes(self._source, database, oid)]}
+                for oid in await self._same_named_entities(database, args["name"]) if oid != eid
+            ]
             node = self._source.get_node(database, eid) if eid else None
             if node:
                 p = node.get("properties", {})
-                return {"id": node["id"], "name": p.get("name"), "description": p.get("description")}
-            return {"id": None}
+                result = {
+                    "id": node["id"], "name": p.get("name"), "description": p.get("description"),
+                    "classes": [node_name(c) for c in entity_classes(self._source, database, eid)],
+                }
+            else:
+                result = {"id": None}
+            if others:
+                result["other_matches"] = others
+            return result
 
         if fn == "find_fact":
             node = await self._knowledge.find_fact(
@@ -1523,7 +1566,7 @@ class ExtractionEngine:
             return {}
 
         if fn == "add_entity":
-            existing = await self._existing_entity_id(database, args["name"])
+            existing = await self._existing_entity_id(database, args["name"], args.get("class_id"))
             if existing is not None:
                 return await self._link_existing(database, existing, span, source_id)
             eid = await self._knowledge.add_entity(
