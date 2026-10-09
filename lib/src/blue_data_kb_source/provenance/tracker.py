@@ -129,6 +129,7 @@ class ProvenanceTracker:
         description: str | None = None,
         original: str | None = None,
     ) -> None:
+        require_node_type(self._source, database, source_id, SOURCE, "source_id", ProvenanceError)
         props = {k: v for k, v in {"name": name, "description": description, "original": original}.items()
                  if v is not None}
         if not props:
@@ -140,8 +141,11 @@ class ProvenanceTracker:
 
         Instance nodes (ENTITY, FACT, LITERAL) are preserved; only the
         EXTRACTED_FROM edges from instances to the deleted EXTRACTIONs
-        are removed (via delete_node's edge cleanup).
+        are removed (via delete_node's edge cleanup). Raises ProvenanceError if
+        *source_id* isn't a SOURCE — given any other id this used to delete that
+        node silently, bypassing its own manager's checks and events (#112).
         """
+        require_node_type(self._source, database, source_id, SOURCE, "source_id", ProvenanceError)
         for nb in self._source.get_neighbors(database, source_id, edge_type=EXTRACTED_FROM, direction="in"):
             self._source.delete_node(database, nb["node"]["id"])
         self._source.delete_node(database, source_id)

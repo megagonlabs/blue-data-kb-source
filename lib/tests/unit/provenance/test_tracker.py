@@ -363,3 +363,34 @@ async def test_attach_extraction_works_on_a_tracker_without_a_notifier(kb):
     await tracker.attach_extraction("test", alice, extraction)   # dedupe path, still no notifier
 
     assert _extractions_of(kb, "test", alice) == [extraction]
+
+
+# ------------------------------------------------------------------ #
+# update_source / delete_source check the node type (#112)            #
+# ------------------------------------------------------------------ #
+
+async def test_delete_source_refuses_a_non_source_id(kb):
+    from blue_data_kb_source.types import ProvenanceError
+
+    person = await kb.declare_class("test", "PERSON", "")
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    with pytest.raises(ProvenanceError, match="source_id"):
+        await kb.delete_source("test", alice)
+    assert kb.get_node("test", alice) is not None
+
+
+async def test_update_source_refuses_a_non_source_id(kb):
+    from blue_data_kb_source.types import ProvenanceError
+
+    person = await kb.declare_class("test", "PERSON", "")
+    with pytest.raises(ProvenanceError, match="source_id"):
+        await kb.update_source("test", person, name="renamed")
+    assert kb.get_node("test", person)["properties"]["name"] == "PERSON"
+
+
+async def test_source_update_and_delete_still_work_on_a_source(kb):
+    src = await kb.add_source("test", "cv", name="CV")
+    await kb.update_source("test", src, name="Résumé")
+    assert kb.get_node("test", src)["properties"]["name"] == "Résumé"
+    await kb.delete_source("test", src)
+    assert kb.get_node("test", src) is None
