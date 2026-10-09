@@ -201,9 +201,3 @@ blue-data-kb-mcp
 ```
 
 See [mcp.md](mcp.md) for the full tool reference and Claude Desktop configuration.
-
----
-
-## REST API (planned)
-
-Not yet implemented — see [api.md](api.md) and [design/09-api-interface-spec.md](../design/09-api-interface-spec.md) for the sketch.

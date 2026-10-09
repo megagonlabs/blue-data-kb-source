@@ -20,7 +20,6 @@ Landing page for all ocumentation in `blue-data-kb-source` — what to read depe
 | [api-reference.md](api-reference.md) | Look up an exact method signature, parameter, or result type |
 | [cli.md](cli.md) | Use the `blue-kb` command-line tool — every command, profiles and configuration, with a full walkthrough |
 | [mcp.md](mcp.md) | Connect Claude or another MCP client to a knowledge base — every tool, with Claude Desktop config |
-| [api.md](api.md) | REST API — not built yet; this is a placeholder pointing at the design sketch |
 
 ## Building on it
 

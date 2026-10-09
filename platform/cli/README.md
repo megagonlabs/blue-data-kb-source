@@ -485,3 +485,15 @@ platform/cli/
 └── tests/
     └── unit/
 ```
+
+## Running tests
+
+```bash
+cd platform/cli
+python3 -m pytest tests/ -v
+```
+
+Every test runs the real Click commands through `CliRunner` against an isolated home directory
+(a per-test `tmp_path` stands in for `~/.blue-kb`), so nothing touches your own databases or
+profiles. No network or `OPENAI_API_KEY` is needed: the LLM commands (`data extract`,
+`data answer`, `data validate`, `schema expand`, …) are tested with `openai.AsyncOpenAI` mocked.

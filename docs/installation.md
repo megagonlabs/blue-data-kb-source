@@ -10,10 +10,10 @@ blue-data-kb-source/
 └── platform/
     ├── cli/        blue-data-kb-cli     — the `blue-kb` command-line tool
     ├── mcp/        blue-data-kb-mcp     — the MCP server (`blue-data-kb-mcp`)
-    └── api/        (planned)            — REST API, not yet implemented
+    └── wordnet-mcp/ blue-data-wordnet-mcp — optional WordNet MCP server for schema expansion
 ```
 
-Each component has a `scripts/` directory. Run scripts from the component's own root directory.
+To install everything at once — `blue-data` from the sibling checkout, the library with all extras, the CLI and both MCP servers — run `bash scripts/install.sh` from the repo root. To install components individually, each has its own `scripts/` directory; run those from the component's own root directory.
 
 | Script | Components | Purpose |
 |---|---|---|

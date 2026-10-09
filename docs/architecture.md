@@ -5,17 +5,17 @@
 `blue-data-kb-source` has two tiers:
 
 - **`lib/`** — the core Python library (`KBSource` and its internal managers)
-- **`platform/`** — deployable components built on top of `lib/` (CLI, MCP server, and a planned REST API)
+- **`platform/`** — deployable components built on top of `lib/`: the CLI, the MCP server, and the standalone WordNet MCP server
 
 ### lib/ core
 
 ```
                    External Interfaces
 
-┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
-│ Python Lib  │  │ MCP Server  │  │  REST API   │  │     CLI     │
-└──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘
-       └────────────────┴────────────────┴────────────────┘
+      ┌─────────────┐      ┌─────────────┐      ┌─────────────┐
+      │ Python Lib  │      │ MCP Server  │      │     CLI     │
+      └──────┬──────┘      └──────┬──────┘      └──────┬──────┘
+             └────────────────────┼────────────────────┘
                                   │
                                   ▼
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -123,7 +123,6 @@
 | `cli` | `platform/cli/` (`blue-kb`) | Terminal (Click) | Implemented |
 | `mcp` | `platform/mcp/` (`blue-data-kb-mcp`) | stdio (MCP) | Implemented |
 | `wordnet-mcp` | `platform/wordnet-mcp/` (`blue-data-wordnet-mcp`) | stdio (MCP) | Implemented — optional, referenced by `expand_schema(reference="mcp")` |
-| `api` | `platform/api/` | HTTP (FastAPI) | Planned — see [api.md](api.md) |
 
 The `cli` and `mcp` processes are independent — they do not share state with each other, and each holds its own `KBSource` instance. `cli` resolves its backend per invocation from `~/.blue-kb/registry.json` (multiple named databases, each independently configured — see [cli.md](cli.md)); `mcp` owns a single `KBSource` for the process lifetime, configured entirely by `BLUE_DATA_KB_SOURCE_*` environment variables, with `database` as a plain per-tool-call argument (see [mcp.md](mcp.md)). This is a deliberate difference, not an oversight — `mcp` depends only on `blue-data-kb-source`, not on `blue-data-kb-cli`, so each platform component stays independently deployable.
 
