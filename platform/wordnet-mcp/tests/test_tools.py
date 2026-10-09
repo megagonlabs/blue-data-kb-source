@@ -154,3 +154,20 @@ async def test_lemmatize_specific_pos():
 async def test_lemmatize_all_pos():
     data = _load(await lemmatize("geese"))
     assert data["lemmas_by_pos"].get("n") == "goose"
+
+
+def test_importing_the_server_does_not_load_the_corpus():
+    """The corpus must not be touched at import: on a fresh machine it isn't downloaded
+    yet, and ensure_wordnet_data() (which downloads it, and adds
+    BLUE_DATA_WORDNET_MCP_NLTK_DATA_DIR to the search path) only runs on the first
+    tool call (#131)."""
+    import subprocess
+    import sys
+
+    probe = (
+        "from nltk.corpus import wordnet as wn\n"
+        "import blue_data_wordnet_mcp.server\n"
+        "print(type(wn).__name__)\n"
+    )
+    out = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "LazyCorpusLoader"

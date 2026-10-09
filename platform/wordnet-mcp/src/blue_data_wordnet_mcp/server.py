@@ -49,7 +49,7 @@ from typing import Any, Optional
 
 from mcp.server.fastmcp import FastMCP
 from nltk.corpus import wordnet as wn
-from nltk.corpus.reader.wordnet import Synset
+from nltk.corpus.reader.wordnet import ADJ, ADV, NOUN, VERB, Synset
 
 from blue_data_wordnet_mcp.nltk_data import ensure_wordnet_data
 
@@ -63,7 +63,10 @@ mcp = FastMCP(
 )
 
 _VALID_POS = {"n", "v", "a", "r", "s"}
-_MORPHY_POS = {"n": wn.NOUN, "v": wn.VERB, "a": wn.ADJ, "r": wn.ADV}
+# The reader module's constants, not `wn.NOUN` & co.: `wn` is a lazy corpus loader, and
+# touching it at import loaded the corpus before ensure_wordnet_data() could download
+# it or add BLUE_DATA_WORDNET_MCP_NLTK_DATA_DIR to the search path (#131).
+_MORPHY_POS = {"n": NOUN, "v": VERB, "a": ADJ, "r": ADV}
 
 
 # ---------------------------------------------------------------------------
