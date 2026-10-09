@@ -14,6 +14,7 @@ independently (see design/07-repo-organization.md).
 """
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any, Optional
@@ -73,6 +74,36 @@ def model_for(function: str | None = None) -> str:
             return value
     return _MODEL_DEFAULT
 
+
+
+# ---------------------------------------------------------------------------
+# Schema-expansion reference servers
+# ---------------------------------------------------------------------------
+
+SCHEMA_EXPANSION_MCP_SERVERS_ENV = "BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_MCP_SERVERS"
+
+
+def schema_expansion_mcp_servers() -> list[dict[str, Any]]:
+    """MCP servers that expand_schema / import_text may connect for reference='mcp',
+    as a JSON list in BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_MCP_SERVERS, e.g.
+    '[{"transport": "stdio", "command": "blue-data-wordnet-mcp"}]'.
+
+    Only the operator who launches this server sets these. Tool callers can't: a
+    server entry is a command to run (stdio) or a URL and headers to connect to, so
+    taking them from a tool argument let anything that steers the agent (a prompt
+    injection in an ingested document, say) run arbitrary commands on the host (#111).
+    Empty when unset.
+    """
+    raw = os.environ.get(SCHEMA_EXPANSION_MCP_SERVERS_ENV, "").strip()
+    if not raw:
+        return []
+    try:
+        servers = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{SCHEMA_EXPANSION_MCP_SERVERS_ENV} is not valid JSON: {exc}") from exc
+    if not isinstance(servers, list) or not all(isinstance(s, dict) for s in servers):
+        raise ValueError(f"{SCHEMA_EXPANSION_MCP_SERVERS_ENV} must be a JSON list of server objects")
+    return servers
 
 
 # ---------------------------------------------------------------------------

@@ -471,6 +471,83 @@ def test_every_variable_this_server_reads_is_a_name_the_cli_also_uses():
         "BLUE_DATA_KB_SOURCE_NEO4J_URI",
         "BLUE_DATA_KB_SOURCE_NEO4J_USER",
         "BLUE_DATA_KB_SOURCE_NEO4J_PASSWORD",
+        # The CLI takes reference servers per command (`--mcp-server`); only this
+        # server needs them as operator config, since its callers mustn't supply them.
+        "BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_MCP_SERVERS",
     }
     drifted = used - known - backend_only
     assert not drifted, f"MCP reads variables the CLI does not know: {sorted(drifted)}"
+
+
+# ---------------------------------------------------------------------------
+# Reference MCP servers are operator config, never tool arguments (#111)
+# ---------------------------------------------------------------------------
+
+_WORDNET = [{"transport": "stdio", "command": "blue-data-wordnet-mcp"}]
+
+
+async def test_expansion_tools_do_not_take_server_definitions():
+    from blue_data_kb_mcp.server import mcp
+
+    tools = {t.name: t for t in await mcp.list_tools()}
+    assert "mcp_servers" not in tools["expand_schema"].inputSchema["properties"]
+    assert "schema_expansion_mcp_servers" not in tools["import_text"].inputSchema["properties"]
+
+
+async def test_caller_supplied_server_is_never_spawned(tmp_path, monkeypatch):
+    """The #111 PoC: a stdio "server" that is really a shell command, passed as a tool
+    argument through the MCP protocol. It must never reach the spawn path."""
+    from blue_data_kb_mcp.server import mcp
+
+    monkeypatch.delenv("BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_MCP_SERVERS", raising=False)
+    marker = tmp_path / "pwned"
+    evil = [{"transport": "stdio", "command": "/bin/sh", "args": ["-c", f"touch {marker}"]}]
+    with patch("blue_data_kb_source.schema.expansion._connect_mcp_servers") as connect:
+        for tool, args in [
+            ("expand_schema", {"text": "x", "reference": "mcp", "mcp_servers": evil, "database": DB}),
+            ("import_text", {"text": "x", "schema_expansion_mode": "mcp",
+                             "schema_expansion_mcp_servers": evil, "database": DB}),
+        ]:
+            try:
+                await mcp.call_tool(tool, args)
+            except Exception:
+                pass  # rejecting the unknown argument outright is fine too
+    connect.assert_not_called()
+    assert not marker.exists()
+
+
+async def test_reference_mcp_without_configured_servers_errors(monkeypatch, kb):
+    monkeypatch.delenv("BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_MCP_SERVERS", raising=False)
+    with patch.object(kb, "expand_schema", new=AsyncMock()) as expand:
+        result = json.loads(await expand_schema("x", reference="mcp", database=DB))
+    assert "BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_MCP_SERVERS" in result["error"]
+    expand.assert_not_called()
+
+
+async def test_expand_schema_uses_operator_configured_servers(monkeypatch, kb):
+    monkeypatch.setenv("BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_MCP_SERVERS", json.dumps(_WORDNET))
+    with patch.object(kb, "expand_schema", new=AsyncMock()) as expand:
+        result = json.loads(await expand_schema("x", reference="mcp", database=DB))
+    assert result == {"status": "ok"}
+    assert expand.call_args.kwargs["mcp_servers"] == _WORDNET
+
+
+async def test_expand_schema_llm_reference_connects_nothing(monkeypatch, kb):
+    monkeypatch.setenv("BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_MCP_SERVERS", json.dumps(_WORDNET))
+    with patch.object(kb, "expand_schema", new=AsyncMock()) as expand:
+        await expand_schema("x", database=DB)
+    assert expand.call_args.kwargs["mcp_servers"] is None
+
+
+async def test_import_text_uses_operator_configured_servers(monkeypatch, kb):
+    monkeypatch.setenv("BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_MCP_SERVERS", json.dumps(_WORDNET))
+    with patch.object(kb, "import_text", new=AsyncMock()) as imp:
+        result = json.loads(await import_text("x", schema_expansion_mode="mcp", database=DB))
+    assert result == {"status": "ok"}
+    assert imp.call_args.kwargs["schema_expansion_mcp_servers"] == _WORDNET
+
+
+async def test_malformed_server_config_is_reported(monkeypatch, kb):
+    monkeypatch.setenv("BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_MCP_SERVERS", '{"command": "x"}')
+    result = json.loads(await expand_schema("x", reference="mcp", database=DB))
+    assert "must be a JSON list" in result["error"]

@@ -122,6 +122,7 @@ All configuration is via environment variables — there is no config file, and 
 | Variable | Default | Description |
 |---|---|---|
 | `BLUE_DATA_KB_SOURCE_LLM_MODEL` | `gpt-4o` | Default model when a call omits `model`. A per-function variable overrides it — `BLUE_DATA_KB_SOURCE_{EXTRACTION,QUERY,VALIDATION,SCHEMA_EXPANSION,ENRICHMENT}_LLM_MODEL` — and it in turn falls back to the family-wide `BLUE_DATA_LLM_MODEL`. These are the same names, and the same precedence, the `blue-kb` CLI uses. |
+| `BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_MCP_SERVERS` | *(none)* | JSON list of the reference MCP servers `expand_schema`/`import_text` may connect when called with `reference="mcp"` / `schema_expansion_mode="mcp"`, e.g. `[{"transport": "stdio", "command": "blue-data-wordnet-mcp"}]`. Each entry is `{"transport": "stdio", "command", "args", "env"}` or `{"transport": "sse"\|"streamable_http", "url", "headers"}`. Only the operator sets these: tool callers can't pass server definitions, since an entry is a command to run or a URL to connect to. With none configured, `reference="mcp"` returns an error. |
 
 ---
 
@@ -200,11 +201,10 @@ taxonomy (CLASS, RELATION, PROPERTY, ENTITY, FACT, LITERAL, SOURCE, EXTRACTION).
 #### `expand_schema`
 
 `text`, `depth` (default `1` — hierarchy levels beyond what's directly evidenced
-in `text` to also propose), `reference` (`llm` default / `mcp`), `mcp_servers`
-(list of `{"transport": "stdio", "command", "args", "env"}` or
-`{"transport": "sse"|"streamable_http", "url", "headers"}` — required when
-`reference="mcp"`; each server's tools are additionally offered to the model,
-e.g. WordNet hypernyms/synonyms via `platform/wordnet-mcp`), `dedup_mode`
+in `text` to also propose), `reference` (`llm` default / `mcp` — `mcp` additionally
+offers the model the tools of the reference MCP servers the operator configured in
+`BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_MCP_SERVERS`, e.g. WordNet hypernyms/synonyms
+via `platform/wordnet-mcp`; callers can't supply servers themselves), `dedup_mode`
 (`search` default / `llm` / `none` — how it checks for an existing schema
 element before declaring a new one; for `declare_class`/`declare_relation_type`
 this check also runs automatically before creation, even if the model skips
@@ -299,9 +299,9 @@ Returns `{"supporting": [...], "counter": [...]}` (plus `metadata` with
 `expand_schema` (default `True` — runs `expand_schema` first),
 `schema_expansion_target` (any combination of `"text"`/`"queries"`, default
 both — only used when `expand_schema=True`), `schema_expansion_depth`,
-`schema_expansion_mode`, `schema_expansion_mcp_servers`,
-`schema_expansion_dedup_mode` (these five mirror `expand_schema`'s own
-`depth`/`reference`/`mcp_servers`/`dedup_mode` one-to-one), `database`. Runs an
+`schema_expansion_mode`, `schema_expansion_dedup_mode` (these mirror
+`expand_schema`'s own `depth`/`reference`/`dedup_mode` one-to-one; `mcp` uses the
+operator-configured reference servers), `database`. Runs an
 LLM agent that extracts entities/facts/property values from `text` against the
 schema as it currently stands — never declares new schema itself (a mention
 with no matching element is skipped); pass `expand_schema=False` to extract

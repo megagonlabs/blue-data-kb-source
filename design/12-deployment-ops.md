@@ -85,6 +85,7 @@ A completely separate `BLUE_DATA_KB_SOURCE_*` namespace, since the server owns o
 | `BLUE_DATA_KB_SOURCE_VECTOR_BACKEND` | `memory` | `memory` \| `file` \| `chromadb` \| `redis`, when `SEARCH=semantic` |
 | `BLUE_DATA_KB_SOURCE_EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model, when `SEARCH=semantic` |
 | `BLUE_DATA_KB_SOURCE_LLM_MODEL` | `gpt-4o` | Default model for `answer`/`validate`/`enrich`/`expand_schema`/`import_text` |
+| `BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_MCP_SERVERS` | — | JSON list of reference MCP servers for `reference="mcp"` expansion. Operator-only: tool callers can't supply server definitions (ADR-032) |
 | `OPENAI_API_KEY` | — | Required for LLM features |
 
 Full table with examples: [platform/mcp/README.md](../platform/mcp/README.md) Configuration reference. Pointing both `BLUE_DATA_KB_SOURCE_DATA_DIR` and `BLUE_DATA_KB_SOURCE_DATA_DIR` at the same path gives the CLI and MCP server practical (not automatic) access to the same file-backed data — they don't otherwise coordinate.

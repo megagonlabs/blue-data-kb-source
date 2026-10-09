@@ -56,7 +56,12 @@ from typing import Any, Optional
 
 from mcp.server.fastmcp import FastMCP
 
-from blue_data_kb_mcp.config import get_kb, model_for
+from blue_data_kb_mcp.config import (
+    SCHEMA_EXPANSION_MCP_SERVERS_ENV,
+    get_kb,
+    model_for,
+    schema_expansion_mcp_servers,
+)
 
 mcp = FastMCP(
     "blue-data-kb",
@@ -647,12 +652,30 @@ async def enrich(
 # Schema expansion
 # ---------------------------------------------------------------------------
 
+def _reference_servers(reference: str) -> list[dict] | None:
+    """The operator-configured MCP servers for reference='mcp' (None otherwise).
+
+    Deliberately not a tool argument: a server entry is a command to run or a URL to
+    connect to, and tool arguments come from the agent — so from anything that can
+    steer it, including text it was asked to ingest (#111).
+    """
+    if reference != "mcp":
+        return None
+    servers = schema_expansion_mcp_servers()
+    if not servers:
+        raise ValueError(
+            "reference='mcp' needs reference MCP servers configured on this server via "
+            f"{SCHEMA_EXPANSION_MCP_SERVERS_ENV}; none are configured. Use reference='llm', "
+            "or ask the operator to configure them."
+        )
+    return servers
+
+
 @mcp.tool()
 async def expand_schema(
     text: str,
     depth: int = 1,
     reference: str = "llm",
-    mcp_servers: Optional[list[dict]] = None,
     dedup_mode: str = "search",
     model: Optional[str] = None,
     database: str = "default",
@@ -667,11 +690,9 @@ async def expand_schema(
         depth:       Hierarchy levels beyond what's directly evidenced in *text*
                      to also propose (default 1 = immediate parent/child category).
         reference:   'llm' (default) proposes schema freely; 'mcp' additionally
-                     gives the model tools from *mcp_servers* (e.g. WordNet
-                     hypernyms/synonyms) to ground names and hierarchy placement.
-        mcp_servers: MCP servers to connect when reference='mcp' — each
-                     {"transport": "stdio", "command": ..., "args": [...], "env": {...}}
-                     or {"transport": "sse"|"streamable_http", "url": ..., "headers": {...}}.
+                     gives the model tools from the reference MCP servers the server
+                     operator configured (e.g. WordNet hypernyms/synonyms) to ground
+                     names and hierarchy placement. Errors if none are configured.
         dedup_mode:  How to check for an existing schema element before declaring a
                      new one: 'search' (default, uses the configured search backend),
                      'llm' (asks the model to judge synonyms), or 'none' (disables
@@ -684,7 +705,7 @@ async def expand_schema(
             database, text,
             depth=depth,
             reference=reference,
-            mcp_servers=mcp_servers,
+            mcp_servers=_reference_servers(reference),
             dedup_mode=dedup_mode,
             model=model or model_for("SCHEMA_EXPANSION"),
         )
@@ -707,7 +728,6 @@ async def import_text(
     schema_expansion_target: Optional[list[str]] = None,
     schema_expansion_depth: int = 1,
     schema_expansion_mode: str = "llm",
-    schema_expansion_mcp_servers: Optional[list[dict]] = None,
     schema_expansion_dedup_mode: str = "search",
     database: str = "default",
 ) -> str:
@@ -728,11 +748,13 @@ async def import_text(
                                        expand_schema=True.
         schema_expansion_depth:        See expand_schema's depth.
         schema_expansion_mode:         See expand_schema's reference ('llm' or 'mcp').
-        schema_expansion_mcp_servers:  See expand_schema's mcp_servers.
         schema_expansion_dedup_mode:   See expand_schema's dedup_mode.
         database:                      Target database (default 'default').
     """
     try:
+        reference_servers = (
+            _reference_servers(schema_expansion_mode) if expand_schema else None
+        )
         await get_kb().import_text(
             database, text,
             queries=queries,
@@ -742,7 +764,7 @@ async def import_text(
             schema_expansion_target=schema_expansion_target,
             schema_expansion_depth=schema_expansion_depth,
             schema_expansion_mode=schema_expansion_mode,
-            schema_expansion_mcp_servers=schema_expansion_mcp_servers,
+            schema_expansion_mcp_servers=reference_servers,
             schema_expansion_dedup_mode=schema_expansion_dedup_mode,
         )
         return _ok({"status": "ok"})
