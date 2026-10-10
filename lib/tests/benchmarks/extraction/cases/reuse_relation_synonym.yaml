@@ -1,0 +1,24 @@
+id: reuse_relation_synonym
+category: schema_reuse
+description: >
+  A relation synonym: the schema has EMPLOYED_BY; the text says "works for". The
+  existing relation must be reused, not shadowed by WORKS_FOR / WORKS_AT.
+seed_schema:
+  classes:
+    - {name: PERSON, description: "A human individual"}
+    - {name: COMPANY, description: "A business organization"}
+  relations:
+    - {name: EMPLOYED_BY, description: "A person is employed by a company", domain: PERSON, range: COMPANY}
+input_text: "Kenji Watanabe works for Rakuten as a product manager."
+dedup_modes: [search, llm]
+expected:
+  entities:
+    - {name: Kenji Watanabe, class: PERSON}
+    - {name: Rakuten, class: COMPANY}
+  facts:
+    - {head: Kenji Watanabe, relation: EMPLOYED_BY, tail: Rakuten}
+  optional:
+    properties:
+      - {owner: EMPLOYED_BY fact between Kenji Watanabe and Rakuten, name: JOB_TITLE, value: "product manager"}
+  schema_reuse:
+    must_not_declare: [WORKS_FOR, WORKS_AT, EMPLOYED_AT]

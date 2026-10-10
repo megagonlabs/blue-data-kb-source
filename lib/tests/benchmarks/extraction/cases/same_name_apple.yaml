@@ -1,0 +1,40 @@
+id: same_name_apple
+category: same_name
+description: >
+  The #115 failure: "Apple" the company and "apple" the fruit are different
+  entities. The KB already holds Apple the COMPANY (seeded as data); the fruit must
+  become its own FRUIT entity, never a second class on the company.
+seed_schema:
+  classes:
+    - {name: PERSON, description: "A human individual"}
+    - {name: COMPANY, description: "A business organization"}
+    - {name: FRUIT, description: "An edible fruit, or a variety of one"}
+  relations:
+    - name: WORKS_AT
+      description: "A person is employed by a company"
+      domain: PERSON
+      range: COMPANY
+    - name: GROWS
+      description: "A person grows a fruit"
+      domain: PERSON
+      range: FRUIT
+seed_data:
+  entities:
+    - {name: Apple, class: COMPANY}
+input_text: >
+  Tim works at Apple in Cupertino. On weekends he grows apples and pears in his
+  orchard.
+dedup_modes: [search]
+expected:
+  entities:
+    - {name: Tim, class: PERSON}
+    - {name: apple, class: FRUIT}
+    - {name: pear, class: FRUIT}
+  facts:
+    - {head: Tim, relation: WORKS_AT, tail: Apple}
+    - {head: Tim, relation: GROWS, tail: apple}
+    - {head: Tim, relation: GROWS, tail: pear}
+  optional:
+    entities:
+      - {name: Cupertino, class: CITY}
+      - {name: orchard, class: LOCATION}

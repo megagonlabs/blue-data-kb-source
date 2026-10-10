@@ -1,0 +1,36 @@
+id: values_money_percent_units
+category: properties_normalization
+description: >
+  Numeric values with units: money, percentages, headcount written as words, and a
+  physical quantity. NUMBER-typed gold values check that numbers are stored as
+  numbers, not text.
+seed_schema:
+  classes:
+    - name: COMPANY
+      description: "A business organization"
+      properties:
+        - {name: REVENUE, description: "Annual revenue"}
+        - {name: EMPLOYEE_COUNT, description: "Number of employees"}
+        - {name: REVENUE_GROWTH, description: "Year-over-year revenue growth"}
+    - name: PRODUCT
+      description: "A physical product"
+      properties:
+        - {name: WEIGHT, description: "Product weight"}
+  relations:
+    - {name: MAKES, description: "A company makes a product", domain: COMPANY, range: PRODUCT}
+input_text: >
+  Lumen Robotics reported revenue of $42.5 million last year, up 18% year over
+  year, with a team of twelve hundred employees. Its flagship arm, the L-7, weighs
+  3.2 kg.
+dedup_modes: [search]
+expected:
+  entities:
+    - {name: Lumen Robotics, class: COMPANY}
+    - {name: L-7, class: PRODUCT}
+  facts:
+    - {head: Lumen Robotics, relation: MAKES, tail: L-7}
+  properties:
+    - {owner: Lumen Robotics, name: REVENUE, value: "$42.5 million"}
+    - {owner: Lumen Robotics, name: REVENUE_GROWTH, value: "18%"}
+    - {owner: Lumen Robotics, name: EMPLOYEE_COUNT, value: "1200", literal_type: NUMBER}
+    - {owner: L-7, name: WEIGHT, value: "3.2 kg"}

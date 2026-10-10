@@ -1,0 +1,37 @@
+id: policy_requirement_not_instances
+category: rules_policy
+description: >
+  The supplier-onboarding demo: a policy document states rules, not facts about
+  instances. The policy and the category it governs are entities; the requirement
+  ("a verified audit record dated within 12 months") must not become an
+  AUDIT_RECORD instance, and no audit date may be invented.
+seed_schema:
+  classes:
+    - {name: POLICY, description: "Company rule for deciding supplier onboarding"}
+    - {name: PRODUCT_CATEGORY, description: "Type of product a supplier makes"}
+    - {name: PRODUCT_LINE, description: "Business line that will use the product"}
+  relations:
+    - {name: GOVERNED_BY, description: "Policy applies to onboarding for that product line", domain: PRODUCT_LINE, range: POLICY}
+input_text: |
+  SUPPLIER ONBOARDING POLICY, version 2 (Supplier Policy v2)
+  Effective: October 1, 2026. Supersedes Supplier Policy v1.
+  Suppliers of battery housings for the EU Product Line must have a verified audit
+  record dated within the previous 12 months before final approval.
+dedup_modes: [search]
+expected:
+  entities:
+    - {name: Supplier Policy v2, class: POLICY}
+    - {name: Supplier Policy v1, class: POLICY}
+    - {name: Battery Housing, class: PRODUCT_CATEGORY}
+    - {name: EU Product Line, class: PRODUCT_LINE}
+  facts:
+    - {head: Supplier Policy v2, relation: SUPERSEDES, tail: Supplier Policy v1}
+    - {head: EU Product Line, relation: GOVERNED_BY, tail: Supplier Policy v2}
+    - {head: Supplier Policy v2, relation: REQUIRES_AUDIT, tail: Battery Housing}
+  properties:
+    - {owner: Supplier Policy v2, name: EFFECTIVE_DATE, value: "2026-10-01"}
+  optional:
+    properties:
+      - {owner: Supplier Policy v2, name: VERSION, value: "2"}
+      - {owner: Supplier Policy v2, name: MAX_AUDIT_AGE_MONTHS, value: "12"}
+      - {owner: REQUIRES_AUDIT fact between Supplier Policy v2 and Battery Housing, name: MAX_AUDIT_AGE_MONTHS, value: "12"}

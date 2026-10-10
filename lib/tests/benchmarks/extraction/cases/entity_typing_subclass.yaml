@@ -1,4 +1,5 @@
 id: entity_typing_subclass
+category: typing_fit
 description: >
   Healthcare domain. Seeds three sibling classes (generic PERSON plus the more
   specific PHYSICIAN/PATIENT) so the agent must choose the *specific* class for

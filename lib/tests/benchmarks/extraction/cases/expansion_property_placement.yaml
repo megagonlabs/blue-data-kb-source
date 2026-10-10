@@ -1,0 +1,40 @@
+id: expansion_property_placement
+category: schema_expansion_quality
+description: >
+  The #104 failure: properties must land on the element they describe. A degree's
+  field and year belong to the education (or the degree), never to employment; a
+  start date belongs to the employment, not the person.
+seed_schema:
+  classes:
+    - {name: PERSON, description: "A human individual"}
+    - {name: COMPANY, description: "A business organization"}
+  relations:
+    - name: WORKED_AT
+      description: "Employment relationship"
+      domain: PERSON
+      range: COMPANY
+      properties:
+        - {name: START_DATE, description: "Start of employment"}
+input_text: >
+  Omar Haddad joined Careem in March 2017. He earned a bachelor's degree in
+  computer engineering from the American University of Beirut in 2012.
+dedup_modes: [search]
+expected:
+  entities:
+    - {name: Omar Haddad, class: PERSON}
+    - {name: Careem, class: COMPANY}
+    - {name: American University of Beirut, class: UNIVERSITY}
+  facts:
+    - {head: Omar Haddad, relation: WORKED_AT, tail: Careem}
+    - {head: Omar Haddad, relation: STUDIED_AT, tail: American University of Beirut}
+  properties:
+    - {owner: WORKED_AT fact between Omar Haddad and Careem, name: START_DATE, value: "2017-03"}
+    - {owner: STUDIED_AT fact between Omar Haddad and American University of Beirut, name: FIELD_OF_STUDY, value: "computer engineering"}
+    - {owner: STUDIED_AT fact between Omar Haddad and American University of Beirut, name: GRADUATION_YEAR, value: "2012"}
+  optional:
+    entities:
+      - {name: bachelor's degree, class: DEGREE}
+    properties:
+      - {owner: STUDIED_AT fact between Omar Haddad and American University of Beirut, name: DEGREE, value: "bachelor's degree"}
+  schema_reuse:
+    must_reuse: [START_DATE]

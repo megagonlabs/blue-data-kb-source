@@ -100,7 +100,8 @@ def _md_seed(seed: dict) -> list[str]:
     lines = []
     for c in seed.get("classes", []):
         props = ", ".join(p["name"] for p in c.get("properties", []))
-        lines.append(f"- class `{c['name']}`" + (f" — properties: {props}" if props else ""))
+        parent = f" ⊂ {c['parent']}" if c.get("parent") else ""
+        lines.append(f"- class `{c['name']}{parent}`" + (f" — properties: {props}" if props else ""))
     for r in seed.get("relations", []):
         dom = r.get("domain") if isinstance(r.get("domain"), str) else "|".join(r.get("domain") or [])
         rng = r.get("range") if isinstance(r.get("range"), str) else "|".join(r.get("range") or [])
@@ -110,7 +111,8 @@ def _md_seed(seed: dict) -> list[str]:
 
 
 def _md_outcome(score: CaseScore) -> list[str]:
-    lines = ["| | F1 | ✓ matched (expected → extracted) | ✗ missing | + extra |", "|---|---|---|---|---|"]
+    lines = ["| | F1 | ✓ matched (expected → extracted) | ✗ missing | + extra | ≈ acceptable (optional) |",
+             "|---|---|---|---|---|---|"]
     for kind, prf1 in (("entities", score.entities), ("facts", score.facts), ("properties", score.properties)):
         al = score.alignment.get(kind)
         if al is None:
@@ -118,7 +120,8 @@ def _md_outcome(score: CaseScore) -> list[str]:
         matched = "<br>".join(f"`{e}` → `{a}`" for e, a in al.matched) or "—"
         missing = "<br>".join(f"`{m}`" for m in al.missing) or "—"
         extra = "<br>".join(f"`{x}`" for x in al.extra) or "—"
-        lines.append(f"| **{kind}** | {prf1.f1:.2f} | {matched} | {missing} | {extra} |")
+        acceptable = "<br>".join(f"`{a}`" for _, a in al.acceptable) or "—"
+        lines.append(f"| **{kind}** | {prf1.f1:.2f} | {matched} | {missing} | {extra} | {acceptable} |")
     return lines
 
 
@@ -142,11 +145,30 @@ def _md_checks(score: CaseScore) -> list[str]:
     return problems or ["- all deterministic checks passed"]
 
 
+def _md_by_category(scores: list[CaseScore]) -> list[str]:
+    """Mean F1 per #134 category — where extraction is weakest, at a glance."""
+    groups: dict[str, list[CaseScore]] = {}
+    for s in scores:
+        groups.setdefault(s.category, []).append(s)
+    lines = ["| category | runs | entities F1 | facts F1 | props F1 | runs failing a check |", "|---|---|---|---|---|---|"]
+    mean = lambda xs: sum(xs) / len(xs) if xs else 0.0
+    for cat in sorted(groups):
+        g = groups[cat]
+        failing = sum(1 for s in g if _checks(s) != "ok")
+        lines.append(f"| {cat} | {len(g)} | {mean([s.entities.f1 for s in g]):.2f} | "
+                     f"{mean([s.facts.f1 for s in g]):.2f} | {mean([s.properties.f1 for s in g]):.2f} | {failing} |")
+    lines.append(f"| **all** | {len(scores)} | {mean([s.entities.f1 for s in scores]):.2f} | "
+                 f"{mean([s.facts.f1 for s in scores]):.2f} | {mean([s.properties.f1 for s in scores]):.2f} | "
+                 f"{sum(1 for s in scores if _checks(s) != 'ok')} |")
+    return lines
+
+
 def write_markdown_report(results: list[RunResult], scores: list[CaseScore], path: Path) -> None:
     """One readable report for a set of runs: per run, the input, the seed schema, what
     schema expansion added, what each extraction stage added, and the outcome against
     the gold — matched, missing, extra — plus any failed deterministic check (#134)."""
-    out = ["# Extraction benchmark report", "",
+    out = ["# Extraction benchmark report", "", "## By category", "", *_md_by_category(scores), "",
+           "## By case", "",
            "| case | model | dedup | entities F1 | facts F1 | props F1 | checks | calls | tokens |",
            "|---|---|---|---|---|---|---|---|---|"]
     for s in scores:
@@ -154,8 +176,13 @@ def write_markdown_report(results: list[RunResult], scores: list[CaseScore], pat
                    f"{_fmt_f1(s.properties)} | {_checks(s)} | {s.tool_call_count} | "
                    f"{(s.prompt_tokens + s.completion_tokens) / 1000:.0f}k |")
     for r, s in zip(results, scores):
-        out += ["", "---", "", f"## {r.case.id} · {r.model} · dedup={r.dedup_mode}", "", r.case.description.strip(), "",
+        out += ["", "---", "", f"## {r.case.id} · {r.model} · dedup={r.dedup_mode}", "",
+                f"*Category: {r.case.category}*", "", r.case.description.strip(), "",
                 "### Seed schema", *_md_seed(r.case.seed_schema)]
+        if r.case.seed_data:
+            out += ["", "Seed data: " + ", ".join(
+                [f"`{e['name']} : {e['class']}`" for e in r.case.seed_data.get("entities", [])]
+                + [f"`{f['head']} -{f['relation']}-> {f['tail']}`" for f in r.case.seed_data.get("facts", [])])]
         for i, st in enumerate(r.steps, 1):
             label = f"Step {i}" if len(r.steps) > 1 else "Run"
             out += ["", f"### {label} — input", "", *[f"> {line}" for line in st.input_text.strip().splitlines()]]

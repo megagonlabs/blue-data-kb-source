@@ -1,0 +1,44 @@
+id: relation_study_vs_work
+category: relation_extraction
+description: >
+  The #102 relation coercion with expansion on: studying, holding a degree, and
+  working are different predicates. Education must not be recorded as employment.
+seed_schema:
+  classes:
+    - {name: PERSON, description: "A human individual"}
+    - {name: COMPANY, description: "A business organization"}
+  relations:
+    - name: WORKED_AT
+      description: "Employment relationship"
+      domain: PERSON
+      range: COMPANY
+input_text: >
+  Bob Chen joined Google in 2001 after completing a PhD at Stanford University.
+  Alice holds a master's degree from Carnegie Mellon and worked at IBM until 2005.
+dedup_modes: [search]
+expected:
+  entities:
+    - {name: Bob Chen, class: PERSON}
+    - {name: Alice, class: PERSON}
+    - {name: Google, class: COMPANY}
+    - {name: IBM, class: COMPANY}
+    - {name: Stanford University, class: UNIVERSITY}
+    - {name: Carnegie Mellon, class: UNIVERSITY}
+  facts:
+    - {head: Bob Chen, relation: WORKED_AT, tail: Google}
+    - {head: Alice, relation: WORKED_AT, tail: IBM}
+    - {head: Bob Chen, relation: STUDIED_AT, tail: Stanford University}
+    - {head: Alice, relation: STUDIED_AT, tail: Carnegie Mellon}
+  properties:
+    - {owner: WORKED_AT fact between Bob Chen and Google, name: START_DATE, value: "2001"}
+    - {owner: WORKED_AT fact between Alice and IBM, name: END_DATE, value: "2005"}
+  optional:
+    entities:
+      - {name: PhD, class: DEGREE}
+      - {name: master's degree, class: DEGREE}
+    facts:
+      - {head: Bob Chen, relation: HAS_DEGREE, tail: PhD}
+      - {head: Alice, relation: HAS_DEGREE, tail: master's degree}
+    properties:
+      - {owner: STUDIED_AT fact between Bob Chen and Stanford University, name: DEGREE, value: "PhD"}
+      - {owner: STUDIED_AT fact between Alice and Carnegie Mellon, name: DEGREE, value: "master's degree"}

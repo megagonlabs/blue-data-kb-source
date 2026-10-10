@@ -1,0 +1,62 @@
+id: long_company_history
+category: long_text
+description: >
+  A multi-paragraph company history: founders, funding, an acquisition, leadership
+  changes and offices, spread over paragraphs that refer back to earlier ones.
+  Coverage drops on long text; this measures how much survives.
+input_text: |
+  Meridian Analytics was founded in 2012 by Sofia Marquez and Daniel Kim in
+  Austin, Texas. The company built forecasting software for retailers.
+
+  In 2015 Meridian raised a $20 million Series B led by Accel. Two years later it
+  opened a second office in London, run by Priya Shah.
+
+  Daniel Kim stepped down as CEO in 2019 and was succeeded by Sofia Marquez. In
+  2021 Meridian acquired Quantly, a pricing startup from Berlin.
+
+  In 2023 Meridian itself was acquired by Oracle.
+dedup_modes: [search]
+expected:
+  entities:
+    - {name: Meridian Analytics, class: COMPANY}
+    - {name: Sofia Marquez, class: PERSON}
+    - {name: Daniel Kim, class: PERSON}
+    - {name: Priya Shah, class: PERSON}
+    - {name: Accel, class: COMPANY}
+    - {name: Quantly, class: COMPANY}
+    - {name: Oracle, class: COMPANY}
+    - {name: Austin, class: CITY}
+    - {name: London, class: CITY}
+    - {name: Berlin, class: CITY}
+  facts:
+    - {head: Sofia Marquez, relation: FOUNDED, tail: Meridian Analytics}
+    - {head: Daniel Kim, relation: FOUNDED, tail: Meridian Analytics}
+    - {head: Meridian Analytics, relation: LOCATED_IN, tail: Austin}
+    - {head: Accel, relation: INVESTED_IN, tail: Meridian Analytics}
+    - {head: Meridian Analytics, relation: HAS_OFFICE_IN, tail: London}
+    - {head: Priya Shah, relation: MANAGES_OFFICE, tail: London}
+    - {head: Meridian Analytics, relation: ACQUIRED, tail: Quantly}
+    - {head: Quantly, relation: LOCATED_IN, tail: Berlin}
+    - {head: Oracle, relation: ACQUIRED, tail: Meridian Analytics}
+    - {head: Sofia Marquez, relation: CEO_OF, tail: Meridian Analytics}
+  properties:
+    - {owner: Meridian Analytics, name: FOUNDED_YEAR, value: "2012"}
+    - {owner: INVESTED_IN fact between Accel and Meridian Analytics, name: AMOUNT, value: "$20 million"}
+    - {owner: ACQUIRED fact between Meridian Analytics and Quantly, name: DATE, value: "2021"}
+    - {owner: ACQUIRED fact between Oracle and Meridian Analytics, name: DATE, value: "2023"}
+  optional:
+    entities:
+      - {name: Texas, class: STATE}
+      - {name: forecasting software, class: PRODUCT}
+      - {name: Series B, class: FUNDING_ROUND}
+    facts:
+      - {head: Daniel Kim, relation: CEO_OF, tail: Meridian Analytics}
+      - {head: Meridian Analytics, relation: BUILDS, tail: forecasting software}
+      - {head: Austin, relation: LOCATED_IN, tail: Texas}
+      - {head: Priya Shah, relation: WORKS_AT, tail: Meridian Analytics}
+    properties:
+      - {owner: CEO_OF fact between Sofia Marquez and Meridian Analytics, name: START_DATE, value: "2019"}
+      - {owner: CEO_OF fact between Daniel Kim and Meridian Analytics, name: END_DATE, value: "2019"}
+      - {owner: INVESTED_IN fact between Accel and Meridian Analytics, name: ROUND, value: "Series B"}
+      - {owner: INVESTED_IN fact between Accel and Meridian Analytics, name: DATE, value: "2015"}
+      - {owner: HAS_OFFICE_IN fact between Meridian Analytics and London, name: OPENED, value: "2017"}

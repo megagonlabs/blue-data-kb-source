@@ -1,0 +1,27 @@
+id: reuse_class_synonym
+category: schema_reuse
+description: >
+  A class synonym: the schema calls businesses ORGANIZATION; the text says "firm" and
+  "company". Instances must go into the existing class, not a new FIRM / COMPANY.
+seed_schema:
+  classes:
+    - {name: PERSON, description: "A human individual"}
+    - {name: ORGANIZATION, description: "A company, firm or other organization"}
+  relations:
+    - {name: WORKS_AT, description: "A person works at an organization", domain: PERSON, range: ORGANIZATION}
+input_text: "Elif Demir is a partner at the law firm Baker McKenzie; before that she worked at the company Unilever."
+dedup_modes: [search, llm]
+expected:
+  entities:
+    - {name: Elif Demir, class: PERSON}
+    - {name: Baker McKenzie, class: ORGANIZATION}
+    - {name: Unilever, class: ORGANIZATION}
+  facts:
+    - {head: Elif Demir, relation: WORKS_AT, tail: Baker McKenzie}
+    - {head: Elif Demir, relation: WORKS_AT, tail: Unilever}
+  optional:
+    properties:
+      - {owner: WORKS_AT fact between Elif Demir and Baker McKenzie, name: JOB_TITLE, value: "partner"}
+  schema_reuse:
+    must_reuse: [ORGANIZATION]
+    must_not_declare: [FIRM, COMPANY, LAW_FIRM]

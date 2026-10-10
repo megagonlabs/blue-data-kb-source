@@ -1,0 +1,26 @@
+id: relation_symmetric_and_implicit
+category: relation_extraction
+description: >
+  A symmetric relation (married to) and an implicit one ("Paris-based" = located in).
+  The implicit location is stated only as a modifier, so it is easy to miss.
+input_text: >
+  Paris-based Ubisoft was founded by Yves Guillemot and his brothers in 1986.
+  Yves Guillemot is married to Karine Guillemot.
+dedup_modes: [search]
+expected:
+  entities:
+    - {name: Ubisoft, class: COMPANY}
+    - {name: Paris, class: CITY}
+    - {name: Yves Guillemot, class: PERSON}
+    - {name: Karine Guillemot, class: PERSON}
+  facts:
+    - {head: Ubisoft, relation: LOCATED_IN, tail: Paris}
+    - {head: Yves Guillemot, relation: FOUNDED, tail: Ubisoft}
+    - {head: Yves Guillemot, relation: MARRIED_TO, tail: Karine Guillemot}
+  properties:
+    - {owner: Ubisoft, name: FOUNDED_YEAR, value: "1986"}
+  optional:
+    facts:
+      - {head: Karine Guillemot, relation: MARRIED_TO, tail: Yves Guillemot}
+    properties:
+      - {owner: FOUNDED fact between Yves Guillemot and Ubisoft, name: DATE, value: "1986"}

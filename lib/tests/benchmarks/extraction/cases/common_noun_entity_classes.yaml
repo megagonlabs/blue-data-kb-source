@@ -1,4 +1,5 @@
 id: common_noun_entity_classes
+category: lists_common_nouns
 description: >
   Résumé skills block. Seeds SKILL — a class whose instances are ordinary nouns
   (Agile, JIRA, SQL), not proper names — alongside PERSON, whose instances are.
@@ -66,3 +67,10 @@ expected:
     must_reuse: [SKILL]
     # The text gives no age; an AGE property can only come from inference.
     must_not_declare: [AGE]
+  optional:
+    entities:
+      - {name: Project Manager, class: ROLE}
+    properties:
+      - {owner: Alice Chen, name: JOB_TITLE, value: "Project Manager"}
+      - {owner: SPEAKS fact between Alice Chen and English, name: PROFICIENCY, value: "Native"}
+      - {owner: SPEAKS fact between Alice Chen and Spanish, name: PROFICIENCY, value: "Fluent"}

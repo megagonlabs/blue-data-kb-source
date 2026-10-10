@@ -1,0 +1,25 @@
+id: coreference_two_people
+category: coreference
+description: >
+  Two people of different genders, so "she" and "he" must resolve to different
+  entities. Swapping them yields wrong facts with the right relation names.
+input_text: >
+  Maria Santos hired Tom Becker at Nimbus Labs in 2018. She was the head of research
+  at the time; he had just finished his postdoc at ETH Zurich.
+dedup_modes: [search]
+expected:
+  entities:
+    - {name: Maria Santos, class: PERSON}
+    - {name: Tom Becker, class: PERSON}
+    - {name: Nimbus Labs, class: COMPANY}
+    - {name: ETH Zurich, class: UNIVERSITY}
+  facts:
+    - {head: Maria Santos, relation: HIRED, tail: Tom Becker}
+    - {head: Maria Santos, relation: WORKS_AT, tail: Nimbus Labs}
+    - {head: Tom Becker, relation: WORKS_AT, tail: Nimbus Labs}
+    - {head: Tom Becker, relation: STUDIED_AT, tail: ETH Zurich}
+  optional:
+    properties:
+      - {owner: WORKS_AT fact between Maria Santos and Nimbus Labs, name: JOB_TITLE, value: "head of research"}
+      - {owner: WORKS_AT fact between Tom Becker and Nimbus Labs, name: START_DATE, value: "2018"}
+      - {owner: HIRED fact between Maria Santos and Tom Becker, name: DATE, value: "2018"}

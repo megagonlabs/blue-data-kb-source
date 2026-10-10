@@ -1,0 +1,24 @@
+id: same_name_jordan
+category: same_name
+description: >
+  One name, two kinds in one sentence: Jordan the person and Jordan the country.
+  They must stay two entities with different classes.
+input_text: >
+  Jordan Lee moved to Jordan in 2020 to work for the Amman office of Careem.
+dedup_modes: [search]
+expected:
+  entities:
+    - {name: Jordan Lee, class: PERSON}
+    - {name: Jordan, class: COUNTRY}
+    - {name: Careem, class: COMPANY}
+  facts:
+    - {head: Jordan Lee, relation: MOVED_TO, tail: Jordan}
+    - {head: Jordan Lee, relation: WORKS_AT, tail: Careem}
+  optional:
+    entities:
+      - {name: Amman, class: CITY}
+    facts:
+      - {head: Amman, relation: LOCATED_IN, tail: Jordan}
+      - {head: Jordan Lee, relation: LIVES_IN, tail: Jordan}
+    properties:
+      - {owner: MOVED_TO fact between Jordan Lee and Jordan, name: DATE, value: "2020"}

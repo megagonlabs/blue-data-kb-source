@@ -29,6 +29,12 @@ class ExpectedResults:
     facts: list[dict] = field(default_factory=list)
     properties: list[dict] = field(default_factory=list)
     schema_reuse: SchemaReuseSpec = field(default_factory=SchemaReuseSpec)
+    # Correct but not required: extracting one neither raises recall nor costs
+    # precision. Keeps a legitimately extracted extra (an END_DATE the query didn't ask
+    # for, a job title) from scoring as a false positive (#134).
+    optional_entities: list[dict] = field(default_factory=list)
+    optional_facts: list[dict] = field(default_factory=list)
+    optional_properties: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -48,9 +54,12 @@ class Case:
     description: str
     steps: list[Step]
     seed_schema: dict[str, Any] = field(default_factory=dict)
+    seed_data: dict[str, Any] = field(default_factory=dict)  # instances present before the run
     dedup_modes: tuple[str, ...] = _ALL_MODES
     # False: extraction only, against the seed schema (the "expansion off" configuration).
     expand_schema: bool = True
+    # One of the #134 categories, for per-category reporting.
+    category: str = "uncategorized"
     expected: ExpectedResults = field(default_factory=ExpectedResults)
     source_path: Path | None = None
 
@@ -74,13 +83,18 @@ def _load_case(path: Path) -> Case:
         description=raw.get("description", ""),
         steps=steps,
         seed_schema=raw.get("seed_schema", {}),
+        seed_data=raw.get("seed_data", {}),
         # `schema_discovery_modes` is the key's pre-#134 name, still accepted.
         dedup_modes=tuple(raw.get("dedup_modes", raw.get("schema_discovery_modes", _ALL_MODES))),
         expand_schema=bool(raw.get("expand_schema", True)),
+        category=raw.get("category", "uncategorized"),
         expected=ExpectedResults(
             entities=expected_raw.get("entities", []),
             facts=expected_raw.get("facts", []),
             properties=expected_raw.get("properties", []),
+            optional_entities=(expected_raw.get("optional") or {}).get("entities", []),
+            optional_facts=(expected_raw.get("optional") or {}).get("facts", []),
+            optional_properties=(expected_raw.get("optional") or {}).get("properties", []),
             schema_reuse=SchemaReuseSpec(
                 must_reuse=reuse_raw.get("must_reuse", []),
                 must_not_declare=reuse_raw.get("must_not_declare", []),

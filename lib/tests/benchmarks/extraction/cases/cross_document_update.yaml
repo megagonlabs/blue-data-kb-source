@@ -1,0 +1,29 @@
+id: cross_document_update
+category: cross_document
+description: >
+  A later document updates an earlier one: the person moves to a new company. The
+  KB must keep the first job (now ended) and add the new one, with one person entity
+  throughout.
+steps:
+  - input_text: "As of 2022, Leila Haddad is a product designer at Canva in Sydney."
+  - input_text: "In 2024 Leila Haddad left Canva and joined Atlassian."
+dedup_modes: [search]
+expected:
+  entities:
+    - {name: Leila Haddad, class: PERSON}
+    - {name: Canva, class: COMPANY}
+    - {name: Atlassian, class: COMPANY}
+  facts:
+    - {head: Leila Haddad, relation: WORKED_AT, tail: Canva}
+    - {head: Leila Haddad, relation: WORKS_AT, tail: Atlassian}
+  properties:
+    - {owner: WORKED_AT fact between Leila Haddad and Canva, name: END_DATE, value: "2024"}
+    - {owner: WORKS_AT fact between Leila Haddad and Atlassian, name: START_DATE, value: "2024"}
+  optional:
+    entities:
+      - {name: Sydney, class: CITY}
+    facts:
+      - {head: Canva, relation: LOCATED_IN, tail: Sydney}
+      - {head: Leila Haddad, relation: LIVES_IN, tail: Sydney}
+    properties:
+      - {owner: WORKED_AT fact between Leila Haddad and Canva, name: JOB_TITLE, value: "product designer"}

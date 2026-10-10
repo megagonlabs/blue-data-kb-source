@@ -1,0 +1,20 @@
+id: negation_hypothetical_plans
+category: negation_hedging
+description: >
+  Plans, rumours and denials are not facts. Only the completed event (the 2021
+  Figma hire) may become a fact; "plans to", "is rumoured to" and "denied" must not.
+input_text: >
+  Sam Ortiz joined Figma in 2021. He plans to move to Lisbon next year. Figma is
+  rumoured to be acquiring a small design startup, Draftly, though the company
+  denied any talks.
+dedup_modes: [search]
+expected:
+  entities:
+    - {name: Sam Ortiz, class: PERSON}
+    - {name: Figma, class: COMPANY}
+    - {name: Lisbon, class: CITY}
+    - {name: Draftly, class: COMPANY}
+  facts:
+    - {head: Sam Ortiz, relation: WORKS_AT, tail: Figma}
+  properties:
+    - {owner: WORKS_AT fact between Sam Ortiz and Figma, name: START_DATE, value: "2021"}

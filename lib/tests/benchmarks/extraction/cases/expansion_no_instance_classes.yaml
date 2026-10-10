@@ -1,0 +1,29 @@
+id: expansion_no_instance_classes
+category: schema_expansion_quality
+description: >
+  The #133 career failure: schema expansion declared classes named after instances
+  (GOOGLE, STRIPE) instead of using a general kind, so employment facts failed
+  domain/range. Companies must be instances of a general class.
+input_text: >
+  Nina Patel worked at Stripe from 2016 to 2020 and then joined Google, where she
+  leads the payments infrastructure team.
+dedup_modes: [search]
+expected:
+  entities:
+    - {name: Nina Patel, class: PERSON}
+    - {name: Stripe, class: COMPANY}
+    - {name: Google, class: COMPANY}
+  facts:
+    - {head: Nina Patel, relation: WORKED_AT, tail: Stripe}
+    - {head: Nina Patel, relation: WORKS_AT, tail: Google}
+  properties:
+    - {owner: WORKED_AT fact between Nina Patel and Stripe, name: START_DATE, value: "2016"}
+    - {owner: WORKED_AT fact between Nina Patel and Stripe, name: END_DATE, value: "2020"}
+  optional:
+    entities:
+      - {name: payments infrastructure team, class: TEAM}
+    facts:
+      - {head: Nina Patel, relation: LEADS, tail: payments infrastructure team}
+      - {head: payments infrastructure team, relation: PART_OF, tail: Google}
+  schema_reuse:
+    must_not_declare: [STRIPE, GOOGLE, NINA_PATEL]

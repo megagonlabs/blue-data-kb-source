@@ -1,4 +1,5 @@
 id: relation_extraction_multi_type
+category: relation_extraction
 description: >
   Finance domain. Two distinct relation types between different entity-class
   pairs in one pass (ISSUED_LOAN_TO: BANK->PERSON, EMPLOYED_BY: PERSON->COMPANY)

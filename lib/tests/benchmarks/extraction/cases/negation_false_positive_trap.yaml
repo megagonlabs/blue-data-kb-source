@@ -1,4 +1,5 @@
 id: negation_false_positive_trap
+category: negation_hedging
 description: >
   Healthcare domain. The text mentions a condition only to explicitly rule it
   out. A naive extractor pattern-matches "X ... diabetes" and creates a false

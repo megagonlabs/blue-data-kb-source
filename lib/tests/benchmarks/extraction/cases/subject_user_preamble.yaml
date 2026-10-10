@@ -1,0 +1,35 @@
+id: subject_user_preamble
+category: subject_self
+description: >
+  The text arrives the way blue-data-user-source sends it: a preamble naming the user,
+  then the user's own words in the first person. "I" is the subject; it must become
+  the named person, and every fact must hang off that one entity.
+input_text: |
+  The following is written by Priya Raman, the user this knowledge base describes.
+  I've been a data scientist at Spotify since 2019. Before that I spent three years
+  at Shopify as an analyst. I live in Toronto and I speak English and Tamil.
+dedup_modes: [search]
+expected:
+  entities:
+    - {name: Priya Raman, class: PERSON}
+    - {name: Spotify, class: COMPANY}
+    - {name: Shopify, class: COMPANY}
+    - {name: Toronto, class: CITY}
+    - {name: English, class: LANGUAGE}
+    - {name: Tamil, class: LANGUAGE}
+  facts:
+    - {head: Priya Raman, relation: WORKS_AT, tail: Spotify}
+    - {head: Priya Raman, relation: WORKED_AT, tail: Shopify}
+    - {head: Priya Raman, relation: LIVES_IN, tail: Toronto}
+    - {head: Priya Raman, relation: SPEAKS, tail: English}
+    - {head: Priya Raman, relation: SPEAKS, tail: Tamil}
+  properties:
+    - {owner: WORKS_AT fact between Priya Raman and Spotify, name: START_DATE, value: "2019"}
+  optional:
+    properties:
+      - {owner: WORKS_AT fact between Priya Raman and Spotify, name: JOB_TITLE, value: "data scientist"}
+      - {owner: WORKED_AT fact between Priya Raman and Shopify, name: JOB_TITLE, value: "analyst"}
+      - {owner: WORKED_AT fact between Priya Raman and Shopify, name: DURATION, value: "three years"}
+    entities:
+      - {name: data scientist, class: ROLE}
+      - {name: analyst, class: ROLE}

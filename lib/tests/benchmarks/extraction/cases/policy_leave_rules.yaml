@@ -1,0 +1,26 @@
+id: policy_leave_rules
+category: rules_policy
+description: >
+  An HR policy: entitlements are rules attached to the policy and the employee groups
+  it covers, not facts about any particular employee. No employee entities exist in
+  this text.
+input_text: >
+  Under the 2025 Parental Leave Policy, full-time employees are entitled to 16 weeks
+  of paid leave and part-time employees to 8 weeks. Contractors are not covered.
+dedup_modes: [search]
+expected:
+  entities:
+    - {name: 2025 Parental Leave Policy, class: POLICY}
+    - {name: full-time employees, class: EMPLOYEE_GROUP}
+    - {name: part-time employees, class: EMPLOYEE_GROUP}
+  facts:
+    - {head: 2025 Parental Leave Policy, relation: COVERS, tail: full-time employees}
+    - {head: 2025 Parental Leave Policy, relation: COVERS, tail: part-time employees}
+  properties:
+    - {owner: COVERS fact between 2025 Parental Leave Policy and full-time employees, name: PAID_LEAVE, value: "16 weeks"}
+    - {owner: COVERS fact between 2025 Parental Leave Policy and part-time employees, name: PAID_LEAVE, value: "8 weeks"}
+  optional:
+    entities:
+      - {name: contractors, class: EMPLOYEE_GROUP}
+    properties:
+      - {owner: 2025 Parental Leave Policy, name: YEAR, value: "2025"}

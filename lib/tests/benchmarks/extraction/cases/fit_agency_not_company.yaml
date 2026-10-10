@@ -1,0 +1,29 @@
+id: fit_agency_not_company
+category: typing_fit
+description: >
+  Fit, not nearest, for organizations: a government agency and a nonprofit are not
+  businesses. With expansion off and only COMPANY available, they must be skipped;
+  the actual companies must still be extracted.
+seed_schema:
+  classes:
+    - {name: PERSON, description: "A human individual"}
+    - {name: COMPANY, description: "A for-profit business"}
+  relations:
+    - name: WORKED_AT
+      description: "Employment relationship"
+      domain: PERSON
+      range: COMPANY
+expand_schema: false
+input_text: >
+  Dana Ruiz spent six years at NASA and two at the Red Cross before joining
+  SpaceX in 2019. Her partner, Leo Park, works at Boeing.
+dedup_modes: [search]
+expected:
+  entities:
+    - {name: Dana Ruiz, class: PERSON}
+    - {name: Leo Park, class: PERSON}
+    - {name: SpaceX, class: COMPANY}
+    - {name: Boeing, class: COMPANY}
+  facts:
+    - {head: Dana Ruiz, relation: WORKED_AT, tail: SpaceX}
+    - {head: Leo Park, relation: WORKED_AT, tail: Boeing}

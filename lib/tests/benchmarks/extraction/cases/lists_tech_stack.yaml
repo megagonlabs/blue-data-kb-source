@@ -1,0 +1,25 @@
+id: lists_tech_stack
+category: lists_common_nouns
+description: >
+  A product's tech stack as a mixed list: languages, frameworks and databases, each
+  needing a class and a USES fact from the product.
+input_text: >
+  Tidewater's backend is written in Go and Rust, its web app uses React and
+  TypeScript, and data lives in PostgreSQL with Redis as a cache.
+dedup_modes: [search]
+expected:
+  entities:
+    - {name: Tidewater, class: PRODUCT}
+    - {name: Go, class: PROGRAMMING_LANGUAGE}
+    - {name: Rust, class: PROGRAMMING_LANGUAGE}
+    - {name: TypeScript, class: PROGRAMMING_LANGUAGE}
+    - {name: React, class: FRAMEWORK}
+    - {name: PostgreSQL, class: DATABASE}
+    - {name: Redis, class: DATABASE}
+  facts:
+    - {head: Tidewater, relation: USES, tail: Go}
+    - {head: Tidewater, relation: USES, tail: Rust}
+    - {head: Tidewater, relation: USES, tail: React}
+    - {head: Tidewater, relation: USES, tail: TypeScript}
+    - {head: Tidewater, relation: USES, tail: PostgreSQL}
+    - {head: Tidewater, relation: USES, tail: Redis}

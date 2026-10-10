@@ -1,0 +1,33 @@
+id: coreference_epithets_company
+category: coreference
+description: >
+  Epithets for both a company ("the startup", "the Berlin firm") and a person ("its
+  co-founder", "the former Google engineer") must resolve to the named entities, not
+  become new ones.
+input_text: >
+  Lena Vogel co-founded Kaia Health in 2016. The Berlin startup builds digital
+  physiotherapy apps. Its co-founder previously spent four years at Google, and the
+  former Google engineer now serves as the firm's CTO.
+dedup_modes: [search]
+expected:
+  entities:
+    - {name: Lena Vogel, class: PERSON}
+    - {name: Kaia Health, class: COMPANY}
+    - {name: Google, class: COMPANY}
+    - {name: Berlin, class: CITY}
+  facts:
+    - {head: Lena Vogel, relation: FOUNDED, tail: Kaia Health}
+    - {head: Lena Vogel, relation: WORKED_AT, tail: Google}
+    - {head: Lena Vogel, relation: WORKS_AT, tail: Kaia Health}
+    - {head: Kaia Health, relation: LOCATED_IN, tail: Berlin}
+  optional:
+    entities:
+      - {name: digital physiotherapy apps, class: PRODUCT}
+    facts:
+      - {head: Kaia Health, relation: BUILDS, tail: digital physiotherapy apps}
+    properties:
+      - {owner: FOUNDED fact between Lena Vogel and Kaia Health, name: DATE, value: "2016"}
+      - {owner: Kaia Health, name: FOUNDED_YEAR, value: "2016"}
+      - {owner: WORKS_AT fact between Lena Vogel and Kaia Health, name: JOB_TITLE, value: "CTO"}
+      - {owner: WORKED_AT fact between Lena Vogel and Google, name: DURATION, value: "four years"}
+      - {owner: WORKED_AT fact between Lena Vogel and Google, name: JOB_TITLE, value: "engineer"}

@@ -1,0 +1,34 @@
+id: values_dates_formats
+category: properties_normalization
+description: >
+  Dates written several ways must normalize to ISO forms of the right precision:
+  a full textual date, a month and year, and a bare year.
+seed_schema:
+  classes:
+    - name: PERSON
+      description: "A human individual"
+      properties:
+        - {name: BIRTH_DATE, description: "Date of birth"}
+    - {name: COMPANY, description: "A business organization"}
+  relations:
+    - name: WORKED_AT
+      description: "Employment relationship"
+      domain: PERSON
+      range: COMPANY
+      properties:
+        - {name: START_DATE, description: "When the employment began"}
+        - {name: END_DATE, description: "When the employment ended"}
+input_text: >
+  Grace Okafor was born on 4 March 1990. She joined Interswitch in September 2014
+  and left in 2019.
+dedup_modes: [search]
+expected:
+  entities:
+    - {name: Grace Okafor, class: PERSON}
+    - {name: Interswitch, class: COMPANY}
+  facts:
+    - {head: Grace Okafor, relation: WORKED_AT, tail: Interswitch}
+  properties:
+    - {owner: Grace Okafor, name: BIRTH_DATE, value: "1990-03-04", literal_type: DATE}
+    - {owner: WORKED_AT fact between Grace Okafor and Interswitch, name: START_DATE, value: "2014-09", literal_type: DATE}
+    - {owner: WORKED_AT fact between Grace Okafor and Interswitch, name: END_DATE, value: "2019", literal_type: DATE}

@@ -1,0 +1,35 @@
+id: subject_profile_third_person
+category: subject_self
+description: >
+  The #133 failure: a short profile of one person. The entity stage sometimes skipped
+  the subject, so no fact had a head and every skill floated unattached. Every fact
+  here has the subject as its head, so skipping her zeroes fact recall.
+input_text: >
+  Alice Johnson is proficient in Python, TypeScript, and SQL. She has five years of
+  experience building microservices with Kubernetes and is familiar with AWS and GCP
+  cloud platforms.
+dedup_modes: [search]
+expected:
+  entities:
+    - {name: Alice Johnson, class: PERSON}
+    - {name: Python, class: PROGRAMMING_LANGUAGE}
+    - {name: TypeScript, class: PROGRAMMING_LANGUAGE}
+    - {name: SQL, class: PROGRAMMING_LANGUAGE}
+    - {name: Kubernetes, class: TECHNOLOGY}
+    - {name: AWS, class: CLOUD_PLATFORM}
+    - {name: GCP, class: CLOUD_PLATFORM}
+  facts:
+    - {head: Alice Johnson, relation: PROFICIENT_IN, tail: Python}
+    - {head: Alice Johnson, relation: PROFICIENT_IN, tail: TypeScript}
+    - {head: Alice Johnson, relation: PROFICIENT_IN, tail: SQL}
+    - {head: Alice Johnson, relation: HAS_EXPERIENCE_WITH, tail: Kubernetes}
+    - {head: Alice Johnson, relation: FAMILIAR_WITH, tail: AWS}
+    - {head: Alice Johnson, relation: FAMILIAR_WITH, tail: GCP}
+  optional:
+    entities:
+      - {name: microservices, class: SKILL}
+    facts:
+      - {head: Alice Johnson, relation: HAS_EXPERIENCE_WITH, tail: microservices}
+    properties:
+      - {owner: HAS_EXPERIENCE_WITH fact between Alice Johnson and Kubernetes, name: YEARS_OF_EXPERIENCE, value: "5"}
+      - {owner: Alice Johnson, name: YEARS_OF_EXPERIENCE, value: "5"}

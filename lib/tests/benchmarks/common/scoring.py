@@ -17,7 +17,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from blue_data_kb_source._constants import DOMAIN, EXTRACTED_FROM, RANGE
+from blue_data_kb_source._constants import DOMAIN, EXTRACTED_FROM, IS_SUBCLASS_OF, RANGE
 # The engine's own dispatch-time grounding predicate, reused verbatim rather
 # than reimplemented: a scorer with its own idea of "verbatim" reports spans
 # the engine accepted as fabricated. It did — a strict substring test flagged
@@ -268,9 +268,18 @@ class ComplianceResult:
 
 
 def _class_names(kb: Any, database: str, entity_id: str) -> set[str]:
-    return {
-        c.get("properties", {}).get("name", "") for c in entity_classes(kb, database, entity_id)
-    }
+    """Names of the entity's classes and all their superclasses."""
+    names: set[str] = set()
+    seen: set[str] = set()
+    todo = list(entity_classes(kb, database, entity_id))
+    while todo:
+        c = todo.pop()
+        if c.get("id") in seen:
+            continue
+        seen.add(c.get("id"))
+        names.add(c.get("properties", {}).get("name", ""))
+        todo += [nb["node"] for nb in kb.get_neighbors(database, c["id"], edge_type=IS_SUBCLASS_OF, direction="out")]
+    return names
 
 
 def _domain_range_names(kb: Any, database: str, relation_id: str, edge_type: str) -> set[str]:
@@ -282,13 +291,8 @@ def _domain_range_names(kb: Any, database: str, relation_id: str, edge_type: str
 
 def check_domain_range_compliance(collector: CreationCollector, kb: Any, database: str) -> ComplianceResult:
     """For every fact the agent created, verify the head/tail entity's class is
-    actually within the relation's DOMAIN/RANGE.
-
-    v1 simplification, called out explicitly: exact class match only, not
-    subclass-aware — a head entity whose class is a *subclass* of the
-    relation's domain class would be flagged here even though it should
-    satisfy the constraint. Left as a known limitation rather than
-    implementing an IS_SUBCLASS_OF walk in this pass.
+    actually within the relation's DOMAIN/RANGE — directly or through a
+    superclass (a STARTUP ⊂ COMPANY head satisfies a COMPANY domain).
     """
     result = ComplianceResult()
     for f in collector.facts:
@@ -325,7 +329,10 @@ def _actual_label(kind: str, event: dict) -> str:
         return f"{event.get('name')} : {event.get('class_name') or '(untyped)'}"
     if kind == "fact":
         return f"{event.get('head_entity_name')} -{event.get('relation_name')}-> {event.get('tail_entity_name')}"
-    owner = event.get("entity_name") or event.get("fact_name") or event.get("name") or "?"
+    if event.get("fact_id") and event.get("head_entity_name"):
+        owner = f"({event['head_entity_name']} -{event.get('relation_name')}-> {event.get('tail_entity_name')})"
+    else:
+        owner = event.get("entity_name") or event.get("fact_name") or event.get("name") or "?"
     return f"{owner}.{event.get('property_name')} = {event.get('value')!r}"
 
 
@@ -337,16 +344,30 @@ class Alignment:
     matched: list[tuple[str, str]] = field(default_factory=list)
     missing: list[str] = field(default_factory=list)
     extra: list[str] = field(default_factory=list)
+    acceptable: list[tuple[str, str]] = field(default_factory=list)  # optional gold → extracted
 
 
-def _alignment(kind: str, expected: list[dict], actual: list[dict], matches: list[Match]) -> Alignment:
-    by_expected = {m.expected_index: m.actual_index for m in matches}
-    matched_actual = set(by_expected.values())
+def _alignment(
+    kind: str, expected: list[dict], optional: list[dict], actual: list[dict], matches: list[Match]
+) -> Alignment:
+    """*matches* index into `expected + optional`; indices past `expected` are optional."""
+    gold = expected + optional
+    req = {m.expected_index: m.actual_index for m in matches if m.expected_index < len(expected)}
+    opt = {m.expected_index: m.actual_index for m in matches if m.expected_index >= len(expected)}
+    used = set(req.values()) | set(opt.values())
     return Alignment(
-        matched=[(_expected_label(kind, expected[e]), _actual_label(kind, actual[a])) for e, a in sorted(by_expected.items())],
-        missing=[_expected_label(kind, e) for i, e in enumerate(expected) if i not in by_expected],
-        extra=[_actual_label(kind, a) for i, a in enumerate(actual) if i not in matched_actual],
+        matched=[(_expected_label(kind, gold[e]), _actual_label(kind, actual[a])) for e, a in sorted(req.items())],
+        missing=[_expected_label(kind, e) for i, e in enumerate(expected) if i not in req],
+        extra=[_actual_label(kind, a) for i, a in enumerate(actual) if i not in used],
+        acceptable=[(_expected_label(kind, gold[e]), _actual_label(kind, actual[a])) for e, a in sorted(opt.items())],
     )
+
+
+def _scored(kind: str, expected: list[dict], optional: list[dict], actual: list[dict], matches: list[Match]):
+    """PRF1 and alignment, with optional matches dropped from both sides: they don't
+    count toward recall, and the extracted items they matched aren't false positives."""
+    al = _alignment(kind, expected, optional, actual, matches)
+    return _prf1(len(expected), len(actual) - len(al.acceptable), len(al.matched)), al
 
 
 @dataclass
@@ -367,6 +388,7 @@ class CaseScore:
     completion_tokens: int
     latency_seconds: float
     alignment: dict[str, Alignment] = field(default_factory=dict)
+    category: str = "uncategorized"
 
 
 async def score_case(
@@ -383,24 +405,30 @@ async def score_case(
     completion_tokens: int,
     latency_seconds: float,
 ) -> CaseScore:
-    entity_matches = await judge_alignment(case.expected.entities, collector.entities, "entity", judge_client, judge_model)
-    fact_matches = await judge_alignment(case.expected.facts, collector.facts, "fact", judge_client, judge_model)
+    ex = case.expected
+    entity_matches = await judge_alignment(ex.entities + ex.optional_entities, collector.entities, "entity", judge_client, judge_model)
+    fact_matches = await judge_alignment(ex.facts + ex.optional_facts, collector.facts, "fact", judge_client, judge_model)
     actual_properties = collector.entity_properties + collector.fact_properties
     prop_matches = await judge_alignment(
-        case.expected.properties,
+        ex.properties + ex.optional_properties,
         actual_properties,
         "property value",
         judge_client,
         judge_model,
     )
+    entities_prf1, entities_al = _scored("entity", ex.entities, ex.optional_entities, collector.entities, entity_matches)
+    facts_prf1, facts_al = _scored("fact", ex.facts, ex.optional_facts, collector.facts, fact_matches)
+    props_prf1, props_al = _scored("property", ex.properties, ex.optional_properties, actual_properties, prop_matches)
+    # Normalization only judges required property matches.
+    prop_matches = [m for m in prop_matches if m.expected_index < len(ex.properties)]
     source_text = "\n".join(s.input_text for s in case.steps)
     return CaseScore(
         case_id=case.id,
         model=model,
         dedup_mode=dedup_mode,
-        entities=_prf1(len(case.expected.entities), len(collector.entities), len(entity_matches)),
-        facts=_prf1(len(case.expected.facts), len(collector.facts), len(fact_matches)),
-        properties=_prf1(len(case.expected.properties), len(actual_properties), len(prop_matches)),
+        entities=entities_prf1,
+        facts=facts_prf1,
+        properties=props_prf1,
         schema_reuse=check_schema_reuse(case.expected.schema_reuse, collector),
         normalization=check_normalization(case.expected.properties, actual_properties, prop_matches, kb, database),
         provenance=check_provenance(collector, kb, database, source_text),
@@ -410,9 +438,6 @@ async def score_case(
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         latency_seconds=latency_seconds,
-        alignment={
-            "entities": _alignment("entity", case.expected.entities, collector.entities, entity_matches),
-            "facts": _alignment("fact", case.expected.facts, collector.facts, fact_matches),
-            "properties": _alignment("property", case.expected.properties, actual_properties, prop_matches),
-        },
+        category=case.category,
+        alignment={"entities": entities_al, "facts": facts_al, "properties": props_al},
     )

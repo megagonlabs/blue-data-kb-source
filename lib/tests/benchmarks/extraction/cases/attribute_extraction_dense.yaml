@@ -1,4 +1,5 @@
 id: attribute_extraction_dense
+category: properties_normalization
 description: >
   Legal/contracts domain. Several key:value attributes plus two party
   relations in one pass. EFFECTIVE_DATE carries an expected `literal_type` of

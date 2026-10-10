@@ -1,0 +1,37 @@
+id: lists_recipe_ingredients
+category: lists_common_nouns
+description: >
+  A comma-separated list of ordinary nouns, each an instance of an ingredient class,
+  with quantities as values on the relation. Easy to stop after the first few.
+input_text: >
+  Shakshuka (serves 4): 6 eggs, 2 red peppers, 1 onion, 3 cloves of garlic, 800 g
+  crushed tomatoes, 1 tsp cumin and a pinch of chili flakes.
+dedup_modes: [search]
+expected:
+  entities:
+    - {name: Shakshuka, class: RECIPE}
+    - {name: eggs, class: INGREDIENT}
+    - {name: red peppers, class: INGREDIENT}
+    - {name: onion, class: INGREDIENT}
+    - {name: garlic, class: INGREDIENT}
+    - {name: crushed tomatoes, class: INGREDIENT}
+    - {name: cumin, class: INGREDIENT}
+    - {name: chili flakes, class: INGREDIENT}
+  facts:
+    - {head: Shakshuka, relation: HAS_INGREDIENT, tail: eggs}
+    - {head: Shakshuka, relation: HAS_INGREDIENT, tail: red peppers}
+    - {head: Shakshuka, relation: HAS_INGREDIENT, tail: onion}
+    - {head: Shakshuka, relation: HAS_INGREDIENT, tail: garlic}
+    - {head: Shakshuka, relation: HAS_INGREDIENT, tail: crushed tomatoes}
+    - {head: Shakshuka, relation: HAS_INGREDIENT, tail: cumin}
+    - {head: Shakshuka, relation: HAS_INGREDIENT, tail: chili flakes}
+  optional:
+    properties:
+      - {owner: Shakshuka, name: SERVINGS, value: "4"}
+      - {owner: HAS_INGREDIENT fact between Shakshuka and eggs, name: QUANTITY, value: "6"}
+      - {owner: HAS_INGREDIENT fact between Shakshuka and red peppers, name: QUANTITY, value: "2"}
+      - {owner: HAS_INGREDIENT fact between Shakshuka and onion, name: QUANTITY, value: "1"}
+      - {owner: HAS_INGREDIENT fact between Shakshuka and garlic, name: QUANTITY, value: "3 cloves"}
+      - {owner: HAS_INGREDIENT fact between Shakshuka and crushed tomatoes, name: QUANTITY, value: "800 g"}
+      - {owner: HAS_INGREDIENT fact between Shakshuka and cumin, name: QUANTITY, value: "1 tsp"}
+      - {owner: HAS_INGREDIENT fact between Shakshuka and chili flakes, name: QUANTITY, value: "a pinch"}

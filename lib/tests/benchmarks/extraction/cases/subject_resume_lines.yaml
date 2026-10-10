@@ -1,0 +1,46 @@
+id: subject_resume_lines
+category: subject_self
+description: >
+  A résumé fragment: the name appears once as a header, and the bullet lines never
+  repeat it. Every fact is about the header name, which is easy to drop because no
+  sentence mentions it.
+input_text: |
+  MARCUS OYELARAN
+  Senior Backend Engineer — Lagos, Nigeria
+
+  EXPERIENCE
+  - Paystack, Senior Backend Engineer (2021 – present)
+  - Andela, Software Engineer (2017 – 2021)
+
+  EDUCATION
+  - B.Sc. Computer Science, University of Lagos, 2016
+dedup_modes: [search]
+expected:
+  entities:
+    - {name: Marcus Oyelaran, class: PERSON}
+    - {name: Paystack, class: COMPANY}
+    - {name: Andela, class: COMPANY}
+    - {name: University of Lagos, class: UNIVERSITY}
+    - {name: Lagos, class: CITY}
+  facts:
+    - {head: Marcus Oyelaran, relation: WORKS_AT, tail: Paystack}
+    - {head: Marcus Oyelaran, relation: WORKED_AT, tail: Andela}
+    - {head: Marcus Oyelaran, relation: STUDIED_AT, tail: University of Lagos}
+    - {head: Marcus Oyelaran, relation: LIVES_IN, tail: Lagos}
+  properties:
+    - {owner: WORKS_AT fact between Marcus Oyelaran and Paystack, name: START_DATE, value: "2021"}
+    - {owner: WORKED_AT fact between Marcus Oyelaran and Andela, name: START_DATE, value: "2017"}
+    - {owner: WORKED_AT fact between Marcus Oyelaran and Andela, name: END_DATE, value: "2021"}
+  optional:
+    entities:
+      - {name: Nigeria, class: COUNTRY}
+      - {name: B.Sc. Computer Science, class: DEGREE}
+    facts:
+      - {head: Lagos, relation: LOCATED_IN, tail: Nigeria}
+      - {head: Marcus Oyelaran, relation: HAS_DEGREE, tail: B.Sc. Computer Science}
+    properties:
+      - {owner: WORKS_AT fact between Marcus Oyelaran and Paystack, name: JOB_TITLE, value: "Senior Backend Engineer"}
+      - {owner: WORKED_AT fact between Marcus Oyelaran and Andela, name: JOB_TITLE, value: "Software Engineer"}
+      - {owner: STUDIED_AT fact between Marcus Oyelaran and University of Lagos, name: GRADUATION_YEAR, value: "2016"}
+      - {owner: STUDIED_AT fact between Marcus Oyelaran and University of Lagos, name: DEGREE, value: "B.Sc. Computer Science"}
+      - {owner: Marcus Oyelaran, name: JOB_TITLE, value: "Senior Backend Engineer"}

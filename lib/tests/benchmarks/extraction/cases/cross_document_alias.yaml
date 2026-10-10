@@ -1,0 +1,26 @@
+id: cross_document_alias
+category: cross_document
+description: >
+  The same company under two names across documents (IBM / International Business
+  Machines) and the same person with and without a middle initial. Each must stay
+  one entity.
+steps:
+  - input_text: "Ravi K. Iyer joined International Business Machines in 2010 as a researcher."
+  - input_text: "At IBM, Ravi Iyer leads the quantum software group."
+dedup_modes: [search]
+expected:
+  entities:
+    - {name: Ravi K. Iyer, class: PERSON}
+    - {name: International Business Machines, class: COMPANY}
+  facts:
+    - {head: Ravi K. Iyer, relation: WORKS_AT, tail: International Business Machines}
+  properties:
+    - {owner: WORKS_AT fact between Ravi K. Iyer and International Business Machines, name: START_DATE, value: "2010"}
+  optional:
+    entities:
+      - {name: quantum software group, class: TEAM}
+    facts:
+      - {head: Ravi K. Iyer, relation: LEADS, tail: quantum software group}
+      - {head: quantum software group, relation: PART_OF, tail: International Business Machines}
+    properties:
+      - {owner: WORKS_AT fact between Ravi K. Iyer and International Business Machines, name: JOB_TITLE, value: "researcher"}

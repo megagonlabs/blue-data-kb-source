@@ -1,4 +1,5 @@
 id: basic_extraction
+category: basic
 description: >
   No starting schema. Straightforward single-sentence extraction — checks that
   the agent finds all entities/facts/properties without any schema-discovery
@@ -13,3 +14,6 @@ expected:
     - {head: Alice, relation: WORKED_AT, tail: IBM}
   properties:
     - {owner: WORKED_AT fact between Alice and IBM, name: START_DATE, value: "1998-06"}
+  optional:
+    properties:
+      - {owner: WORKED_AT fact between Alice and IBM, name: JOB_TITLE, value: "software engineer"}

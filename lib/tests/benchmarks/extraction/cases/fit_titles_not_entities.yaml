@@ -1,0 +1,31 @@
+id: fit_titles_not_entities
+category: typing_fit
+description: >
+  The #105 failure: job titles describing a named person ("a staff engineer",
+  "a director") must not become entities of their own. The right move is typing
+  the person (Alice as an ENGINEER); no "staff engineer" or "director" entity.
+seed_schema:
+  classes:
+    - {name: PERSON, description: "A human individual"}
+    - {name: ENGINEER, description: "A person who designs and builds software", parent: PERSON}
+    - {name: COMPANY, description: "A business organization"}
+  relations:
+    - name: WORKED_AT
+      description: "Employment relationship"
+      domain: PERSON
+      range: COMPANY
+expand_schema: false
+input_text: >
+  In 2005 Alice left IBM to join Google as a staff engineer. Her manager there was
+  Bob Chen, a director who had joined the company in 2001.
+dedup_modes: [search]
+expected:
+  entities:
+    - {name: Alice, class: ENGINEER}
+    - {name: Bob Chen, class: PERSON}
+    - {name: IBM, class: COMPANY}
+    - {name: Google, class: COMPANY}
+  facts:
+    - {head: Alice, relation: WORKED_AT, tail: IBM}
+    - {head: Alice, relation: WORKED_AT, tail: Google}
+    - {head: Bob Chen, relation: WORKED_AT, tail: Google}

@@ -1,4 +1,5 @@
 id: multi_valued_attributes
+category: properties_normalization
 description: >
   Legal/contracts domain. One entity with two values for the *same* property
   (two phone numbers) — tests that the agent creates two LITERAL nodes instead

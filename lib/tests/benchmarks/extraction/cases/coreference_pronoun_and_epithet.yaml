@@ -1,4 +1,5 @@
 id: coreference_pronoun_and_epithet
+category: coreference
 description: >
   Business domain. No starting schema. Both entities are referred to a second
   time via an epithet ("the company") and a pronoun ("her") rather than by
@@ -19,3 +20,11 @@ expected:
     - {head: Alice, relation: WORKED_AT, tail: IBM}
   properties:
     - {owner: WORKED_AT fact between Alice and IBM, name: START_DATE, value: "1998"}
+  optional:
+    properties:
+      - {owner: WORKED_AT fact between Alice and IBM, name: JOB_TITLE, value: "software engineer"}
+      - {owner: WORKED_AT fact between Alice and IBM, name: JOB_TITLE, value: "Vice President"}
+    facts:
+      - {head: Alice, relation: PROMOTED_TO, tail: Vice President}
+    entities:
+      - {name: Vice President, class: ROLE}

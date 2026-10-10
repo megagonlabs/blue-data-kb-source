@@ -1,0 +1,31 @@
+id: fit_university_not_company
+category: typing_fit
+description: >
+  The #102 failure, with schema expansion off: the only organization-like class is
+  COMPANY ("A business organization") and the only relation is WORKED_AT. Universities
+  must be skipped, not filed as companies, and "completed a PhD at" / "holds a degree
+  from" must not become WORKED_AT.
+seed_schema:
+  classes:
+    - {name: PERSON, description: "A human individual"}
+    - {name: COMPANY, description: "A business organization"}
+  relations:
+    - name: WORKED_AT
+      description: "Employment relationship"
+      domain: PERSON
+      range: COMPANY
+expand_schema: false
+input_text: >
+  Bob Chen joined Google in 2001 after completing a PhD at Stanford University.
+  His colleague Alice holds a master's degree from Carnegie Mellon and previously
+  worked at IBM.
+dedup_modes: [search]
+expected:
+  entities:
+    - {name: Bob Chen, class: PERSON}
+    - {name: Alice, class: PERSON}
+    - {name: Google, class: COMPANY}
+    - {name: IBM, class: COMPANY}
+  facts:
+    - {head: Bob Chen, relation: WORKED_AT, tail: Google}
+    - {head: Alice, relation: WORKED_AT, tail: IBM}

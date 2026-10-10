@@ -1,0 +1,44 @@
+id: long_meeting_notes
+category: long_text
+description: >
+  Informal meeting notes: action items with owners and due dates in shorthand,
+  mixed with discussion that should not become facts.
+input_text: |
+  Q3 planning sync — 12 Aug 2026
+  Attendees: Hana Ito (PM), Raj Mehta (eng lead), Chloe Martin (design)
+
+  - Discussed moving the launch to October; no decision yet.
+  - Raj to finish the payments API migration by 30 Aug.
+  - Chloe owns the onboarding redesign, due 15 Sep.
+  - Hana will draft the pricing proposal for the Atlas project by end of month.
+dedup_modes: [search]
+expected:
+  entities:
+    - {name: Hana Ito, class: PERSON}
+    - {name: Raj Mehta, class: PERSON}
+    - {name: Chloe Martin, class: PERSON}
+    - {name: payments API migration, class: TASK}
+    - {name: onboarding redesign, class: TASK}
+    - {name: pricing proposal, class: TASK}
+  facts:
+    - {head: Raj Mehta, relation: OWNS_TASK, tail: payments API migration}
+    - {head: Chloe Martin, relation: OWNS_TASK, tail: onboarding redesign}
+    - {head: Hana Ito, relation: OWNS_TASK, tail: pricing proposal}
+  properties:
+    - {owner: payments API migration, name: DUE_DATE, value: "2026-08-30"}
+    - {owner: onboarding redesign, name: DUE_DATE, value: "2026-09-15"}
+  optional:
+    entities:
+      - {name: Q3 planning sync, class: MEETING}
+      - {name: Atlas project, class: PROJECT}
+    facts:
+      - {head: Hana Ito, relation: ATTENDED, tail: Q3 planning sync}
+      - {head: Raj Mehta, relation: ATTENDED, tail: Q3 planning sync}
+      - {head: Chloe Martin, relation: ATTENDED, tail: Q3 planning sync}
+      - {head: pricing proposal, relation: PART_OF, tail: Atlas project}
+    properties:
+      - {owner: Hana Ito, name: ROLE, value: "PM"}
+      - {owner: Raj Mehta, name: ROLE, value: "eng lead"}
+      - {owner: Chloe Martin, name: ROLE, value: "design"}
+      - {owner: Q3 planning sync, name: DATE, value: "2026-08-12"}
+      - {owner: pricing proposal, name: DUE_DATE, value: "2026-08-31"}

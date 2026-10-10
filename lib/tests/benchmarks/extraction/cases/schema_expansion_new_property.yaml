@@ -1,4 +1,5 @@
 id: schema_expansion_new_property
+category: schema_expansion_quality
 description: >
   Seeds a base employment schema that has no notion of job title. The text
   introduces a genuinely new concept (job title) that nothing in the existing

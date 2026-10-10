@@ -1,4 +1,5 @@
 id: schema_reuse_synonym
+category: schema_reuse
 description: >
   Seeds WORKED_AT/START_DATE; the text describes the same concept as "joined",
   a synonym trap. The agent should reuse START_DATE rather than declaring a

@@ -1,0 +1,38 @@
+id: expansion_covers_text
+category: schema_expansion_quality
+description: >
+  The #101 failure: a seed schema exists (employment only) and the text adds
+  education and management. Expansion must add what the text needs and connect it,
+  rather than adding nothing and leaving extraction to coerce or skip.
+seed_schema:
+  classes:
+    - {name: PERSON, description: "A human individual"}
+    - {name: COMPANY, description: "A business organization"}
+  relations:
+    - {name: WORKED_AT, description: "Employment relationship", domain: PERSON, range: COMPANY}
+input_text: >
+  Her manager at Google was Bob Chen, who had completed a PhD at Stanford
+  University. Alice, who reports to Bob, holds a master's degree from Carnegie
+  Mellon.
+dedup_modes: [search]
+expected:
+  entities:
+    - {name: Bob Chen, class: PERSON}
+    - {name: Alice, class: PERSON}
+    - {name: Google, class: COMPANY}
+    - {name: Stanford University, class: UNIVERSITY}
+    - {name: Carnegie Mellon, class: UNIVERSITY}
+  facts:
+    - {head: Alice, relation: REPORTS_TO, tail: Bob Chen}
+    - {head: Bob Chen, relation: STUDIED_AT, tail: Stanford University}
+    - {head: Alice, relation: STUDIED_AT, tail: Carnegie Mellon}
+    - {head: Bob Chen, relation: WORKED_AT, tail: Google}
+  optional:
+    entities:
+      - {name: PhD, class: DEGREE}
+      - {name: master's degree, class: DEGREE}
+    facts:
+      - {head: Bob Chen, relation: HOLDS_DEGREE, tail: PhD}
+      - {head: Alice, relation: HOLDS_DEGREE, tail: master's degree}
+      - {head: Alice, relation: WORKED_AT, tail: Google}
+      - {head: Bob Chen, relation: MANAGES, tail: Alice}

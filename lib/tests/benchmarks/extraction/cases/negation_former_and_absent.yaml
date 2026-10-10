@@ -1,0 +1,32 @@
+id: negation_former_and_absent
+category: negation_hedging
+description: >
+  Past vs present and an explicit absence: "used to" is a past fact (with an end, not
+  a current one), and "not allergic to" must not become an allergy fact.
+seed_schema:
+  classes:
+    - {name: PATIENT, description: "A person receiving medical care"}
+    - {name: SUBSTANCE, description: "A drug, food or other substance"}
+    - {name: CLINIC, description: "A medical practice"}
+  relations:
+    - {name: ALLERGIC_TO, description: "A patient has an allergy to a substance", domain: PATIENT, range: SUBSTANCE}
+    - {name: TREATED_AT, description: "A patient is or was treated at a clinic", domain: PATIENT, range: CLINIC}
+input_text: >
+  Ana Lima is allergic to penicillin but not to amoxicillin. She used to be treated
+  at Riverside Clinic and is now a patient at Harbor Health.
+dedup_modes: [search]
+expected:
+  entities:
+    - {name: Ana Lima, class: PATIENT}
+    - {name: penicillin, class: SUBSTANCE}
+    - {name: amoxicillin, class: SUBSTANCE}
+    - {name: Riverside Clinic, class: CLINIC}
+    - {name: Harbor Health, class: CLINIC}
+  facts:
+    - {head: Ana Lima, relation: ALLERGIC_TO, tail: penicillin}
+    - {head: Ana Lima, relation: TREATED_AT, tail: Riverside Clinic}
+    - {head: Ana Lima, relation: TREATED_AT, tail: Harbor Health}
+  optional:
+    properties:
+      - {owner: TREATED_AT fact between Ana Lima and Riverside Clinic, name: STATUS, value: "former"}
+      - {owner: TREATED_AT fact between Ana Lima and Harbor Health, name: STATUS, value: "current"}

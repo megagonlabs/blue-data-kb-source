@@ -1,4 +1,5 @@
 id: multi_fact_dense
+category: relation_extraction
 description: >
   No starting schema. A denser paragraph with several entities, two companies,
   and multiple facts/dates in one pass — stresses recall (does the agent miss
@@ -25,3 +26,6 @@ expected:
     - {owner: WORKED_AT fact between Diana Chen and Northwind Traders, name: START_DATE, value: "2015-01"}
     - {owner: WORKED_AT fact between Diana Chen and Contoso Ltd, name: START_DATE, value: "2019-08"}
     - {owner: WORKED_AT fact between Marcus Reyes and Contoso Ltd, name: START_DATE, value: "2012-05"}
+  optional:
+    properties:
+      - {owner: WORKED_AT fact between Diana Chen and Northwind Traders, name: END_DATE, value: "2019-08"}

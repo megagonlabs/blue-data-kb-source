@@ -1,0 +1,23 @@
+id: relation_direction_acquisition
+category: relation_extraction
+description: >
+  Direction matters: the acquirer is the head, the acquired company the tail. A
+  reversed fact is wrong even with the right relation name.
+input_text: >
+  Microsoft acquired GitHub in June 2018 for $7.5 billion. Two years earlier,
+  Microsoft had bought LinkedIn.
+dedup_modes: [search]
+expected:
+  entities:
+    - {name: Microsoft, class: COMPANY}
+    - {name: GitHub, class: COMPANY}
+    - {name: LinkedIn, class: COMPANY}
+  facts:
+    - {head: Microsoft, relation: ACQUIRED, tail: GitHub}
+    - {head: Microsoft, relation: ACQUIRED, tail: LinkedIn}
+  properties:
+    - {owner: ACQUIRED fact between Microsoft and GitHub, name: DATE, value: "2018-06"}
+    - {owner: ACQUIRED fact between Microsoft and GitHub, name: PRICE, value: "$7.5 billion"}
+  optional:
+    properties:
+      - {owner: ACQUIRED fact between Microsoft and LinkedIn, name: DATE, value: "2016"}

@@ -42,10 +42,15 @@ async def seed_schema(kb: KBSource, database: str, spec: dict[str, Any]) -> None
     Classes must exist before relations that reference them via domain/range
     (SchemaManager.declare_relation_type raises SchemaError otherwise).
     """
+    class_ids: dict[str, str] = {}
     for cls in spec.get("classes", []):
         class_id = await kb.declare_class(database, cls["name"], cls.get("description", ""))
+        class_ids[cls["name"]] = class_id
         for prop in cls.get("properties", []):
             await kb.declare_class_property(database, prop["name"], prop.get("description", ""), class_id=class_id)
+    for cls in spec.get("classes", []):
+        if cls.get("parent"):
+            await kb.add_is_subclass_of(database, class_ids[cls["name"]], class_ids[cls["parent"]])
 
     for rel in spec.get("relations", []):
         relation_id = await kb.declare_relation_type(
@@ -60,6 +65,19 @@ async def seed_schema(kb: KBSource, database: str, spec: dict[str, Any]) -> None
             await kb.declare_relation_property(
                 database, prop["name"], prop.get("description", ""), relation_id=relation_id
             )
+
+
+async def seed_data(kb: KBSource, database: str, spec: dict[str, Any]) -> None:
+    """Instances that exist before the run (e.g. Apple the COMPANY, for a same-name case):
+    `entities: [{name, class}]`, `facts: [{head, relation, tail}]`, by name."""
+    ids: dict[str, str] = {}
+    for ent in spec.get("entities", []):
+        cls = await kb.find_class(database, ent["class"])
+        ids[ent["name"]] = await kb.add_entity(database, ent["name"], class_id=cls["id"] if cls else None)
+    for fact in spec.get("facts", []):
+        rel = await kb.find_relation_type(database, fact["relation"])
+        await kb.add_fact(database, head_entity_id=ids[fact["head"]], tail_entity_id=ids[fact["tail"]],
+                          relation_id=rel["id"])
 
 
 async def _snapshot(kb: KBSource, database: str) -> tuple[str, list[dict]]:
@@ -174,6 +192,7 @@ async def run_case(kb: KBSource, case: Case, model: str, dedup_mode: str) -> Run
     """
     kb.create_database(DB, overwrite=True)
     await seed_schema(kb, DB, case.seed_schema)
+    await seed_data(kb, DB, case.seed_data)
     pre_schema, pre_data = await _snapshot(kb, DB)
 
     collector = CreationCollector()

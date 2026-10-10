@@ -1,4 +1,5 @@
 id: cross_document_entity_fusion
+category: cross_document
 description: >
   Business domain. Two passages about the same person/company, run as
   sequential import_text steps against the same database. Expected results
@@ -19,3 +20,11 @@ expected:
     - {name: IBM, class: COMPANY}
   facts:
     - {head: Alice, relation: WORKED_AT, tail: IBM}
+  properties:
+    - {owner: WORKED_AT fact between Alice and IBM, name: START_DATE, value: "1998-06"}
+  optional:
+    properties:
+      - {owner: WORKED_AT fact between Alice and IBM, name: JOB_TITLE, value: "Senior Engineer"}
+      - {owner: WORKED_AT fact between Alice and IBM, name: JOB_TITLE, value: "software engineer"}
+    facts:
+      - {head: Alice, relation: PROMOTED_TO, tail: IBM}
