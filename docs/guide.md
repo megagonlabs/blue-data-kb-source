@@ -156,7 +156,7 @@ for h in hits:
 hits = await kb.search_data("main", "Alice", mode="semantic")
 ```
 
-Without `enable_search`, both calls still work — they fall back to an unranked substring match, so application code never needs to branch on whether search is configured.
+Without `enable_search`, both calls still work — they fall back to a keyword match without an index (whole query as a substring first, then by shared words, stopwords ignored, `PROFICIENT_IN` matching "proficient"), so application code never needs to branch on whether search is configured.
 
 ---
 

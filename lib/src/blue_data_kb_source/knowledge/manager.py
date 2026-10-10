@@ -23,6 +23,7 @@ from blue_data_kb_source._constants import (
     EXTRACTION,
     TAIL,
 )
+from blue_data_kb_source._text_match import match_score
 from blue_data_kb_source.checks import require_free_id, require_node_type, require_node_type_one_of
 from blue_data_kb_source.knowledge.engine import QueryEngine
 from blue_data_kb_source.knowledge.helpers import (
@@ -1178,28 +1179,31 @@ class KnowledgeManager:
         query: str,
         type_filter: str | list[str] | None = None,
     ) -> list[DataSearchResult]:
-        """Return entities/facts whose name, description, or related names contain *query*."""
+        """Entities/facts matching *query* by keyword, best first — the fallback when no
+        search index is configured. An entity matches on its name, description and class
+        names; a fact on its own name/description and its head, relation and tail names.
+        The whole query as a substring ranks first, then the most query words shared."""
         all_labels = (ENTITY, FACT)
         if type_filter is None:
             labels: tuple[str, ...] = all_labels
         else:
             requested = {type_filter.upper()} if isinstance(type_filter, str) else {t.upper() for t in type_filter}
             labels = tuple(lbl for lbl in all_labels if lbl in requested)
-        q = query.lower()
-        results: list[DataSearchResult] = []
+        scored: list[tuple[int, DataSearchResult]] = []
 
         if ENTITY in labels:
             for node in self._source.match_nodes(database, label=ENTITY):
                 props = node.get("properties", {})
                 name = props.get("name", "")
                 desc = props.get("description", "") or ""
-                if q in name.lower() or q in desc.lower():
-                    classes = entity_classes(self._source, database, node["id"])
-                    class_name = classes[0].get("properties", {}).get("name") if classes else None
-                    results.append(DataSearchResult(
+                classes = entity_classes(self._source, database, node["id"])
+                class_names = [c.get("properties", {}).get("name") or "" for c in classes]
+                score = match_score(query, " ".join([name, desc, *class_names]))
+                if score:
+                    scored.append((score, DataSearchResult(
                         id=node["id"], type=ENTITY, name=name, description=desc or None,
-                        class_name=class_name,
-                    ))
+                        class_name=class_names[0] if class_names else None,
+                    )))
 
         if FACT in labels:
             for node in self._source.match_nodes(database, label=FACT):
@@ -1214,14 +1218,16 @@ class KnowledgeManager:
                 head_name = _name(parts["head"])
                 rel_name  = _name(parts["relation"])
                 tail_name = _name(parts["tail"])
-                searchable = " ".join(s for s in [name, desc, head_name, rel_name, tail_name] if s).lower()
-                if q in searchable:
-                    results.append(DataSearchResult(
+                searchable = " ".join(s for s in [name, desc, head_name, rel_name, tail_name] if s)
+                score = match_score(query, searchable)
+                if score:
+                    scored.append((score, DataSearchResult(
                         id=node["id"], type=FACT, name=name, description=desc or None,
                         head_name=head_name, relation_name=rel_name, tail_name=tail_name,
-                    ))
+                    )))
 
-        return results
+        scored.sort(key=lambda x: -x[0])
+        return [r for _, r in scored]
 
     # ------------------------------------------------------------------ #
     # NL queries                                                           #

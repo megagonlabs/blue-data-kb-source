@@ -24,6 +24,7 @@ from blue_data_kb_source._constants import (
     SOURCE,
     TAIL,
 )
+from blue_data_kb_source._text_match import match_score
 from blue_data_kb_source.checks import require_free_id, require_node_type, require_node_type_one_of
 from blue_data_kb_source.schema.expansion import SchemaExpansionEngine
 from blue_data_kb_source.timestamps import edge_stamped, stamped, touched
@@ -953,23 +954,27 @@ class SchemaManager:
         query: str,
         type_filter: str | list[str] | None = None,
     ) -> list[SchemaSearchResult]:
-        """Return schema elements whose name or description contains *query* (case-insensitive)."""
+        """Schema elements matching *query* by keyword, best first: the whole query inside
+        the name or description, then the most query words shared (names split on `_`, so
+        "is proficient in" finds PROFICIENT_IN). The fallback when no search index is
+        configured."""
         all_labels = (CLASS, RELATION, PROPERTY)
         if type_filter is None:
             labels = all_labels
         else:
             requested = {type_filter.upper()} if isinstance(type_filter, str) else {t.upper() for t in type_filter}
             labels = tuple(lbl for lbl in all_labels if lbl.upper() in requested)
-        q = query.lower()
-        results: list[SchemaSearchResult] = []
+        scored: list[tuple[int, SchemaSearchResult]] = []
         for label in labels:
             for node in self._source.match_nodes(database, label=label):
                 props = node.get("properties", {})
                 name = props.get("name", "")
                 desc = props.get("description", "") or ""
-                if q in name.lower() or q in desc.lower():
-                    results.append(SchemaSearchResult(id=node["id"], type=label, name=name, description=desc))
-        return results
+                score = match_score(query, f"{name} {desc}")
+                if score:
+                    scored.append((score, SchemaSearchResult(id=node["id"], type=label, name=name, description=desc)))
+        scored.sort(key=lambda x: -x[0])
+        return [r for _, r in scored]
 
     async def consolidate_schema(
         self,

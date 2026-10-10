@@ -117,7 +117,7 @@ All configuration is via environment variables — there is no config file, and 
 
 | Variable | Default | Description |
 |---|---|---|
-| `BLUE_DATA_KB_SOURCE_SEARCH` | `none` | `none` — substring fallback. `bm25` — keyword ranking. `semantic` — BM25 + vector similarity (requires `OPENAI_API_KEY`). |
+| `BLUE_DATA_KB_SOURCE_SEARCH` | `none` | `none` — index-free keyword matching. `bm25` — keyword ranking. `semantic` — BM25 + vector similarity (requires `OPENAI_API_KEY`). |
 | `BLUE_DATA_KB_SOURCE_BM25_INDEX_DIR` | `BLUE_DATA_KB_SOURCE_DATA_DIR` | Directory for the BM25 corpus files. |
 | `BLUE_DATA_KB_SOURCE_VECTOR_BACKEND` | `memory` | `memory` \| `file` \| `chromadb` \| `redis`. Used when `BLUE_DATA_KB_SOURCE_SEARCH=semantic`. |
 | `BLUE_DATA_KB_SOURCE_EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model. |

@@ -19,6 +19,7 @@ from blue_data_kb_source._constants import (
     REPRESENTS,
     TAIL,
 )
+from blue_data_kb_source._text_match import match_score as _match_score
 from blue_data_kb_source.knowledge.helpers import fetch_node_metadata
 from blue_data_kb_source.types import EnrichmentResult, KBError, ValidationResult
 
@@ -206,6 +207,20 @@ _TOOLS: list[dict[str, Any]] = [
 # System prompts                                                       #
 # ------------------------------------------------------------------ #
 
+# A run of tool calls that all come back empty means the agent is rephrasing searches for
+# something the KB doesn't hold; stop it and deliver what it has instead of spending the
+# remaining turns (#133: 25 turns per question, 60-300 calls per case).
+_MAX_CONSECUTIVE_EMPTY = 8
+
+
+def _is_empty_result(result: Any) -> bool:
+    if not isinstance(result, dict) or not result or "error" in result:
+        return False
+    if "id" in result and len(result) == 1:
+        return result["id"] is None
+    return all(isinstance(v, list) and not v for v in result.values())
+
+
 _ANSWER_PROMPT = """\
 You are a knowledge base query agent. Use the provided tools to search the knowledge
 base and answer the question below.
@@ -234,7 +249,11 @@ Examples:
     {{"company": "Google", "relation": "WORKED_AT", "start_date": "May 2002",   "provenance": "Alice later joined Google."}}
   ]}}
 
-Return an empty array if nothing relevant exists.
+Return an empty array if nothing relevant exists. Searches match names, descriptions
+and class names by keyword: search with short distinctive terms (a name, a class, a
+key noun) rather than whole sentences. If several differently worded searches all come
+back empty, the knowledge base doesn't hold it — stop searching and call return_result
+with what you have.
 
 Current schema:
 {schema}
@@ -509,6 +528,7 @@ class QueryEngine:
         result_payload: Any = None
         metadata_acc: dict[str, dict] = {}
         turns = 0
+        consecutive_empty = 0
 
         while True:
             if turns >= max_turns:
@@ -569,8 +589,12 @@ class QueryEngine:
                         "tool_call_id": tc.id,
                         "content": json.dumps(tool_result),
                     })
+                    consecutive_empty = consecutive_empty + 1 if _is_empty_result(tool_result) else 0
 
             if done:
+                break
+            if consecutive_empty >= _MAX_CONSECUTIVE_EMPTY:
+                result_payload = await self._force_return_result(client, model, messages)
                 break
 
         # print(f"Final result payload: {result_payload}")
@@ -644,17 +668,20 @@ class QueryEngine:
                     {"id": r.id, "name": r.name, "description": r.description, "class_name": r.class_name}
                     for r in hits
                 ]}
-            kw = args["query"].lower()
-            results_e = []
+            scored_e = []
             for node in self._source.match_nodes(database, label=ENTITY):
                 props = node.get("properties", {})
                 name  = props.get("name", "")
                 desc  = props.get("description", "") or ""
-                if kw in name.lower() or kw in desc.lower():
-                    cls_nbs    = self._source.get_neighbors(database, node["id"], edge_type=IS_INSTANCE_OF, direction="out")
-                    class_name = cls_nbs[0]["node"].get("properties", {}).get("name") if cls_nbs else None
-                    results_e.append({"id": node["id"], "name": name, "description": desc, "class_name": class_name})
-            return {"entities": results_e}
+                cls_nbs = self._source.get_neighbors(database, node["id"], edge_type=IS_INSTANCE_OF, direction="out")
+                class_names = [nb["node"].get("properties", {}).get("name") or "" for nb in cls_nbs]
+                # Class names count too, so "programming" finds Python as a PROGRAMMING_LANGUAGE.
+                score = _match_score(args["query"], " ".join([name, desc, *class_names]))
+                if score:
+                    scored_e.append((score, {"id": node["id"], "name": name, "description": desc,
+                                             "class_name": class_names[0] if class_names else None}))
+            scored_e.sort(key=lambda x: -x[0])
+            return {"entities": [e for _, e in scored_e[:20]]}
 
         if fn == "search_facts":
             mode = args.get("mode", "keyword")
@@ -667,8 +694,7 @@ class QueryEngine:
                     }
                     for r in hits
                 ]}
-            kw = args["query"].lower()
-            results_f = []
+            scored_f = []
             for node in self._source.match_nodes(database, label=FACT):
                 props = node.get("properties", {})
                 name  = props.get("name", "")
@@ -679,13 +705,15 @@ class QueryEngine:
                 head_name = _node_name(head_nbs) or ""
                 rel_name  = _node_name(rel_nbs)  or ""
                 tail_name = _node_name(tail_nbs) or ""
-                searchable = " ".join(s for s in [name, desc, head_name, rel_name, tail_name] if s).lower()
-                if kw in searchable:
-                    results_f.append({
+                searchable = " ".join(s for s in [name, desc, head_name, rel_name, tail_name] if s)
+                score = _match_score(args["query"], searchable)
+                if score:
+                    scored_f.append((score, {
                         "id": node["id"], "name": name, "description": desc,
                         "head_name": head_name, "relation_name": rel_name, "tail_name": tail_name,
-                    })
-            return {"facts": results_f}
+                    }))
+            scored_f.sort(key=lambda x: -x[0])
+            return {"facts": [f for _, f in scored_f[:20]]}
 
         if fn == "get_entity_facts":
             entity_id   = args["entity_id"]

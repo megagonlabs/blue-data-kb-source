@@ -104,7 +104,7 @@ hits = await kb.search_schema("main", "employment")
 hits = await kb.search_data("main", "Alice", mode="semantic")
 ```
 
-Without `enable_search`, `search_schema`/`search_data` still work — they fall back to an unranked substring match, so callers never need to branch on whether search is configured.
+Without `enable_search`, `search_schema`/`search_data` still work — they fall back to a keyword match without an index (whole query as a substring first, then by shared words, stopwords ignored, `PROFICIENT_IN` matching "proficient"), so callers never need to branch on whether search is configured.
 
 ---
 

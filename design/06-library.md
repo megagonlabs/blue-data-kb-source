@@ -268,7 +268,7 @@ Traverses all CLASS and RELATION nodes in `database` and assembles a `DataSchema
 
 #### `find_schema(database, query, type_filter=None)`
 
-Filters schema element nodes (CLASS, RELATION, PROPERTY) by a case-insensitive substring match of `query` against their `name` and `description` fields, with no relevance ranking. This is the fallback used by `KBSource.search_schema` when the database was not registered with search enabled; when it is enabled, `KBSource.search_schema` calls `KBSearchIndexer.search_schema` instead, which supports BM25 ranking and semantic mode. Returns a list of `SchemaSearchResult` (`{"id", "type", "name", "description"}`).
+Ranks schema element nodes (CLASS, RELATION, PROPERTY) by keyword match of `query` against their `name` and `description`: the whole query as a substring first, then the number of shared words (names split on `_`, stopwords ignored), so "is proficient in" finds `PROFICIENT_IN` (#133). This is the fallback used by `KBSource.search_schema` when the database was not registered with search enabled; when it is enabled, `KBSource.search_schema` calls `KBSearchIndexer.search_schema` instead, which supports BM25 ranking and semantic mode. Returns a list of `SchemaSearchResult` (`{"id", "type", "name", "description"}`).
 
 **Example**
 
@@ -352,7 +352,7 @@ Creates an ENTITY node.
 
 #### `find_data(database, query, type_filter=None)`
 
-Filters ENTITY and FACT nodes by a case-insensitive substring match of `query` against their own name/description plus related names (class name for entities; head, relation, and tail names for facts), with no relevance ranking. This is the fallback used by `KBSource.search_data` when the database was not registered with search enabled; when it is enabled, `KBSource.search_data` calls `KBSearchIndexer.search_data` instead, which supports BM25 ranking and semantic mode. Returns a list of `DataSearchResult`.
+Ranks ENTITY and FACT nodes by keyword match of `query` (the whole query as a substring first, then the number of shared words, stopwords ignored) against their own name/description plus related names (class name for entities; head, relation, and tail names for facts), with no relevance ranking. This is the fallback used by `KBSource.search_data` when the database was not registered with search enabled; when it is enabled, `KBSource.search_data` calls `KBSearchIndexer.search_data` instead, which supports BM25 ranking and semantic mode. Returns a list of `DataSearchResult`.
 
 #### `answer(database, question, model="gpt-4o", natural_language=False, include_metadata=False, on_tool_call=None, on_tool_result=None)`
 
@@ -807,7 +807,7 @@ SchemaExpansionEngine(source, schema_manager, search_indexer=None)
 - `reference` — `"llm"` (default) proposes schema freely from the model's own knowledge; `"mcp"` additionally connects each server in `mcp_servers` and offers the model its tools too (e.g. WordNet hypernym/synonym lookups via `platform/wordnet-mcp`), to ground new names and hierarchy placement — raises `SchemaError` if `reference="mcp"` and `mcp_servers` is empty
 - `mcp_servers` — list of `{"transport": "stdio", "command", "args"?, "env"?}` or `{"transport": "sse"|"streamable_http", "url", "headers"?}` dicts; each is connected via an `AsyncExitStack` for the duration of the call, and its tools are exposed to the model name-prefixed `mcp__<server>__<tool>`. Each entry may also set `startup_timeout` (seconds, default 30) for its handshake and `call_timeout` (default 120) per tool call; a server that misses either fails clearly instead of hanging the run. A timed-out tool call is returned to the model as a tool error (#113)
 - `dedup_mode` — how the engine checks for an existing schema element before declaring a new one; applies both to the `search_schema` tool the model can call, and — for `declare_class`/`declare_relation_type` specifically — as an automatic check run before the node is created, regardless of whether the model called `search_schema` itself (closes the gap where two differently-worded near-duplicates, e.g. `WORKED_AT`/`EMPLOYED_AT`, would otherwise both get declared, since the underlying `declare_*` calls only dedup on an exact name match):
-  - `"search"` (default) — the database's configured search backend (keyword substring match, or semantic/embedding search if registered)
+  - `"search"` (default) — the database's configured search backend (index-free keyword match ranked by shared words, BM25, or semantic/embedding search if registered)
   - `"llm"` — asks the model to judge whether an existing element means the same thing as the proposed one, even under different wording, via a separate tool-forced completion call (`_judge_similar_schema`) — more reliable for synonyms than keyword/semantic search over short names, at the cost of one extra model call per check
   - `"none"` — the `search_schema` tool isn't offered at all, and the automatic pre-create check is skipped
 - `model` — OpenAI model to use for the agent loop (and for `dedup_mode="llm"`'s judge call)

@@ -1125,3 +1125,15 @@ async def test_merge_into_a_reserved_relation_name_is_refused(kb):
     await kb.declare_relation_type("test", "KIND_OF", "", domain="PERSON", range="PERSON")
     with pytest.raises(SchemaError, match="structural edges"):
         await kb.consolidate_schema("test", "merge", ["KIND_OF"], "is_subclass_of")
+
+
+async def test_find_schema_matches_natural_phrasing_of_a_snake_case_name(kb):
+    """The index-free schema search the extraction agent falls back on: "is proficient
+    in" must find PROFICIENT_IN, or the relation stage skips every fact (#133)."""
+    await kb.declare_class("test", "PERSON", "")
+    await kb.declare_class("test", "SKILL", "")
+    proficient = await kb.declare_relation_type("test", "PROFICIENT_IN", "", domain="PERSON", range="SKILL")
+    await kb.declare_relation_type("test", "LIVES_IN", "", domain="PERSON", range="PERSON")
+    hits = await kb._schema.find_schema("test", "is proficient in", type_filter="relation")
+    assert [h.id for h in hits] == [proficient]
+    assert [h.name for h in await kb._schema.find_schema("test", "PROFICIENT_IN")] == ["PROFICIENT_IN"]

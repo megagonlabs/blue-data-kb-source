@@ -1580,3 +1580,77 @@ async def test_attach_entity_class_rejects_wrong_labels(kb):
         await kb.attach_entity_class("test", person, person)   # entity_id is a CLASS
     with pytest.raises(KBError):
         await kb.attach_entity_class("test", alice, alice)     # class_id is an ENTITY
+
+
+# ------------------------------------------------------------------ #
+# query agent without a search index: keyword fallback + early stop (#133) #
+# ------------------------------------------------------------------ #
+
+async def _skills_kb(kb):
+    person = await kb.declare_class("test", "PERSON", "A human individual")
+    lang = await kb.declare_class("test", "PROGRAMMING_LANGUAGE", "A language used to write software")
+    knows = await kb.declare_relation_type("test", "PROFICIENT_IN", "", domain="PERSON", range="PROGRAMMING_LANGUAGE")
+    alice = await kb.add_entity("test", "Alice Johnson", class_id=person)
+    for name in ("Python", "TypeScript"):
+        tool = await kb.add_entity("test", name, class_id=lang)
+        await kb.add_fact("test", head_entity_id=alice, tail_entity_id=tool, relation_id=knows)
+    return alice
+
+
+async def _search(kb, fn, query):
+    return await kb._knowledge._query._dispatch_tool("test", fn, {"query": query})
+
+
+async def test_entity_search_without_an_index_matches_words_not_the_whole_query(kb):
+    alice = await _skills_kb(kb)
+    hits = (await _search(kb, "search_entities", "Alice Johnson programming experience"))["entities"]
+    assert hits and hits[0]["id"] == alice
+
+
+async def test_entity_search_without_an_index_matches_class_names(kb):
+    await _skills_kb(kb)
+    hits = (await _search(kb, "search_entities", "programming"))["entities"]
+    assert {h["name"] for h in hits} == {"Python", "TypeScript"}
+
+
+async def test_entity_search_without_an_index_ranks_and_ignores_stopwords(kb):
+    await _skills_kb(kb)
+    assert (await _search(kb, "search_entities", "what is the"))["entities"] == []
+    hits = (await _search(kb, "search_entities", "Python"))["entities"]
+    assert hits[0]["name"] == "Python"
+
+
+async def test_fact_search_without_an_index_matches_entity_and_relation_words(kb):
+    await _skills_kb(kb)
+    hits = (await _search(kb, "search_facts", "Alice Johnson proficient"))["facts"]
+    assert {h["tail_name"] for h in hits} == {"Python", "TypeScript"}
+
+
+async def test_answer_stops_after_a_run_of_empty_lookups(populated_kb):
+    """An agent rephrasing searches for something the KB doesn't hold is stopped and asked
+    for its result, instead of spending every remaining turn."""
+    factory, mock_client = _mock_openai_repeating_tool_call("search_entities", {"query": "zzz unknown"})
+    with patch("openai.AsyncOpenAI", factory):
+        results = await populated_kb.answer("test", "Where did Zed work?", max_turns=25)
+    assert results == []
+    # 8 empty lookups, then one forced return_result — not 25 turns.
+    assert mock_client.chat.completions.create.call_count == 9
+
+
+def test_is_empty_result_recognises_empty_lookups_only():
+    from blue_data_kb_source.knowledge.engine import _is_empty_result
+
+    assert _is_empty_result({"entities": []})
+    assert _is_empty_result({"facts": [], "properties": []})
+    assert _is_empty_result({"id": None})
+    assert not _is_empty_result({"entities": [{"id": "x"}]})
+    assert not _is_empty_result({"error": "bad id"})
+    assert not _is_empty_result({"schema": "CLASS PERSON"})
+
+
+async def test_search_data_without_an_index_ranks_by_keyword(kb):
+    alice = await _skills_kb(kb)
+    hits = await kb.search_data("test", "Alice Johnson programming experience", type_filter="ENTITY")
+    assert hits and hits[0].id == alice
+    langs = await kb.search_data("test", "programming", type_filter="ENTITY")
+    assert {h.name for h in langs} == {"Python", "TypeScript"}
