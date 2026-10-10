@@ -18,7 +18,7 @@ seed_schema:
       domain: PATIENT
       range: CONDITION
 input_text: "Raj Patel was tested for diabetes, but the results came back negative — he does not have diabetes."
-schema_discovery_modes: [search]
+dedup_modes: [search]
 expected:
   entities:
     - {name: Raj Patel, class: PATIENT}

@@ -12,7 +12,7 @@ description: >
 steps:
   - input_text: "Alice joined IBM as a software engineer in June 1998."
   - input_text: "In 2005, Alice was promoted to Senior Engineer at IBM."
-schema_discovery_modes: [search]
+dedup_modes: [search]
 expected:
   entities:
     - {name: Alice, class: PERSON}

@@ -48,7 +48,9 @@ class Case:
     description: str
     steps: list[Step]
     seed_schema: dict[str, Any] = field(default_factory=dict)
-    schema_discovery_modes: tuple[str, ...] = _ALL_MODES
+    dedup_modes: tuple[str, ...] = _ALL_MODES
+    # False: extraction only, against the seed schema (the "expansion off" configuration).
+    expand_schema: bool = True
     expected: ExpectedResults = field(default_factory=ExpectedResults)
     source_path: Path | None = None
 
@@ -72,7 +74,9 @@ def _load_case(path: Path) -> Case:
         description=raw.get("description", ""),
         steps=steps,
         seed_schema=raw.get("seed_schema", {}),
-        schema_discovery_modes=tuple(raw.get("schema_discovery_modes", _ALL_MODES)),
+        # `schema_discovery_modes` is the key's pre-#134 name, still accepted.
+        dedup_modes=tuple(raw.get("dedup_modes", raw.get("schema_discovery_modes", _ALL_MODES))),
+        expand_schema=bool(raw.get("expand_schema", True)),
         expected=ExpectedResults(
             entities=expected_raw.get("entities", []),
             facts=expected_raw.get("facts", []),
@@ -93,8 +97,8 @@ def load_cases(directory: Path) -> list[Case]:
 
 
 def case_mode_params(cases: list[Case]) -> list[tuple[str, str]]:
-    """Flatten cases into (case_id, schema_discovery_mode) pairs for parametrization."""
-    return [(case.id, mode) for case in cases for mode in case.schema_discovery_modes]
+    """Flatten cases into (case_id, dedup_mode) pairs for parametrization."""
+    return [(case.id, mode) for case in cases for mode in case.dedup_modes]
 
 
 def cassette_filename(case_id: str, mode: str) -> str:

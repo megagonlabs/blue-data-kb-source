@@ -316,7 +316,7 @@ def check_domain_range_compliance(collector: CreationCollector, kb: Any, databas
 class CaseScore:
     case_id: str
     model: str
-    schema_discovery_mode: str
+    dedup_mode: str
     entities: PRF1
     facts: PRF1
     properties: PRF1
@@ -334,7 +334,7 @@ class CaseScore:
 async def score_case(
     case: Case,
     model: str,
-    schema_discovery_mode: str,
+    dedup_mode: str,
     collector: CreationCollector,
     trace: list[ToolCallRecord],
     kb: Any,
@@ -359,7 +359,7 @@ async def score_case(
     return CaseScore(
         case_id=case.id,
         model=model,
-        schema_discovery_mode=schema_discovery_mode,
+        dedup_mode=dedup_mode,
         entities=_prf1(len(case.expected.entities), len(collector.entities), len(entity_matches)),
         facts=_prf1(len(case.expected.facts), len(collector.facts), len(fact_matches)),
         properties=_prf1(len(case.expected.properties), len(actual_properties), len(prop_matches)),

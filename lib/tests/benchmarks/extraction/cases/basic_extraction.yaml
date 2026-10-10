@@ -4,7 +4,7 @@ description: >
   the agent finds all entities/facts/properties without any schema-discovery
   complexity getting in the way.
 input_text: "Alice joined IBM as a software engineer in June 1998."
-schema_discovery_modes: [search]
+dedup_modes: [search]
 expected:
   entities:
     - {name: Alice, class: PERSON}

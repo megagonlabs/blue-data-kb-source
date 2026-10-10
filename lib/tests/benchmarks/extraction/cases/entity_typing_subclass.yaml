@@ -21,7 +21,7 @@ seed_schema:
       domain: PATIENT
       range: PHYSICIAN
 input_text: "Dr. Emily Carter examined patient Raj Patel and diagnosed him with hypertension."
-schema_discovery_modes: [search]
+dedup_modes: [search]
 expected:
   entities:
     - {name: Dr. Emily Carter, class: PHYSICIAN}

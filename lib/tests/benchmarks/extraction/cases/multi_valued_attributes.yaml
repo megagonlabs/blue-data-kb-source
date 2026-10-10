@@ -10,7 +10,7 @@ seed_schema:
       properties:
         - {name: PHONE_NUMBER, description: "A contact phone number for the person"}
 input_text: "The client, Maria Lopez, can be reached at (555) 123-4567 or alternatively at (555) 987-6543."
-schema_discovery_modes: [search]
+dedup_modes: [search]
 expected:
   entities:
     - {name: Maria Lopez, class: PERSON}

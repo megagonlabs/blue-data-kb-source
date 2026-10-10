@@ -2,7 +2,7 @@ id: schema_reuse_synonym
 description: >
   Seeds WORKED_AT/START_DATE; the text describes the same concept as "joined",
   a synonym trap. The agent should reuse START_DATE rather than declaring a
-  near-duplicate JOIN_DATE. Run under all three schema_discovery_modes to
+  near-duplicate JOIN_DATE. Run under all three dedup_modes to
   contrast keyword search vs. LLM-judged discovery vs. no discovery tool at all.
 seed_schema:
   classes:
@@ -16,7 +16,7 @@ seed_schema:
       properties:
         - {name: START_DATE, description: "The date employment began"}
 input_text: "Bob joined Acme Corp in March 2005."
-schema_discovery_modes: [search, llm, none]
+dedup_modes: [search, llm, none]
 expected:
   entities:
     - {name: Bob, class: PERSON}

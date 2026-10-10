@@ -37,7 +37,7 @@ input_text: |
 queries:
   - "What skills does the user have?"
   - "What is the user's most recent job title?"
-schema_discovery_modes: [search]
+dedup_modes: [search]
 expected:
   entities:
     - {name: Alice Chen, class: PERSON}

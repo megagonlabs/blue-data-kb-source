@@ -19,7 +19,7 @@ seed_schema:
       domain: PERSON
       range: COMPANY
 input_text: "First National Bank issued a loan to Jane Doe. Jane Doe is employed by Globex Corp."
-schema_discovery_modes: [search]
+dedup_modes: [search]
 expected:
   entities:
     - {name: First National Bank, class: BANK}

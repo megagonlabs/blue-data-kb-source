@@ -10,7 +10,7 @@ input_text: >
   Marcus Reyes has worked at Contoso Ltd since May 2012.
 queries:
   - "Who worked where, and when did each employment start?"
-schema_discovery_modes: [search]
+dedup_modes: [search]
 expected:
   entities:
     - {name: Diana Chen, class: PERSON}

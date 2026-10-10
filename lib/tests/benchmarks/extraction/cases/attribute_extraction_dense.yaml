@@ -21,7 +21,7 @@ seed_schema:
 input_text: >
   This Service Agreement is entered into between Acme Corp and Globex Corp,
   effective January 15, 2024, for an initial term of 24 months.
-schema_discovery_modes: [search]
+dedup_modes: [search]
 expected:
   entities:
     - {name: Acme Corp, class: COMPANY}

@@ -17,7 +17,7 @@ seed_schema:
       properties:
         - {name: START_DATE, description: "The date employment began"}
 input_text: "Carla started at Initech in July 2010 as Senior Data Analyst."
-schema_discovery_modes: [search]
+dedup_modes: [search]
 expected:
   entities:
     - {name: Carla, class: PERSON}

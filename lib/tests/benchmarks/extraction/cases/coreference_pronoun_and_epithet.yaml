@@ -10,7 +10,7 @@ description: >
 input_text: >
   IBM hired Alice as a software engineer in 1998. The company later promoted
   her to Vice President in 2010.
-schema_discovery_modes: [search]
+dedup_modes: [search]
 expected:
   entities:
     - {name: Alice, class: PERSON}

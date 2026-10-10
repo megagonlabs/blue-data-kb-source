@@ -29,7 +29,7 @@ def _build_kb(search_mode: str) -> KBSource:
     Search backend choice is declarative config under properties["search"]
     (KBSource.__init__ takes no construction-time kwargs beyond name/properties,
     matching DataSource's own signature), unlike extraction's
-    `schema_discovery_mode` which is a per-call `import_text` argument — so,
+    `schema_expansion_dedup_mode`, which is a per-call `import_text` argument — so,
     unlike `runner.run_case`, this owns KB construction rather than taking a
     pre-built `blue-kb` from the caller.
     """

@@ -41,7 +41,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--case", action="append", dest="case_ids",
                          help="Case id to run (repeatable, default: all cases)")
     parser.add_argument("--mode", action="append", dest="modes", choices=["search", "llm", "none"],
-                         help="schema_discovery_mode to run (repeatable, default: each case's own list)")
+                         help="dedup_mode to run (repeatable, default: each case's own list)")
     parser.add_argument("--judge-model", default="gpt-4o-mini",
                          help="Model used for LLM-judge scoring (default: gpt-4o-mini)")
     parser.add_argument("--out", type=Path, default=None,
@@ -90,7 +90,7 @@ def _plan_work(args: argparse.Namespace, all_cases: dict[str, Case]) -> list[tup
     work: list[tuple[Case, str, str]] = []
     for case_id in case_ids:
         case = all_cases[case_id]
-        modes = args.modes or list(case.schema_discovery_modes)
+        modes = args.modes or list(case.dedup_modes)
         for model in models:
             for mode in modes:
                 work.append((case, model, mode))
