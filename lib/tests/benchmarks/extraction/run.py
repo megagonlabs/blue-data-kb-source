@@ -22,7 +22,7 @@ from pathlib import Path
 
 from ..common import runner, scoring
 from ..common.cases import Case, cassette_filename, load_cases
-from ..common.reporting import render_table, write_detailed_log, write_json
+from ..common.reporting import render_table, write_detailed_log, write_json, write_markdown_report
 
 CASES_DIR = Path(__file__).parent / "cases"
 REPORTS_DIR = Path(__file__).parent / ".reports"
@@ -143,7 +143,10 @@ def main(argv: list[str] | None = None) -> int:
     Console().print(render_table(scores))
     write_json(scores, out_path)
     write_detailed_log(results, detail_out_path)
+    report_path = out_path.with_suffix(".md")
+    write_markdown_report(results, scores, report_path)
     print(f"Wrote {len(scores)} score(s) to {out_path}")
+    print(f"Wrote the readable per-stage report to {report_path}")
     print(f"Wrote detailed prompt/tool-call log to {detail_out_path}")
     if args.record:
         print(f"Cassettes (re)written under {Path(__file__).parent / 'cassettes'}")

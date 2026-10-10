@@ -81,3 +81,93 @@ def write_detailed_log(results: list[RunResult], path: Path) -> None:
                 "tool_calls": [asdict(c) for c in r.trace],
             }
             f.write(json.dumps(entry, default=str) + "\n")
+
+
+# ---------------------------------------------------------------------------
+# Markdown run report — what each pass and stage extracted, against the gold
+# ---------------------------------------------------------------------------
+
+_KIND_ORDER = ("classes", "relations", "properties", "entities", "facts", "values")
+
+
+def _md_added(added: dict[str, list[str]], indent: str = "") -> list[str]:
+    lines = [f"{indent}- **{kind}**: " + ", ".join(f"`{x}`" for x in added[kind])
+             for kind in _KIND_ORDER if added.get(kind)]
+    return lines or [f"{indent}- _(nothing)_"]
+
+
+def _md_seed(seed: dict) -> list[str]:
+    lines = []
+    for c in seed.get("classes", []):
+        props = ", ".join(p["name"] for p in c.get("properties", []))
+        lines.append(f"- class `{c['name']}`" + (f" — properties: {props}" if props else ""))
+    for r in seed.get("relations", []):
+        dom = r.get("domain") if isinstance(r.get("domain"), str) else "|".join(r.get("domain") or [])
+        rng = r.get("range") if isinstance(r.get("range"), str) else "|".join(r.get("range") or [])
+        props = ", ".join(p["name"] for p in r.get("properties", []))
+        lines.append(f"- relation `{dom} -{r['name']}-> {rng}`" + (f" — properties: {props}" if props else ""))
+    return lines or ["- _(empty — everything comes from schema expansion)_"]
+
+
+def _md_outcome(score: CaseScore) -> list[str]:
+    lines = ["| | F1 | ✓ matched (expected → extracted) | ✗ missing | + extra |", "|---|---|---|---|---|"]
+    for kind, prf1 in (("entities", score.entities), ("facts", score.facts), ("properties", score.properties)):
+        al = score.alignment.get(kind)
+        if al is None:
+            continue
+        matched = "<br>".join(f"`{e}` → `{a}`" for e, a in al.matched) or "—"
+        missing = "<br>".join(f"`{m}`" for m in al.missing) or "—"
+        extra = "<br>".join(f"`{x}`" for x in al.extra) or "—"
+        lines.append(f"| **{kind}** | {prf1.f1:.2f} | {matched} | {missing} | {extra} |")
+    return lines
+
+
+def _md_checks(score: CaseScore) -> list[str]:
+    problems = []
+    sr = score.schema_reuse
+    if sr.reused_missing:
+        problems.append(f"- schema reuse — declared a new element instead of reusing: {', '.join(sr.reused_missing)}")
+    if sr.wrongly_declared:
+        problems.append(f"- schema reuse — declared, but must not be: {', '.join(sr.wrongly_declared)}")
+    if sr.expansion_missing:
+        problems.append(f"- schema expansion — expected but not declared: {', '.join(sr.expansion_missing)}")
+    for m in score.normalization.mismatches:
+        problems.append(f"- normalization — {m}")
+    if score.provenance.missing:
+        problems.append(f"- provenance — no source span: {', '.join(score.provenance.missing)}")
+    if score.provenance.fabricated:
+        problems.append(f"- provenance — span not in the source text: {', '.join(score.provenance.fabricated)}")
+    for v in score.domain_range_compliance.violations:
+        problems.append(f"- domain/range — {v}")
+    return problems or ["- all deterministic checks passed"]
+
+
+def write_markdown_report(results: list[RunResult], scores: list[CaseScore], path: Path) -> None:
+    """One readable report for a set of runs: per run, the input, the seed schema, what
+    schema expansion added, what each extraction stage added, and the outcome against
+    the gold — matched, missing, extra — plus any failed deterministic check (#134)."""
+    out = ["# Extraction benchmark report", "",
+           "| case | model | dedup | entities F1 | facts F1 | props F1 | checks | calls | tokens |",
+           "|---|---|---|---|---|---|---|---|---|"]
+    for s in scores:
+        out.append(f"| {s.case_id} | {s.model} | {s.dedup_mode} | {_fmt_f1(s.entities)} | {_fmt_f1(s.facts)} | "
+                   f"{_fmt_f1(s.properties)} | {_checks(s)} | {s.tool_call_count} | "
+                   f"{(s.prompt_tokens + s.completion_tokens) / 1000:.0f}k |")
+    for r, s in zip(results, scores):
+        out += ["", "---", "", f"## {r.case.id} · {r.model} · dedup={r.dedup_mode}", "", r.case.description.strip(), "",
+                "### Seed schema", *_md_seed(r.case.seed_schema)]
+        for i, st in enumerate(r.steps, 1):
+            label = f"Step {i}" if len(r.steps) > 1 else "Run"
+            out += ["", f"### {label} — input", "", *[f"> {line}" for line in st.input_text.strip().splitlines()]]
+            if st.queries:
+                out += ["", "Queries: " + "; ".join(f"_{q}_" for q in st.queries)]
+            if st.expansion_ran:
+                out += ["", f"**Schema expansion** added ({st.expansion_tool_calls} tool calls):", *_md_added(st.expansion_added)]
+            else:
+                out += ["", "**Schema expansion**: off for this case (extraction against the seed schema only)."]
+            out += ["", f"**Extraction** ({st.extraction_tool_calls} tool calls), by stage:"]
+            for stg in st.extraction_stages:
+                out += [f"- *{stg['stage']}* (pass {stg['pass']}):", *_md_added(stg["added"], indent="  ")]
+        out += ["", "### Outcome vs expected", "", *_md_outcome(s), "", "### Checks", *_md_checks(s)]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(out) + "\n")

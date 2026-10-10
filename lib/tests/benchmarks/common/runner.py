@@ -78,41 +78,42 @@ def _names(node: dict) -> str:
     return (node.get("properties") or {}).get("name") or node["id"]
 
 
-async def graph_state(kb: KBSource, database: str) -> dict[str, list[str]]:
+def graph_state(kb: KBSource, database: str) -> dict[str, list[str]]:
     """The KB as comparable, human-readable lines, one list per kind — schema
     (classes, relations, properties) and data (entities, facts, values). Two states
-    diff into "what this pass added"."""
-    src = kb  # KBSource is itself the GraphSource
+    diff into "what this pass/stage added". Synchronous, so it can run inside
+    import_text's on_stage callback."""
+    from blue_data_kb_source.knowledge.helpers import entity_classes, fact_parts, property_values
+
     state: dict[str, set[str]] = {k: set() for k in
                                   ("classes", "relations", "properties", "entities", "facts", "values")}
-    for c in src.match_nodes(database, label="CLASS"):
-        parents = [_names(nb["node"]) for nb in src.get_neighbors(database, c["id"], edge_type="IS_SUBCLASS_OF", direction="out")]
-        state["classes"].add(_names(c) + (f" ⊂ {', '.join(sorted(parents))}" if parents else ""))
-    for r in src.match_nodes(database, label="RELATION"):
-        ends = await kb.get_relation_domain_range(database, r["id"])
-        dom = "|".join(sorted(_names(n) for n in ends["domain"])) or "?"
-        rng = "|".join(sorted(_names(n) for n in ends["range"])) or "?"
+
+    def nbs(node_id: str, edge: str, direction: str) -> list[dict]:
+        return [nb["node"] for nb in kb.get_neighbors(database, node_id, edge_type=edge, direction=direction)]
+
+    for c in kb.match_nodes(database, label="CLASS"):
+        parents = sorted(_names(n) for n in nbs(c["id"], "IS_SUBCLASS_OF", "out"))
+        state["classes"].add(_names(c) + (f" ⊂ {', '.join(parents)}" if parents else ""))
+    for r in kb.match_nodes(database, label="RELATION"):
+        dom = "|".join(sorted(_names(n) for n in nbs(r["id"], "DOMAIN", "out"))) or "?"
+        rng = "|".join(sorted(_names(n) for n in nbs(r["id"], "RANGE", "out"))) or "?"
         state["relations"].add(f"{dom} -{_names(r)}-> {rng}")
-    for p in src.match_nodes(database, label="PROPERTY"):
-        owners = [_names(nb["node"]) for nb in src.get_neighbors(database, p["id"], edge_type="DEFINE_PROPERTY", direction="in")]
-        for owner in owners or ["?"]:
+    for p in kb.match_nodes(database, label="PROPERTY"):
+        for owner in [_names(n) for n in nbs(p["id"], "DEFINE_PROPERTY", "in")] or ["?"]:
             state["properties"].add(f"{owner}.{_names(p)}")
-    for e in src.match_nodes(database, label="ENTITY"):
-        classes = sorted(c["properties"].get("name", "") for c in await kb.get_entity_classes(database, e["id"]))
+    for e in kb.match_nodes(database, label="ENTITY"):
+        classes = sorted(_names(c) for c in entity_classes(kb, database, e["id"]))
         state["entities"].add(f"{_names(e)} : {', '.join(classes) or '(untyped)'}")
-    for f in src.match_nodes(database, label="FACT"):
-        parts = await kb.get_fact_parts(database, f["id"])
+    for f in kb.match_nodes(database, label="FACT"):
+        parts = fact_parts(kb, database, f["id"])
         head, rel, tail = (_names(parts[k]) if parts.get(k) else "?" for k in ("head", "relation", "tail"))
         state["facts"].add(f"{head} -{rel}-> {tail}")
     for owner_label in ("ENTITY", "FACT"):
-        for o in src.match_nodes(database, label=owner_label):
-            owner = _names(o)
-            for pv in await kb.get_property_values(database, o["id"]):
-                prop = pv.get("property") or {}
-                lit = pv.get("literal") or pv.get("value_node") or {}
-                pname = _names(prop) if prop else "?"
-                value = (lit.get("properties") or {}).get("value", pv.get("value"))
-                state["values"].add(f"{owner}.{pname} = {value!r}")
+        for o in kb.match_nodes(database, label=owner_label):
+            for pv in property_values(kb, database, o["id"]):
+                pname = _names(pv["property"]) if pv.get("property") else "?"
+                value = (pv["literal"].get("properties") or {}).get("value")
+                state["values"].add(f"{_names(o)}.{pname} = {value!r}")
     return {k: sorted(v) for k, v in state.items()}
 
 
@@ -131,6 +132,8 @@ class StepResult:
     extraction_added: dict[str, list[str]]  # entities / facts / values (plus any schema, which should be none)
     expansion_tool_calls: int = 0
     extraction_tool_calls: int = 0
+    # Extraction broken down by its stages, in order: [{"stage", "pass", "added"}].
+    extraction_stages: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -184,7 +187,7 @@ async def run_case(kb: KBSource, case: Case, model: str, dedup_mode: str) -> Run
     steps: list[StepResult] = []
     with patch("openai.AsyncOpenAI", instrumented):
         for step in case.steps:
-            before = await graph_state(kb, DB)
+            before = graph_state(kb, DB)
             calls_before = len(trace)
             if case.expand_schema:
                 # The same input import_text's own expansion pass sees: text, then queries.
@@ -193,8 +196,13 @@ async def run_case(kb: KBSource, case: Case, model: str, dedup_mode: str) -> Run
                     DB, context, dedup_mode=dedup_mode, model=model,
                     on_tool_call=on_tool_call, on_tool_result=on_tool_result,
                 )
-            mid = await graph_state(kb, DB)
+            mid = graph_state(kb, DB)
             calls_mid = len(trace)
+            stage_snaps: list[tuple[str, int, dict]] = []
+
+            def on_stage(stage: str, pass_num: int) -> None:
+                stage_snaps.append((stage, pass_num, graph_state(kb, DB)))
+
             await kb.import_text(
                 DB,
                 step.input_text,
@@ -203,18 +211,24 @@ async def run_case(kb: KBSource, case: Case, model: str, dedup_mode: str) -> Run
                 expand_schema=False,
                 on_tool_call=on_tool_call,
                 on_tool_result=on_tool_result,
+                on_stage=on_stage,
             )
-            after = await graph_state(kb, DB)
+            stages, prev = [], mid
+            for stage, pass_num, snap in stage_snaps:
+                stages.append({"stage": stage, "pass": pass_num, "added": added(prev, snap)})
+                prev = snap
+            after = graph_state(kb, DB)
             steps.append(StepResult(
                 input_text=step.input_text, queries=list(step.queries),
                 expansion_ran=case.expand_schema,
                 expansion_added=added(before, mid), extraction_added=added(mid, after),
                 expansion_tool_calls=calls_mid - calls_before, extraction_tool_calls=len(trace) - calls_mid,
+                extraction_stages=stages,
             ))
 
     kb.remove_change_hook(DB, collector)
     post_schema, post_data = await _snapshot(kb, DB)
-    final_state = await graph_state(kb, DB)
+    final_state = graph_state(kb, DB)
     return RunResult(
         case=case,
         model=model,

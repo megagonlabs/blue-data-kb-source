@@ -1754,3 +1754,21 @@ async def test_find_entity_reports_classes_and_other_same_named_entities(kb):
     by_company = await _dispatch(kb, "find_entity", {"name": "Apple", "class_id": company})
     assert (by_company["id"], by_company["classes"]) == (apple_inc, ["COMPANY"])
     assert "other_matches" not in by_company
+
+
+async def test_on_stage_reports_each_stage_in_order(kb):
+    person, skill = await _resume_schema(kb)
+    seen = []
+    responses = _mock_openai_sequence(
+        _tool_call_response("add_entity", {"name": "Alice Chen", "class_id": person}),
+        _text_response("done"),   # entities — SKILL left empty, so the gap stage runs
+        _text_response("done"),   # entity gaps
+        _text_response("done"),   # relations
+        _text_response("done"),   # fact properties
+        _text_response("done"),   # entity properties
+    )
+    with patch("openai.AsyncOpenAI", responses):
+        await kb.import_text("test", "Alice Chen knows SQL.", expand_schema=False,
+                             on_stage=lambda stage, pass_num: seen.append((stage, pass_num)))
+    assert seen == [("entities", 1), ("entity_gaps", 1), ("relations", 1),
+                    ("fact_properties", 1), ("entity_properties", 1)]

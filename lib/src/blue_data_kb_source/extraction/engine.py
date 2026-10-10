@@ -860,6 +860,7 @@ class ExtractionEngine:
         related_data_k: int = 10,
         effort: Literal["low", "medium", "high"] = "low",
         max_concurrency: int = 1,
+        on_stage: Callable[[str, int], None] | None = None,
     ) -> None:
         """Run the staged extraction pipeline: entities, then relations, then
         entity property values, then fact property values. Each stage is its
@@ -886,6 +887,11 @@ class ExtractionEngine:
         different topics) rather than one narrative that repeats the same
         entities throughout — a single unbroken block of text can't be split
         at all and always runs as one chunk regardless of `max_concurrency`.
+
+        `on_stage(stage, pass_num)`, if given, is called after each stage finishes
+        (stage is one of STAGES; the gap stage only when it runs), so a caller can see
+        what each stage added — the extraction benchmark snapshots the graph there. With
+        max_concurrency > 1 the chunks' stages interleave.
         """
         try:
             import openai
@@ -910,7 +916,7 @@ class ExtractionEngine:
                     database, client, chunk_text, queries, model, source_id,
                     on_tool_call, on_tool_result, max_turns, related_data_k,
                     pass_num=pass_num, total_passes=total_passes, write_lock=write_lock,
-                    carried=carried,
+                    carried=carried, on_stage=on_stage,
                 )
 
         await asyncio.gather(*(run_chunk(c) for c in chunks))
@@ -931,6 +937,7 @@ class ExtractionEngine:
         total_passes: int,
         write_lock: asyncio.Lock,
         carried: _ExtractionContext,
+        on_stage: Callable[[str, int], None] | None = None,
     ) -> None:
         """One full run of the staged pipeline over `text`.
 
@@ -980,6 +987,8 @@ class ExtractionEngine:
             ),
             text=text,
         )
+        if on_stage is not None:
+            on_stage(STAGE_ENTITIES, pass_num)
         entities = self._resolved_entities(database, entity_calls)
 
         # A class with zero instances is usually right, but it's also how a
@@ -1009,6 +1018,8 @@ class ExtractionEngine:
                 ),
                 text=text,
             )
+            if on_stage is not None:
+                on_stage(STAGE_ENTITY_GAPS, pass_num)
             # Re-resolved from both stages' calls rather than merged, so an entity
             # the gap stage attached another class to carries its current classes.
             entities = self._resolved_entities(database, entity_calls + gap_calls)
@@ -1022,6 +1033,8 @@ class ExtractionEngine:
             ),
             text=text,
         )
+        if on_stage is not None:
+            on_stage(STAGE_RELATIONS, pass_num)
         facts = self._resolved_facts(database, relation_calls)
         carried.extend("facts", facts)
 
@@ -1039,6 +1052,8 @@ class ExtractionEngine:
             ),
             text=text,
         )
+        if on_stage is not None:
+            on_stage(STAGE_FACT_PROPERTIES, pass_num)
         fact_properties = self._resolved_property_values(
             database, fact_property_calls, "add_fact_property_value"
         )
@@ -1055,6 +1070,8 @@ class ExtractionEngine:
             ),
             text=text,
         )
+        if on_stage is not None:
+            on_stage(STAGE_ENTITY_PROPERTIES, pass_num)
         carried.extend("entity_properties", self._resolved_property_values(
             database, entity_property_calls, "add_entity_property_value"
         ))

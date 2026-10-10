@@ -312,6 +312,43 @@ def check_domain_range_compliance(collector: CreationCollector, kb: Any, databas
     return result
 
 
+def _expected_label(kind: str, item: dict) -> str:
+    if kind == "entity":
+        return f"{item.get('name')} : {item.get('class', '?')}"
+    if kind == "fact":
+        return f"{item.get('head')} -{item.get('relation')}-> {item.get('tail')}"
+    return f"{item.get('owner')}.{item.get('name')} = {item.get('value')!r}"
+
+
+def _actual_label(kind: str, event: dict) -> str:
+    if kind == "entity":
+        return f"{event.get('name')} : {event.get('class_name') or '(untyped)'}"
+    if kind == "fact":
+        return f"{event.get('head_entity_name')} -{event.get('relation_name')}-> {event.get('tail_entity_name')}"
+    owner = event.get("entity_name") or event.get("fact_name") or event.get("name") or "?"
+    return f"{owner}.{event.get('property_name')} = {event.get('value')!r}"
+
+
+@dataclass
+class Alignment:
+    """Which expected items were matched (and to what), which are missing, which produced
+    items are extra — the per-item view behind one PRF1, for analysing a run (#134)."""
+
+    matched: list[tuple[str, str]] = field(default_factory=list)
+    missing: list[str] = field(default_factory=list)
+    extra: list[str] = field(default_factory=list)
+
+
+def _alignment(kind: str, expected: list[dict], actual: list[dict], matches: list[Match]) -> Alignment:
+    by_expected = {m.expected_index: m.actual_index for m in matches}
+    matched_actual = set(by_expected.values())
+    return Alignment(
+        matched=[(_expected_label(kind, expected[e]), _actual_label(kind, actual[a])) for e, a in sorted(by_expected.items())],
+        missing=[_expected_label(kind, e) for i, e in enumerate(expected) if i not in by_expected],
+        extra=[_actual_label(kind, a) for i, a in enumerate(actual) if i not in matched_actual],
+    )
+
+
 @dataclass
 class CaseScore:
     case_id: str
@@ -329,6 +366,7 @@ class CaseScore:
     prompt_tokens: int
     completion_tokens: int
     latency_seconds: float
+    alignment: dict[str, Alignment] = field(default_factory=dict)
 
 
 async def score_case(
@@ -372,4 +410,9 @@ async def score_case(
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         latency_seconds=latency_seconds,
+        alignment={
+            "entities": _alignment("entity", case.expected.entities, collector.entities, entity_matches),
+            "facts": _alignment("fact", case.expected.facts, collector.facts, fact_matches),
+            "properties": _alignment("property", case.expected.properties, actual_properties, prop_matches),
+        },
     )

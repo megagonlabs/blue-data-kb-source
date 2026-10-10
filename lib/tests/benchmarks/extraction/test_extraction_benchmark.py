@@ -14,7 +14,7 @@ import pytest
 
 from ..common import runner, scoring
 from ..common.cases import cassette_filename, case_mode_params, load_cases
-from ..common.reporting import render_table, write_detailed_log, write_json
+from ..common.reporting import render_table, write_detailed_log, write_json, write_markdown_report
 
 CASES_DIR = Path(__file__).parent / "cases"
 CASSETTE_DIR = Path(__file__).parent / "cassettes"
@@ -39,6 +39,7 @@ def _print_and_write_report():
         Console().print(render_table(_collected_scores))
         write_json(_collected_scores, REPORT_PATH)
         write_detailed_log(_collected_results, DETAIL_LOG_PATH)
+        write_markdown_report(_collected_results, _collected_scores, REPORT_PATH.with_suffix(".md"))
 
 
 @pytest.mark.parametrize("case_id,mode", _params, ids=[f"{c}-{m}" for c, m in _params])
