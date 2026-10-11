@@ -806,3 +806,89 @@ async def test_similar_names_at_scale_fail_into_the_report_not_the_graph(kb):
     names = {n["properties"]["name"] for n in kb.match_nodes("test", label=ENTITY)}
     assert "OUTPOST" not in names
     assert len(names) == 20
+
+
+# ------------------------------------------------------------------ #
+# Every judge runs before the first write (#126)                       #
+# ------------------------------------------------------------------ #
+
+_M = "blue_data_kb_source.ingestion.manager"
+
+
+def _graph(kb):
+    return {label: sorted(n["properties"].get("name", "") for n in kb.match_nodes("test", label=label))
+            for label in (CLASS, ENTITY, RELATION, PROPERTY, FACT, LITERAL)}
+
+
+def _fails_for(kind):
+    """judge_description that answers for everything except one kind of element."""
+    async def judge(name, context, model="gpt-4o"):
+        if f"a {kind} " in context:
+            raise RuntimeError("judge unavailable")
+        return f"description of {name}"
+    return judge
+
+
+async def _class_for(entity_name, text, listing, model="gpt-4o"):
+    return "PERSON" if entity_name in ("Alice", "Bob") else "COMPANY"
+
+
+async def test_assert_fact_writes_nothing_when_the_relation_judge_fails(kb):
+    with patch(f"{_M}.judge_class_name", _class_for), patch(f"{_M}.judge_description", _fails_for("relation")):
+        with pytest.raises(IngestionError, match="relation 'WORKED_AT'"):
+            await kb.assert_fact("test", "Alice", "WORKED_AT", "IBM")
+    assert _graph(kb) == {CLASS: [], ENTITY: [], RELATION: [], PROPERTY: [], FACT: [], LITERAL: []}
+
+
+async def test_assert_fact_writes_nothing_when_a_class_judge_fails(kb):
+    async def class_for(entity_name, text, listing, model="gpt-4o"):
+        if entity_name == "IBM":
+            raise RuntimeError("judge unavailable")
+        return "PERSON"
+    with patch(f"{_M}.judge_class_name", class_for), patch(f"{_M}.judge_description", _fails_for("nothing")):
+        with pytest.raises(IngestionError, match="judge_class_name"):
+            await kb.assert_fact("test", "Alice", "WORKED_AT", "IBM")
+    assert _graph(kb)[CLASS] == [] and _graph(kb)[ENTITY] == []
+
+
+async def test_assert_fact_creates_a_class_two_new_entities_share_once(kb):
+    with patch(f"{_M}.judge_class_name", _class_for), patch(f"{_M}.judge_description", _fails_for("nothing")):
+        await kb.assert_fact("test", "Alice", "KNOWS", "Bob")
+    assert _graph(kb)[CLASS] == ["PERSON"]
+    assert _graph(kb)[ENTITY] == ["Alice", "Bob"]
+
+
+async def test_assert_entity_property_writes_nothing_when_the_property_judge_fails(kb):
+    with patch(f"{_M}.judge_class_name", _class_for), patch(f"{_M}.judge_description", _fails_for("property")):
+        with pytest.raises(IngestionError, match="property 'AGE'"):
+            await kb.assert_entity_property("test", "Alice", "AGE", 30)
+    assert _graph(kb)[CLASS] == [] and _graph(kb)[ENTITY] == []
+
+
+async def test_assert_entity_property_writes_nothing_when_placement_fails(kb):
+    await kb.assert_entity("test", "Alice", "PERSON", schema_creation_mode="none")
+    await kb.assert_class("test", "EMPLOYEE", schema_creation_mode="none")
+    await kb.assert_subclass("test", "PERSON", "EMPLOYEE", schema_creation_mode="none")
+    before = _graph(kb)
+    placement = AsyncMock(side_effect=RuntimeError("judge unavailable"))
+    with patch(f"{_M}.judge_property_placement", placement), \
+         patch(f"{_M}.judge_description", _fails_for("nothing")):
+        with pytest.raises(IngestionError, match="judge_property_placement"):
+            await kb.assert_entity_property("test", "Alice", "AGE", 30)
+    assert _graph(kb) == before
+
+
+async def test_assert_entity_property_on_a_new_entity_places_the_property_on_its_new_class(kb):
+    with patch(f"{_M}.judge_class_name", _class_for), patch(f"{_M}.judge_description", _fails_for("nothing")):
+        result = await kb.assert_entity_property("test", "Alice", "AGE", 30)
+    person = next(c for c in _classes(kb) if c["properties"]["name"] == "PERSON")
+    owned = [nb["node"]["properties"]["name"]
+             for nb in kb.get_neighbors("test", person["id"], edge_type=DEFINE_PROPERTY, direction="out")]
+    assert owned == ["AGE"] and result.created
+
+
+async def test_assert_fact_property_writes_nothing_when_the_property_judge_fails(kb):
+    with patch(f"{_M}.judge_class_name", _class_for), patch(f"{_M}.judge_description", _fails_for("property")):
+        with pytest.raises(IngestionError, match="property 'START_DATE'"):
+            await kb.assert_fact_property("test", "Alice", "WORKED_AT", "IBM", "START_DATE", "1998")
+    assert _graph(kb) == {CLASS: [], ENTITY: [], RELATION: [], PROPERTY: [], FACT: [], LITERAL: []}
