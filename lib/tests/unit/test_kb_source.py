@@ -1,3 +1,6 @@
+import os
+
+import pytest
 from blue_data.source.vector.memory_vector_source import MemoryVectorSource
 
 from blue_data_kb_source import MemoryKBSource
@@ -303,3 +306,25 @@ def test_neo4j_overwrite_never_drops_the_physical_database():
         neo.create_database("main", overwrite=True)
     assert not any("DROP" in q.upper() for q in queries)
     assert any("DETACH DELETE" in q for q in queries)
+
+
+# ------------------------------------------------------------------ #
+# Metadata and stats count one database only (#136)                    #
+# ------------------------------------------------------------------ #
+
+async def test_database_metadata_and_stats_count_only_that_database(kb):
+    await kb.declare_class("test", "SECRET_A", "Belongs to test")
+    kb.create_database("other")
+    assert kb.fetch_database_metadata("other")["node_count"] == 0
+    assert kb.fetch_database_stats("other")["node_count"] == 0
+    assert kb.fetch_database_metadata("test")["node_count"] >= 1
+
+
+@pytest.mark.skipif(os.environ.get("KB_TEST_BACKEND") != "neo4j", reason="raw Cypher is Neo4j-only")
+async def test_raw_cypher_gets_the_logical_database_as_db(kb):
+    await kb.declare_class("test", "SECRET_A", "Belongs to test")
+    kb.create_database("other")
+    rows = kb.execute_query("MATCH (n:CLASS {_kb_db: $db}) RETURN n.name AS name", database="other")
+    assert rows == []
+    rows = kb.execute_query("MATCH (n:CLASS {_kb_db: $db}) RETURN n.name AS name", database="test")
+    assert [r["name"] for r in rows] == ["SECRET_A"]

@@ -102,6 +102,25 @@ class NEO4JKBSource(KBSource, NEO4JSource):
         """
         return self.properties["connection"]["database"]
 
+    def fetch_database_metadata(self, database, transaction_id=None):
+        """Node and relationship counts for one logical KB database.
+
+        NEO4JSource counts everything in the physical database, which here holds
+        every logical KB database, so one KB database reported another's nodes (#136).
+        fetch_database_stats reads its counts from here.
+        """
+        nodes = self._q(f"MATCH (n {{{_DB}: $db}}) RETURN count(n) AS cnt", database, {},
+                        read=True, transaction_id=transaction_id)
+        rels = self._q(f"MATCH (n {{{_DB}: $db}})-[r]->() RETURN count(r) AS cnt", database, {},
+                       read=True, transaction_id=transaction_id)
+        total_nodes = nodes[0]["cnt"] if nodes else 0
+        total_rels = rels[0]["cnt"] if rels else 0
+        return {
+            "description": f"KB database '{database}' with {total_nodes} nodes and {total_rels} relationships",
+            "node_count": total_nodes,
+            "relationship_count": total_rels,
+        }
+
     def create_database(self, database, properties=None, overwrite=False):
         """Make sure the physical database exists; with `overwrite`, empty the logical one.
 
@@ -288,9 +307,17 @@ class NEO4JKBSource(KBSource, NEO4JSource):
         NEO4JSource's raw-Cypher execute_query. The dict dispatcher is GraphSource's, so
         route those there; it calls this class's own primitives. A Cypher string is
         still accepted and runs as raw Cypher, for callers that want the native API.
+
+        Raw Cypher sees the whole physical database — every logical KB database in it,
+        and the internal `_id`/`_kb_db` properties — since it can't be scoped for the
+        caller (#136). The logical database name is passed as `$db`, so a query stays
+        within one KB database by matching on it: `MATCH (n {_kb_db: $db}) ...`.
         """
         if isinstance(query, str):
-            return NEO4JSource.execute_query(self, query, database, collection, optional_properties)
+            props = dict(optional_properties or {})
+            if database is not None:
+                props["params"] = {"db": database, **(props.get("params") or {})}
+            return NEO4JSource.execute_query(self, query, database, collection, props)
         op = (query.get("op") or "").upper() if isinstance(query, dict) else ""
         if op.startswith("GRAPH."):
             return GraphSource.execute_query(self, query, database, collection, optional_properties)
