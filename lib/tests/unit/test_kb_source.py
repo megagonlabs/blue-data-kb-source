@@ -265,3 +265,41 @@ def test_execute_query_extraction_ops_forward_confidence_and_type(kb):
         props = kb.get_node("test", ext_id)["properties"]
         assert props["confidence"] == 0.42, case["op"]
         assert props["extraction_type"] == "assertion", case["op"]
+
+
+# ------------------------------------------------------------------ #
+# create_database(overwrite=True) empties only that database (#137)    #
+# ------------------------------------------------------------------ #
+
+async def test_overwrite_empties_only_the_named_database(kb):
+    person = await kb.declare_class("test", "PERSON", "A person")
+    await kb.add_entity("test", "Alice", class_id=person)
+    kb.create_database("other")
+    other_person = await kb.declare_class("other", "PERSON", "A person")
+    await kb.add_entity("other", "Bob", class_id=other_person)
+
+    kb.create_database("test", overwrite=True)
+
+    assert kb.match_nodes("test") == []
+    assert [n["properties"]["name"] for n in kb.match_nodes("other", label="ENTITY")] == ["Bob"]
+
+
+def test_neo4j_overwrite_never_drops_the_physical_database():
+    """On Enterprise, NEO4JSource's DROP DATABASE would name the one physical
+    database every logical KB database lives in."""
+    from unittest.mock import MagicMock, patch
+
+    import blue_data.source.graph.neo4j.neo4j_graph_source as ngs
+    from blue_data_kb_source.neo4j.neo4j_kb_source import NEO4JKBSource
+
+    with patch.object(ngs.GraphDatabase, "driver", return_value=MagicMock()):
+        neo = NEO4JKBSource("kb", properties={"connection": {"password": "unused"}})
+    queries = []
+
+    def run(query, database=None, params=None, read=False, transaction_id=None):
+        queries.append(query)
+        return [{"name": "neo4j"}] if query.startswith("SHOW DATABASES") else []
+    with patch.object(neo, "_run_query", side_effect=run):
+        neo.create_database("main", overwrite=True)
+    assert not any("DROP" in q.upper() for q in queries)
+    assert any("DETACH DELETE" in q for q in queries)

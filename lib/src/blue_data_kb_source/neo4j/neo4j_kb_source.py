@@ -102,6 +102,21 @@ class NEO4JKBSource(KBSource, NEO4JSource):
         """
         return self.properties["connection"]["database"]
 
+    def create_database(self, database, properties=None, overwrite=False):
+        """Make sure the physical database exists; with `overwrite`, empty the logical one.
+
+        NEO4JSource's version answers `overwrite=True` with `DROP DATABASE` — and with
+        `_override_database` that names the shared physical database, which on
+        Enterprise would drop every logical KB database in it, not just *database*
+        (#137). Here the physical database is never dropped; overwriting deletes only
+        the nodes tagged with *database*.
+        """
+        result = super().create_database(database, properties=properties, overwrite=False)
+        if overwrite:
+            self._q(f"MATCH (n {{{_DB}: $db}}) DETACH DELETE n", database, {}, read=False, transaction_id=None)
+            return {"status": "success"}
+        return result
+
     # ------------------------------------------------------------------ #
     # helpers                                                              #
     # ------------------------------------------------------------------ #
