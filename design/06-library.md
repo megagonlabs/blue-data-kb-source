@@ -86,11 +86,11 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 |--------|---------|-------------|
 | `declare_class(database, name, description, class_id?)` | `str` | Declare a CLASS node (idempotent); `name` is canonicalized to `UPPER_SNAKE_CASE` |
 | `declare_relation_type(database, name, description, is_symmetric?, relation_id?, *, domain, range)` | `str` | Declare a RELATION node; `domain`/`range` are required (keyword-only); wires DOMAIN/RANGE edges inline; `name` and every `domain`/`range` class name are canonicalized to `UPPER_SNAKE_CASE`. `IS_SUBCLASS_OF`/`IS_INSTANCE_OF` are reserved for the KB's own structural edges and raise `SchemaError` |
-| `declare_class_property(database, name, description, property_id?, class_id?)` | `str` | Declare a PROPERTY node; wires DEFINE_PROPERTY from a class; `name` is canonicalized to `UPPER_SNAKE_CASE` |
-| `declare_relation_property(database, name, description, property_id?, relation_id?)` | `str` | Declare a PROPERTY node; wires DEFINE_PROPERTY from a relation; `name` is canonicalized to `UPPER_SNAKE_CASE` |
+| `declare_class_property(database, name, description, property_id?, class_id?, literal_type?)` | `str` | Declare a PROPERTY node; wires DEFINE_PROPERTY from a class; `name` is canonicalized to `UPPER_SNAKE_CASE` |
+| `declare_relation_property(database, name, description, property_id?, relation_id?, literal_type?)` | `str` | Declare a PROPERTY node; wires DEFINE_PROPERTY from a relation; `name` is canonicalized to `UPPER_SNAKE_CASE` |
 | `update_class(database, class_id, name?, description?)` | `None` | Update a CLASS node's name/description; not idempotent. A new name follows `declare_*`'s rules: canonicalized to UPPER_SNAKE_CASE, and `SchemaError` if it's taken by another node of the same kind (for a property, by another property of the same owner) or, for a relation, reserved (`IS_SUBCLASS_OF`, `IS_INSTANCE_OF`) |
 | `update_relation(database, relation_id, name?, description?)` | `None` | Update a RELATION node |
-| `update_property(database, property_id, name?, description?)` | `None` | Update a PROPERTY node |
+| `update_property(database, property_id, name?, description?, literal_type?)` | `None` | Update a PROPERTY node; `literal_type` (NUMBER/DATE/BOOLEAN/STRING) is the type of value it holds, enforced on every value written to it (ADR-035) |
 | `delete_class(database, class_id)` | `None` | Delete a CLASS node |
 | `delete_relation(database, relation_id)` | `None` | Delete a RELATION node |
 | `delete_property(database, property_id)` | `None` | Delete a PROPERTY node |

@@ -165,7 +165,8 @@ Returns `{"id": "..."}`.
 #### `declare_class_property` / `declare_relation_property`
 
 Same shape: `name`, `description`, `class_id`/`relation_id` (optional owner),
-`database`, `property_id`. Returns `{"id": "..."}`.
+`database`, `property_id`, `literal_type` (optional: `NUMBER`, `DATE`, `BOOLEAN` or
+`STRING`; a value that doesn't fit is then refused). Returns `{"id": "..."}`.
 
 #### `add_is_subclass_of`
 

@@ -99,13 +99,13 @@ def _md_added(added: dict[str, list[str]], indent: str = "") -> list[str]:
 def _md_seed(seed: dict) -> list[str]:
     lines = []
     for c in seed.get("classes", []):
-        props = ", ".join(p["name"] for p in c.get("properties", []))
+        props = ", ".join(p["name"] + (f": {p['type']}" if p.get("type") else "") for p in c.get("properties", []))
         parent = f" ⊂ {c['parent']}" if c.get("parent") else ""
         lines.append(f"- class `{c['name']}{parent}`" + (f" — properties: {props}" if props else ""))
     for r in seed.get("relations", []):
         dom = r.get("domain") if isinstance(r.get("domain"), str) else "|".join(r.get("domain") or [])
         rng = r.get("range") if isinstance(r.get("range"), str) else "|".join(r.get("range") or [])
-        props = ", ".join(p["name"] for p in r.get("properties", []))
+        props = ", ".join(p["name"] + (f": {p['type']}" if p.get("type") else "") for p in r.get("properties", []))
         lines.append(f"- relation `{dom} -{r['name']}-> {rng}`" + (f" — properties: {props}" if props else ""))
     return lines or ["- _(empty — everything comes from schema expansion)_"]
 

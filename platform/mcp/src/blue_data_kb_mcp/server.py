@@ -153,6 +153,7 @@ async def declare_class_property(
     class_id: Optional[str] = None,
     database: str = "default",
     property_id: Optional[str] = None,
+    literal_type: Optional[str] = None,
 ) -> str:
     """Declare a property on a class. Idempotent per (class_id, name).
 
@@ -163,9 +164,12 @@ async def declare_class_property(
                      a free-standing property not yet wired to a class).
         database:    Target database (default 'default').
         property_id: Id to use if creating a new node (optional).
+        literal_type: Type of value it holds — NUMBER, DATE, BOOLEAN or STRING (optional);
+                     a value that doesn't fit is then refused.
     """
     try:
-        pid = await get_kb().declare_class_property(database, name, description, property_id, class_id)
+        pid = await get_kb().declare_class_property(database, name, description, property_id, class_id,
+                                  literal_type=literal_type)
         return _ok({"id": pid})
     except Exception as e:
         return _err(e)
@@ -178,6 +182,7 @@ async def declare_relation_property(
     relation_id: Optional[str] = None,
     database: str = "default",
     property_id: Optional[str] = None,
+    literal_type: Optional[str] = None,
 ) -> str:
     """Declare a property on a relation. Idempotent per (relation_id, name).
 
@@ -187,9 +192,12 @@ async def declare_relation_property(
         relation_id: Id of the relation this property belongs to (optional).
         database:    Target database (default 'default').
         property_id: Id to use if creating a new node (optional).
+        literal_type: Type of value it holds — NUMBER, DATE, BOOLEAN or STRING (optional);
+                     a value that doesn't fit is then refused.
     """
     try:
-        pid = await get_kb().declare_relation_property(database, name, description, property_id, relation_id)
+        pid = await get_kb().declare_relation_property(database, name, description, property_id, relation_id,
+                                  literal_type=literal_type)
         return _ok({"id": pid})
     except Exception as e:
         return _err(e)

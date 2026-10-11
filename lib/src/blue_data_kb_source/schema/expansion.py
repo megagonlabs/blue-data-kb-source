@@ -84,8 +84,10 @@ _SCHEMA_TOOLS: list[dict[str, Any]] = [
                     "class_id": {"type": "string"},
                     "name": {"type": "string", "description": "Property name e.g. AGE"},
                     "description": {"type": "string"},
+                    "literal_type": {"type": "string", "enum": ["NUMBER", "DATE", "BOOLEAN", "STRING"],
+                                     "description": "The kind of value it holds: NUMBER (an age, a count, an amount), DATE, BOOLEAN, or STRING for text. Values that don't fit are refused at extraction."},
                 },
-                "required": ["class_id", "name", "description"],
+                "required": ["class_id", "name", "description", "literal_type"],
             },
         },
     },
@@ -125,8 +127,10 @@ _SCHEMA_TOOLS: list[dict[str, Any]] = [
                     "relation_id": {"type": "string"},
                     "name": {"type": "string", "description": "Property name e.g. START_DATE"},
                     "description": {"type": "string"},
+                    "literal_type": {"type": "string", "enum": ["NUMBER", "DATE", "BOOLEAN", "STRING"],
+                                     "description": "The kind of value it holds: NUMBER (an age, a count, an amount), DATE, BOOLEAN, or STRING for text. Values that don't fit are refused at extraction."},
                 },
-                "required": ["relation_id", "name", "description"],
+                "required": ["relation_id", "name", "description", "literal_type"],
             },
         },
     },
@@ -191,7 +195,8 @@ You are a knowledge base (KB) schema expansion agent.
 The KB stores:
   CLASS     — category of entities (e.g. PERSON, COMPANY)
   RELATION  — type of relationship between two entities (e.g. WORKED_AT, LIVES_IN)
-  PROPERTY  — attribute of a class or relation (e.g. AGE, START_DATE)
+  PROPERTY  — attribute of a class or relation (e.g. AGE, START_DATE), with the type of
+              value it holds: NUMBER, DATE, BOOLEAN or STRING
 
 Your job is only to grow the schema — the CLASS/RELATION/PROPERTY *types* — never
 the specific entities, facts, or property values that instantiate them. Those are
@@ -665,7 +670,8 @@ class SchemaExpansionEngine:
             if verdict is not None:
                 return verdict
             pid = await self._schema.declare_class_property(
-                database, name=args["name"], description=args["description"], class_id=args["class_id"]
+                database, name=args["name"], description=args["description"], class_id=args["class_id"],
+                literal_type=args.get("literal_type"),
             )
             return {"id": pid}
 
@@ -703,6 +709,7 @@ class SchemaExpansionEngine:
                 name=args["name"],
                 description=args["description"],
                 relation_id=args["relation_id"],
+                literal_type=args.get("literal_type"),
             )
             return {"id": pid}
 

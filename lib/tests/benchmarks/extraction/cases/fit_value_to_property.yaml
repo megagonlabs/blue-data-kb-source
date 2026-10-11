@@ -1,0 +1,39 @@
+id: fit_value_to_property
+category: properties_normalization
+description: >
+  The #95 failure: the schema declares PERSON.AGE, COMPANY.INDUSTRY and WORKED_AT.ROLE,
+  and the text states a role and a start date but no age and no industry. gpt-4o-mini
+  put the job title, and the start date, into AGE, and a skill into INDUSTRY. AGE is a
+  NUMBER, so neither fits; nothing should be written for AGE or INDUSTRY.
+seed_schema:
+  classes:
+    - name: PERSON
+      description: "A human individual"
+      properties:
+        - {name: AGE, description: "Age in years", type: NUMBER}
+    - name: COMPANY
+      description: "A business organization"
+      properties:
+        - {name: INDUSTRY, description: "The sector the company operates in", type: STRING}
+  relations:
+    - name: WORKED_AT
+      description: "Employment relationship"
+      domain: PERSON
+      range: COMPANY
+      properties:
+        - {name: START_DATE, description: "When the employment began", type: DATE}
+        - {name: ROLE, description: "The job title held", type: STRING}
+expand_schema: false
+input_text: >
+  Alice Chen — Senior Project Manager at Contoso since March 2019. Leads project
+  management for the payments platform.
+dedup_modes: [search]
+expected:
+  entities:
+    - {name: Alice Chen, class: PERSON}
+    - {name: Contoso, class: COMPANY}
+  facts:
+    - {head: Alice Chen, relation: WORKED_AT, tail: Contoso}
+  properties:
+    - {owner: "WORKED_AT fact between Alice Chen and Contoso", name: START_DATE, value: "2019-03", literal_type: DATE}
+    - {owner: "WORKED_AT fact between Alice Chen and Contoso", name: ROLE, value: "Senior Project Manager"}

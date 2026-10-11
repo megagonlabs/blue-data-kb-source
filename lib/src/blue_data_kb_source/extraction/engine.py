@@ -498,7 +498,16 @@ rather than an entity has already been handled — the list above shows what
 the fact stage took, and none of it should be re-attached here. Second, only
 extract a value the text actually states about the entity itself: never infer
 one from world knowledge, from the entity's name, or from what is typical. If
-the text does not state it, skip it.\
+the text does not state it, skip it.
+
+A PROPERTY holds one kind of value: its description says what, and a typed
+property says which type (literal_type NUMBER, DATE, BOOLEAN or STRING; get_schema
+shows it as number/date/boolean/string). Attach a value only when it is that kind
+of thing — a job title is not an AGE, a role is not an INDUSTRY. If the text gives
+no value of that kind, skip the property rather than fill it with the nearest thing.
+Give a NUMBER as a plain number ("twelve hundred" → 1200, "$42.5 million" →
+42500000) and a DATE as an ISO date ("June 1998" → 1998-06); a value that doesn't
+fit its property's type is refused.\
 """,
     STAGE_FACT_PROPERTIES: """\
 Stage: fact property extraction. Entities and facts were both already
@@ -522,7 +531,16 @@ A value that describes the relationship belongs here — when it began, how
 long it ran, what it was worth, what role it was held under. A value that
 describes one of the entities on its own — an age, a nationality, a founding
 year — does not; leave it, the next stage attaches those. The entity list is
-here to help you tell the two apart, not to attach values to.\
+here to help you tell the two apart, not to attach values to.
+
+A PROPERTY holds one kind of value: its description says what, and a typed
+property says which type (literal_type NUMBER, DATE, BOOLEAN or STRING; get_schema
+shows it as number/date/boolean/string). Attach a value only when it is that kind
+of thing — a job title is not an AGE, a role is not an INDUSTRY. If the text gives
+no value of that kind, skip the property rather than fill it with the nearest thing.
+Give a NUMBER as a plain number ("twelve hundred" → 1200, "$42.5 million" →
+42500000) and a DATE as an ISO date ("June 1998" → 1998-06); a value that doesn't
+fit its property's type is refused.\
 """,
 }
 
@@ -1337,6 +1355,17 @@ class ExtractionEngine:
         node = await self._schema.find_property(database, name)
         return node["id"] if node else None
 
+    def _schema_element(self, database: str, r: Any) -> dict[str, Any]:
+        """A search hit as the agent sees it; a PROPERTY also shows the type of value
+        it holds, when it declares one (#95)."""
+        element = {"id": r.id, "type": r.type, "name": r.name, "description": r.description}
+        if r.type == PROPERTY:
+            literal_type = ((self._source.get_node(database, r.id) or {}).get("properties", {})
+                            .get("literal_type"))
+            if literal_type:
+                element["literal_type"] = literal_type
+        return element
+
     def _owner_properties(self, database: str, owner_id: str) -> list[dict[str, Any]]:
         """PROPERTY nodes declared for an ENTITY's classes or a FACT's relation."""
         owner = self._source.get_node(database, owner_id)
@@ -1575,10 +1604,7 @@ class ExtractionEngine:
                 )
             else:
                 results = await self._schema.find_schema(database, args["query"], type_filter=type_filter)
-            return {"schema_elements": [
-                {"id": r.id, "type": r.type, "name": r.name, "description": r.description}
-                for r in results
-            ]}
+            return {"schema_elements": [self._schema_element(database, r) for r in results]}
 
         if fn == "find_class":
             node = await self._schema.find_class(database, args["name"])

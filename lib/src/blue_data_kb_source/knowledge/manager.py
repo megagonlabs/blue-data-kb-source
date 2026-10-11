@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Any, Callable, Literal
 
@@ -53,6 +54,10 @@ if TYPE_CHECKING:
     from blue_data_kb_source.provenance.tracker import ProvenanceTracker
     from blue_data_kb_source.schema.manager import SchemaManager
     from blue_data_kb_source.search.indexer import KBSearchIndexer
+
+
+# A DATE value as stored: an ISO date (`YYYY`, `YYYY-MM`, `YYYY-MM-DD`), optionally with a time.
+_ISO_DATE_VALUE = re.compile(r"^\d{4}(-\d{2}(-\d{2}([T ][0-9:.+\-Z]*)?)?)?$")
 
 
 class KnowledgeManager:
@@ -251,10 +256,17 @@ class KnowledgeManager:
         property_id: str | None = None,
         node_id: str | None = None,
     ) -> str:
+        declared = None
         if property_id is not None:
-            require_node_type(self._source, database, property_id, PROPERTY, "property_id", KnowledgeError)
+            prop = require_node_type(self._source, database, property_id, PROPERTY, "property_id", KnowledgeError)
+            declared = (prop or {}).get("properties", {}).get("literal_type")
         if name is None:
             name = str(value)
+        if declared:
+            # The property's declared type wins, and the value must fit it: a job title
+            # in AGE used to be written because AGE was declared on the owner's class (#95).
+            return await self._add_typed_literal(database, value, name, description, declared,
+                                                 property_id, node_id)
         if literal_type is None:
             # bool must be checked before int (bool is a subclass of int)
             if isinstance(value, bool):
@@ -278,6 +290,37 @@ class KnowledgeManager:
         )
         if property_id is not None:
             self._source.add_edge(database, lid, IS_VALUE_OF, property_id, properties=edge_stamped())
+        return lid
+
+    def _fit_declared_type(self, database: str, property_id: str, value: Any, declared: str) -> Any:
+        """*value* cast to the property's declared type, or KnowledgeError saying it doesn't fit (#95)."""
+        try:
+            cast = cast_literal_value(value, declared)
+        except KnowledgeError:
+            cast = None
+        if cast is None or (declared == "DATE" and not _ISO_DATE_VALUE.match(str(cast))):
+            raise KnowledgeError(
+                f"value {value!r} does not fit {self._node_name(database, property_id)}, which holds a {declared}"
+                + {"NUMBER": " (give a plain number, e.g. 1200 or 42500000)",
+                   "DATE": " (give an ISO date: YYYY, YYYY-MM or YYYY-MM-DD)",
+                   "BOOLEAN": " (true or false)"}.get(declared, "")
+            )
+        return cast
+
+    def _declared_type(self, database: str, property_id: str) -> str | None:
+        return ((self._source.get_node(database, property_id) or {}).get("properties", {})
+                .get("literal_type"))
+
+    async def _add_typed_literal(self, database, value, name, description, declared, property_id, node_id) -> str:
+        cast = self._fit_declared_type(database, property_id, value, declared)
+        require_free_id(self._source, database, node_id, "node_id", KnowledgeError)
+        lid = self._source.add_node(
+            database,
+            LITERAL,
+            stamped({"name": name, "description": description, "value": cast, "type": declared}),
+            node_id=node_id,
+        )
+        self._source.add_edge(database, lid, IS_VALUE_OF, property_id, properties=edge_stamped())
         return lid
 
     async def add_entity_property_value(
@@ -558,7 +601,12 @@ class KnowledgeManager:
             raise KnowledgeError("No property value found for the given entity and property.")
         props: dict = {}
         if value is not None:
-            props["value"] = value
+            declared = self._declared_type(database, property_id)
+            if declared:
+                props["value"] = self._fit_declared_type(database, property_id, value, declared)
+                props["type"] = declared
+            else:
+                props["value"] = value
             if name is None:
                 props["name"] = str(value)
         if name is not None:
@@ -587,7 +635,12 @@ class KnowledgeManager:
             raise KnowledgeError("No property value found for the given fact and property.")
         props: dict = {}
         if value is not None:
-            props["value"] = value
+            declared = self._declared_type(database, property_id)
+            if declared:
+                props["value"] = self._fit_declared_type(database, property_id, value, declared)
+                props["type"] = declared
+            else:
+                props["value"] = value
             if name is None:
                 props["name"] = str(value)
         if name is not None:

@@ -44,6 +44,25 @@ if TYPE_CHECKING:
 _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z])(?=[A-Z])|(?<=[0-9])(?=[A-Z][a-z])")
 _NON_ALNUM_RUN = re.compile(r"[^0-9A-Za-z]+")
 
+# A property may declare the type of value it holds (#95). Untyped properties keep
+# rendering as "str", as every property did before types existed.
+LITERAL_TYPES = ("NUMBER", "DATE", "BOOLEAN", "STRING")
+_TYPE_DISPLAY = {"NUMBER": "number", "DATE": "date", "BOOLEAN": "boolean", "STRING": "string"}
+_TYPE_FROM_DISPLAY = {v: k for k, v in _TYPE_DISPLAY.items()}
+
+
+def _checked_literal_type(literal_type: str | None) -> str | None:
+    if literal_type is None:
+        return None
+    upper = str(literal_type).strip().upper()
+    if upper not in LITERAL_TYPES:
+        raise SchemaError(f"literal_type must be one of {', '.join(LITERAL_TYPES)}, got {literal_type!r}")
+    return upper
+
+
+def _display_type(prop: dict) -> str:
+    return _TYPE_DISPLAY.get(prop.get("literal_type") or "", "str")
+
 
 # Merge fires the same change events an ordinary declare/update/delete fires,
 # so the search indexer rebuilds the entries naming a merged element instead of
@@ -306,22 +325,27 @@ class SchemaManager:
         description: str,
         property_id: str | None = None,
         class_id: str | None = None,
+        literal_type: str | None = None,
     ) -> str:
         name = _canonicalize_schema_name(name)
+        literal_type = _checked_literal_type(literal_type)
         if class_id is not None:
             require_node_type(self._source, database, class_id, CLASS, "class_id", SchemaError)
             for nb in self._source.get_neighbors(database, class_id, edge_type=DEFINE_PROPERTY, direction="out"):
                 if nb["node"].get("properties", {}).get("name") == name:
-                    return nb["node"]["id"]
+                    return self._typed_if_untyped(database, nb["node"], literal_type)
         else:
             node = await self.find_property(database, name)
             if node:
-                return node["id"]
+                return self._typed_if_untyped(database, node, literal_type)
         require_free_id(self._source, database, property_id, "property_id", SchemaError)
+        props = {"name": name, "description": description}
+        if literal_type is not None:
+            props["literal_type"] = literal_type
         node_id = self._source.add_node(
             database,
             PROPERTY,
-            stamped({"name": name, "description": description}),
+            stamped(props),
             node_id=property_id,
         )
         if class_id is not None:
@@ -331,7 +355,7 @@ class SchemaManager:
             if class_id is not None else None
         )
         self._fire({"type": "class_property_declared", "database": database, "id": node_id,
-                    "name": name, "description": description,
+                    "name": name, "description": description, "literal_type": literal_type,
                     "class_id": class_id, "class_name": class_name})
         return node_id
 
@@ -342,22 +366,27 @@ class SchemaManager:
         description: str,
         property_id: str | None = None,
         relation_id: str | None = None,
+        literal_type: str | None = None,
     ) -> str:
         name = _canonicalize_schema_name(name)
+        literal_type = _checked_literal_type(literal_type)
         if relation_id is not None:
             require_node_type(self._source, database, relation_id, RELATION, "relation_id", SchemaError)
             for nb in self._source.get_neighbors(database, relation_id, edge_type=DEFINE_PROPERTY, direction="out"):
                 if nb["node"].get("properties", {}).get("name") == name:
-                    return nb["node"]["id"]
+                    return self._typed_if_untyped(database, nb["node"], literal_type)
         else:
             node = await self.find_property(database, name)
             if node:
-                return node["id"]
+                return self._typed_if_untyped(database, node, literal_type)
         require_free_id(self._source, database, property_id, "property_id", SchemaError)
+        props = {"name": name, "description": description}
+        if literal_type is not None:
+            props["literal_type"] = literal_type
         node_id = self._source.add_node(
             database,
             PROPERTY,
-            stamped({"name": name, "description": description}),
+            stamped(props),
             node_id=property_id,
         )
         if relation_id is not None:
@@ -367,9 +396,17 @@ class SchemaManager:
             if relation_id is not None else None
         )
         self._fire({"type": "relation_property_declared", "database": database, "id": node_id,
-                    "name": name, "description": description,
+                    "name": name, "description": description, "literal_type": literal_type,
                     "relation_id": relation_id, "relation_name": relation_name})
         return node_id
+
+    def _typed_if_untyped(self, database: str, node: dict, literal_type: str | None) -> str:
+        """An existing property re-declared with a type takes it if it had none; a type
+        it already has is kept (re-declaring stays idempotent, never retypes)."""
+        if literal_type is not None and not node.get("properties", {}).get("literal_type"):
+            self._source.update_node(database, node["id"], touched({"literal_type": literal_type}))
+            self._fire({"type": "property_updated", "database": database, "id": node["id"]})
+        return node["id"]
 
     async def attach_property(self, database: str, target_id: str, property_id: str) -> None:
         """Attach an existing PROPERTY to a CLASS or RELATION via DEFINE_PROPERTY (idempotent).
@@ -428,13 +465,15 @@ class SchemaManager:
         property_id: str,
         name: str | None = None,
         description: str | None = None,
+        literal_type: str | None = None,
     ) -> None:
         require_node_type(self._source, database, property_id, PROPERTY, "property_id", SchemaError)
         if name is not None:
             name = self._checked_name(database, property_id, PROPERTY, name)
-        props = {k: v for k, v in {"name": name, "description": description}.items() if v is not None}
+        props = {k: v for k, v in {"name": name, "description": description,
+                                   "literal_type": _checked_literal_type(literal_type)}.items() if v is not None}
         if not props:
-            raise SchemaError("At least one of name or description must be provided.")
+            raise SchemaError("At least one of name, description or literal_type must be provided.")
         self._source.update_node(database, property_id, touched(props))
         self._fire({"type": "property_updated", "database": database, "id": property_id})
 
@@ -826,7 +865,7 @@ class SchemaManager:
                 schema.add_entity_attribute(
                     class_name,
                     p.get("name", nb["node"]["id"]),
-                    "str",
+                    _display_type(p),
                     description=p.get("description", ""),
                 )
 
@@ -862,7 +901,7 @@ class SchemaManager:
                         schema.add_relation_attribute(
                             rel_key,
                             p.get("name", prop_node["id"]),
-                            "str",
+                            _display_type(p),
                             description=p.get("description", ""),
                         )
 
@@ -895,6 +934,7 @@ class SchemaManager:
                     name=attr_name,
                     description=attr_obj.get("description", "") if isinstance(attr_obj, dict) else "",
                     class_id=class_id,
+                    literal_type=_TYPE_FROM_DISPLAY.get(attr_obj.get("info")) if isinstance(attr_obj, dict) else None,
                 )
 
         rel_data: dict[str, dict] = {}
@@ -931,6 +971,7 @@ class SchemaManager:
                     name=attr_name,
                     description=attr_obj.get("description", "") if isinstance(attr_obj, dict) else "",
                     relation_id=relation_id,
+                    literal_type=_TYPE_FROM_DISPLAY.get(attr_obj.get("info")) if isinstance(attr_obj, dict) else None,
                 )
 
         # Wired last, once every class and relation exists. A child name that is a

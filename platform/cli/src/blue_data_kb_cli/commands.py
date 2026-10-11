@@ -920,7 +920,7 @@ def schema_list(obj: dict, fmt: str) -> None:
 
     # ---- Class Properties ----
     class_props = [
-        (entity["name"], attr_name, attr.get("description", ""))
+        (entity["name"], attr_name, attr.get("info", ""), attr.get("description", ""))
         for entity in schema.entities.values()
         for attr_name, attr in entity.get("contents", {}).get("attributes", {}).items()
     ]
@@ -928,6 +928,7 @@ def schema_list(obj: dict, fmt: str) -> None:
         t = Table(title="Class Properties", show_header=True, header_style="bold")
         t.add_column("Class",       style="bold", min_width=12)
         t.add_column("Property",    style="bold", min_width=12)
+        t.add_column("Type",        style="dim")
         t.add_column("Description")
         for row in sorted(class_props):
             t.add_row(*row)
@@ -960,7 +961,7 @@ def schema_list(obj: dict, fmt: str) -> None:
 
     # ---- Relation Properties ----
     rel_props = [
-        (rel["name"], attr_name, attr.get("description", ""))
+        (rel["name"], attr_name, attr.get("info", ""), attr.get("description", ""))
         for rel in real_relations.values()
         for attr_name, attr in rel.get("contents", {}).get("attributes", {}).items()
     ]
@@ -968,6 +969,7 @@ def schema_list(obj: dict, fmt: str) -> None:
         t = Table(title="Relation Properties", show_header=True, header_style="bold")
         t.add_column("Relation", style="bold", min_width=12)
         t.add_column("Property", style="bold", min_width=12)
+        t.add_column("Type",     style="dim")
         t.add_column("Description")
         for row in sorted(rel_props):
             t.add_row(*row)
@@ -1312,9 +1314,12 @@ def schema_class_property_group() -> None:
 @click.argument("description")
 @click.option("--class",    "class_name", default=None, help="Owning class name.")
 @click.option("--class-id",              default=None, help="Owning class node ID (overrides --class).")
+@click.option("--type", "literal_type", type=click.Choice(["NUMBER", "DATE", "BOOLEAN", "STRING"], case_sensitive=False),
+              default=None, help="Type of value the property holds; values that don't fit are refused.")
 @click.pass_obj
 def schema_class_property_add(
-    obj: dict, name: str, description: str, class_name: str | None, class_id: str | None
+    obj: dict, name: str, description: str, class_name: str | None, class_id: str | None,
+    literal_type: str | None,
 ) -> None:
     """Declare a class property (idempotent)."""
     kb: FileKBSource = obj["kb"]
@@ -1323,7 +1328,8 @@ def schema_class_property_add(
     if class_name or class_id:
         resolved_class_id = _resolve_node(kb, db, CLASS, class_name, class_id, "class")
     try:
-        prop_id = _run(kb.declare_class_property(db, name, description, class_id=resolved_class_id))
+        prop_id = _run(kb.declare_class_property(db, name, description, class_id=resolved_class_id,
+                                                 literal_type=literal_type))
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(f"Added class property: [bold]{name}[/bold] (id: {prop_id})")
@@ -1427,16 +1433,18 @@ def schema_class_property_list(
 @click.option("--class-id",                   default=None, help="Owning class node ID (disambiguates).")
 @click.option("--name",                       default=None, help="New name.")
 @click.option("--description",                default=None, help="New description.")
+@click.option("--type", "literal_type", type=click.Choice(["NUMBER", "DATE", "BOOLEAN", "STRING"], case_sensitive=False),
+              default=None, help="New value type.")
 @click.pass_obj
 def schema_class_property_update(
     obj: dict,
     property_name: str | None, property_id: str | None,
     class_name: str | None, class_id: str | None,
-    name: str | None, description: str | None,
+    name: str | None, description: str | None, literal_type: str | None,
 ) -> None:
-    """Update a class property's name or description."""
-    if not name and not description:
-        raise click.UsageError("Provide at least one of --name or --description.")
+    """Update a class property's name, description or value type."""
+    if not name and not description and not literal_type:
+        raise click.UsageError("Provide at least one of --name, --description or --type.")
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     owner_id: str | None = None
@@ -1444,7 +1452,7 @@ def schema_class_property_update(
         owner_id = _resolve_node(kb, db, CLASS, class_name, class_id, "class")
     pid = _resolve_owned_property(kb, db, property_name, property_id, owner_id)
     try:
-        _run(kb.update_property(db, pid, name=name, description=description))
+        _run(kb.update_property(db, pid, name=name, description=description, literal_type=literal_type))
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(f"Updated class property: [bold]{name or property_name or property_id}[/bold]")
@@ -1957,9 +1965,12 @@ def schema_relation_property_group() -> None:
 @click.argument("description")
 @click.option("--relation",    "relation_name", default=None, help="Owning relation name.")
 @click.option("--relation-id",                  default=None, help="Owning relation node ID (overrides --relation).")
+@click.option("--type", "literal_type", type=click.Choice(["NUMBER", "DATE", "BOOLEAN", "STRING"], case_sensitive=False),
+              default=None, help="Type of value the property holds; values that don't fit are refused.")
 @click.pass_obj
 def schema_relation_property_add(
-    obj: dict, name: str, description: str, relation_name: str | None, relation_id: str | None
+    obj: dict, name: str, description: str, relation_name: str | None, relation_id: str | None,
+    literal_type: str | None,
 ) -> None:
     """Declare a relation property (idempotent)."""
     kb: FileKBSource = obj["kb"]
@@ -1968,7 +1979,8 @@ def schema_relation_property_add(
     if relation_name or relation_id:
         resolved_relation_id = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
     try:
-        prop_id = _run(kb.declare_relation_property(db, name, description, relation_id=resolved_relation_id))
+        prop_id = _run(kb.declare_relation_property(db, name, description, relation_id=resolved_relation_id,
+                                                    literal_type=literal_type))
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(f"Added relation property: [bold]{name}[/bold] (id: {prop_id})")
@@ -2074,16 +2086,18 @@ def schema_relation_property_list(
 @click.option("--relation-id",                   default=None, help="Owning relation node ID (disambiguates).")
 @click.option("--name",                          default=None, help="New name.")
 @click.option("--description",                   default=None, help="New description.")
+@click.option("--type", "literal_type", type=click.Choice(["NUMBER", "DATE", "BOOLEAN", "STRING"], case_sensitive=False),
+              default=None, help="New value type.")
 @click.pass_obj
 def schema_relation_property_update(
     obj: dict,
     property_name: str | None, property_id: str | None,
     relation_name: str | None, relation_id: str | None,
-    name: str | None, description: str | None,
+    name: str | None, description: str | None, literal_type: str | None,
 ) -> None:
-    """Update a relation property's name or description."""
-    if not name and not description:
-        raise click.UsageError("Provide at least one of --name or --description.")
+    """Update a relation property's name, description or value type."""
+    if not name and not description and not literal_type:
+        raise click.UsageError("Provide at least one of --name, --description or --type.")
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     owner_id: str | None = None
@@ -2091,7 +2105,7 @@ def schema_relation_property_update(
         owner_id = _resolve_node(kb, db, RELATION, relation_name, relation_id, "relation")
     pid = _resolve_owned_property(kb, db, property_name, property_id, owner_id)
     try:
-        _run(kb.update_property(db, pid, name=name, description=description))
+        _run(kb.update_property(db, pid, name=name, description=description, literal_type=literal_type))
     except KBError as exc:
         raise click.ClickException(str(exc))
     console.print(f"Updated relation property: [bold]{name or property_name or property_id}[/bold]")

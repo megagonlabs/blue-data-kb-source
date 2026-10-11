@@ -401,11 +401,11 @@ Shared `ASSERT_OPTS` on every `assert` command and `blue-kb data ingest`: `[--de
 | `blue-kb schema class parent remove [--class NAME\|--class-id ID] [--parent NAME\|--parent-id ID]` | Remove IS_SUBCLASS_OF edge |
 | `blue-kb schema class parent list [--class NAME\|--class-id ID] [--recursive] [--format table\|json\|tree]` | List superclasses |
 | `blue-kb schema class child list [--class NAME\|--class-id ID] [--recursive] [--format table\|json\|tree]` | List subclasses |
-| `blue-kb schema class property add NAME DESC [--class NAME\|--class-id ID]` | Declare a property on a class |
+| `blue-kb schema class property add NAME DESC [--class NAME\|--class-id ID] [--type NUMBER\|DATE\|BOOLEAN\|STRING]` | Declare a property on a class; `--type` is the type of value it holds, and a value that doesn't fit is refused |
 | `blue-kb schema class property attach [--property NAME\|--property-id ID] [--class NAME\|--class-id ID]` | Attach an existing property to a class (idempotent) — reuse it instead of declaring a same-meaning duplicate |
 | `blue-kb schema class property assert NAME --class NAME [ASSERT_OPTS]` | Add a class property, creating the class if missing |
 | `blue-kb schema class property list [--class NAME\|--class-id ID] [--format table\|json]` | List class properties (optionally filtered by class) |
-| `blue-kb schema class property update --property NAME\|--property-id ID [--class NAME\|--class-id ID] [--name N] [--description D]` | Update the name and/or description of a class property; --class disambiguates when the name is shared |
+| `blue-kb schema class property update --property NAME\|--property-id ID [--class NAME\|--class-id ID] [--name N] [--description D] [--type T]` | Update the name and/or description of a class property; --class disambiguates when the name is shared |
 | `blue-kb schema class property delete --property NAME\|--property-id ID [--class NAME\|--class-id ID] [--yes]` | Delete a class property (errors if values exist); --class disambiguates |
 | `blue-kb schema class delete --class NAME\|--class-id ID [--yes]` | Delete a class (errors if instances or subclasses exist) |
 | `blue-kb schema relation add NAME DESC [--domain C] [--range C]` | Declare a RELATION (idempotent) |
@@ -421,11 +421,11 @@ Shared `ASSERT_OPTS` on every `assert` command and `blue-kb data ingest`: `[--de
 | `blue-kb schema relation domain list [--relation NAME\|--relation-id ID] [--format table\|json]` | List a relation's domain classes |
 | `blue-kb schema relation range attach [--relation NAME\|--relation-id ID] [--class NAME\|--class-id ID]` | Attach a class to the relation's range (deduplicated; add-only by design — no detach counterpart) |
 | `blue-kb schema relation range list [--relation NAME\|--relation-id ID] [--format table\|json]` | List a relation's range classes |
-| `blue-kb schema relation property add NAME DESC [--relation NAME\|--relation-id ID]` | Declare a property on a relation |
+| `blue-kb schema relation property add NAME DESC [--relation NAME\|--relation-id ID] [--type NUMBER\|DATE\|BOOLEAN\|STRING]` | Declare a property on a relation; `--type` is the type of value it holds, and a value that doesn't fit is refused |
 | `blue-kb schema relation property attach [--property NAME\|--property-id ID] [--relation NAME\|--relation-id ID]` | Attach an existing property to a relation (idempotent) — reuse it instead of declaring a same-meaning duplicate |
 | `blue-kb schema relation property assert NAME --relation NAME [ASSERT_OPTS]` | Add a relation property (relation must exist) |
 | `blue-kb schema relation property list [--relation NAME\|--relation-id ID] [--format table\|json]` | List relation properties (optionally filtered by relation) |
-| `blue-kb schema relation property update --property NAME\|--property-id ID [--relation NAME\|--relation-id ID] [--name N] [--description D]` | Update the name and/or description of a relation property; --relation disambiguates when the name is shared |
+| `blue-kb schema relation property update --property NAME\|--property-id ID [--relation NAME\|--relation-id ID] [--name N] [--description D] [--type T]` | Update the name and/or description of a relation property; --relation disambiguates when the name is shared |
 | `blue-kb schema relation property delete --property NAME\|--property-id ID [--relation NAME\|--relation-id ID] [--yes]` | Delete a relation property (errors if values exist); --relation disambiguates |
 | `blue-kb schema relation delete --relation NAME\|--relation-id ID [--yes]` | Delete a relation (errors if facts or sub-relations exist) |
 | `blue-kb schema search QUERY [--type class\|relation\|property]… [--mode keyword\|semantic] [--top-k N] [--format table\|json]` | Search schema nodes; `--mode semantic` requires database configured with `--search semantic`; `--type` is repeatable |

@@ -47,7 +47,8 @@ async def seed_schema(kb: KBSource, database: str, spec: dict[str, Any]) -> None
         class_id = await kb.declare_class(database, cls["name"], cls.get("description", ""))
         class_ids[cls["name"]] = class_id
         for prop in cls.get("properties", []):
-            await kb.declare_class_property(database, prop["name"], prop.get("description", ""), class_id=class_id)
+            await kb.declare_class_property(database, prop["name"], prop.get("description", ""), class_id=class_id,
+                                            literal_type=prop.get("type"))
     for cls in spec.get("classes", []):
         if cls.get("parent"):
             await kb.add_is_subclass_of(database, class_ids[cls["name"]], class_ids[cls["parent"]])
@@ -63,7 +64,8 @@ async def seed_schema(kb: KBSource, database: str, spec: dict[str, Any]) -> None
         )
         for prop in rel.get("properties", []):
             await kb.declare_relation_property(
-                database, prop["name"], prop.get("description", ""), relation_id=relation_id
+                database, prop["name"], prop.get("description", ""), relation_id=relation_id,
+                literal_type=prop.get("type"),
             )
 
 

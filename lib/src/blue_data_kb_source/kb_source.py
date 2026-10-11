@@ -235,9 +235,10 @@ class KBSource(GraphSource, ABC):
         description: str,
         property_id: str | None = None,
         class_id: str | None = None,
+        literal_type: str | None = None,
     ) -> str:
         return await self._schema.declare_class_property(
-            database, name, description, property_id, class_id
+            database, name, description, property_id, class_id, literal_type=literal_type
         )
 
     async def declare_relation_property(
@@ -247,9 +248,10 @@ class KBSource(GraphSource, ABC):
         description: str,
         property_id: str | None = None,
         relation_id: str | None = None,
+        literal_type: str | None = None,
     ) -> str:
         return await self._schema.declare_relation_property(
-            database, name, description, property_id, relation_id
+            database, name, description, property_id, relation_id, literal_type=literal_type
         )
 
     async def update_class(
@@ -276,8 +278,9 @@ class KBSource(GraphSource, ABC):
         property_id: str,
         name: str | None = None,
         description: str | None = None,
+        literal_type: str | None = None,
     ) -> None:
-        await self._schema.update_property(database, property_id, name, description)
+        await self._schema.update_property(database, property_id, name, description, literal_type)
 
     async def delete_class(self, database: str, class_id: str) -> None:
         await self._schema.delete_class(database, class_id)
@@ -1140,11 +1143,11 @@ class KBSource(GraphSource, ABC):
             Schema:
                 "KB.DECLARE_CLASS"             name, description, class_id (opt)
                 "KB.DECLARE_RELATION"          name, description, domain (opt), range (opt), is_symmetric (opt), relation_id (opt)
-                "KB.DECLARE_CLASS_PROPERTY"    name, description, class_id (opt), property_id (opt)
-                "KB.DECLARE_RELATION_PROPERTY" name, description, relation_id (opt), property_id (opt)
+                "KB.DECLARE_CLASS_PROPERTY"    name, description, class_id (opt), property_id (opt), literal_type (opt)
+                "KB.DECLARE_RELATION_PROPERTY" name, description, relation_id (opt), property_id (opt), literal_type (opt)
                 "KB.UPDATE_CLASS"              class_id, name (opt), description (opt)
                 "KB.UPDATE_RELATION"           relation_id, name (opt), description (opt)
-                "KB.UPDATE_PROPERTY"           property_id, name (opt), description (opt)
+                "KB.UPDATE_PROPERTY"           property_id, name (opt), description (opt), literal_type (opt)
                 "KB.DELETE_CLASS"              class_id
                 "KB.DELETE_RELATION"           relation_id
                 "KB.DELETE_PROPERTY"           property_id
@@ -1216,6 +1219,7 @@ class KBSource(GraphSource, ABC):
                 description=query["description"],
                 property_id=query.get("property_id"),
                 class_id=query.get("class_id"),
+                literal_type=query.get("literal_type"),
             ))
 
         if op == "KB.DECLARE_RELATION_PROPERTY":
@@ -1225,6 +1229,7 @@ class KBSource(GraphSource, ABC):
                 description=query["description"],
                 property_id=query.get("property_id"),
                 relation_id=query.get("relation_id"),
+                literal_type=query.get("literal_type"),
             ))
 
         if op == "KB.UPDATE_CLASS":
@@ -1236,7 +1241,8 @@ class KBSource(GraphSource, ABC):
             return None
 
         if op == "KB.UPDATE_PROPERTY":
-            _r(self.update_property(database, query["property_id"], query.get("name"), query.get("description")))
+            _r(self.update_property(database, query["property_id"], query.get("name"), query.get("description"),
+                                    query.get("literal_type")))
             return None
 
         if op == "KB.DELETE_CLASS":
