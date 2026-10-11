@@ -61,8 +61,10 @@ Architecture). The variable names are the same ones the CLI uses, so a value mea
 the same thing in both, but `blue-kb profile config …` has no effect here: set them in
 the environment. `BLUE_DATA_KB_SOURCE_DATA_DIR`
 defaults to the same `~/.blue-kb` directory the CLI's file backend uses by default, so
-pointing both at their defaults gives practical (not automatic) continuity between
-`blue-kb` and this server.
+pointing both at their defaults shares one set of databases between `blue-kb` and
+this server. Both can run at once: every write locks the database file, and the BM25
+search index picks up the other process's changes (see the file backend in
+[architecture.md](architecture.md#graph-backends)).
 
 ---
 

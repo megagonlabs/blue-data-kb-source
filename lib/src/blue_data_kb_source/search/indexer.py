@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 from pathlib import Path
@@ -24,6 +25,7 @@ from blue_data_kb_source._constants import (
     REPRESENTS,
     TAIL,
 )
+from blue_data_kb_source._file_lock import FileLocks
 from blue_data_kb_source._json_io import write_json_atomic
 from blue_data_kb_source.checks import require_database_name
 from blue_data_kb_source.types import DataSearchResult, KBError, SchemaSearchResult
@@ -65,8 +67,12 @@ class KBSearchIndexer:
         self._meta: dict[str, dict[str, dict[str, dict[str, Any]]]] = {}
         # Track which (db, collection) vector indices have been created
         self._vector_indices_created: set[str] = set()
-        # Track which (db, collection) corpus files have been loaded
+        # Track which (db, collection) corpora have been loaded, and the version of
+        # the corpus file each in-memory copy reflects: another process sharing the
+        # directory may have rewritten it since (#127).
         self._loaded_corpora: set[tuple[str, str]] = set()
+        self._corpus_stamp: dict[tuple[str, str], tuple[int, int] | None] = {}
+        self._file_locks = FileLocks()
         # Suppress per-upsert saves during bulk operations
         self._suppress_auto_save: bool = False
 
@@ -202,7 +208,8 @@ class KBSearchIndexer:
             self._suppress_auto_save = False
         if self._corpus_dir:
             for collection in (_SCHEMA_COLL, _DATA_COLL):
-                self._save_corpus_to_file(database, collection)
+                with self._corpus_lock(database, collection):
+                    self._save_corpus_to_file(database, collection)
 
     # ------------------------------------------------------------------ #
     # Search                                                               #
@@ -395,10 +402,13 @@ class KBSearchIndexer:
 
     def _get_corpus(self, database: str, collection: str) -> dict[str, str]:
         key = (database, collection)
-        if key not in self._loaded_corpora:
-            self._loaded_corpora.add(key)
-            if self._corpus_dir:
+        if self._corpus_dir and not self._suppress_auto_save:
+            # Reload when the file changed since this copy was read or written — the
+            # CLI and a long-running MCP server can share one directory (#127). A bulk
+            # rebuild skips this: its in-memory copy is ahead of the file on purpose.
+            if key not in self._loaded_corpora or self._file_stamp(database, collection) != self._corpus_stamp.get(key):
                 self._load_corpus_from_file(database, collection)
+        self._loaded_corpora.add(key)
         return self._corpus.setdefault(database, {}).setdefault(collection, {})
 
     def _get_meta(self, database: str, collection: str) -> dict[str, dict[str, Any]]:
@@ -410,7 +420,15 @@ class KBSearchIndexer:
         require_database_name(database)  # the name becomes part of the file path (#116)
         return Path(self._corpus_dir) / f"{database}_{collection}_bm25.json"  # type: ignore[arg-type]
 
+    def _file_stamp(self, database: str, collection: str) -> tuple[int, int] | None:
+        try:
+            st = self._corpus_file_path(database, collection).stat()
+        except FileNotFoundError:
+            return None
+        return (st.st_mtime_ns, st.st_size)
+
     def _load_corpus_from_file(self, database: str, collection: str) -> None:
+        self._corpus_stamp[(database, collection)] = self._file_stamp(database, collection)
         path = self._corpus_file_path(database, collection)
         if not path.exists():
             return
@@ -418,6 +436,15 @@ class KBSearchIndexer:
             data = json.load(f)
         self._corpus.setdefault(database, {})[collection] = data.get("corpus", {})
         self._meta.setdefault(database, {})[collection] = data.get("meta", {})
+
+    def _corpus_lock(self, database: str, collection: str):
+        """Held from re-reading the corpus file to saving it, so a change another
+        process saved in between is merged rather than overwritten (#127)."""
+        if not self._corpus_dir:
+            return contextlib.nullcontext()
+        Path(self._corpus_dir).mkdir(parents=True, exist_ok=True)
+        path = self._corpus_file_path(database, collection)
+        return self._file_locks.hold(str(path.with_name(f".{path.stem}.lock")))
 
     def _save_corpus_to_file(self, database: str, collection: str) -> None:
         if not self._corpus_dir:
@@ -427,19 +454,22 @@ class KBSearchIndexer:
         corpus = self._corpus.get(database, {}).get(collection, {})
         meta = self._meta.get(database, {}).get(collection, {})
         write_json_atomic(path, {"corpus": corpus, "meta": meta})
+        self._corpus_stamp[(database, collection)] = self._file_stamp(database, collection)
 
     def _upsert(self, database: str, collection: str, node_id: str, text: str, node_type: str, name: str) -> None:
-        self._get_corpus(database, collection)[node_id] = text
-        self._get_meta(database, collection)[node_id] = {"type": node_type, "name": name}
+        with self._corpus_lock(database, collection):
+            self._get_corpus(database, collection)[node_id] = text
+            self._get_meta(database, collection)[node_id] = {"type": node_type, "name": name}
+            if not self._suppress_auto_save:
+                self._save_corpus_to_file(database, collection)
         self._upsert_vector(database, collection, node_id, text, node_type, name)
-        if not self._suppress_auto_save:
-            self._save_corpus_to_file(database, collection)
 
     def _delete_bm25(self, database: str, collection: str, node_id: str) -> None:
-        self._get_corpus(database, collection).pop(node_id, None)
-        self._get_meta(database, collection).pop(node_id, None)
-        if not self._suppress_auto_save:
-            self._save_corpus_to_file(database, collection)
+        with self._corpus_lock(database, collection):
+            self._get_corpus(database, collection).pop(node_id, None)
+            self._get_meta(database, collection).pop(node_id, None)
+            if not self._suppress_auto_save:
+                self._save_corpus_to_file(database, collection)
 
     # ------------------------------------------------------------------ #
     # Vector management                                                     #

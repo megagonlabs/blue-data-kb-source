@@ -63,7 +63,7 @@ Used for: all schema nodes (CLASS, RELATION, PROPERTY), all instance nodes (ENTI
 | Backend | Class | Persistence | Typical Use |
 |---------|-------|-------------|-------------|
 | Memory | `MemoryGraphSource` | None (in-process) | Development, testing, short-lived pipelines |
-| File | `FileGraphSource` | Yes (JSON file per database) | CLI default — single-process persistence with no server |
+| File | `FileGraphSource` | Yes (JSON file per database) | CLI default — persistence with no server; several processes may share it (per-database write lock) |
 | Neo4j | `Neo4jGraphSource` | Yes | Production deployments requiring durability and concurrent access |
 
 All three backends are provided by `blue-data`. blue-kb selects a backend via Python MRO — the application subclasses `KBSource` alongside the chosen `GraphSource` concrete class, with no conditional logic in blue-kb itself.

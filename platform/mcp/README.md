@@ -58,7 +58,10 @@ Note: this server does **not** read the `blue-kb` CLI's `~/.blue-kb/registry.jso
 owns one independently-configured `KBSource` for the process lifetime (see
 Architecture below). `BLUE_DATA_KB_SOURCE_DATA_DIR` defaults to the same `~/.blue-kb`
 directory the CLI's file backend uses by default, so pointing both at their
-defaults gives practical (not automatic) continuity between `blue-kb` and this server.
+defaults shares one set of databases between `blue-kb` and this server. Both can run at
+once: every write locks the database file, and the BM25 search index picks up the other
+process's changes (see the file backend in
+[docs/architecture.md](../../docs/architecture.md#graph-backends)).
 
 ---
 

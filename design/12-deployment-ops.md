@@ -90,7 +90,7 @@ A completely separate `BLUE_DATA_KB_SOURCE_*` namespace, since the server owns o
 | `BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_MCP_SERVERS` | — | JSON list of reference MCP servers for `reference="mcp"` expansion. Operator-only: tool callers can't supply server definitions (ADR-032) |
 | `OPENAI_API_KEY` | — | Required for LLM features |
 
-Full table with examples: [platform/mcp/README.md](../platform/mcp/README.md) Configuration reference. Pointing both `BLUE_DATA_KB_SOURCE_DATA_DIR` and `BLUE_DATA_KB_SOURCE_DATA_DIR` at the same path gives the CLI and MCP server practical (not automatic) access to the same file-backed data — they don't otherwise coordinate.
+Full table with examples: [platform/mcp/README.md](../platform/mcp/README.md) Configuration reference. Pointing the CLI's and the MCP server's `BLUE_DATA_KB_SOURCE_DATA_DIR` at the same path gives the CLI and MCP server access to the same file-backed data; both can run at once, since every write locks the database file and the BM25 index merges the other process's changes.
 
 The MCP server runs over **stdio transport** (`mcp.run()`, launched as a subprocess by an MCP client like Claude Desktop or Claude Code) — it is not a network service and has no port to configure.
 

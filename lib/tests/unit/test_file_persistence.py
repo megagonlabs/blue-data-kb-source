@@ -78,3 +78,91 @@ def test_write_json_atomic_replaces_whole_file(tmp_path):
     write_json_atomic(path, {"b": 2})
     assert json.loads(path.read_text()) == {"b": 2}
     assert os.listdir(tmp_path) == ["x.json"]
+
+
+# ------------------------------------------------------------------ #
+# Several processes on one database (#127)                            #
+# ------------------------------------------------------------------ #
+
+def _write_entities(directory, tag, n, class_id):
+    import asyncio
+
+    kb = _kb(directory)
+
+    async def run():
+        for i in range(n):
+            await kb.add_entity("main", f"{tag}-{i}", class_id=class_id)
+
+    asyncio.run(run())
+
+
+async def test_concurrent_processes_lose_no_writes(tmp_path):
+    import multiprocessing as mp
+
+    kb = _kb(tmp_path)
+    kb.create_database("main")
+    person = await kb.declare_class("main", "PERSON", "A person")
+    ctx = mp.get_context("spawn")  # no inherited event loop or locks
+    procs = [ctx.Process(target=_write_entities, args=(str(tmp_path), tag, 40, person)) for tag in "ABC"]
+    for p in procs:
+        p.start()
+    for p in procs:
+        p.join(timeout=120)
+    assert [p.exitcode for p in procs] == [0, 0, 0]
+    names = {n["properties"]["name"] for n in _kb(tmp_path).match_nodes("main", label="ENTITY")}
+    assert len(names) == 120
+
+
+async def test_lock_file_is_not_listed_as_a_database(tmp_path):
+    kb = _kb(tmp_path)
+    await _person_with_birth_date(kb)
+    assert any(f.endswith(".lock") for f in os.listdir(tmp_path))
+    assert kb.fetch_databases() == ["main"]
+
+
+def test_file_lock_is_reentrant_within_a_thread(tmp_path):
+    from blue_data_kb_source._file_lock import FileLocks
+
+    locks, path = FileLocks(), str(tmp_path / ".x.lock")
+    with locks.hold(path):
+        with locks.hold(path):  # a locked call making another locked call
+            pass
+    with locks.hold(path):  # released, so it can be taken again
+        pass
+
+
+def _write_indexed_entities(directory, tag, n, class_id):
+    import asyncio
+
+    kb = _kb(directory, mode="bm25", bm25_index_dir=str(directory))
+
+    async def run():
+        for i in range(n):
+            await kb.add_entity("main", f"{tag}person{i}", class_id=class_id)
+
+    asyncio.run(run())
+
+
+async def test_search_corpus_keeps_other_processes_entries(tmp_path):
+    """A long-lived process (the MCP server) used to save its stale in-memory corpus
+    over the file, dropping everything another process (the CLI) had indexed."""
+    import multiprocessing as mp
+
+    kb = _kb(tmp_path, mode="bm25", bm25_index_dir=str(tmp_path))
+    kb.create_database("main")
+    person = await kb.declare_class("main", "PERSON", "A person")
+    await kb.add_entity("main", "seedling", class_id=person)
+    ctx = mp.get_context("spawn")
+    procs = [ctx.Process(target=_write_indexed_entities, args=(str(tmp_path), tag, 20, person)) for tag in "AB"]
+    for p in procs:
+        p.start()
+    for p in procs:
+        p.join(timeout=120)
+    assert [p.exitcode for p in procs] == [0, 0]
+
+    await kb.add_entity("main", "latecomer", class_id=person)
+    for name in ("Aperson7", "Bperson19", "seedling", "latecomer"):
+        hits = await kb.search_data("main", name, k=1)
+        assert hits and hits[0].name == name, name
+    corpus = json.loads((tmp_path / "main_data_bm25.json").read_text())["corpus"]
+    assert len(corpus) == 42
