@@ -164,7 +164,7 @@ _TOOLS: list[dict[str, Any]] = [
                     "class_id": {"type": "string", "description": "id of an existing CLASS node, as returned by find_class or search_schema — never a name"},
                     "text": {"type": "string", "description": "The full verbatim sentence (not just the bare name) this entity was extracted from"},
                 },
-                "required": ["name"],
+                "required": ["name", "text"],
             },
         },
     },
@@ -202,7 +202,7 @@ _TOOLS: list[dict[str, Any]] = [
                     "name": {"type": "string"},
                     "text": {"type": "string", "description": "The full verbatim sentence (not just the bare relation phrase) this fact was extracted from"},
                 },
-                "required": ["head_entity_id", "tail_entity_id", "relation_id"],
+                "required": ["head_entity_id", "tail_entity_id", "relation_id", "text"],
             },
         },
     },
@@ -223,7 +223,7 @@ _TOOLS: list[dict[str, Any]] = [
                     },
                     "text": {"type": "string", "description": "The full verbatim sentence (not just the bare value) this value was extracted from"},
                 },
-                "required": ["entity_id", "property_id", "value"],
+                "required": ["entity_id", "property_id", "value", "text"],
             },
         },
     },
@@ -244,7 +244,7 @@ _TOOLS: list[dict[str, Any]] = [
                     },
                     "text": {"type": "string", "description": "The full verbatim sentence (not just the bare value) this value was extracted from"},
                 },
-                "required": ["fact_id", "property_id", "value"],
+                "required": ["fact_id", "property_id", "value", "text"],
             },
         },
     },
@@ -1476,11 +1476,17 @@ class ExtractionEngine:
 
         # Every write claims a verbatim `text` span from the source. Refuse the
         # ones that don't quote it — a fabricated span is the signature of a
-        # value the model inferred rather than read. The error goes back as the
-        # tool result, so the model gets a chance to correct itself. A call that
-        # omits `text` entirely is left to the existing (permissive) path.
+        # value the model inferred rather than read — and the ones with no span
+        # at all, which would be stored with no evidence (#128). The error goes
+        # back as the tool result, so the model gets a chance to correct itself.
         span = args.get("text")
-        if fn in _TEXT_BEARING_TOOLS and span and not _span_is_grounded(span, source_text):
+        if fn in _TEXT_BEARING_TOOLS and not (isinstance(span, str) and span.strip()):
+            return {"error": (
+                "`text` is required: quote the sentence from the source text this "
+                "item was extracted from, character for character. If the text does "
+                "not state it, skip the item."
+            )}
+        if fn in _TEXT_BEARING_TOOLS and not _span_is_grounded(span, source_text):
             return {"error": (
                 "the `text` argument is not a quote from the source text — copy the "
                 "line or sentence across character for character rather than "

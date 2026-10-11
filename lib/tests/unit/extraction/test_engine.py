@@ -440,8 +440,8 @@ async def test_relation_stage_prompt_lists_entities_resolved_by_entity_stage(kb)
     await kb.declare_relation_type("test", "WORKED_AT", "", domain="PERSON", range="COMPANY")
 
     responses = _mock_openai_sequence(
-        _tool_call_response("add_entity", {"name": "Alice", "class_id": person}),
-        _tool_call_response("add_entity", {"name": "IBM", "class_id": company}),
+        _tool_call_response("add_entity", {"name": "Alice", "class_id": person, "text": "Alice joined IBM."}),
+        _tool_call_response("add_entity", {"name": "IBM", "class_id": company, "text": "Alice joined IBM."}),
         _text_response("done"),   # ends stage 1 (entities)
         _text_response("done"),   # stage 2 (relations) — prompt captured below
         _text_response("done"),   # stage 3 (entity properties)
@@ -471,7 +471,7 @@ async def test_staged_pipeline_creates_fact_from_stage1_resolved_entity_ids(kb):
         _text_response("done"),
         _tool_call_response("find_relation_type", {"name": "WORKED_AT"}),
         _tool_call_response(
-            "add_fact", {"head_entity_id": alice, "tail_entity_id": ibm, "relation_id": worked}
+            "add_fact", {"head_entity_id": alice, "tail_entity_id": ibm, "relation_id": worked, "text": "Alice joined IBM."}
         ),
         _text_response("done"),
         _text_response("done"),
@@ -501,7 +501,7 @@ async def test_fact_property_stage_prompt_lists_facts_resolved_by_relation_stage
         _text_response("done"),
         _tool_call_response("find_relation_type", {"name": "WORKED_AT"}),
         _tool_call_response(
-            "add_fact", {"head_entity_id": alice, "tail_entity_id": ibm, "relation_id": worked}
+            "add_fact", {"head_entity_id": alice, "tail_entity_id": ibm, "relation_id": worked, "text": "Alice joined IBM."}
         ),
         _text_response("done"),
         _text_response("done"),
@@ -584,7 +584,7 @@ async def test_effort_second_pass_related_data_sees_entities_from_first_pass():
     person = await kb.declare_class("test", "PERSON", "")
 
     responses = _mock_openai_sequence(
-        _tool_call_response("add_entity", {"name": "Alice", "class_id": person}),
+        _tool_call_response("add_entity", {"name": "Alice", "class_id": person, "text": "Alice works somewhere."}),
         _text_response("done"),   # ends pass-1 entity stage
         _text_response("done"),   # pass-1 relations
         _text_response("done"),   # pass-1 entity properties
@@ -720,7 +720,7 @@ async def test_gap_stage_runs_for_a_class_the_entity_stage_left_empty(kb):
     person, skill = await _resume_schema(kb)
 
     responses = _mock_openai_sequence(
-        _tool_call_response("add_entity", {"name": "Alice Chen", "class_id": person}),
+        _tool_call_response("add_entity", {"name": "Alice Chen", "class_id": person, "text": "Alice Chen knows SQL."}),
         _text_response("done"),   # ends the entity stage — SKILL got nothing
         _text_response("done"),   # gap stage: prompt captured below
         _text_response("done"),   # relations
@@ -745,9 +745,9 @@ async def test_gap_stage_entities_reach_the_relation_stage(kb):
     person, skill = await _resume_schema(kb)
 
     responses = _mock_openai_sequence(
-        _tool_call_response("add_entity", {"name": "Alice Chen", "class_id": person}),
+        _tool_call_response("add_entity", {"name": "Alice Chen", "class_id": person, "text": "Alice Chen knows SQL."}),
         _text_response("done"),
-        _tool_call_response("add_entity", {"name": "SQL", "class_id": skill}),
+        _tool_call_response("add_entity", {"name": "SQL", "class_id": skill, "text": "Alice Chen knows SQL."}),
         _text_response("done"),   # ends the gap stage
         _text_response("done"),   # relations — prompt captured below
         _text_response("done"),
@@ -797,7 +797,7 @@ async def test_attach_entity_class_adds_a_second_class_instead_of_an_entity(kb):
     engineer = await kb.declare_class("test", "ENGINEER", "A person who builds software")
 
     responses = _mock_openai_sequence(
-        _tool_call_response("add_entity", {"name": "Alice", "class_id": person}),
+        _tool_call_response("add_entity", {"name": "Alice", "class_id": person, "text": "Alice joined Google as a staff engineer."}),
         _text_response("done"),   # ends the entity stage — ENGINEER got nothing
         _tool_call_response("attach_entity_class", {"entity_id": "Alice", "class_id": engineer}),
         _text_response("done"),   # ends the gap stage
@@ -886,6 +886,32 @@ async def test_ungrounded_span_is_refused_and_creates_nothing(kb):
     replies = _tool_replies(factory)
     assert len(replies) == 1
     assert "not a quote from the source text" in replies[0]["content"]
+
+
+@pytest.mark.parametrize("text_arg", [{}, {"text": ""}, {"text": "   "}])
+async def test_a_write_without_a_span_is_refused_and_creates_nothing(kb, text_arg):
+    """#128: omitting `text` used to take a permissive path and store the item
+    with no evidence at all."""
+    person, _ = await _resume_schema(kb)
+    responses = _mock_openai_sequence(
+        _tool_call_response("add_entity", {"name": "Bob", "class_id": person, **text_arg}),
+        _text_response("done"),
+        _text_response("done"), _text_response("done"), _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Alice Chen is a project manager.", expand_schema=False)
+
+    assert kb.match_nodes("test", label="ENTITY") == []
+    assert "`text` is required" in _tool_replies(factory)[0]["content"]
+
+
+def test_every_creation_tool_requires_a_span():
+    from blue_data_kb_source.extraction.engine import _TEXT_BEARING_TOOLS, _TOOLS
+
+    for tool in _TOOLS:
+        fn = tool["function"]
+        if fn["name"] in _TEXT_BEARING_TOOLS:
+            assert "text" in fn["parameters"]["required"], fn["name"]
 
 
 async def test_grounded_span_survives_case_and_whitespace_differences(kb):
@@ -978,7 +1004,7 @@ def _through_relations(ids):
         _tool_call_response("find_relation_type", {"name": "WORKED_AT"}),
         _tool_call_response("add_fact", {
             "head_entity_id": ids["alice"], "tail_entity_id": ids["ibm"],
-            "relation_id": ids["worked"],
+            "relation_id": ids["worked"], "text": "Alice joined IBM",
         }),
         _text_response("done"),
     ]
@@ -1464,7 +1490,7 @@ async def test_class_id_given_as_a_name_is_resolved(kb):
     person, _ = await _resume_schema(kb)
 
     responses = _mock_openai_sequence(
-        _tool_call_response("add_entity", {"name": "Alice Chen", "class_id": "PERSON"}),
+        _tool_call_response("add_entity", {"name": "Alice Chen", "class_id": "PERSON", "text": "Alice Chen is a manager."}),
         _text_response("done"),
         _text_response("done"),
         _text_response("done"), _text_response("done"), _text_response("done"),
@@ -1489,8 +1515,7 @@ async def test_relation_id_given_as_a_name_is_resolved(kb):
         _text_response("done"),
         _tool_call_response("add_fact", {
             "head_entity_id": ids["alice"], "tail_entity_id": ids["ibm"],
-            "relation_id": "WORKED_AT",
-        }),
+            "relation_id": "WORKED_AT", "text": "Alice joined IBM."}),
         _text_response("done"),
         _text_response("done"), _text_response("done"),
     )
@@ -1511,8 +1536,7 @@ async def test_entity_id_given_as_a_name_is_resolved(kb):
         _text_response("done"),   # fact properties
         _tool_call_response("add_entity_property_value", {
             "entity_id": "Alice", "property_id": ids["age"],
-            "value": "28", "literal_type": "NUMBER",
-        }),
+            "value": "28", "literal_type": "NUMBER", "text": "Alice joined IBM."}),
         _text_response("done"),
     )
     with patch("openai.AsyncOpenAI", responses):
@@ -1532,8 +1556,7 @@ async def test_property_id_given_as_a_name_is_resolved(kb):
         _text_response("done"),
         _tool_call_response("add_entity_property_value", {
             "entity_id": ids["alice"], "property_id": "AGE",
-            "value": "28", "literal_type": "NUMBER",
-        }),
+            "value": "28", "literal_type": "NUMBER", "text": "Alice joined IBM."}),
         _text_response("done"),
     )
     with patch("openai.AsyncOpenAI", responses) as factory:
@@ -1562,8 +1585,7 @@ async def test_property_id_prefers_the_property_declared_for_this_owner(kb):
         _text_response("done"),   # fact properties
         _tool_call_response("add_entity_property_value", {
             "entity_id": alice, "property_id": "AGE",
-            "value": "28", "literal_type": "NUMBER",
-        }),
+            "value": "28", "literal_type": "NUMBER", "text": "Alice is 28."}),
         _text_response("done"),
     )
     with patch("openai.AsyncOpenAI", responses):
@@ -1760,7 +1782,7 @@ async def test_on_stage_reports_each_stage_in_order(kb):
     person, skill = await _resume_schema(kb)
     seen = []
     responses = _mock_openai_sequence(
-        _tool_call_response("add_entity", {"name": "Alice Chen", "class_id": person}),
+        _tool_call_response("add_entity", {"name": "Alice Chen", "class_id": person, "text": "Alice Chen knows SQL."}),
         _text_response("done"),   # entities — SKILL left empty, so the gap stage runs
         _text_response("done"),   # entity gaps
         _text_response("done"),   # relations
