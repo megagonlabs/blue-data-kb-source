@@ -905,6 +905,24 @@ async def test_a_write_without_a_span_is_refused_and_creates_nothing(kb, text_ar
     assert "`text` is required" in _tool_replies(factory)[0]["content"]
 
 
+@pytest.mark.parametrize("missing", ["relation_id", "head_entity_id", "tail_entity_id"])
+async def test_a_fact_missing_an_end_is_refused(kb, missing):
+    """#139: a null relation_id stored a fact relating two entities by nothing."""
+    ids = await _alice_at_ibm(kb)
+    call = {"head_entity_id": ids["alice"], "relation_id": ids["worked"], "tail_entity_id": ids["ibm"],
+            "text": "Alice joined IBM", missing: None}
+    responses = _mock_openai_sequence(
+        _text_response("done"),
+        _tool_call_response("add_fact", call),
+        _text_response("done"), _text_response("done"), _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Alice joined IBM.", expand_schema=False, related_data_k=0)
+
+    assert kb.match_nodes("test", label="FACT") == []
+    assert f"add_fact requires {missing}" in _tool_replies(factory)[0]["content"]
+
+
 def test_every_creation_tool_requires_a_span():
     from blue_data_kb_source.extraction.engine import _TEXT_BEARING_TOOLS, _TOOLS
 

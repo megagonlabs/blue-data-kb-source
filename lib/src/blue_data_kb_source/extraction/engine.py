@@ -1479,6 +1479,18 @@ class ExtractionEngine:
         # value the model inferred rather than read — and the ones with no span
         # at all, which would be stored with no evidence (#128). The error goes
         # back as the tool result, so the model gets a chance to correct itself.
+        # A fact needs all three ends. The library allows a partial fact, but here a
+        # null id is the model's mistake — it once stored a fact relating two
+        # entities by nothing (#139).
+        if fn == "add_fact":
+            missing = [arg for arg in ("head_entity_id", "relation_id", "tail_entity_id") if not args.get(arg)]
+            if missing:
+                return {"error": (
+                    f"add_fact requires {', '.join(missing)}: find the relation with "
+                    "find_relation_type / search_schema and pass its id. If no relation "
+                    "in the schema states what the text says, skip the fact."
+                )}
+
         span = args.get("text")
         if fn in _TEXT_BEARING_TOOLS and not (isinstance(span, str) and span.strip()):
             return {"error": (

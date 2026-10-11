@@ -230,8 +230,9 @@ touches entities, facts, or property values. Returns `{"status": "ok"}`.
 
 #### `add_fact`
 
-`head_entity_id`, `relation_id`, `tail_entity_id`, `name`, `description`, `text`,
-`source_id`, `database`. Returns `{"id": "..."}`.
+`head_entity_id`, `relation_id`, `tail_entity_id` (all three required), `name`,
+`description`, `text`, `source_id`, `database`. Returns `{"id": "..."}`, or an error
+naming any of the three that is empty.
 
 #### `add_entity_property` / `add_fact_property`
 

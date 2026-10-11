@@ -560,6 +560,21 @@ def test_neo4j_physical_database_is_operator_config(monkeypatch):
     assert "database" not in config_module._neo4j_connection()  # library default: neo4j
 
 
+async def test_add_fact_requires_head_relation_and_tail(kb):
+    """#139: the library allows a partial fact; an agent's null id is a mistake."""
+    from blue_data_kb_mcp.server import mcp
+
+    person = await kb.declare_class(DB, "PERSON", "A person")
+    alice = await kb.add_entity(DB, "Alice", class_id=person)
+    bob = await kb.add_entity(DB, "Bob", class_id=person)
+    tools = {t.name: t for t in await mcp.list_tools()}
+    assert {"head_entity_id", "relation_id", "tail_entity_id"} <= set(tools["add_fact"].inputSchema["required"])
+    facts_before = len(kb.match_nodes(DB, label="FACT"))
+    result = json.loads(await add_fact(head_entity_id=alice, relation_id="", tail_entity_id=bob, database=DB))
+    assert "add_fact requires relation_id" in result["error"]
+    assert len(kb.match_nodes(DB, label="FACT")) == facts_before
+
+
 def test_neo4j_tls_uri_is_dialled_over_tls(monkeypatch):
     """#121: the scheme went under `protocol`, which the driver never reads, so a
     `neo4j+s://` URI was dialled as plain `bolt://`."""

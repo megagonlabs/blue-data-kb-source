@@ -317,9 +317,9 @@ async def add_entity(
 
 @mcp.tool()
 async def add_fact(
-    head_entity_id: Optional[str] = None,
-    relation_id: Optional[str] = None,
-    tail_entity_id: Optional[str] = None,
+    head_entity_id: str,
+    relation_id: str,
+    tail_entity_id: str,
     name: Optional[str] = None,
     description: Optional[str] = None,
     text: Optional[str] = None,
@@ -339,6 +339,12 @@ async def add_fact(
         database:       Target database (default 'default').
     """
     try:
+        # All three are required: the library allows a partial fact, but an agent
+        # passing null for one has made a mistake, not asked for one (#139).
+        missing = [arg for arg, value in (("head_entity_id", head_entity_id), ("relation_id", relation_id),
+                                          ("tail_entity_id", tail_entity_id)) if not value]
+        if missing:
+            raise ValueError(f"add_fact requires {', '.join(missing)}")
         fid = await get_kb().add_fact(
             database, name, description, None, head_entity_id, tail_entity_id, relation_id, text, source_id
         )
