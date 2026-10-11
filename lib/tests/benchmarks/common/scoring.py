@@ -66,6 +66,19 @@ _JUDGE_SYSTEM_PROMPT = (
     "Do not force a match when items clearly differ. Call record_alignment once."
 )
 
+# Entities are scored on their class as well as their name (#134): the judge used to
+# match by name alone, so `Go : GO` passed for `Go : PROGRAMMING_LANGUAGE`.
+_ENTITY_JUDGE_RULES = (
+    " An extracted entity matches an expected one only if it is the same individual AND "
+    "one of its classes is an acceptable class for it: the expected class itself, the same "
+    "kind under another name (ORGANIZATION for COMPANY), a more specific kind (SOFTWARE_ENGINEER "
+    "for PERSON), or a broader kind that is still a real category (ORGANIZATION for "
+    "UNIVERSITY). A class named after the entity itself is not a category and never matches "
+    "(GO for Go, HYPERTENSION for hypertension) — unless one of its listed superclasses is "
+    "acceptable. A different kind never matches (COMPANY for a university, EVENT for a person). "
+    "If the individual is right but no class is acceptable, leave it unmatched."
+)
+
 
 @dataclass
 class Match:
@@ -85,7 +98,8 @@ async def judge_alignment(
     response = await client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": _JUDGE_SYSTEM_PROMPT.format(kind=kind)},
+            {"role": "system", "content": _JUDGE_SYSTEM_PROMPT.format(kind=kind)
+                                          + (_ENTITY_JUDGE_RULES if kind == "entity" else "")},
             {"role": "user", "content": f"Expected:\n{expected_str}\n\nActual:\n{actual_str}"},
         ],
         tools=[_ALIGNMENT_TOOL],
@@ -267,6 +281,51 @@ class ComplianceResult:
         return not self.violations
 
 
+def _entity_view(kb: Any, database: str, event: dict) -> dict:
+    """What the judge sees of an extracted entity: its name and every class it ends the
+    run with (not only the one it was created with), each with its superclasses."""
+    view: dict[str, Any] = {"name": event.get("name")}
+    entity_id = event.get("id")
+    if not entity_id or kb.get_node(database, entity_id) is None:
+        view["classes"] = [event.get("class_name")] if event.get("class_name") else []
+        return view
+    classes = []
+    for c in entity_classes(kb, database, entity_id):
+        name = c.get("properties", {}).get("name", "")
+        supers = sorted(_class_names_of_class(kb, database, c) - {name})
+        classes.append(f"{name} (a kind of {', '.join(supers)})" if supers else name)
+    view["classes"] = classes
+    return view
+
+
+def _class_names_of_class(kb: Any, database: str, class_node: dict) -> set[str]:
+    names: set[str] = set()
+    seen: set[str] = set()
+    todo = [class_node]
+    while todo:
+        c = todo.pop()
+        if c.get("id") in seen:
+            continue
+        seen.add(c.get("id"))
+        names.add(c.get("properties", {}).get("name", ""))
+        todo += [nb["node"] for nb in kb.get_neighbors(database, c["id"], edge_type=IS_SUBCLASS_OF, direction="out")]
+    return names
+
+
+def _named_after_itself(view: dict) -> bool:
+    """True when every class the entity has (with its superclasses) is just the entity's
+    own name as a class — GO for Go, POSTGRESQL for PostgreSQL. Such a class says
+    nothing about what kind of thing it is, whatever the judge made of it."""
+    own = _canonical(view.get("name") or "")
+    classes = view.get("classes") or []
+    return bool(classes) and all(_canonical(c.split(" (a kind of ")[0]) == own and " (a kind of " not in c
+                                 for c in classes)
+
+
+def _canonical(name: str) -> str:
+    return "".join(ch for ch in name.upper() if ch.isalnum())
+
+
 def _class_names(kb: Any, database: str, entity_id: str) -> set[str]:
     """Names of the entity's classes and all their superclasses."""
     names: set[str] = set()
@@ -326,7 +385,9 @@ def _expected_label(kind: str, item: dict) -> str:
 
 def _actual_label(kind: str, event: dict) -> str:
     if kind == "entity":
-        return f"{event.get('name')} : {event.get('class_name') or '(untyped)'}"
+        classes = event.get("classes")
+        shown = ", ".join(classes) if classes else (event.get("class_name") or "(untyped)")
+        return f"{event.get('name')} : {shown}"
     if kind == "fact":
         return f"{event.get('head_entity_name')} -{event.get('relation_name')}-> {event.get('tail_entity_name')}"
     if event.get("fact_id") and event.get("head_entity_name"):
@@ -406,7 +467,11 @@ async def score_case(
     latency_seconds: float,
 ) -> CaseScore:
     ex = case.expected
-    entity_matches = await judge_alignment(ex.entities + ex.optional_entities, collector.entities, "entity", judge_client, judge_model)
+    entity_views = [_entity_view(kb, database, e) for e in collector.entities]
+    actual_entities = [{**e, "classes": v["classes"]} for e, v in zip(collector.entities, entity_views)]
+    entity_matches = [m for m in await judge_alignment(ex.entities + ex.optional_entities, entity_views,
+                                                       "entity", judge_client, judge_model)
+                      if not _named_after_itself(entity_views[m.actual_index])]
     fact_matches = await judge_alignment(ex.facts + ex.optional_facts, collector.facts, "fact", judge_client, judge_model)
     actual_properties = collector.entity_properties + collector.fact_properties
     prop_matches = await judge_alignment(
@@ -416,7 +481,7 @@ async def score_case(
         judge_client,
         judge_model,
     )
-    entities_prf1, entities_al = _scored("entity", ex.entities, ex.optional_entities, collector.entities, entity_matches)
+    entities_prf1, entities_al = _scored("entity", ex.entities, ex.optional_entities, actual_entities, entity_matches)
     facts_prf1, facts_al = _scored("fact", ex.facts, ex.optional_facts, collector.facts, fact_matches)
     props_prf1, props_al = _scored("property", ex.properties, ex.optional_properties, actual_properties, prop_matches)
     # Normalization only judges required property matches.
