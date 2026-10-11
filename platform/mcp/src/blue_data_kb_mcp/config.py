@@ -18,10 +18,10 @@ import json
 import os
 from pathlib import Path
 from typing import Any, Optional
-from urllib.parse import urlparse
 
 from blue_data.source.source import DataSource
 from blue_data_kb_source import KBSource
+from blue_data_kb_source.neo4j.uri import neo4j_uri_connection
 
 _FILE_KB_CLASS = "blue_data_kb_source.file_kb_source.FileKBSource"
 _NEO4J_KB_CLASS = "blue_data_kb_source.neo4j.neo4j_kb_source.NEO4JKBSource"
@@ -127,11 +127,10 @@ def _neo4j_connection() -> dict[str, Any]:
     connection: dict[str, Any] = {"user": os.environ.get("BLUE_DATA_KB_SOURCE_NEO4J_USER", "neo4j")}
     uri = os.environ.get("BLUE_DATA_KB_SOURCE_NEO4J_URI", "")
     if uri:
-        parsed = urlparse(uri)
-        connection["protocol"] = parsed.scheme or "bolt"
-        connection["host"] = parsed.hostname or "localhost"
-        if parsed.port:
-            connection["port"] = parsed.port
+        try:
+            connection.update(neo4j_uri_connection(uri))
+        except ValueError as exc:
+            raise ValueError(f"BLUE_DATA_KB_SOURCE_NEO4J_URI: {exc}") from None
     password = os.environ.get("BLUE_DATA_KB_SOURCE_NEO4J_PASSWORD")
     if password:
         connection["password"] = password

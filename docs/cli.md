@@ -66,12 +66,13 @@ blue-kb database register main \
     --embedding-provider openai \
     --embedding-model text-embedding-3-small
 
-# Neo4j backend with Redis vector store
+# Neo4j backend with Redis vector store. The password comes from the profile (it
+# prompts, so it stays out of shell history), never from a flag or the registry.
+blue-kb profile config BLUE_DATA_KB_SOURCE_NEO4J_PASSWORD
 blue-kb database register main \
     --graph-backend neo4j \
-    --neo4j-uri bolt://localhost:7687 \
+    --neo4j-uri neo4j+s://kb.example.com:7687 \
     --neo4j-user neo4j \
-    --neo4j-password secret \
     --search semantic \
     --vector-backend redis \
     --redis-host localhost \
@@ -87,6 +88,8 @@ blue-kb --database main database search config show
 # Rebuild the search index after bulk imports or enabling search on an existing database
 blue-kb --database main data reindex
 ```
+
+`--neo4j-uri` takes any scheme the Neo4j driver accepts — `bolt`, `neo4j`, and their TLS forms `bolt+s`/`neo4j+s` (`+ssc` accepts a self-signed certificate) — and connects with it as given; any other scheme is an error. The Neo4j password is never a command-line option or part of the registry: every command reads it from the profile's `BLUE_DATA_KB_SOURCE_NEO4J_PASSWORD` (or that environment variable) when it connects, and `database list`/`config show` mask any credential an older registry record still holds.
 
 ## Global options
 
@@ -164,6 +167,7 @@ $ blue-kb profile config OPENAI_API_KEY
 | `BLUE_DATA_CLI_LOG_LIMIT` | int | `80` | |
 | `BLUE_DATA_KB_SOURCE_DATA_DIR` | directory | `~/.blue-kb` | ✓ |
 | `BLUE_DATA_KB_SOURCE_DATABASE` | str | `default` | ✓ |
+| `BLUE_DATA_KB_SOURCE_NEO4J_PASSWORD` | secret | — | |
 | `BLUE_DATA_KB_SOURCE_LLM_MODEL` | str | *inherits* | |
 | `BLUE_DATA_KB_SOURCE_EXTRACTION_LLM_MODEL` | str | *inherits* | |
 | `BLUE_DATA_KB_SOURCE_QUERY_LLM_MODEL` | str | *inherits* | |

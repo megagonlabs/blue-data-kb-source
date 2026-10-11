@@ -743,7 +743,7 @@ blue-kb [--database DB] GROUP [SUBGROUP] COMMAND [OPTIONS]
 ```
 blue-kb database list [--format table|json]
 blue-kb database register NAME [--graph-backend file|neo4j] [--directory DIR]
-                           [--neo4j-uri URI] [--neo4j-user USER] [--neo4j-password PW]
+                           [--neo4j-uri URI] [--neo4j-user USER]
                            [--search none|bm25|semantic] [--bm25-index-dir DIR]
                            [--vector-backend memory|file|chromadb|redis]
                            [--vector-directory DIR] [--vector-path PATH]
@@ -754,7 +754,7 @@ blue-kb database delete NAME [--yes]
 blue-kb database select NAME
 blue-kb database config show
 blue-kb database config set [--graph-backend file|neo4j] [--directory DIR]
-                        [--neo4j-uri URI] [--neo4j-user USER] [--neo4j-password PW]
+                        [--neo4j-uri URI] [--neo4j-user USER]
 blue-kb database search config show
 blue-kb database search config set [--search none|bm25|semantic] [--bm25-index-dir DIR]
                                [--vector-backend ...] [--embedding-provider openai] [--embedding-model MODEL]

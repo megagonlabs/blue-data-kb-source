@@ -1,4 +1,8 @@
 import json
+import os
+from pathlib import Path
+
+import pytest
 
 from blue_data_kb_cli.commands import cli
 
@@ -131,3 +135,69 @@ def test_database_config_show_and_set(runner, tmp_path):
     invoke(runner, ["--database", "main", "database", "config", "set", "--directory", str(new_dir)])
     cfg = json.loads(runner.invoke(cli, ["--database", "main", "database", "config", "show"]).output)
     assert cfg["connection"]["directory"] == str(new_dir)
+
+
+# ------------------------------------------------------------------ #
+# Neo4j connection: TLS scheme kept (#121), password from the profile (#122)
+# ------------------------------------------------------------------ #
+
+def _dial(monkeypatch, database):
+    """Connect the CLI's way and return (uri, auth) the Neo4j driver was given."""
+    import blue_data.source.graph.neo4j.neo4j_graph_source as ngs
+    from unittest.mock import patch
+
+    from blue_data_kb_cli.config import _make_kb
+
+    with patch.object(ngs.GraphDatabase, "driver") as driver:
+        _make_kb(database)
+    return driver.call_args.args[0], driver.call_args.kwargs["auth"]
+
+
+def _neo4j_db(runner, uri="neo4j+s://kb.example.com:7687"):
+    invoke(runner, ["--database", "neo", "database", "config", "set",
+                    "--graph-backend", "neo4j", "--neo4j-uri", uri, "--neo4j-user", "kbuser"])
+
+
+def test_neo4j_tls_uri_is_dialled_over_tls(runner, monkeypatch):
+    _neo4j_db(runner)
+    uri, _ = _dial(monkeypatch, "neo")
+    assert uri == "neo4j+s://kb.example.com:7687"
+
+
+def test_neo4j_uri_with_an_unknown_scheme_is_refused(runner):
+    result = runner.invoke(cli, ["--database", "neo", "database", "config", "set",
+                                 "--graph-backend", "neo4j", "--neo4j-uri", "https://kb.example.com"])
+    assert result.exit_code != 0
+    assert "unsupported Neo4j URI scheme" in result.output
+
+
+def test_neo4j_password_comes_from_the_profile_at_connect_time(runner, monkeypatch):
+    _neo4j_db(runner)
+    monkeypatch.setenv("BLUE_DATA_KB_SOURCE_NEO4J_PASSWORD", "from-profile")
+    _, auth = _dial(monkeypatch, "neo")
+    assert auth == ("kbuser", "from-profile")
+
+
+@pytest.mark.parametrize("args", [
+    ["database", "register", "neo", "--graph-backend", "neo4j", "--neo4j-password", "pw"],
+    ["--database", "neo", "database", "config", "set", "--neo4j-password", "pw"],
+])
+def test_neo4j_password_flag_is_refused(runner, args):
+    result = runner.invoke(cli, args)
+    assert result.exit_code != 0
+    assert "BLUE_DATA_KB_SOURCE_NEO4J_PASSWORD" in result.output
+    assert not (Path(os.environ["BLUE_DATA_KB_SOURCE_DATA_DIR"]) / "registry.json").exists() \
+        or "pw" not in (Path(os.environ["BLUE_DATA_KB_SOURCE_DATA_DIR"]) / "registry.json").read_text()
+
+
+def test_a_stored_password_is_masked_in_every_output(runner):
+    """Records written by the old `config set --neo4j-password` hold it in plaintext."""
+    from blue_data_kb_cli.config import update_db_config
+
+    _neo4j_db(runner)
+    update_db_config("neo", {"connection": {"password": "legacy-secret"}})
+    for args in (["--database", "neo", "database", "config", "show"],
+                 ["database", "list", "--format", "json"]):
+        out = invoke(runner, args).output
+        assert "legacy-secret" not in out
+        assert '"password"' in out

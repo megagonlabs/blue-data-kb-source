@@ -11,6 +11,12 @@
     "required": true,
     "cast": "str"
   },
+  "BLUE_DATA_KB_SOURCE_NEO4J_PASSWORD": {
+    "default": null,
+    "prompt": "Neo4j password, for databases registered with --graph-backend neo4j",
+    "required": false,
+    "cast": "secret"
+  },
   "BLUE_DATA_KB_SOURCE_LLM_MODEL": {
     "default": null,
     "prompt": "LLM model for all kb commands (overrides BLUE_DATA_LLM_MODEL)",

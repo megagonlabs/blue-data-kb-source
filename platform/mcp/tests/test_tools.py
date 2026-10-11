@@ -470,7 +470,6 @@ def test_every_variable_this_server_reads_is_a_name_the_cli_also_uses():
         "BLUE_DATA_KB_SOURCE_EMBEDDING_MODEL",
         "BLUE_DATA_KB_SOURCE_NEO4J_URI",
         "BLUE_DATA_KB_SOURCE_NEO4J_USER",
-        "BLUE_DATA_KB_SOURCE_NEO4J_PASSWORD",
         "BLUE_DATA_KB_SOURCE_NEO4J_DATABASE",
         # The CLI takes reference servers per command (`--mcp-server`); only this
         # server needs them as operator config, since its callers mustn't supply them.
@@ -559,6 +558,26 @@ def test_neo4j_physical_database_is_operator_config(monkeypatch):
     assert config_module._neo4j_connection()["database"] == "kb_store"
     monkeypatch.delenv("BLUE_DATA_KB_SOURCE_NEO4J_DATABASE")
     assert "database" not in config_module._neo4j_connection()  # library default: neo4j
+
+
+def test_neo4j_tls_uri_is_dialled_over_tls(monkeypatch):
+    """#121: the scheme went under `protocol`, which the driver never reads, so a
+    `neo4j+s://` URI was dialled as plain `bolt://`."""
+    import blue_data.source.graph.neo4j.neo4j_graph_source as ngs
+
+    monkeypatch.setenv("BLUE_DATA_KB_SOURCE_GRAPH_BACKEND", "neo4j")
+    monkeypatch.setenv("BLUE_DATA_KB_SOURCE_SEARCH", "none")
+    monkeypatch.setenv("BLUE_DATA_KB_SOURCE_NEO4J_URI", "neo4j+s://kb.example.com:7687")
+    monkeypatch.setenv("BLUE_DATA_KB_SOURCE_NEO4J_PASSWORD", "placeholder")
+    with patch.object(ngs.GraphDatabase, "driver") as driver:
+        config_module._build_kb()
+    assert driver.call_args.args[0] == "neo4j+s://kb.example.com:7687"
+
+
+def test_neo4j_uri_with_an_unknown_scheme_is_refused(monkeypatch):
+    monkeypatch.setenv("BLUE_DATA_KB_SOURCE_NEO4J_URI", "https://kb.example.com:7687")
+    with pytest.raises(ValueError, match="BLUE_DATA_KB_SOURCE_NEO4J_URI: unsupported Neo4j URI scheme"):
+        config_module._neo4j_connection()
 
 
 async def test_expansion_tools_apply_the_overall_timeout(monkeypatch, kb):

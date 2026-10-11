@@ -104,7 +104,7 @@ All configuration is via environment variables — there is no config file, and 
 |---|---|---|
 | `BLUE_DATA_KB_SOURCE_GRAPH_BACKEND` | `file` | `file` — JSON files on disk. `neo4j` — Neo4j graph database. |
 | `BLUE_DATA_KB_SOURCE_DATA_DIR` | `~/.blue-kb` | File backend directory. Same default the `blue-kb` CLI's file backend uses. Every tool's `database` argument names a database inside it — 1–64 letters, digits, `_` or `-` — and path-like values (separators, `..`, absolute paths) are rejected, so a tool call can't read or write outside this directory. |
-| `BLUE_DATA_KB_SOURCE_NEO4J_URI` | — | Neo4j bolt URI, e.g. `bolt://localhost:7687`. Used when `BLUE_DATA_KB_SOURCE_GRAPH_BACKEND=neo4j`. |
+| `BLUE_DATA_KB_SOURCE_NEO4J_URI` | — | Neo4j URI, e.g. `bolt://localhost:7687`, or `neo4j+s://…` / `bolt+s://…` for TLS (`+ssc` accepts a self-signed certificate). The scheme is used as given; any other scheme is an error. Used when `BLUE_DATA_KB_SOURCE_GRAPH_BACKEND=neo4j`. |
 | `BLUE_DATA_KB_SOURCE_NEO4J_USER` | `neo4j` | Neo4j username. |
 | `BLUE_DATA_KB_SOURCE_NEO4J_PASSWORD` | — | Neo4j password. |
 | `BLUE_DATA_KB_SOURCE_NEO4J_DATABASE` | `neo4j` | The one physical Neo4j database the KB lives in. Tools' `database` argument selects a logical KB database *inside* it, never another Neo4j database — so a tool call can't reach `system` or another application's database on the same server. |

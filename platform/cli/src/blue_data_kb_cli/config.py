@@ -33,12 +33,13 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
 from blue_data.registry.data_registry import DataRegistry
 from blue_data.source.json.file_json_source import FileJSONSource
 from blue_data.source.source import DataSource
+from blue_data.utils.config import MASK
 from blue_data_kb_source import KBSource
+from blue_data_kb_source.neo4j.uri import neo4j_uri_connection
 
 _MEMORY_KB_CLASS = "blue_data_kb_source.memory_kb_source.MemoryKBSource"
 _FILE_KB_CLASS = "blue_data_kb_source.file_kb_source.FileKBSource"
@@ -144,8 +145,8 @@ def register_database(
         properties["connection"] = connection
     if search:
         properties["search"] = search
-    kb = DataSource.instantiate(class_path, name, properties=properties)
-    _get_registry().register_source(kb)
+    kb = DataSource.instantiate(class_path, name, properties=_with_neo4j_password(class_path, properties))
+    _get_registry().register_source(kb)  # strips the password from what it saves
     return kb
 
 
@@ -182,16 +183,13 @@ def _neo4j_connection_dict(
     """Build a *partial* connection dict from CLI flags — only includes keys that
     were actually given. Anything omitted is left for NEO4JKBSource's own
     `_initialize_connection_properties` defaults to fill in at construction time
-    (scheme=bolt, host=localhost, port=7687, user=neo4j) — this is what keeps a
+    (scheme=bolt, host=localhost, port=7687, user=neo4j). Raises ValueError
+    for a URI scheme the Neo4j driver doesn't accept — this is what keeps a
     partial `database config set --neo4j-uri ...` from clobbering an
     already-configured user/password with an unrequested default."""
     connection: dict[str, Any] = {}
     if uri:
-        parsed = urlparse(uri)
-        connection["protocol"] = parsed.scheme or "bolt"
-        connection["host"] = parsed.hostname or "localhost"
-        if parsed.port:
-            connection["port"] = parsed.port
+        connection.update(neo4j_uri_connection(uri))
     if user:
         connection["user"] = user
     if password:
@@ -213,10 +211,42 @@ def _vector_properties(backend: str, connection: dict[str, Any]) -> dict[str, An
 # KBSource factory                                                     #
 # ------------------------------------------------------------------ #
 
+NEO4J_PASSWORD_ENV = "BLUE_DATA_KB_SOURCE_NEO4J_PASSWORD"
+
+# Keys never shown by `database list`/`config show`, wherever they sit in a record.
+# The registry strips them from what `register` saves, but a record written by an
+# older `database config set --neo4j-password` still holds one in plaintext (#122).
+_SECRET_KEYS = frozenset({
+    "password", "passwd", "pwd", "token", "access_token", "refresh_token",
+    "secret", "client_secret", "api_secret", "api_key", "private_key",
+})
+
+
+def masked(value: Any) -> Any:
+    """A copy of a registry record (or any part of one) with secret values masked."""
+    if isinstance(value, dict):
+        return {k: (MASK if k in _SECRET_KEYS and v else masked(v)) for k, v in value.items()}
+    if isinstance(value, list):
+        return [masked(v) for v in value]
+    return value
+
+
+def _with_neo4j_password(class_path: str, props: dict[str, Any]) -> dict[str, Any]:
+    """*props* with the profile's Neo4j password in its connection, if *class_path* is Neo4j.
+
+    The registry never stores the password, so it comes from the profile (or the
+    environment) each time the CLI connects, as it does for the MCP server (#122).
+    """
+    password = os.environ.get(NEO4J_PASSWORD_ENV)
+    if class_path != _NEO4J_KB_CLASS or not password:
+        return props
+    return {**props, "connection": {**(props.get("connection") or {}), "password": password}}
+
+
 def _make_kb(database: str) -> KBSource:
-    kb = _get_registry().connect_source(database)
-    if kb is not None:
-        return kb
+    props = _get_registry().get_source_properties(database)
+    if props:
+        return DataSource.instantiate(props["_class"], database, properties=_with_neo4j_password(props["_class"], props))
     # Not registered — default to an unregistered file-backed KB, matching the
     # CLI's long-standing "no explicit `register` required" behavior.
     return DataSource.instantiate(

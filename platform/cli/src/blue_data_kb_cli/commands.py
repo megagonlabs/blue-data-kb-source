@@ -43,6 +43,7 @@ from rich.table import Table
 from rich.tree import Tree
 
 from blue_data_kb_cli.config import (
+    NEO4J_PASSWORD_ENV,
     _BACKEND_BY_KB_CLASS,
     _FILE_KB_CLASS,
     _KB_CLASS_BY_BACKEND,
@@ -56,6 +57,7 @@ from blue_data_kb_cli.config import (
     _vector_properties,
     list_databases,
     load_db_config,
+    masked,
     register_database,
     unregister_database,
     update_db_config,
@@ -514,7 +516,7 @@ def database_list(fmt: str) -> None:
     """List registered databases."""
     records = sorted(list_databases(), key=lambda r: r["name"])
     if fmt == "json":
-        console.print_json(json.dumps({r["name"]: r["properties"] for r in records}))
+        console.print_json(json.dumps({r["name"]: masked(r["properties"]) for r in records}))
         return
     if not records:
         console.print("[dim](no databases registered — run `blue-kb database register NAME`)[/dim]")
@@ -543,13 +545,29 @@ def _bm25_dir_for(connection: dict[str, Any]) -> str:
     return str(connection.get("directory") or _data_dir())
 
 
+def _neo4j_flags(uri: str | None, user: str | None, password: str | None) -> dict[str, Any]:
+    if password:
+        # `register` passed it to a registry that strips credentials, so it was never
+        # saved, and `config set` saved it in plaintext and printed it back (#122).
+        raise click.ClickException(
+            "--neo4j-password is no longer accepted: a password on the command line lands "
+            "in shell history. Set it once with "
+            f"`blue-kb profile config {NEO4J_PASSWORD_ENV}` (it prompts; enter `$VAR` to "
+            f"reference an environment variable), or export {NEO4J_PASSWORD_ENV}."
+        )
+    try:
+        return _neo4j_connection_dict(uri=uri, user=user)
+    except ValueError as exc:
+        raise click.ClickException(f"--neo4j-uri: {exc}") from None
+
+
 @database_group.command("register")
 @click.argument("name")
 @click.option("--graph-backend", "graph_backend", type=click.Choice(["file", "neo4j"]), default="file", show_default=True)
 @click.option("--directory",      help="Graph data directory (file backend). Default: the profile's BLUE_DATA_KB_SOURCE_DATA_DIR.")
 @click.option("--neo4j-uri",      help="Neo4j bolt URI.")
 @click.option("--neo4j-user",     help="Neo4j username.")
-@click.option("--neo4j-password", help="Neo4j password.")
+@click.option("--neo4j-password", hidden=True)
 @click.option("--search",         type=click.Choice(["none", "bm25", "semantic"]), default="none", show_default=True)
 @click.option("--bm25-index-dir", help="Directory for BM25 corpus files. Default: graph directory.")
 @click.option("--vector-backend", "vector_backend", type=click.Choice(["memory", "file", "chromadb", "redis"]), default="memory", show_default=True)
@@ -582,7 +600,7 @@ def database_register(
     class_path = _KB_CLASS_BY_BACKEND[graph_backend]
 
     if graph_backend == "neo4j":
-        connection = _neo4j_connection_dict(uri=neo4j_uri, user=neo4j_user, password=neo4j_password)
+        connection = _neo4j_flags(neo4j_uri, neo4j_user, neo4j_password)
     else:
         connection = {"directory": directory or _data_dir()}
 
@@ -730,7 +748,7 @@ def database_config_show(obj: dict) -> None:
     """Show the database configuration."""
     db: str = obj["db"]
     cfg = load_db_config(db)
-    console.print_json(json.dumps(cfg, indent=2))
+    console.print_json(json.dumps(masked(cfg), indent=2))
 
 
 @database_config_group.command("set")
@@ -738,7 +756,7 @@ def database_config_show(obj: dict) -> None:
 @click.option("--directory",      help="Graph data directory (file backend).")
 @click.option("--neo4j-uri",      help="Neo4j bolt URI.")
 @click.option("--neo4j-user",     help="Neo4j username.")
-@click.option("--neo4j-password", help="Neo4j password.")
+@click.option("--neo4j-password", hidden=True)
 @click.pass_obj
 def database_config_set(
     obj: dict,
@@ -756,7 +774,7 @@ def database_config_set(
     connection_updates: dict[str, Any] = {}
     if directory:
         connection_updates["directory"] = directory
-    connection_updates.update(_neo4j_connection_dict(uri=neo4j_uri, user=neo4j_user, password=neo4j_password))
+    connection_updates.update(_neo4j_flags(neo4j_uri, neo4j_user, neo4j_password))
     if connection_updates:
         updates["connection"] = connection_updates
     if not updates:
@@ -785,7 +803,7 @@ def database_search_config_show(obj: dict) -> None:
     """Show search configuration."""
     db: str = obj["db"]
     cfg = load_db_config(db)
-    console.print_json(json.dumps(cfg.get("search") or {"mode": "none"}, indent=2))
+    console.print_json(json.dumps(masked(cfg.get("search") or {"mode": "none"}), indent=2))
 
 
 @database_search_config_group.command("set")
