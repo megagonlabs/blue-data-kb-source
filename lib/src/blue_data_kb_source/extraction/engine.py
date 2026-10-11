@@ -695,6 +695,24 @@ _ID_ARGS: tuple[tuple[str, str], ...] = (
     ("property_id", PROPERTY),
 )
 
+# A uuid as the model copies it, give or take one character (#96).
+_UUID_LIKE = re.compile(r"[0-9a-fA-F-]{35,37}")
+
+
+def _within_one_edit(a: str, b: str) -> bool:
+    """True if *a* becomes *b* by inserting, deleting or substituting one character."""
+    if a == b or abs(len(a) - len(b)) > 1:
+        return a == b
+    if len(a) > len(b):
+        a, b = b, a
+    i = 0
+    while i < len(a) and a[i] == b[i]:
+        i += 1
+    if len(a) == len(b):
+        return a[i + 1:] == b[i + 1:]
+    return a[i:] == b[i + 1:]
+
+
 # Tools whose `text` argument claims to be a verbatim quote from the source.
 _TEXT_BEARING_TOOLS = frozenset({
     "add_entity", "add_fact", "add_entity_property_value",
@@ -1363,11 +1381,29 @@ class ExtractionEngine:
                 continue
             resolved = await self._resolve_id_by_name(database, arg, label, value, args)
             if resolved is None:
+                resolved = self._resolve_mistyped_id(database, label, value)
+            if resolved is None:
                 unresolved.append(arg)
                 continue
             args[arg] = resolved
             coerced[arg] = f"{value} -> {resolved}"
         return coerced, unresolved
+
+    def _resolve_mistyped_id(self, database: str, label: str, value: str) -> str | None:
+        """The one *label* node whose id is a single edit away from *value*, or None.
+
+        The model copying an id verbatim sometimes drops, adds or changes one
+        character — a uuid 37 characters long — and the item was lost (#96). Unlike
+        a fuzzy *name* match (which ADR-029 keeps exact, because a near name can be
+        a different thing), an id carries no meaning: a uuid-shaped value one edit
+        from exactly one id of the expected kind has a single possible intent.
+        With two or more such ids it stays unresolved.
+        """
+        if not _UUID_LIKE.fullmatch(value):
+            return None
+        matches = [n["id"] for n in self._source.match_nodes(database, label=label)
+                   if _within_one_edit(value, n["id"])]
+        return matches[0] if len(matches) == 1 else None
 
     async def _same_named_entities(self, database: str, name: str) -> list[str]:
         """Ids of entities standing for *name*: exact matches first, then the

@@ -1524,6 +1524,76 @@ async def test_class_id_given_as_a_name_is_resolved(kb):
     assert reply["coerced"] == {"class_id": f"PERSON -> {person}"}
 
 
+# ------------------------------------------------------------------ #
+# An id mistyped by one character resolves to its only neighbour (#96) #
+# ------------------------------------------------------------------ #
+
+_SQL_ID = "fbcba61f-5b31-4572-b097-eecb29e948d6"
+_ALICE_ID = "c750262a-537f-494b-a585-7742717db6ba"
+
+
+async def _two_people(kb):
+    person, _ = await _resume_schema(kb)
+    await kb.add_entity("test", "SQL", class_id=person, entity_id=_SQL_ID)
+    await kb.add_entity("test", "Alice Chen", class_id=person, entity_id=_ALICE_ID)
+    return person
+
+
+@pytest.mark.parametrize("typed, meant", [
+    (_SQL_ID + "c", _SQL_ID),                                    # appended (benchmark run 3)
+    ("c750262a-537f-494b-a585-7742717db6cba", _ALICE_ID),        # inserted (benchmark run 4)
+    (_ALICE_ID[:-1] + "f", _ALICE_ID),                           # substituted
+    (_ALICE_ID[:10] + _ALICE_ID[11:], _ALICE_ID),                # dropped
+])
+async def test_an_id_mistyped_by_one_character_is_resolved(kb, typed, meant):
+    await _two_people(kb)
+    args = {"entity_id": typed}
+    coerced, unresolved = await kb._extraction._coerce_id_args("test", args)
+    assert (args["entity_id"], unresolved) == (meant, [])
+    assert coerced == {"entity_id": f"{typed} -> {meant}"}
+
+
+async def test_a_mistyped_id_near_two_ids_stays_unresolved(kb):
+    person, _ = await _resume_schema(kb)
+    await kb.add_entity("test", "A", class_id=person, entity_id=_ALICE_ID)
+    await kb.add_entity("test", "B", class_id=person, entity_id=_ALICE_ID[:-1] + "c")
+    args = {"entity_id": _ALICE_ID[:-1] + "d"}   # one edit from both
+    coerced, unresolved = await kb._extraction._coerce_id_args("test", args)
+    assert (coerced, unresolved) == ({}, ["entity_id"])
+
+
+async def test_a_mistyped_id_only_matches_nodes_of_the_expected_kind(kb):
+    await _two_people(kb)
+    args = {"class_id": _ALICE_ID + "c"}   # an ENTITY id, one edit away, where a CLASS belongs
+    coerced, unresolved = await kb._extraction._coerce_id_args("test", args)
+    assert (coerced, unresolved) == ({}, ["class_id"])
+
+
+async def test_a_short_non_uuid_value_is_never_treated_as_a_typo(kb):
+    person, _ = await _resume_schema(kb)
+    await kb.add_entity("test", "Bob", class_id=person, entity_id="e1")
+    args = {"entity_id": "e2"}
+    coerced, unresolved = await kb._extraction._coerce_id_args("test", args)
+    assert (coerced, unresolved) == ({}, ["entity_id"])
+
+
+async def test_a_mistyped_id_in_a_tool_call_still_creates_the_fact(kb):
+    """End to end, as in benchmark run 4: the fact that used to be lost."""
+    ids = await _alice_at_ibm(kb)
+    typed = ids["alice"][:-1] + "c" + ids["alice"][-1]
+    responses = _mock_openai_sequence(
+        _text_response("done"),
+        _tool_call_response("add_fact", {"head_entity_id": typed, "relation_id": ids["worked"],
+                                         "tail_entity_id": ids["ibm"], "text": "Alice joined IBM"}),
+        _text_response("done"), _text_response("done"), _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Alice joined IBM.", expand_schema=False, related_data_k=0)
+    assert len(kb.match_nodes("test", label="FACT")) == 1
+    reply = json.loads(_tool_replies(factory)[0]["content"])
+    assert reply["coerced"] == {"head_entity_id": f"{typed} -> {ids['alice']}"}
+
+
 async def test_relation_id_given_as_a_name_is_resolved(kb):
     ids = await _alice_at_ibm(kb)
 
