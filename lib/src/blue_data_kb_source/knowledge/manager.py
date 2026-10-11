@@ -26,6 +26,7 @@ from blue_data_kb_source._constants import (
 from blue_data_kb_source._text_match import match_score
 from blue_data_kb_source.checks import require_free_id, require_node_type, require_node_type_one_of
 from blue_data_kb_source.knowledge.engine import QueryEngine
+from blue_data_kb_source.schema.manager import _canonicalize_schema_name
 from blue_data_kb_source.knowledge.helpers import (
     cast_literal_value,
     detail_attrs,
@@ -824,6 +825,12 @@ class KnowledgeManager:
         used only as in-payload join keys during import — entities aren't
         guaranteed unique by name (`add_entity` never dedups), so names
         alone can't safely re-link facts/properties to the right one.
+
+        An entity carries every class it is an instance of (`classes`; `class`
+        is the first, for older readers). With `include_provenance`, each item
+        carries its evidence records (`evidence`: text, confidence, extraction
+        type and source), which import recreates one by one; `extraction` is
+        the same texts joined, as older exports had it (#124).
         """
         def _node_name(node: dict) -> str | None:
             return node.get("properties", {}).get("name")
@@ -835,16 +842,17 @@ class KnowledgeManager:
         for node in self._source.match_nodes(database, label=ENTITY):
             nid = node["id"]
             props = node.get("properties", {})
-            classes = entity_classes(self._source, database, nid)
-            cls = classes[0] if classes else None
+            class_names = [_node_name(c) for c in entity_classes(self._source, database, nid)]
             entry = {
                 "ref": nid,
                 "name": props.get("name"),
                 "description": props.get("description"),
-                "class": _node_name(cls) if cls else None,
+                "class": class_names[0] if class_names else None,
+                "classes": class_names,
             }
             if include_provenance:
                 entry["extraction"] = self._provenance_text(database, nid)
+                entry["evidence"] = self._export_evidence(database, nid)
             entities.append(entry)
 
         facts: list[dict] = []
@@ -865,6 +873,7 @@ class KnowledgeManager:
             }
             if include_provenance:
                 entry["extraction"] = self._provenance_text(database, nid)
+                entry["evidence"] = self._export_evidence(database, nid)
             facts.append(entry)
 
         entity_properties: list[dict] = []
@@ -884,6 +893,7 @@ class KnowledgeManager:
             }
             if include_provenance:
                 entry["extraction"] = self._provenance_text(database, nid)
+                entry["evidence"] = self._export_evidence(database, nid)
             (entity_properties if owner.get("label") == ENTITY else fact_properties).append(entry)
 
         return {
@@ -892,6 +902,67 @@ class KnowledgeManager:
             "entity_properties": entity_properties,
             "fact_properties": fact_properties,
         }
+
+    def _export_evidence(self, database: str, node_id: str) -> list[dict]:
+        """One record per EXTRACTION on *node_id*, with what import needs to recreate it."""
+        records = []
+        for nb in self._source.get_neighbors(database, node_id, edge_type=EXTRACTED_FROM, direction="out"):
+            ex = nb["node"]
+            props = ex.get("properties", {})
+            record = {
+                "text": props.get("text"),
+                "confidence": props.get("confidence"),
+                "extraction_type": props.get("extraction_type"),
+            }
+            srcs = self._source.get_neighbors(database, ex["id"], edge_type=EXTRACTED_FROM, direction="out")
+            if srcs:
+                sp = srcs[0]["node"].get("properties", {})
+                record["source"] = {k: sp.get(k) for k in ("source", "name", "description", "original")}
+            records.append(record)
+        return records
+
+    async def _import_source(self, database: str, spec: dict | None, cache: dict[str, str]) -> str | None:
+        """The target's SOURCE matching an exported one (same `source` and `name`), created if missing."""
+        if not spec or not spec.get("source"):
+            return None
+        key = f"{spec.get('source')}\x00{spec.get('name')}"
+        if key not in cache:
+            match = [n for n in self._source.match_nodes(database, label=SOURCE)
+                     if n.get("properties", {}).get("source") == spec.get("source")
+                     and n.get("properties", {}).get("name") == spec.get("name")]
+            cache[key] = match[0]["id"] if match else await self._provenance.add_source(
+                database, spec["source"], name=spec.get("name"),
+                description=spec.get("description"), original=spec.get("original"),
+            )
+        return cache[key]
+
+    async def _import_evidence(self, database: str, item: dict, element_id: str, sources: dict[str, str]) -> None:
+        for record in item.get("evidence") or []:
+            if not record.get("text"):
+                continue
+            await self._provenance.add_extraction(
+                database, record["text"], element_id=element_id,
+                source_id=await self._import_source(database, record.get("source"), sources),
+                confidence=record.get("confidence"),
+                extraction_type=record.get("extraction_type") or "text_span",
+            )
+
+    async def _resolve_owned_property(self, database: str, owner_id: str, name: str | None) -> str | None:
+        """The PROPERTY named *name* declared for this owner's classes (entity) or
+        relation (fact). Property names are unique per owner, not globally: AGE on
+        ANIMAL and AGE on PERSON are two properties, and taking the first by name
+        failed the import of a PERSON's AGE (#124)."""
+        if not name:
+            return None
+        canonical = _canonicalize_schema_name(name)
+        candidates = [n["id"] for n in self._source.match_nodes(database, label=PROPERTY)
+                      if n.get("properties", {}).get("name") == canonical]
+        if not candidates:
+            raise KnowledgeError(f"import_database_data: property {name!r} not found in database {database!r}")
+        for property_id in candidates:
+            if (await self.is_property_allowed(database, owner_id, property_id))["ok"]:
+                return property_id
+        return candidates[0]  # add_*_property_value then says why it isn't allowed
 
     async def _resolve_schema_ref(
         self,
@@ -935,6 +1006,7 @@ class KnowledgeManager:
         never leaves half its entities behind.
         """
         extractions_before = {n["id"] for n in self._source.match_nodes(database, label=EXTRACTION)}
+        sources_before = {n["id"] for n in self._source.match_nodes(database, label=SOURCE)}
         created_entities: list[str] = []
         try:
             await self._import_database_data(database, data, created_entities)
@@ -947,20 +1019,32 @@ class KnowledgeManager:
             for node in self._source.match_nodes(database, label=EXTRACTION):
                 if node["id"] not in extractions_before:
                     self._source.delete_node(database, node["id"])
+            for node in self._source.match_nodes(database, label=SOURCE):
+                if node["id"] not in sources_before:
+                    self._source.delete_node(database, node["id"])
             raise
 
     async def _import_database_data(
         self, database: str, data: dict, created_entities: list[str]
     ) -> None:
         ref_to_id: dict[str, str] = {}
+        sources: dict[str, str] = {}
+
+        def _text(item: dict) -> str | None:
+            # Per-record evidence when the export has it; else the joined text.
+            return None if item.get("evidence") is not None else item.get("extraction")
 
         for ent in data.get("entities", []):
-            class_id = await self._resolve_schema_ref(database, CLASS, ent.get("class"), "class")
+            names = ent.get("classes") or ([ent["class"]] if ent.get("class") else [])
+            class_ids = [await self._resolve_schema_ref(database, CLASS, n, "class") for n in names]
             new_id = await self.add_entity(
                 database, ent.get("name"), description=ent.get("description"),
-                class_id=class_id, text=ent.get("extraction"),
+                class_id=class_ids[0] if class_ids else None, text=_text(ent),
             )
             created_entities.append(new_id)
+            for class_id in class_ids[1:]:
+                await self.attach_entity_class(database, new_id, class_id)
+            await self._import_evidence(database, ent, new_id, sources)
             if ent.get("ref") is not None:
                 ref_to_id[ent["ref"]] = new_id
 
@@ -973,30 +1057,29 @@ class KnowledgeManager:
             new_id = await self.add_fact(
                 database, name=fact.get("name"), description=fact.get("description"),
                 head_entity_id=head_id, tail_entity_id=tail_id, relation_id=relation_id,
-                text=fact.get("extraction"),
+                text=_text(fact),
             )
+            await self._import_evidence(database, fact, new_id, sources)
             if fact.get("ref") is not None:
                 ref_to_id[fact["ref"]] = new_id
 
         for prop in data.get("entity_properties", []):
             owner_id = self._resolve_data_ref(ref_to_id, prop.get("owner_ref"), "entity property owner_ref")
-            property_id = await self._resolve_schema_ref(
-                database, PROPERTY, prop.get("name"), "property"
-            )
-            await self.add_entity_property_value(
+            property_id = await self._resolve_owned_property(database, owner_id, prop.get("name"))
+            literal_id = await self.add_entity_property_value(
                 database, prop.get("value"), literal_type=prop.get("literal_type"),
-                entity_id=owner_id, property_id=property_id, text=prop.get("extraction"),
+                entity_id=owner_id, property_id=property_id, text=_text(prop),
             )
+            await self._import_evidence(database, prop, literal_id, sources)
 
         for prop in data.get("fact_properties", []):
             owner_id = self._resolve_data_ref(ref_to_id, prop.get("owner_ref"), "fact property owner_ref")
-            property_id = await self._resolve_schema_ref(
-                database, PROPERTY, prop.get("name"), "property"
-            )
-            await self.add_fact_property_value(
+            property_id = await self._resolve_owned_property(database, owner_id, prop.get("name"))
+            literal_id = await self.add_fact_property_value(
                 database, prop.get("value"), literal_type=prop.get("literal_type"),
-                fact_id=owner_id, property_id=property_id, text=prop.get("extraction"),
+                fact_id=owner_id, property_id=property_id, text=_text(prop),
             )
+            await self._import_evidence(database, prop, literal_id, sources)
 
     # ------------------------------------------------------------------ #
     # Metadata lookup                                                       #

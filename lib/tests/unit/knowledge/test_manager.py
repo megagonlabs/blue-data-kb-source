@@ -1654,3 +1654,82 @@ async def test_search_data_without_an_index_ranks_by_keyword(kb):
     assert hits and hits[0].id == alice
     langs = await kb.search_data("test", "programming", type_filter="ENTITY")
     assert {h.name for h in langs} == {"Python", "TypeScript"}
+
+
+# ------------------------------------------------------------------ #
+# Export -> import reproduces the data (#124)                          #
+# ------------------------------------------------------------------ #
+
+async def _round_trip(kb, include_provenance=False):
+    schema = await kb.export_database_schema("test")
+    data = await kb.export_database_data("test", include_provenance=include_provenance)
+    kb.create_database("copy")
+    await kb.import_database_schema("copy", schema)
+    await kb.import_database_data("copy", data)
+
+
+async def test_round_trip_keeps_values_of_a_property_name_two_classes_declare(kb):
+    animal = await kb.declare_class("test", "ANIMAL", "An animal")
+    person = await kb.declare_class("test", "PERSON", "A person")
+    await kb.declare_class_property("test", "AGE", "Age of an animal", class_id=animal)
+    age = await kb.declare_class_property("test", "AGE", "Age of a person", class_id=person)
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    await kb.add_entity_property_value("test", 30, entity_id=alice, property_id=age)
+    await _round_trip(kb)
+    copy_alice = await kb.find_entity("copy", "Alice")
+    values = await kb.get_property_values("copy", copy_alice["id"])
+    assert [(v["literal"]["properties"]["value"], v["property"]["properties"]["description"])
+            for v in values] == [(30, "Age of a person")]
+
+
+async def test_round_trip_keeps_every_class_of_an_entity(kb):
+    person = await kb.declare_class("test", "PERSON", "A person")
+    engineer = await kb.declare_class("test", "ENGINEER", "An engineer")
+    alice = await kb.add_entity("test", "Alice", class_id=person)
+    await kb.attach_entity_class("test", alice, engineer)
+    await _round_trip(kb)
+    copy_alice = await kb.find_entity("copy", "Alice")
+    classes = await kb.get_entity_classes("copy", copy_alice["id"])
+    assert sorted(c["properties"]["name"] for c in classes) == ["ENGINEER", "PERSON"]
+
+
+async def test_round_trip_keeps_each_evidence_record_and_its_source(kb):
+    person = await kb.declare_class("test", "PERSON", "A person")
+    cv = await kb.add_source("test", "cv.pdf", name="Alice's CV")
+    web = await kb.add_source("test", "https://example.com", name="Profile page")
+    alice = await kb.add_entity("test", "Alice", class_id=person, text="Alice, engineer",
+                                source_id=cv, confidence=0.6)
+    await kb.add_extraction("test", "Alice (profile)", source_id=web, confidence=0.9, element_id=alice)
+    await _round_trip(kb, include_provenance=True)
+
+    def evidence(db, entity):
+        return sorted((e["text"], e["confidence"], e["source"]) for e in entity["evidence"])
+    src = await kb.get_metadata("test", alice)
+    dst = await kb.get_metadata("copy", (await kb.find_entity("copy", "Alice"))["id"])
+    assert evidence("copy", dst) == evidence("test", src) == [
+        ("Alice (profile)", 0.9, "Profile page"), ("Alice, engineer", 0.6, "Alice's CV")]
+
+
+async def test_an_older_export_with_one_class_and_joined_text_still_imports(kb):
+    await kb.declare_class("test", "PERSON", "A person")
+    kb.create_database("copy")
+    await kb.import_database_schema("copy", await kb.export_database_schema("test"))
+    await kb.import_database_data("copy", {"entities": [
+        {"ref": "e1", "name": "Alice", "class": "PERSON", "extraction": "Alice | Alice again"}]})
+    alice = await kb.find_entity("copy", "Alice")
+    md = await kb.get_metadata("copy", alice["id"])
+    assert [e["text"] for e in md["evidence"]] == ["Alice | Alice again"]
+
+
+async def test_a_failed_import_removes_the_sources_it_created(kb):
+    person = await kb.declare_class("test", "PERSON", "A person")
+    src = await kb.add_source("test", "cv.pdf", name="CV")
+    await kb.add_entity("test", "Alice", class_id=person, text="Alice", source_id=src)
+    data = await kb.export_database_data("test", include_provenance=True)
+    data["facts"] = [{"ref": "f1", "relation": "NOPE", "head_ref": "x", "tail_ref": "y"}]
+    kb.create_database("copy")
+    await kb.import_database_schema("copy", await kb.export_database_schema("test"))
+    with pytest.raises(Exception):
+        await kb.import_database_data("copy", data)
+    assert kb.match_nodes("copy", label="SOURCE") == []
+    assert kb.match_nodes("copy", label="ENTITY") == []
