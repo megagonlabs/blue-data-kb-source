@@ -28,6 +28,7 @@ from blue_data_kb_source.knowledge.helpers import (
     node_name,
     property_values,
 )
+from blue_data_kb_source.extraction.handles import Handles
 from blue_data_kb_source.resolution.resolver import NodeResolver
 from blue_data_kb_source.types import DataSearchResult, ExtractionError
 
@@ -1141,8 +1142,12 @@ class ExtractionEngine:
         both see "not found", and both call add_entity, since that decision
         spans two separate (unlocked) LLM turns the lock can't reach across.
         """
+        # The model sees short handles (E3, R2, ...) instead of uuids it would have to
+        # copy; the source text itself is never rewritten, since spans are checked
+        # against it.
+        handles = self._handles_for(database)
         messages: list[dict[str, Any]] = [
-            {"role": "system", "content": system_prompt},
+            {"role": "system", "content": handles.shorten(system_prompt)},
             {"role": "user", "content": text},
         ]
         calls: list[tuple[str, dict[str, Any], Any]] = []
@@ -1176,6 +1181,7 @@ class ExtractionEngine:
 
             for tc in msg.tool_calls:
                 args, bad_args = parse_tool_arguments(tc.function.arguments)
+                args = handles.expand_args(args)
                 if on_tool_call:
                     on_tool_call(tc.function.name, args)
                 if bad_args is not None:
@@ -1194,9 +1200,16 @@ class ExtractionEngine:
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
-                    "content": tool_message_content(result),
+                    "content": handles.shorten(tool_message_content(result)),
                 })
         return calls
+
+    def _handles_for(self, database: str) -> Handles:
+        if not hasattr(self, "_handles"):
+            self._handles: dict[str, Handles] = {}
+        if database not in self._handles:
+            self._handles[database] = Handles(self._source, database)
+        return self._handles[database]
 
     def _schema_classes(self, database: str) -> list[dict[str, Any]]:
         """Every CLASS as {id, name, description}, name-sorted for a stable prompt."""

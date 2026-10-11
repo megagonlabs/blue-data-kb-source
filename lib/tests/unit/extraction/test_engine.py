@@ -1,11 +1,23 @@
 import asyncio
 import itertools
 import json
+import re
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+
+
+def _seen(kb, expected):
+    """*expected* as the extraction agent sees it: node ids shortened to the handles
+    (E1, R2, ...) it is shown instead (#134)."""
+    handles = kb._extraction._handles_for("test")
+    if isinstance(expected, str):
+        return handles.shorten(expected)
+    if isinstance(expected, dict):
+        return {k: _seen(kb, v) for k, v in expected.items()}
+    return expected
 
 def _tool_call_response(name, arguments):
     """Build a mock chat response whose assistant message calls tool *name*."""
@@ -512,9 +524,9 @@ async def test_fact_property_stage_prompt_lists_facts_resolved_by_relation_stage
 
     # Fact properties now run *before* entity properties, so this is call 6.
     fact_prop_prompt = factory.return_value.chat.completions.create.call_args_list[6].kwargs["messages"][0]["content"]
-    assert f"Alice (PERSON, id={alice}) —WORKED_AT→ IBM (COMPANY, id={ibm})" in fact_prop_prompt
+    assert _seen(kb, f"Alice (PERSON, id={alice}) —WORKED_AT→ IBM (COMPANY, id={ibm})") in fact_prop_prompt
     # …and it is given the entities too, not just the facts.
-    assert f"id={alice}  Alice (PERSON)" in fact_prop_prompt
+    assert _seen(kb, f"id={alice}  Alice (PERSON)") in fact_prop_prompt
 
 
 # ------------------------------------------------------------------ #
@@ -696,8 +708,8 @@ async def test_entity_stage_prompt_lists_every_class_with_id_and_description(kb)
         await kb.import_text("test", "Some text.", expand_schema=False)
 
     stage1_prompt = factory.return_value.chat.completions.create.call_args_list[0].kwargs["messages"][0]["content"]
-    assert f"id={person}  PERSON — A human individual" in stage1_prompt
-    assert f"id={skill}  SKILL — User skill or capability" in stage1_prompt
+    assert _seen(kb, f"id={person}  PERSON — A human individual") in stage1_prompt
+    assert _seen(kb, f"id={skill}  SKILL — User skill or capability") in stage1_prompt
 
 
 async def test_entity_stage_checklist_is_name_sorted_for_a_stable_prompt(kb):
@@ -733,9 +745,9 @@ async def test_gap_stage_runs_for_a_class_the_entity_stage_left_empty(kb):
     assert factory.return_value.chat.completions.create.call_count == 6
     gap_prompt = factory.return_value.chat.completions.create.call_args_list[2].kwargs["messages"][0]["content"]
     assert "gap recovery" in gap_prompt
-    assert f"id={skill}  SKILL" in gap_prompt
+    assert _seen(kb, f"id={skill}  SKILL") in gap_prompt
     # Only the empty classes are re-swept; PERSON is listed as already resolved.
-    assert f"id={person}  PERSON" not in gap_prompt
+    assert _seen(kb, f"id={person}  PERSON") not in gap_prompt
     assert "Alice Chen (PERSON)" in gap_prompt
 
 
@@ -1071,7 +1083,7 @@ async def test_entity_property_stage_sees_facts_and_what_the_fact_stage_took(kb)
     entity_prop_prompt = factory.return_value.chat.completions.create.call_args_list[8].kwargs["messages"][0]["content"]
     assert "Stage: entity property extraction" in entity_prop_prompt
     # the facts it did not have before
-    assert f"Alice (PERSON, id={ids['alice']}) —WORKED_AT→ IBM" in entity_prop_prompt
+    assert _seen(kb, f"Alice (PERSON, id={ids['alice']}) —WORKED_AT→ IBM") in entity_prop_prompt
     # and what the fact stage already claimed
     assert "(Alice —WORKED_AT→ IBM).START_DATE = 1998-06" in entity_prop_prompt
 
@@ -1089,9 +1101,9 @@ async def test_fact_property_stage_prompt_carries_entities_and_facts(kb):
 
     prompt = factory.return_value.chat.completions.create.call_args_list[6].kwargs["messages"][0]["content"]
     assert "Stage: fact property extraction" in prompt
-    assert f"id={ids['alice']}  Alice (PERSON)" in prompt
-    assert f"id={ids['ibm']}  IBM (COMPANY)" in prompt
-    assert f"Alice (PERSON, id={ids['alice']}) —WORKED_AT→ IBM (COMPANY, id={ids['ibm']})" in prompt
+    assert _seen(kb, f"id={ids['alice']}  Alice (PERSON)") in prompt
+    assert _seen(kb, f"id={ids['ibm']}  IBM (COMPANY)") in prompt
+    assert _seen(kb, f"Alice (PERSON, id={ids['alice']}) —WORKED_AT→ IBM (COMPANY, id={ids['ibm']})") in prompt
 
 
 async def test_single_pass_prompt_carries_no_prior_extraction_block(kb):
@@ -1121,7 +1133,7 @@ async def test_second_pass_inherits_what_the_first_pass_resolved(kb):
 
     pass2_first = factory.return_value.chat.completions.create.call_args_list[8].kwargs["messages"][0]["content"]
     assert "Already extracted from this text by earlier passes" in pass2_first
-    assert f"id={ids['alice']}  Alice (PERSON)" in pass2_first
+    assert _seen(kb, f"id={ids['alice']}  Alice (PERSON)") in pass2_first
     assert "Alice (PERSON" in pass2_first and "—WORKED_AT→ IBM" in pass2_first
 
 
@@ -1288,8 +1300,8 @@ async def test_gap_stage_prompt_lists_entities_from_earlier_passes_too(kb):
     gap_prompts = [p for p in prompts if "Stage: entity gap recovery" in p]
     assert len(gap_prompts) == 2
     for p in gap_prompts:
-        assert f"id={alice}  Alice Chen (PERSON)" in p
-        assert f"id={skill}  SKILL" in p
+        assert _seen(kb, f"id={alice}  Alice Chen (PERSON)") in p
+        assert _seen(kb, f"id={skill}  SKILL") in p
 
 
 async def test_property_stages_can_find_an_existing_value_before_writing(kb):
@@ -1313,7 +1325,7 @@ async def test_property_stages_can_find_an_existing_value_before_writing(kb):
 
     replies = _tool_replies(factory)
     found = json.loads(replies[-1]["content"])
-    assert found["id"] == existing
+    assert found["id"] == _seen(kb, existing)
     # NUMBER literals are stored cast, so the tool surfaces 28, not "28".
     assert found["value"] == 28
     # and no second literal was created
@@ -1373,7 +1385,7 @@ async def test_add_entity_returns_the_existing_entity_instead_of_forking_it(kb):
 
     assert len(kb.match_nodes("test", label="ENTITY")) == 1
     reply = json.loads(_tool_replies(factory)[0]["content"])
-    assert reply == {"id": alice, "deduped": True}
+    assert reply == _seen(kb, {"id": alice, "deduped": True})
 
 
 async def test_deduped_entity_still_records_the_new_text_span(kb):
@@ -1435,7 +1447,7 @@ async def test_add_fact_collapses_onto_an_existing_fact(kb):
         await kb.import_text("test", "Alice joined IBM.", expand_schema=False)
 
     assert len(kb.match_nodes("test", label="FACT")) == 1
-    assert json.loads(_tool_replies(factory)[-1]["content"]) == {"id": existing, "deduped": True}
+    assert json.loads(_tool_replies(factory)[-1]["content"]) == _seen(kb, {"id": existing, "deduped": True})
 
 
 async def test_identical_property_value_is_deduped(kb):
@@ -1459,7 +1471,7 @@ async def test_identical_property_value_is_deduped(kb):
         await kb.import_text("test", text, expand_schema=False)
 
     assert len(kb.match_nodes("test", label="LITERAL")) == 1
-    assert json.loads(_tool_replies(factory)[-1]["content"]) == {"id": existing, "deduped": True}
+    assert json.loads(_tool_replies(factory)[-1]["content"]) == _seen(kb, {"id": existing, "deduped": True})
 
 
 async def test_a_second_distinct_value_for_the_same_property_is_kept(kb):
@@ -1521,7 +1533,7 @@ async def test_class_id_given_as_a_name_is_resolved(kb):
     classes = kb.get_neighbors("test", entities[0]["id"], edge_type="IS_INSTANCE_OF", direction="out")
     assert classes[0]["node"]["id"] == person
     reply = json.loads(_tool_replies(factory)[0]["content"])
-    assert reply["coerced"] == {"class_id": f"PERSON -> {person}"}
+    assert reply["coerced"] == _seen(kb, {"class_id": f"PERSON -> {person}"})
 
 
 # ------------------------------------------------------------------ #
@@ -1591,7 +1603,67 @@ async def test_a_mistyped_id_in_a_tool_call_still_creates_the_fact(kb):
         await kb.import_text("test", "Alice joined IBM.", expand_schema=False, related_data_k=0)
     assert len(kb.match_nodes("test", label="FACT")) == 1
     reply = json.loads(_tool_replies(factory)[0]["content"])
-    assert reply["coerced"] == {"head_entity_id": f"{typed} -> {ids['alice']}"}
+    assert reply["coerced"] == _seen(kb, {"head_entity_id": f"{typed} -> {ids['alice']}"})
+
+
+# ------------------------------------------------------------------ #
+# The agent sees short handles, not uuids (#134)                       #
+# ------------------------------------------------------------------ #
+
+_UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+
+async def test_the_agent_never_sees_a_node_uuid(kb):
+    ids = await _alice_at_ibm(kb)
+    responses = _mock_openai_sequence(
+        _tool_call_response("find_entity", {"name": "Alice"}),
+        *[_text_response("done")] * 8,
+    )
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Alice joined IBM.", expand_schema=False, related_data_k=0)
+    for call in factory.return_value.chat.completions.create.call_args_list:
+        for m in call.kwargs["messages"]:
+            if m.get("role") in ("system", "tool"):
+                assert not set(_UUID_RE.findall(m["content"] or "")) & set(ids.values())
+    assert json.loads(_tool_replies(factory)[0]["content"])["id"] == "E1"
+
+
+async def test_a_handle_in_a_tool_call_writes_to_the_node_it_stands_for(kb):
+    ids = await _alice_at_ibm(kb)
+    handles = kb._extraction._handles_for("test")
+    alice, worked, ibm = (handles.shorten(ids[k]) for k in ("alice", "worked", "ibm"))
+    seen_args = []
+    responses = _mock_openai_sequence(
+        _text_response("done"),
+        _tool_call_response("add_fact", {"head_entity_id": alice, "relation_id": worked.lower(),
+                                         "tail_entity_id": f" {ibm} ", "text": "Alice joined IBM"}),
+        _text_response("done"), _text_response("done"), _text_response("done"),
+    )
+    with patch("openai.AsyncOpenAI", responses):
+        await kb.import_text("test", "Alice joined IBM.", expand_schema=False, related_data_k=0,
+                             on_tool_call=lambda name, args: seen_args.append(args))
+    fact = kb.match_nodes("test", label="FACT")[0]
+    parts = await kb.get_fact_parts("test", fact["id"])
+    assert (parts["head"]["id"], parts["relation"]["id"], parts["tail"]["id"]) == (ids["alice"], ids["worked"], ids["ibm"])
+    # callbacks and traces keep the real ids
+    assert seen_args[0]["head_entity_id"] == ids["alice"]
+
+
+async def test_a_name_that_looks_like_a_handle_is_left_alone(kb):
+    ids = await _alice_at_ibm(kb)
+    handles = kb._extraction._handles_for("test")
+    handles.shorten(ids["alice"])   # Alice is E1
+    assert handles.expand_args({"name": "E1", "entity_id": "E1"}) == {"name": "E1", "entity_id": ids["alice"]}
+
+
+async def test_the_source_text_is_never_rewritten(kb):
+    ids = await _alice_at_ibm(kb)
+    text = f"Record {ids['alice']}: Alice joined IBM."
+    responses = _mock_openai_sequence(*[_text_response("done")] * 4)
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", text, expand_schema=False, related_data_k=0)
+    user = factory.return_value.chat.completions.create.call_args_list[0].kwargs["messages"][1]
+    assert user["content"] == text
 
 
 async def test_relation_id_given_as_a_name_is_resolved(kb):
@@ -1652,7 +1724,7 @@ async def test_property_id_given_as_a_name_is_resolved(kb):
 
     assert len(kb.match_nodes("test", label="LITERAL")) == 1
     reply = json.loads(_tool_replies(factory)[-1]["content"])
-    assert reply["coerced"] == {"property_id": f"AGE -> {ids['age']}"}
+    assert reply["coerced"] == _seen(kb, {"property_id": f"AGE -> {ids['age']}"})
 
 
 async def test_property_id_prefers_the_property_declared_for_this_owner(kb):
@@ -1707,8 +1779,8 @@ async def test_find_fact_with_a_relation_name_finds_the_fact(kb):
         await kb.import_text("test", "Alice joined IBM.", expand_schema=False)
 
     reply = json.loads(_tool_replies(factory)[-1]["content"])
-    assert reply["id"] == existing
-    assert set(reply["coerced"]) == {"head_entity_id", "relation_id", "tail_entity_id"}
+    assert reply["id"] == _seen(kb, existing)
+    assert set(reply["coerced"]) == _seen(kb, {"head_entity_id", "relation_id", "tail_entity_id"})
 
 
 async def test_a_valid_id_is_left_untouched_and_reports_no_coercion(kb):
