@@ -470,7 +470,12 @@ someone is not working at them). If no RELATION states it, skip the
 relationship; never reuse the nearest available one. Otherwise call find_fact using the ids above as
 head_entity_id/tail_entity_id. If the fact already exists, call
 link_extraction with its id and the new text span instead of add_fact.
-Otherwise call add_fact.\
+Otherwise call add_fact.
+
+This stage records relationships between two of the entities above, nothing
+else. A value — a date, an amount, a title, a percentage — is not a
+relationship, even when the schema has a PROPERTY for it: never pass a PROPERTY
+(P...) as relation_id. The property stages that follow record values; leave them.\
 """,
     STAGE_ENTITY_PROPERTIES: """\
 Stage: entity property extraction. Entities and facts were both already
@@ -485,6 +490,10 @@ Facts already resolved for this text (id, head, relation, tail):
 
 Property values the fact stage already attached to those facts:
 {fact_properties}
+
+This stage records values about the *entities* above, nothing else: entity_id
+is always an entity (E...), never a fact (F...). Values about the facts were
+recorded in the previous stage.
 
 For each attribute value the text states about one of the *entities* above:
 find the PROPERTY on its class via search_schema. If no matching PROPERTY
@@ -519,6 +528,10 @@ Entities already resolved for this text (id, name, class):
 
 Facts already resolved for this text (id, head, relation, tail):
 {facts}
+
+This stage records values about the *facts* above, nothing else: fact_id is
+always one of those facts (F...), never an entity (E...). A value about an
+entity on its own is recorded in the next stage — skip it here.
 
 For each attribute value the text states about one of the *facts* above:
 find the PROPERTY on its relation via search_schema. If no matching PROPERTY
