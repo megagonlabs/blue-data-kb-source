@@ -37,7 +37,11 @@ if TYPE_CHECKING:
     from blue_data_kb_source.notification.notifier import ChangeNotifier
     from blue_data_kb_source.search.indexer import KBSearchIndexer
 
-_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+# camelCase word starts: lower->upper ("worksAt"), and digit->Capitalized word
+# ("item2Name"). A digit before a capital that isn't followed by a lowercase letter
+# is not a boundary: "B2B" stays one word, so a canonical name has no boundary
+# left to split and canonicalizing is idempotent (#125).
+_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z])(?=[A-Z])|(?<=[0-9])(?=[A-Z][a-z])")
 _NON_ALNUM_RUN = re.compile(r"[^0-9A-Za-z]+")
 
 
@@ -67,7 +71,8 @@ _RESERVED_RELATION_NAMES = frozenset({IS_SUBCLASS_OF, IS_INSTANCE_OF})
 def _canonicalize_schema_name(name: str) -> str:
     """Canonicalize a CLASS/RELATION/PROPERTY name to UPPER_SNAKE_CASE.
 
-    Splits camelCase at lower/digit->upper boundaries ("worksAt" -> "works_At"),
+    Splits camelCase where a word starts ("worksAt" -> "works_At", "item2Name" ->
+    "item2_Name"; "B2B" is one word),
     then collapses every run of non-alphanumeric characters (spaces, hyphens,
     existing underscores) into a single underscore and uppercases the result.
     Idempotent — an already-canonical name passes through unchanged. Keeps

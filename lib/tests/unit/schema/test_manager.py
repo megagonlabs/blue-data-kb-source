@@ -71,6 +71,38 @@ async def test_declare_class_dedupes_across_casing(kb):
     assert len(kb.match_nodes("test", label="CLASS")) == 1
 
 
+@pytest.mark.parametrize("raw, canonical", [
+    ("worksAt", "WORKS_AT"),
+    ("item2Name", "ITEM2_NAME"),
+    ("b2b customer", "B2B_CUSTOMER"),
+    ("B2B_CUSTOMER", "B2B_CUSTOMER"),
+    ("B2BCustomer", "B2BCUSTOMER"),
+    ("Q3 revenue", "Q3_REVENUE"),
+])
+def test_canonical_names(raw, canonical):
+    from blue_data_kb_source.schema.manager import _canonicalize_schema_name
+    assert _canonicalize_schema_name(raw) == canonical
+
+
+def test_canonicalizing_is_idempotent():
+    """#125: B2B_CUSTOMER canonicalized again became B2_B_CUSTOMER, so declaring a
+    class by the name the schema shows created a second class."""
+    import random
+
+    from blue_data_kb_source.schema.manager import _canonicalize_schema_name as canon
+    rng = random.Random(125)
+    alphabet = "aAbBzZ09 _-.xX7"
+    for _ in range(5000):
+        name = "".join(rng.choice(alphabet) for _ in range(rng.randint(1, 12)))
+        assert canon(canon(name)) == canon(name), name
+
+
+async def test_declaring_a_class_by_its_stored_name_reuses_it(kb):
+    first = await kb.declare_class("test", "b2b customer", "A business customer")
+    shown = kb.get_node("test", first)["properties"]["name"]
+    assert await kb.declare_class("test", shown, "same class") == first
+
+
 async def test_declare_class_property_canonicalizes_name(kb):
     person = await kb.declare_class("test", "PERSON", "")
     prop_id = await kb.declare_class_property("test", "full name", "", class_id=person)
