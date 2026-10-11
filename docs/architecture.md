@@ -183,6 +183,8 @@ caller
               enrich    → list[EnrichmentResult]
 ```
 
+Every agent loop — this one, extraction's and schema expansion's — handles a bad tool call the same way: arguments that aren't valid JSON, a missing required argument or a tool that raises come back to the model as an `{"error": ...}` tool result it can correct, rather than aborting the run. Every tool result is capped at 20,000 characters before it enters the conversation (a longer one is cut, with a note telling the model to narrow the request), `get_neighbors` walks at most 3 hops, and `get_neighbors`/`get_entity_facts` return at most 100 rows, marked `"truncated": true` when cut.
+
 With `include_metadata=True` (`answer`/`validate` only), the engine harvests every `get_metadata` tool call the agent makes into a `metadata: dict[node_id, dict]` returned alongside the result — independent of whether the agent's own `return_result` payload references that id. With `natural_language=True` too, a second LLM call turns the metadata into a prose provenance section appended after the main answer.
 
 ---

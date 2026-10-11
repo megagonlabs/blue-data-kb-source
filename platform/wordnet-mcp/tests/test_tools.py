@@ -90,6 +90,18 @@ async def test_get_hyponyms_depth_1():
     assert "puppy.n.01" in ids
 
 
+async def test_hierarchy_walk_is_bounded_nearest_first():
+    data = _load(await get_hyponyms("entity.n.01", depth=25))
+    assert len(data) == 200
+    assert [item["distance"] for item in data] == sorted(item["distance"] for item in data)
+    assert len(_load(await get_hyponyms("entity.n.01", depth=25, limit=10))) == 10
+
+
+async def test_hierarchy_walk_limit_out_of_range_errors():
+    assert "error" in _load(await get_hyponyms("dog.n.01", limit=0))
+    assert "error" in _load(await get_hyponyms("dog.n.01", limit=100_000))
+
+
 # ---------------------------------------------------------------------------
 # meronyms / holonyms
 # ---------------------------------------------------------------------------

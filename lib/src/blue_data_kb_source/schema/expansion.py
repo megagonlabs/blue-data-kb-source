@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Callable, Literal
 
 from blue_data.source.graph.graph_source import GraphSource
 
+from blue_data_kb_source._agent_tools import parse_tool_arguments, tool_error, tool_message_content
 from blue_data_kb_source._constants import CLASS, PROPERTY, RELATION
 from blue_data_kb_source.types import SchemaError, SchemaSearchResult
 
@@ -591,10 +592,12 @@ class SchemaExpansionEngine:
                     break
 
                 for tc in msg.tool_calls:
-                    args = json.loads(tc.function.arguments)
+                    args, bad_args = parse_tool_arguments(tc.function.arguments)
                     if on_tool_call:
                         on_tool_call(tc.function.name, args)
                     try:
+                        if bad_args is not None:
+                            raise ValueError(bad_args)  # back to the model, not a crash (#130)
                         if tc.function.name in mcp_dispatch:
                             content_str = await _call_mcp_tool(mcp_dispatch, tc.function.name, args)
                             callback_result: Any = content_str
@@ -604,14 +607,14 @@ class SchemaExpansionEngine:
                             )
                             content_str = json.dumps(callback_result)
                     except Exception as exc:
-                        callback_result = {"error": str(exc)}
+                        callback_result = tool_error(exc)
                         content_str = json.dumps(callback_result)
                     if on_tool_result:
                         on_tool_result(tc.function.name, args, callback_result)
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc.id,
-                        "content": content_str,
+                        "content": tool_message_content(content_str),
                     })
             progress["done"] = True  # the model loop finished; only teardown is left
 

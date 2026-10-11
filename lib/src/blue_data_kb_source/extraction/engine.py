@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Callable, Literal
 
 from blue_data.source.graph.graph_source import GraphSource
 
+from blue_data_kb_source._agent_tools import parse_tool_arguments, tool_error, tool_message_content
 from blue_data_kb_source._constants import (
     CLASS,
     DEFINE_PROPERTY,
@@ -1138,23 +1139,26 @@ class ExtractionEngine:
                 break
 
             for tc in msg.tool_calls:
-                args = json.loads(tc.function.arguments)
+                args, bad_args = parse_tool_arguments(tc.function.arguments)
                 if on_tool_call:
                     on_tool_call(tc.function.name, args)
-                try:
-                    async with write_lock:
-                        result = await self._dispatch_tool(
-                            database, tc.function.name, args, source_id, text
-                        )
-                except Exception as exc:
-                    result = {"error": str(exc)}
+                if bad_args is not None:
+                    result: Any = {"error": bad_args}  # back to the model, not a crash (#130)
+                else:
+                    try:
+                        async with write_lock:
+                            result = await self._dispatch_tool(
+                                database, tc.function.name, args, source_id, text
+                            )
+                    except Exception as exc:
+                        result = tool_error(exc)
                 if on_tool_result:
                     on_tool_result(tc.function.name, args, result)
                 calls.append((tc.function.name, args, result))
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
-                    "content": json.dumps(result),
+                    "content": tool_message_content(result),
                 })
         return calls
 

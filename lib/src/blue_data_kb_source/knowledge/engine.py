@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from blue_data.source.graph.graph_source import GraphSource
 
+from blue_data_kb_source._agent_tools import parse_tool_arguments, tool_error, tool_message_content
 from blue_data_kb_source._constants import (
     CLASS,
     ENTITY,
@@ -31,6 +32,12 @@ if TYPE_CHECKING:
 # ------------------------------------------------------------------ #
 # Tool schema                                                          #
 # ------------------------------------------------------------------ #
+
+# Bounds on the graph-walking query tools, so one call on a hub entity can't return
+# the whole graph (#130). A capped result says so with "truncated": true.
+_MAX_NEIGHBOR_DEPTH = 3
+_MAX_TOOL_ROWS = 100
+
 
 _TOOLS: list[dict[str, Any]] = [
     {
@@ -159,7 +166,7 @@ _TOOLS: list[dict[str, Any]] = [
                 "type": "object",
                 "properties": {
                     "entity_id": {"type": "string"},
-                    "depth": {"type": "integer", "description": "Max hops (default 1)"},
+                    "depth": {"type": "integer", "description": f"Max hops (default 1, at most {_MAX_NEIGHBOR_DEPTH})"},
                 },
                 "required": ["entity_id"],
             },
@@ -567,19 +574,25 @@ class QueryEngine:
             done = False
             for tc in msg.tool_calls:
                 fn   = tc.function.name
-                args = json.loads(tc.function.arguments)
+                args, bad_args = parse_tool_arguments(tc.function.arguments)
                 if on_tool_call:
                     on_tool_call(fn, args)
 
-                if fn == "return_result":
+                if fn == "return_result" and bad_args is None:
                     # print(f"Received final result payload: {args.get('result')}")
                     result_payload = args.get("result")
                     messages.append({"role": "tool", "tool_call_id": tc.id, "content": "done"})
                     done = True
                 else:
-                    # print(f"Dispatching tool {fn} with args: {args}")
-                    tool_result = await self._dispatch_tool(database, fn, args)
-                    # print(f"Tool {fn} returned: {tool_result}")
+                    # A malformed call or a failing tool goes back to the model as an
+                    # error it can correct, instead of aborting the whole run (#130).
+                    if bad_args is not None:
+                        tool_result = {"error": bad_args}
+                    else:
+                        try:
+                            tool_result = await self._dispatch_tool(database, fn, args)
+                        except Exception as exc:
+                            tool_result = tool_error(exc)
                     if on_tool_result:
                         on_tool_result(fn, args, tool_result)
                     if include_metadata and fn == "get_metadata" and "metadata" in tool_result:
@@ -587,7 +600,7 @@ class QueryEngine:
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc.id,
-                        "content": json.dumps(tool_result),
+                        "content": tool_message_content(tool_result),
                     })
                     consecutive_empty = consecutive_empty + 1 if _is_empty_result(tool_result) else 0
 
@@ -611,7 +624,8 @@ class QueryEngine:
         )
         forced_msg = forced.choices[0].message
         if forced_msg.tool_calls:
-            return json.loads(forced_msg.tool_calls[0].function.arguments).get("result")
+            args, bad_args = parse_tool_arguments(forced_msg.tool_calls[0].function.arguments)
+            return None if bad_args else args.get("result")
         return None
 
     # ------------------------------------------------------------------ #
@@ -729,6 +743,8 @@ class QueryEngine:
                     rel_nbs  = self._source.get_neighbors(database, fact_id, edge_type=REPRESENTS, direction="out")
                     head_nbs = self._source.get_neighbors(database, fact_id, edge_type=HEAD,       direction="out")
                     tail_nbs = self._source.get_neighbors(database, fact_id, edge_type=TAIL,       direction="out")
+                    if len(facts) >= _MAX_TOOL_ROWS:
+                        return {"facts": facts, "truncated": True}
                     facts.append({
                         "fact_id":       fact_id,
                         "relation_name": _node_name(rel_nbs),
@@ -769,7 +785,7 @@ class QueryEngine:
 
         if fn == "get_neighbors":
             entity_id        = args["entity_id"]
-            max_depth        = int(args.get("depth", 1))
+            max_depth        = min(max(int(args.get("depth", 1)), 1), _MAX_NEIGHBOR_DEPTH)
             visited_entities: set[str] = {entity_id}
             visited_facts:    set[str] = set()
             queue: list[tuple[str, int]] = [(entity_id, 0)]
@@ -798,6 +814,8 @@ class QueryEngine:
                                 other_id  = other["id"]
                                 other_name = other.get("properties", {}).get("name")
                                 if other_id not in visited_entities:
+                                    if len(neighbors) >= _MAX_TOOL_ROWS:
+                                        return {"neighbors": neighbors, "truncated": True}
                                     visited_entities.add(other_id)
                                     neighbors.append({
                                         "entity_id":   other_id,

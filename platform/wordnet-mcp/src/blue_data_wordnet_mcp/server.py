@@ -96,22 +96,36 @@ def _synset_to_dict(s: Synset) -> dict[str, Any]:
     }
 
 
-def _walk(start: Synset, depth: int, direction: str) -> list[dict[str, Any]]:
+# A walk returns at most this many synsets unless the caller asks for fewer, and
+# never more than _MAX_WALK_LIMIT: `get_hyponyms("entity.n.01", depth=25)` used to
+# return about 19 MB, all of which went into an agent's context (#130).
+_DEFAULT_WALK_LIMIT = 200
+_MAX_WALK_LIMIT = 1000
+
+
+def _check_walk_args(depth: int, limit: int) -> None:
+    if depth < 1:
+        raise ValueError("depth must be >= 1")
+    if not 1 <= limit <= _MAX_WALK_LIMIT:
+        raise ValueError(f"limit must be between 1 and {_MAX_WALK_LIMIT}")
+
+
+def _walk(start: Synset, depth: int, direction: str, limit: int = _DEFAULT_WALK_LIMIT) -> list[dict[str, Any]]:
     """BFS up (direction='hypernyms') or down (direction='hyponyms') from
-    *start*, up to *depth* levels. A synset reachable via multiple paths keeps
-    its shortest distance."""
+    *start*, up to *depth* levels and at most *limit* synsets, nearest first.
+    A synset reachable via multiple paths keeps its shortest distance."""
     visited: dict[str, int] = {}
     frontier = [start]
     for d in range(1, depth + 1):
         next_frontier = []
         for s in frontier:
             neighbors = s.hypernyms() if direction == "hypernyms" else s.hyponyms()
-            for n in neighbors:
-                if n.name() not in visited:
+            for n in sorted(neighbors, key=lambda n: n.name()):
+                if n.name() not in visited and len(visited) < limit:
                     visited[n.name()] = d
                     next_frontier.append(n)
         frontier = next_frontier
-        if not frontier:
+        if not frontier or len(visited) >= limit:
             break
     results = []
     for name, d in visited.items():
@@ -195,7 +209,7 @@ async def get_synonyms(synset_id: str) -> str:
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-async def get_hypernyms(synset_id: str, depth: int = 1) -> str:
+async def get_hypernyms(synset_id: str, depth: int = 1, limit: int = _DEFAULT_WALK_LIMIT) -> str:
     """Walk up the is-a hierarchy toward more general senses (e.g. dog ->
     canine -> carnivore). Each result is tagged with its distance from
     *synset_id*.
@@ -203,32 +217,32 @@ async def get_hypernyms(synset_id: str, depth: int = 1) -> str:
     Args:
         synset_id: A WordNet synset name, e.g. 'dog.n.01'.
         depth:     How many levels to walk up (default 1 = immediate parents).
+        limit:     At most this many synsets, nearest first (default 200, max 1000).
     """
     try:
         ensure_wordnet_data()
-        if depth < 1:
-            raise ValueError("depth must be >= 1")
-        return _ok(_walk(wn.synset(synset_id), depth, "hypernyms"))
+        _check_walk_args(depth, limit)
+        return _ok(_walk(wn.synset(synset_id), depth, "hypernyms", limit))
     except Exception as e:
         return _err(e)
 
 
 @mcp.tool()
-async def get_hyponyms(synset_id: str, depth: int = 1) -> str:
+async def get_hyponyms(synset_id: str, depth: int = 1, limit: int = _DEFAULT_WALK_LIMIT) -> str:
     """Walk down the is-a hierarchy toward more specific senses (e.g. dog ->
     puppy, poodle). Each result is tagged with its distance from *synset_id*.
-    A word with many hyponyms (e.g. 'animal') can return a large result at
-    higher depths.
+    A word with many hyponyms (e.g. 'animal') reaches the limit quickly at
+    higher depths; the nearest synsets are the ones kept.
 
     Args:
         synset_id: A WordNet synset name, e.g. 'dog.n.01'.
         depth:     How many levels to walk down (default 1 = immediate children).
+        limit:     At most this many synsets, nearest first (default 200, max 1000).
     """
     try:
         ensure_wordnet_data()
-        if depth < 1:
-            raise ValueError("depth must be >= 1")
-        return _ok(_walk(wn.synset(synset_id), depth, "hyponyms"))
+        _check_walk_args(depth, limit)
+        return _ok(_walk(wn.synset(synset_id), depth, "hyponyms", limit))
     except Exception as e:
         return _err(e)
 

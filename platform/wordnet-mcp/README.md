@@ -122,13 +122,15 @@ as one `lookup_synsets` entry.
 |---|---|---|
 | `synset_id` | `str` | e.g. `dog.n.01` |
 | `depth` | `int` | How many levels to walk (default `1` = immediate parents/children) |
+| `limit` | `int` | At most this many synsets, nearest first (default `200`, max `1000`) |
 
 Walks the is-a hierarchy up (`get_hypernyms`, toward more general senses —
 dog → canine → carnivore) or down (`get_hyponyms`, toward more specific
 senses — dog → puppy, poodle). Returns a list of synset entries, each tagged
 with `distance` from `synset_id`. A synset reachable via multiple paths keeps
-its shortest distance. `get_hyponyms` on a broad word (e.g. `animal.n.01`)
-can return a large result at higher depths.
+its shortest distance. The walk stops at `limit` synsets, keeping the nearest
+ones: `get_hyponyms` on a broad word (e.g. `animal.n.01`) at a high depth
+reaches it quickly, and without it a walk from `entity.n.01` returned about 19 MB.
 
 ### `get_meronyms` / `get_holonyms`
 
