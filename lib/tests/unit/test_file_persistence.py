@@ -166,3 +166,36 @@ async def test_search_corpus_keeps_other_processes_entries(tmp_path):
         assert hits and hits[0].name == name, name
     corpus = json.loads((tmp_path / "main_data_bm25.json").read_text())["corpus"]
     assert len(corpus) == 42
+
+
+# ------------------------------------------------------------------ #
+# Saves keep the file mode (#135)                                      #
+# ------------------------------------------------------------------ #
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes")
+async def test_a_new_database_file_gets_the_umask_mode(tmp_path):
+    old = os.umask(0o002)
+    try:
+        await _person_with_birth_date(_kb(tmp_path))
+    finally:
+        os.umask(old)
+    assert (tmp_path / "main.json").stat().st_mode & 0o777 == 0o664
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes")
+async def test_a_save_keeps_the_existing_file_mode(tmp_path):
+    kb = _kb(tmp_path)
+    await _person_with_birth_date(kb)
+    path = tmp_path / "main.json"
+    os.chmod(path, 0o640)
+    await kb.declare_class("main", "COMPANY", "A business")
+    assert path.stat().st_mode & 0o777 == 0o640
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes")
+def test_write_json_atomic_keeps_modes_for_the_search_corpus_too(tmp_path):
+    path = tmp_path / "corpus.json"
+    write_json_atomic(path, {"a": 1})
+    os.chmod(path, 0o660)
+    write_json_atomic(path, {"a": 2})
+    assert path.stat().st_mode & 0o777 == 0o660

@@ -22,6 +22,9 @@ def write_json_atomic(path: str | os.PathLike, data: Any) -> None:
     try:
         with os.fdopen(fd, "w") as f:
             json.dump(data, f)
+        # mkstemp creates the file 0600; without this, the first save narrowed
+        # a group-shared data directory's files to their owner (#135).
+        os.chmod(tmp, _target_mode(path))
         os.replace(tmp, path)
     except BaseException:
         try:
@@ -29,3 +32,14 @@ def write_json_atomic(path: str | os.PathLike, data: Any) -> None:
         except FileNotFoundError:
             pass
         raise
+
+
+def _target_mode(path: str) -> int:
+    """The mode *path* should keep: its current one if it exists, else what a plain
+    `open(path, "w")` would give under the process umask."""
+    try:
+        return os.stat(path).st_mode & 0o7777
+    except FileNotFoundError:
+        umask = os.umask(0)
+        os.umask(umask)
+        return 0o666 & ~umask
