@@ -545,7 +545,6 @@ class SchemaExpansionEngine:
             else [t for t in _SCHEMA_TOOLS if t["function"]["name"] != "search_schema"]
         )
 
-        client = openai.AsyncOpenAI()
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": text},
@@ -560,6 +559,9 @@ class SchemaExpansionEngine:
                 progress["phase"] = "model"
                 tools = tools + mcp_tools
 
+            # Built after the MCP handshake, so a dead reference server is reported
+            # as such rather than as a missing OPENAI_API_KEY (#138).
+            client = openai.AsyncOpenAI()
             turns = 0
             while True:
                 if turns >= max_turns:

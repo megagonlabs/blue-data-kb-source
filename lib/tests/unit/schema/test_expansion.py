@@ -7,6 +7,7 @@ decisions are scripted (via a mocked openai.AsyncOpenAI), so the MCP half of
 the round trip (spawn, list_tools, call_tool) is real, proving the generic
 bridge actually drives an external server's tools.
 """
+import importlib.util
 import itertools
 import json
 import shutil
@@ -456,7 +457,8 @@ async def test_expand_schema_semantic_dedup_applies_score_cutoff(kb, score, reus
 # ------------------------------------------------------------------ #
 
 requires_wordnet_mcp = pytest.mark.skipif(
-    shutil.which("blue-data-wordnet-mcp") is None,
+    # A pyenv shim satisfies `which` even when the package lives in another environment.
+    shutil.which("blue-data-wordnet-mcp") is None or importlib.util.find_spec("blue_data_wordnet_mcp") is None,
     reason="blue-data-wordnet-mcp not installed (platform/wordnet-mcp)",
 )
 
