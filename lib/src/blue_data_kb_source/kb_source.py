@@ -1041,6 +1041,10 @@ class KBSource(GraphSource, ABC):
 
         *fn* receives a dict with at minimum ``"type"``, ``"database"``, ``"id"``.
         Schema events fire only when a new element is created; idempotent repeats do not re-fire.
+        Hooks run after the search index is updated. An exception *fn* raises is logged
+        (logger ``blue_data_kb_source.notification.notifier``), not raised to the writer:
+        the write has already happened, and other hooks still run. *fn* may add or remove
+        hooks, including itself, while it runs.
 
         Schema event types and extra keys:
         ``class_declared``             — ``name``, ``description``

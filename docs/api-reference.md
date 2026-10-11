@@ -173,7 +173,7 @@ Note: all eleven take the same trailing keyword options — `source_id?`, `confi
 
 | Method | Description |
 |---|---|
-| `add_change_hook(database, fn)` | Register a sync `fn(event: dict)`, called after every schema/instance write to `database` |
+| `add_change_hook(database, fn)` | Register a sync `fn(event: dict)`, called after every schema/instance write to `database`, after the search index is updated. An exception `fn` raises is logged, not raised to the writer (the write has happened), and later hooks still run; `fn` may add or remove hooks while it runs |
 | `remove_change_hook(database, fn)` | Deregister a previously added hook (no-op if not found) |
 
 #### Change hook events

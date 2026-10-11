@@ -1,3 +1,5 @@
+import pytest
+
 # ------------------------------------------------------------------ #
 # entity_added events                                                  #
 # ------------------------------------------------------------------ #
@@ -188,3 +190,55 @@ async def test_remove_one_of_two_hooks(kb):
     await kb.add_entity("test", "Alice")
     assert len(calls_a) == 0
     assert len(calls_b) == 1
+
+
+# ------------------------------------------------------------------ #
+# One hook can't stop another, or the search index (#123)              #
+# ------------------------------------------------------------------ #
+
+async def test_a_failing_hook_is_logged_and_the_rest_still_run(caplog):
+    from blue_data_kb_source import MemoryKBSource
+
+    kb = MemoryKBSource(name="kb", properties={"search": {"mode": "bm25"}})
+    kb.create_database("test")
+    person = await kb.declare_class("test", "PERSON", "A person")
+    seen = []
+
+    def failing(event):
+        raise RuntimeError("downstream consumer unavailable")
+    kb.add_change_hook("test", failing)
+    kb.add_change_hook("test", lambda e: seen.append(e["type"]))
+
+    await kb.add_entity("test", "Zanzibar Quill", class_id=person)  # does not raise
+    assert seen == ["entity_added"]
+    assert len(await kb.search_data("test", "Zanzibar Quill")) == 1
+    assert "downstream consumer unavailable" in caplog.text
+
+
+async def test_a_hook_may_remove_itself_while_firing(kb):
+    person = await kb.declare_class("test", "PERSON", "A person")
+    seen = []
+
+    def one_shot(event):
+        kb.remove_change_hook("test", one_shot)
+        seen.append("one_shot")
+    kb.add_change_hook("test", one_shot)
+    kb.add_change_hook("test", lambda e: seen.append("next"))
+
+    await kb.add_entity("test", "Alice", class_id=person)
+    await kb.add_entity("test", "Bob", class_id=person)
+    assert seen == ["one_shot", "next", "next"]
+
+
+def test_an_internal_hook_error_is_raised_after_every_hook_runs():
+    from blue_data_kb_source.notification.notifier import ChangeNotifier
+
+    notifier, seen = ChangeNotifier(), []
+
+    def broken_indexer(event):
+        raise ValueError("index unavailable")
+    notifier.add_global_hook(broken_indexer)
+    notifier.add_hook("db", lambda e: seen.append(e["type"]))
+    with pytest.raises(ValueError, match="index unavailable"):
+        notifier.fire({"type": "entity_added", "database": "db", "id": "x"})
+    assert seen == ["entity_added"]
