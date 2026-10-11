@@ -120,8 +120,13 @@ class AnswerResult:
 
 @dataclass
 class ValidationResult:
+    """Facts that support or contradict a statement. Every item in `supporting` and
+    `counter` is a FACT that exists in the KB (`fact_id`, with its `head`/`relation`/
+    `tail` as stored); an item the agent cited that resolves to none is moved to
+    `unverified` instead (#129)."""
     supporting: list[dict] = field(default_factory=list)
     counter: list[dict] = field(default_factory=list)
+    unverified: list[dict] = field(default_factory=list)
 
 
 @dataclass

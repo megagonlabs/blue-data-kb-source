@@ -21,7 +21,8 @@ from blue_data_kb_source._constants import (
     TAIL,
 )
 from blue_data_kb_source._text_match import match_score as _match_score
-from blue_data_kb_source.knowledge.helpers import fetch_node_metadata
+from blue_data_kb_source.knowledge.helpers import fact_parts, fetch_node_metadata, find_fact
+from blue_data_kb_source.schema.manager import _canonicalize_schema_name
 from blue_data_kb_source.types import EnrichmentResult, KBError, ValidationResult
 
 if TYPE_CHECKING:
@@ -275,11 +276,13 @@ that supports or contradicts the statement below.
 When done, call return_result with:
 
   {{"result": {{
-    "supporting": [{{"fact": "<fact name>", "head": "<head>", "tail": "<tail>", "relation": "<relation>"}}],
-    "counter":    [{{"fact": "<fact name>", "head": "<head>", "tail": "<tail>", "relation": "<relation>"}}]
+    "supporting": [{{"fact_id": "<id>", "fact": "<fact name>", "head": "<head>", "tail": "<tail>", "relation": "<relation>"}}],
+    "counter":    [{{"fact_id": "<id>", "fact": "<fact name>", "head": "<head>", "tail": "<tail>", "relation": "<relation>"}}]
   }}}}
 
-Both lists may be empty. Only include well-grounded counter-evidence from the KB.
+Both lists may be empty. Cite only facts you retrieved with the tools, each with the
+fact_id a tool returned for it: every item is checked against the KB, and one that
+isn't there is reported as unverified rather than as evidence.
 
 Current schema:
 {schema}
@@ -420,20 +423,67 @@ class QueryEngine:
                 database, system, statement, model, on_tool_call, on_tool_result,
                 include_metadata=True, max_turns=max_turns,
             )
-            result = (
-                ValidationResult(supporting=raw.get("supporting", []), counter=raw.get("counter", []))
-                if isinstance(raw, dict) else ValidationResult(supporting=[], counter=[])
-            )
-            return result, metadata
+            return self._verified(database, raw), metadata
         raw = await self._run_agent(
             database, system, statement, model, on_tool_call, on_tool_result, max_turns=max_turns
         )
-        if isinstance(raw, dict):
-            return ValidationResult(
-                supporting=raw.get("supporting", []),
-                counter=raw.get("counter", []),
-            )
-        return ValidationResult(supporting=[], counter=[])
+        return self._verified(database, raw)
+
+    def _verified(self, database: str, raw: Any) -> ValidationResult:
+        """The agent's evidence, keeping only facts that exist in the KB (#129).
+
+        The agent's lists used to be returned as they came, so a model that
+        hallucinated — or followed an instruction stored in KB text — could report
+        support the KB doesn't contain. Each item is resolved by its `fact_id`, or
+        failing that by its exact head/relation/tail names, and rewritten from the
+        graph; one that resolves to no FACT goes to `unverified`.
+        """
+        result = ValidationResult()
+        if not isinstance(raw, dict):
+            return result
+        for key in ("supporting", "counter"):
+            items = raw.get(key) or []
+            for item in items if isinstance(items, list) else []:
+                fact = self._resolve_cited_fact(database, item) if isinstance(item, dict) else None
+                if fact is None:
+                    result.unverified.append({**item, "cited_as": key} if isinstance(item, dict)
+                                             else {"item": item, "cited_as": key})
+                else:
+                    getattr(result, key).append(fact)
+        return result
+
+    def _entities_named(self, database: str, name: Any) -> list[dict]:
+        """Every ENTITY named exactly *name* — entity names aren't unique."""
+        if not isinstance(name, str) or not name.strip():
+            return []
+        return [n for n in self._source.match_nodes(database, label=ENTITY)
+                if n.get("properties", {}).get("name") == name.strip()]
+
+    def _resolve_cited_fact(self, database: str, item: dict) -> dict | None:
+        fact_id = item.get("fact_id") or item.get("id")
+        node = self._source.get_node(database, fact_id) if isinstance(fact_id, str) else None
+        if node is None or node.get("label") != FACT:
+            node = None
+            heads = self._entities_named(database, item.get("head"))
+            tails = self._entities_named(database, item.get("tail"))
+            rel = item.get("relation")
+            relations = ([r for r in self._source.match_nodes(database, label=RELATION)
+                          if r.get("properties", {}).get("name") == _canonicalize_schema_name(rel)]
+                         if isinstance(rel, str) and rel.strip() else [])
+            for h in heads:
+                for t in tails:
+                    for r in relations:
+                        node = node or find_fact(self._source, database, h["id"], r["id"], t["id"])
+        if node is None:
+            return None
+        parts = fact_parts(self._source, database, node["id"])
+        return {
+            "fact_id": node["id"],
+            "fact": node.get("properties", {}).get("name"),
+            "head": _node_name([{"node": parts["head"]}]) if parts["head"] else None,
+            "relation": _node_name([{"node": parts["relation"]}]) if parts["relation"] else None,
+            "tail": _node_name([{"node": parts["tail"]}]) if parts["tail"] else None,
+        }
 
     async def enrich(
         self,

@@ -4048,23 +4048,21 @@ def validate_cmd(
         console.print(result)
         return
 
-    console.print("\n[bold]Supporting:[/bold]")
-    if result.supporting:
-        for fact in result.supporting:
-            head  = fact.get("head") or ""
-            rel   = fact.get("relation") or ""
-            tail  = fact.get("tail") or ""
-            label = f"{head} —{rel}→ {tail}" if rel else fact.get("fact", str(fact))
-            console.print(f"  • {label}")
-    else:
-        console.print("  (none)")
+    def _fact_label(fact: dict) -> str:
+        head, rel, tail = fact.get("head") or "", fact.get("relation") or "", fact.get("tail") or ""
+        return f"{head} —{rel}→ {tail}" if rel else fact.get("fact", str(fact))
 
-    console.print("\n[bold]Counter:[/bold]")
-    if result.counter:
-        for fact in result.counter:
-            console.print(f"  • {fact}")
-    else:
-        console.print("  (none)")
+    for title, facts in (("Supporting", result.supporting), ("Counter", result.counter)):
+        console.print(f"\n[bold]{title}:[/bold]")
+        for fact in facts:
+            console.print(f"  • {_fact_label(fact)}")
+        if not facts:
+            console.print("  (none)")
+    if result.unverified:
+        # Cited by the model but not found in the KB, so not counted as evidence (#129).
+        console.print("\n[bold]Unverified[/bold] [dim](cited, but not in the KB)[/dim]:")
+        for fact in result.unverified:
+            console.print(f"  • {_fact_label(fact)} [dim]({fact.get('cited_as')})[/dim]")
 
     if include_metadata:
         console.print()

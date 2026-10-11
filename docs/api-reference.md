@@ -126,7 +126,7 @@ Note: `declare_relation_type` wires the initial `DOMAIN`/`RANGE` edges inline (`
 | Method | Returns | Description |
 |---|---|---|
 | `await answer(database, question, model?, natural_language?, include_metadata?, on_tool_call?, on_tool_result?)` | `list[dict] \| str \| tuple[..., dict]` | LLM agent answers a question by traversing the instance graph. `include_metadata=True` returns `(result, metadata)`; `metadata` is `dict[node_id, dict]`. With `natural_language=True` too, the prose result has a provenance section appended, still paired with the raw `metadata` dict |
-| `await validate(database, statement, model?, natural_language?, include_metadata?, on_tool_call?, on_tool_result?)` | `ValidationResult \| str \| tuple[..., dict]` | LLM agent returns supporting/counter evidence; `include_metadata`/`natural_language` behave as in `answer` |
+| `await validate(database, statement, model?, natural_language?, include_metadata?, on_tool_call?, on_tool_result?)` | `ValidationResult \| str \| tuple[..., dict]` | LLM agent returns supporting/counter evidence. Every `supporting`/`counter` item is a FACT that exists in the KB — resolved by the `fact_id` the agent cites, or by its exact head/relation/tail, and reported as stored (`fact_id`, `fact`, `head`, `relation`, `tail`); an item that resolves to none goes to `unverified`, tagged `cited_as`. `include_metadata`/`natural_language` behave as in `answer` |
 | `await enrich(database, query, depth?, model?, on_tool_call?, on_tool_result?)` | `list[EnrichmentResult]` | LLM agent traverses the graph up to `depth` hops from seed entities |
 
 `on_tool_call(name, args)` / `on_tool_result(name, args, result)`, if given, are invoked synchronously as the agent calls tools — useful for driving a progress indicator.

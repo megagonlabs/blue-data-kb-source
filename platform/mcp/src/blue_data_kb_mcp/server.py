@@ -604,6 +604,9 @@ async def validate(
 ) -> str:
     """Return supporting and counter evidence from the knowledge base for a statement.
 
+    Every supporting/counter item is a fact that exists in the KB (with its fact_id);
+    anything the agent cited that isn't is listed under "unverified" instead.
+
     Args:
         statement:         The statement to check.
         model:             OpenAI model (default: server's configured default model).
@@ -621,10 +624,12 @@ async def validate(
             payload, metadata = result
             if natural_language:
                 return _ok({"result": payload, "metadata": metadata})
-            return _ok({"supporting": payload.supporting, "counter": payload.counter, "metadata": metadata})
+            return _ok({"supporting": payload.supporting, "counter": payload.counter,
+                        "unverified": payload.unverified, "metadata": metadata})
         if natural_language:
             return _ok({"result": result})
-        return _ok({"supporting": result.supporting, "counter": result.counter})
+        return _ok({"supporting": result.supporting, "counter": result.counter,
+                    "unverified": result.unverified})
     except Exception as e:
         return _err(e)
 

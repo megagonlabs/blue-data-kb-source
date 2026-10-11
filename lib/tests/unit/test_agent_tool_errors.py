@@ -111,3 +111,48 @@ async def test_graph_walk_tools_are_bounded(kb):
         await kb.answer("main", "Who does Hub know?", on_tool_result=lambda n, a, r: results.setdefault(n, r))
     assert results["get_neighbors"]["truncated"] and len(results["get_neighbors"]["neighbors"]) == 100
     assert results["get_entity_facts"]["truncated"] and len(results["get_entity_facts"]["facts"]) == 100
+
+
+# ------------------------------------------------------------------ #
+# validate cites only facts that exist (#129)                          #
+# ------------------------------------------------------------------ #
+
+async def _alice_at_ibm(kb):
+    person = kb.match_nodes("main", label="CLASS")[0]["id"]
+    company = await kb.declare_class("main", "COMPANY", "A company")
+    rel = await kb.declare_relation_type("main", "WORKED_AT", "Employment", domain="PERSON", range="COMPANY")
+    alice = await kb.add_entity("main", "Alice", class_id=person)
+    ibm = await kb.add_entity("main", "IBM", class_id=company)
+    return await kb.add_fact("main", name="Alice at IBM", head_entity_id=alice, tail_entity_id=ibm, relation_id=rel)
+
+
+async def test_validate_flags_a_cited_fact_the_kb_does_not_hold(kb):
+    model = ScriptedModel([("return_result", {"result": {"supporting": [
+        {"fact": "Alice WORKED_AT IBM", "head": "Alice", "relation": "WORKED_AT", "tail": "IBM"}],
+        "counter": []}})])
+    with _use(model):
+        result = await kb.validate("main", "Alice worked at IBM")
+    assert result.supporting == [] and result.counter == []
+    assert result.unverified == [{"fact": "Alice WORKED_AT IBM", "head": "Alice", "relation": "WORKED_AT",
+                                  "tail": "IBM", "cited_as": "supporting"}]
+
+
+async def test_validate_resolves_a_cited_fact_by_id_and_reports_it_as_stored(kb):
+    fact_id = await _alice_at_ibm(kb)
+    model = ScriptedModel([("return_result", {"result": {"supporting": [
+        {"fact_id": fact_id, "head": "Alice Smith", "relation": "EMPLOYED_BY", "tail": "IBM Corp"}],
+        "counter": []}})])
+    with _use(model):
+        result = await kb.validate("main", "Alice worked at IBM")
+    assert result.supporting == [{"fact_id": fact_id, "fact": "Alice at IBM", "head": "Alice",
+                                  "relation": "WORKED_AT", "tail": "IBM"}]
+    assert result.unverified == []
+
+
+async def test_validate_resolves_a_cited_fact_by_its_names(kb):
+    fact_id = await _alice_at_ibm(kb)
+    model = ScriptedModel([("return_result", {"result": {"supporting": [], "counter": [
+        {"head": "Alice", "relation": "worked at", "tail": "IBM"}]}})])
+    with _use(model):
+        result = await kb.validate("main", "Alice never worked at IBM")
+    assert [f["fact_id"] for f in result.counter] == [fact_id]
