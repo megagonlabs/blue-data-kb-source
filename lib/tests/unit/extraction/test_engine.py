@@ -1666,6 +1666,49 @@ async def test_the_source_text_is_never_rewritten(kb):
     assert user["content"] == text
 
 
+# ------------------------------------------------------------------ #
+# A node of the wrong kind is named as such, with what to do instead   #
+# ------------------------------------------------------------------ #
+
+async def _wrong_kind_reply(kb, call):
+    responses = _mock_openai_sequence(
+        _text_response("done"),
+        _tool_call_response(*call),
+        *[_text_response("done")] * 6,
+    )
+    with patch("openai.AsyncOpenAI", responses) as factory:
+        await kb.import_text("test", "Alice joined IBM in June 1998.", expand_schema=False, related_data_k=0)
+    return json.loads(_tool_replies(factory)[0]["content"])["error"]
+
+
+async def test_a_property_passed_as_relation_id_says_a_later_stage_records_it(kb):
+    ids = await _alice_at_ibm(kb)
+    error = await _wrong_kind_reply(kb, ("add_fact", {
+        "head_entity_id": ids["alice"], "relation_id": ids["start"], "tail_entity_id": ids["ibm"],
+        "text": "Alice joined IBM in June 1998"}))
+    assert "is the PROPERTY 'START_DATE', not a RELATION" in error
+    assert "the property stages that follow record it, so skip it here" in error
+    assert not _UUID_RE.search(error)   # handles, never uuids
+    assert kb.match_nodes("test", label="FACT") == []
+
+
+async def test_an_entity_passed_as_fact_id_says_the_next_stage_records_it(kb):
+    ids = await _alice_at_ibm(kb)
+    error = await _wrong_kind_reply(kb, ("add_fact_property_value", {
+        "fact_id": ids["alice"], "property_id": ids["start"], "value": "1998-06",
+        "text": "Alice joined IBM in June 1998"}))
+    assert "is the ENTITY 'Alice', not a FACT" in error and "recorded in the next stage, so skip it here" in error
+
+
+async def test_a_class_passed_as_an_entity_says_to_pass_the_entity(kb):
+    ids = await _alice_at_ibm(kb)
+    person = kb.match_nodes("test", label="CLASS", properties={"name": "PERSON"})[0]["id"]
+    error = await _wrong_kind_reply(kb, ("add_fact", {
+        "head_entity_id": person, "relation_id": ids["worked"], "tail_entity_id": ids["ibm"],
+        "text": "Alice joined IBM in June 1998"}))
+    assert "is the CLASS 'PERSON', not an ENTITY" in error and "pass the entity itself" in error
+
+
 async def test_relation_id_given_as_a_name_is_resolved(kb):
     ids = await _alice_at_ibm(kb)
 
@@ -1814,7 +1857,7 @@ async def test_a_name_that_resolves_to_nothing_still_errors(kb):
 
     assert kb.match_nodes("test", label="ENTITY") == []
     reply = json.loads(_tool_replies(factory)[0]["content"])
-    assert "could not resolve" in reply["error"]
+    assert "is not the id of any node, nor the name of a CLASS" in reply["error"]
     assert "NO_SUCH_CLASS" in reply["error"]
 
 

@@ -1431,6 +1431,51 @@ class ExtractionEngine:
             coerced[arg] = f"{value} -> {resolved}"
         return coerced, unresolved
 
+    def _unresolved_message(self, database: str, fn: str, arg: str, value: Any) -> str:
+        """Why *arg* didn't resolve, and what to do instead.
+
+        Most failures name a real node of the wrong kind — a PROPERTY as relation_id
+        when the model reaches for add_fact to record a value, an ENTITY as fact_id —
+        and used to be told the value was "neither the id of an existing node nor the
+        name of one", which was false and gave nothing to correct (#134).
+        """
+        expected = dict(_ID_ARGS).get(arg, "node")
+        a = "an" if expected[:1] in "AEIOU" else "a"
+        node = self._source.get_node(database, value) if isinstance(value, str) else None
+        if node is None:
+            return (
+                f"{arg}={value!r} is not the id of any node, nor the name of {a} {expected}. "
+                f"{arg} takes the id (E3, R2, P4, ...) that find_* / search_schema / an "
+                "earlier add_* returned; if the schema has no such element, skip the item "
+                "rather than inventing one."
+            )
+        label = node.get("label")
+        what = f"{value} is the {label} {node_name(node)!r}, not {a} {expected}"
+        # Keyed by the tool too: each stage only has its own creation tool, so pointing
+        # at another stage's tool sent the model round in circles. When the item belongs
+        # to another stage, say so and to skip it here.
+        hint = {
+            ("add_fact", RELATION, PROPERTY): " — a property's value isn't a fact; the property stages "
+                                              "that follow record it, so skip it here",
+            ("add_fact_property_value", FACT, ENTITY): " — this stage records values about facts only; a "
+                                                       "value about an entity is recorded in the next stage, "
+                                                       "so skip it here",
+            ("add_entity_property_value", ENTITY, FACT): " — this stage records values about entities only; "
+                                                         "values about facts were recorded in the previous "
+                                                         "stage, so skip it here",
+        }.get((fn, expected, label)) or {
+            (FACT, RELATION): " — fact_id takes one specific fact (F...) from add_fact / find_fact, "
+                              "not the relation type it instantiates",
+            (ENTITY, CLASS): " — pass the entity itself (E...), from find_entity / add_entity, "
+                             "not its class",
+            (ENTITY, FACT): " — pass an entity (E...); a fact is never the head or tail of another fact",
+            (PROPERTY, CLASS): " — property_id takes a PROPERTY (P...) declared on the owner's "
+                               "class; find it with search_schema",
+            (PROPERTY, RELATION): " — property_id takes a PROPERTY (P...) declared on the fact's "
+                                  "relation; find it with search_schema",
+        }.get((expected, label), f" — {arg} takes {a} {expected}")
+        return f"{arg}: {what}{hint}."
+
     def _resolve_mistyped_id(self, database: str, label: str, value: str) -> str | None:
         """The one *label* node whose id is a single edit away from *value*, or None.
 
@@ -1541,16 +1586,8 @@ class ExtractionEngine:
         # the argument that is actually wrong.
         coerced, unresolved = await self._coerce_id_args(database, args)
         if unresolved:
-            detail = ", ".join(
-                f"{arg}={args[arg]!r}" for arg in unresolved if args.get(arg) is not None
-            )
-            return {"error": (
-                f"could not resolve {detail} — the value is neither the id of an "
-                "existing node nor the name of one. These arguments take the id "
-                "returned by find_class / find_relation_type / find_entity / "
-                "find_fact / search_schema, never a name; and if the schema has no "
-                "such element, skip the item rather than inventing one."
-            )}
+            return {"error": " ".join(self._unresolved_message(database, fn, arg, args[arg])
+                                      for arg in unresolved if args.get(arg) is not None)}
 
         # Every write claims a verbatim `text` span from the source. Refuse the
         # ones that don't quote it — a fabricated span is the signature of a
