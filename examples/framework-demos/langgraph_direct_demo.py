@@ -31,6 +31,7 @@ from typing import TypedDict
 
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
+from pydantic import BaseModel, Field
 
 from blue_data_kb_source import MemoryKBSource
 
@@ -96,17 +97,22 @@ async def discover(state: State) -> dict:
 # Node 2: select -- LLM picks which hits matter, then get_metadata() on each
 # --------------------------------------------------------------------------- #
 
+class RelevantHits(BaseModel):
+    ids: list[str] = Field(description="ids of the search hits relevant to answering the question")
+
+
 async def select(state: State) -> dict:
     if not state["hits"]:
         return {"selected": []}
 
     prompt = (
         "Given this question and these search hits from a knowledge base, "
-        "return a JSON list of the ids of the hits relevant to answering it.\n\n"
+        "pick the ids of the hits relevant to answering it.\n\n"
         f"Question: {state['question']}\n\nHits:\n{json.dumps(state['hits'], indent=2)}"
     )
-    raw = model.invoke(prompt).content
-    relevant_ids = json.loads(raw)
+    # Structured output: asked for a bare JSON list, the model tends to wrap it in a
+    # ```json fence, which json.loads can't parse.
+    relevant_ids = model.with_structured_output(RelevantHits).invoke(prompt).ids
     print(f"[select] LLM chose {len(relevant_ids)} relevant hit(s): {relevant_ids}")
 
     selected = []
