@@ -23,8 +23,8 @@ Event counts:
 4. Search -- BM25 keyword vs semantic, over the same populated KB
 ------------------------------------------------------------
 search_data('acquired open-source company', mode='keyword'):
-  FACT     IBM_ACQUIRED_Red Hat
   ENTITY   Red Hat
+  FACT     IBM_ACQUIRED_Red Hat
   ENTITY   IBM
   ENTITY   Nimbus Analytics
   ENTITY   Alice
@@ -41,20 +41,18 @@ would rank Red Hat/IBM/the ACQUIRED fact above Carol for this query)
 ------------------------------------------------------------
 5. Migrate -- export/import the graph into a second, file-backed KB
 ------------------------------------------------------------
-Migrated KB (FileGraphSource, /tmp/blue-data-kb-lifecycle-q567c871) now has 13 graph rows
+Migrated KB (FileGraphSource, /tmp/blue-data-kb-lifecycle-s8ioz_4u) now has 13 graph rows
 Semantic search still works after migration (import re-triggers the target's own indexer):
   ENTITY   Carol                score=0.19
-  ENTITY   Nimbus Analytics     score=0.03
-  FACT     Alice_WORKED_AT_IBM  score=0.017
-  FACT     Carol_WORKED_AT_Nimbus Analytics score=0.0
-  ENTITY   IBM                  score=0.0
+  FACT     Bob_WORKED_AT_Red Hat score=0.095
+  FACT     IBM_ACQUIRED_Red Hat score=0.012
+  FACT     Alice_WORKED_AT_IBM  score=0.0
+  ENTITY   Red Hat              score=0.0
 IBM's extraction text survived the migration: ['IBM is listed in the org directory.']
-But its SOURCE-node link did not -- (source, source_original) per record: [(None, None)]
-Gotcha: export_database_data/import_database_data carry over extraction *text*
-(re-linked via a fresh EXTRACTED_FROM edge on import) but SOURCE nodes themselves
-are never exported -- only entities/facts/property values are. If you need the
-SOURCE name/original date to survive a migration too, add_source() them again in
-the target database and re-link with add_*_extraction(..., source_id=...).
+And so did its source -- (source, source_original) per record: [('Org directory', None)]
+export_database_data(include_provenance=True) carries each evidence record with its
+confidence, extraction type and SOURCE; import_database_data recreates them one by
+one, creating any SOURCE the target database doesn't have yet.
 
-Cleaned up /tmp/blue-data-kb-lifecycle-q567c871
+Cleaned up /tmp/blue-data-kb-lifecycle-s8ioz_4u
 Demo complete.

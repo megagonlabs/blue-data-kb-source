@@ -181,17 +181,16 @@ async def main():
     for h in migrated_hits:
         print(f"  {h.type:<8} {h.name:<20} score={round(h.score, 3) if h.score is not None else None}")
 
-    ibm_id = next(hit.id for hit in migrated_hits if hit.name == "IBM")
-    meta = await migrated.get_metadata("main", ibm_id)
+    # Look IBM up by name: the fake embedding ranks arbitrarily, so it need not be a top hit.
+    ibm = await migrated.find_entity("main", "IBM")
+    meta = await migrated.get_metadata("main", ibm["id"])
     texts = [e["text"] for e in meta["evidence"]]
     sources = [(e["source"], e["source_original"]) for e in meta["evidence"]]
     print(f"IBM's extraction text survived the migration: {texts!r}")
-    print(f"But its SOURCE-node link did not -- (source, source_original) per record: {sources!r}")
-    print("Gotcha: export_database_data/import_database_data carry over extraction *text*")
-    print("(re-linked via a fresh EXTRACTED_FROM edge on import) but SOURCE nodes themselves")
-    print("are never exported -- only entities/facts/property values are. If you need the")
-    print("SOURCE name/original date to survive a migration too, add_source() them again in")
-    print("the target database and re-link with add_*_extraction(..., source_id=...).")
+    print(f"And so did its source -- (source, source_original) per record: {sources!r}")
+    print("export_database_data(include_provenance=True) carries each evidence record with its")
+    print("confidence, extraction type and SOURCE; import_database_data recreates them one by")
+    print("one, creating any SOURCE the target database doesn't have yet.")
 
     shutil.rmtree(tmp)
     print()

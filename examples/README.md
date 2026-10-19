@@ -329,10 +329,10 @@ choice blue-data made for its own hero integration demo (`llm_fn=None` there; a
 deterministic fake embedding here) — this is meant to be the one script in `examples/`
 that always runs, nothing gated behind credentials.
 
-> Along the way it surfaces a real gotcha: `export_database_data`/`import_database_data`
-> carry over extraction *text* but never the SOURCE node itself (name, `original` date) —
-> only entities/facts/property values are exported, so a migrated node's evidence records
-> keep their `text` but come back with `source`/`source_original` set to `None`.
+> The migration keeps provenance whole: with `include_provenance=True`,
+> `export_database_data` carries each evidence record — its text, confidence, extraction
+> type and SOURCE — and `import_database_data` recreates them, creating any SOURCE the
+> target database doesn't have yet, so a migrated node's evidence still names its source.
 
 ```bash
 python3 examples/integration-demos/full_lifecycle_demo.py
