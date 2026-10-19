@@ -66,8 +66,10 @@ blue-kb database register main \
     --embedding-provider openai \
     --embedding-model text-embedding-3-small
 
-# Neo4j backend with Redis vector store. The password comes from the profile (it
-# prompts, so it stays out of shell history), never from a flag or the registry.
+# Neo4j backend with Redis vector store. Install both drivers first (or the CLI's
+# `neo4j` and `redis` extras). The password comes from the profile (it prompts, so
+# it stays out of shell history), never from a flag or the registry.
+pip install neo4j redis
 blue-kb profile config BLUE_DATA_KB_SOURCE_NEO4J_PASSWORD
 blue-kb database register main \
     --graph-backend neo4j \
