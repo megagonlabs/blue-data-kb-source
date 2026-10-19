@@ -578,6 +578,7 @@ async def test_add_fact_requires_head_relation_and_tail(kb):
 def test_neo4j_tls_uri_is_dialled_over_tls(monkeypatch):
     """#121: the scheme went under `protocol`, which the driver never reads, so a
     `neo4j+s://` URI was dialled as plain `bolt://`."""
+    pytest.importorskip("neo4j")
     import blue_data.source.graph.neo4j.neo4j_graph_source as ngs
 
     monkeypatch.setenv("BLUE_DATA_KB_SOURCE_GRAPH_BACKEND", "neo4j")

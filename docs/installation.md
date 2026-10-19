@@ -37,9 +37,10 @@ pip install -e platform/cli              # blue-data-kb-cli
 pip install -e platform/mcp              # blue-data-kb-mcp
 ```
 
-**Build distributable packages:**
+**Build distributable packages** (needs the `build` package first):
 
 ```bash
+pip install build
 cd lib && bash scripts/build.sh
 cd platform/cli && bash scripts/build.sh
 cd platform/mcp && bash scripts/build.sh
@@ -49,7 +50,7 @@ cd platform/mcp && bash scripts/build.sh
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.10–3.14 (3.15 is not supported yet)
 - [`blue-data`](../../blue-data) (local sibling dependency — not yet published)
 - An OpenAI API key (`OPENAI_API_KEY`) for any LLM feature: `import_text`/`blue-kb data extract`, `answer`/`validate`/`enrich`, and semantic search embeddings. Nothing else in the library needs it — schema declaration, instance writes, keyword search, and change hooks are all plain Python with no network calls.
 
@@ -108,6 +109,8 @@ Install with the `dev` extra first:
 ```bash
 cd lib && pip install -e ".[dev]"
 ```
+
+The `dev` extra is enough to run every suite. Tests that exercise an optional backend — the Neo4j driver (`neo4j`), BM25 search (`rank-bm25`, the library's `search` extra), the MCP client (`mcp`) — are skipped when that package isn't installed; install the component's `all` extra (or the library's `all,dev`) to run them too. The tests don't depend on the terminal: they pass whether or not it forces colour (`FORCE_COLOR`, `TTY_COMPATIBLE`).
 
 The library's benchmark suites (`lib/tests/benchmarks/`) are separate from the default test run — see [guide.md](guide.md#benchmarks) and [`lib/README.md`](../lib/README.md#running-tests) for details. They require the `openai` (and, for the querying benchmark, `search`) extras, and skip cleanly without `OPENAI_API_KEY` if no VCR cassette has been recorded for a given case.
 

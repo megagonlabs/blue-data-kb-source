@@ -146,6 +146,7 @@ def _write_indexed_entities(directory, tag, n, class_id):
 async def test_search_corpus_keeps_other_processes_entries(tmp_path):
     """A long-lived process (the MCP server) used to save its stale in-memory corpus
     over the file, dropping everything another process (the CLI) had indexed."""
+    pytest.importorskip("rank_bm25")
     import multiprocessing as mp
 
     kb = _kb(tmp_path, mode="bm25", bm25_index_dir=str(tmp_path))

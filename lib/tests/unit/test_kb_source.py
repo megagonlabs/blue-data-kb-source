@@ -290,6 +290,7 @@ async def test_overwrite_empties_only_the_named_database(kb):
 def test_neo4j_overwrite_never_drops_the_physical_database():
     """On Enterprise, NEO4JSource's DROP DATABASE would name the one physical
     database every logical KB database lives in."""
+    pytest.importorskip("neo4j")
     from unittest.mock import MagicMock, patch
 
     import blue_data.source.graph.neo4j.neo4j_graph_source as ngs

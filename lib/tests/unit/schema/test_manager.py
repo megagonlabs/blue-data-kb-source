@@ -697,6 +697,7 @@ async def test_consolidate_schema_merge_fires_change_events(kb):
 
 async def test_consolidate_schema_merge_drops_the_source_from_search():
     """The end the change events exist for."""
+    pytest.importorskip("rank_bm25")
     kb = MemoryKBSource(name="merge-search", properties={"search": {"mode": "bm25"}})
     kb.create_database("test")
     worker_id = await kb.declare_class("test", "WORKER", "A worker")

@@ -1,3 +1,5 @@
+import pytest
+
 from blue_data_kb_source import MemoryKBSource
 from blue_data_kb_source.resolution import NodeResolver
 
@@ -131,6 +133,7 @@ async def test_search_tier_is_label_scoped(kb):
 
 
 async def test_bm25_index_matches_tokens_not_substrings():
+    pytest.importorskip("rank_bm25")
     kb = MemoryKBSource(name="resolver-bm25", properties={"search": {"mode": "bm25"}})
     kb.create_database("test")
     entity_id = await kb.add_entity("test", "Alice Smith")
@@ -146,6 +149,7 @@ async def test_bm25_index_matches_tokens_not_substrings():
 async def test_bm25_schema_search_splits_snake_case_names():
     """"worked at" must find WORKED_AT — whitespace-only tokenizing kept the name
     as a single `worked_at` token that no natural-language query could match."""
+    pytest.importorskip("rank_bm25")
     kb = MemoryKBSource(name="bm25-snake", properties={"search": {"mode": "bm25"}})
     kb.create_database("test")
     await kb.declare_class("test", "PERSON", "A human individual")
@@ -158,6 +162,7 @@ async def test_bm25_schema_search_splits_snake_case_names():
 
 
 async def test_index_backed_schema_resolution_uses_the_schema_collection():
+    pytest.importorskip("rank_bm25")
     kb = MemoryKBSource(name="resolver-schema", properties={"search": {"mode": "bm25"}})
     kb.create_database("test")
     class_id = await kb.declare_class("test", "GADGET", "A maker of widgets")
@@ -169,6 +174,7 @@ async def test_index_backed_schema_resolution_uses_the_schema_collection():
 
 
 async def test_index_k_admits_multiple_search_hits():
+    pytest.importorskip("rank_bm25")
     kb = MemoryKBSource(name="resolver-k", properties={"search": {"mode": "bm25"}})
     kb.create_database("test")
     first = await kb.add_entity("test", "Alice Smith")

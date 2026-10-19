@@ -66,6 +66,7 @@ def test_bm25_search_works_without_an_explicit_index_dir(runner):
     on every invocation and `schema search` silently returns nothing. The
     corpus directory defaults to the graph directory, as --bm25-index-dir has
     always documented."""
+    pytest.importorskip("rank_bm25")
     invoke(runner, ["database", "register", "main", "--search", "bm25"])
     invoke(runner, ["--database", "main", "schema", "class", "add", "PERSON", "A human"])
     invoke(runner, ["--database", "main", "schema", "class", "add", "COMPANY", "A business"])
@@ -143,6 +144,7 @@ def test_database_config_show_and_set(runner, tmp_path):
 
 def _dial(monkeypatch, database):
     """Connect the CLI's way and return (uri, auth) the Neo4j driver was given."""
+    pytest.importorskip("neo4j")
     import blue_data.source.graph.neo4j.neo4j_graph_source as ngs
     from unittest.mock import patch
 

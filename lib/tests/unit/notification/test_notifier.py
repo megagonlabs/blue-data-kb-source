@@ -197,6 +197,7 @@ async def test_remove_one_of_two_hooks(kb):
 # ------------------------------------------------------------------ #
 
 async def test_a_failing_hook_is_logged_and_the_rest_still_run(caplog):
+    pytest.importorskip("rank_bm25")
     from blue_data_kb_source import MemoryKBSource
 
     kb = MemoryKBSource(name="kb", properties={"search": {"mode": "bm25"}})

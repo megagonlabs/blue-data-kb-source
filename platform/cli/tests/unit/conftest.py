@@ -6,7 +6,13 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from blue_data_kb_cli.commands import cli
+# The CLI prints through rich, which decides on colour when its Console is created —
+# at import — from TTY_COMPATIBLE / FORCE_COLOR. In a terminal that forces colour,
+# every output then carries ANSI codes and the tests that parse it fail (#140), so
+# turn it off before the CLI is imported. TTY_COMPATIBLE=0 outranks FORCE_COLOR.
+os.environ["TTY_COMPATIBLE"] = "0"
+
+from blue_data_kb_cli.commands import cli  # noqa: E402  (after the environment is set)
 
 # Anything in the real ~/.blue-kb newer than this was written by the test run.
 _SESSION_START = time.time()

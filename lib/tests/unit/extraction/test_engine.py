@@ -154,6 +154,7 @@ async def test_related_data_absent_without_search_indexer(kb):
 
 
 async def test_related_data_injects_matching_existing_entities():
+    pytest.importorskip("rank_bm25")
     from blue_data_kb_source import MemoryKBSource
 
     kb = MemoryKBSource(name="related-data-test", properties={"search": {"mode": "bm25"}})
@@ -589,6 +590,7 @@ async def test_effort_medium_second_pass_references_the_prior_pass(kb):
 
 
 async def test_effort_second_pass_related_data_sees_entities_from_first_pass():
+    pytest.importorskip("rank_bm25")
     from blue_data_kb_source import MemoryKBSource
 
     kb = MemoryKBSource(name="effort-related-data-test", properties={"search": {"mode": "bm25"}})

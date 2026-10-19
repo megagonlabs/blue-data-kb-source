@@ -4,7 +4,7 @@ Command-line interface for the Blue Data Knowledge-Base. A thin adapter over the
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.10–3.14 (3.15 is not supported yet)
 - [`blue-data`](../../blue-data/lib) (local dependency)
 - [`blue-data-kb-source`](../lib) (local dependency)
 
@@ -71,7 +71,7 @@ blue-kb database register main \
 blue-kb profile config BLUE_DATA_KB_SOURCE_NEO4J_PASSWORD
 blue-kb database register main \
     --graph-backend neo4j \
-    --neo4j-uri neo4j+s://kb.example.com:7687 \
+    --neo4j-uri bolt://localhost:7687 \
     --neo4j-user neo4j \
     --search semantic \
     --vector-backend redis \
