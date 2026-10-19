@@ -50,7 +50,7 @@ cd platform/mcp && bash scripts/build.sh
 
 ## Requirements
 
-- Python 3.10–3.14 (3.15 is not supported yet)
+- Python 3.10–3.14 (3.15 is not supported yet). Every package declares `requires-python = ">=3.10,<3.15"`, so pip refuses to install on another version, and the `install.sh` scripts check it before installing anything
 - [`blue-data`](../../blue-data) (local sibling dependency — not yet published)
 - An OpenAI API key (`OPENAI_API_KEY`) for any LLM feature: `import_text`/`blue-kb data extract`, `answer`/`validate`/`enrich`, and semantic search embeddings. Nothing else in the library needs it — schema declaration, instance writes, keyword search, and change hooks are all plain Python with no network calls.
 
