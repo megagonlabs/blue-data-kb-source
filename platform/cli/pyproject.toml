@@ -28,6 +28,11 @@ all    = ["neo4j>=5.0", "chromadb>=0.4", "redis>=5.0", "openai>=1.0"]
 [tool.setuptools.packages.find]
 where = ["src"]
 
+# profile.py loads profile_spec.json beside it; without this the wheel omits it and
+# every command fails with FileNotFoundError outside an editable install (#146).
+[tool.setuptools.package-data]
+blue_data_kb_cli = ["*.json"]
+
 [tool.pyright]
 pythonVersion = "3.10"
 typeCheckingMode = "strict"
