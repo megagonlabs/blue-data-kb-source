@@ -676,7 +676,7 @@ FastAPI exception handlers catch `KBError` subtypes and map them to these respon
 
 Implemented at `platform/mcp/` (package `blue-data-kb-mcp`, module `blue_data_kb_mcp`), built with
 the official MCP SDK's `FastMCP` (`mcp.server.fastmcp.FastMCP` — the SDK's `2.x` release renamed
-this to `mcp.server.MCPServer`; the package is pinned `mcp[cli]>=1.0.0,<2.0.0` to stay on the
+this to `mcp.server.MCPServer`; the package is pinned `mcp[cli]>=1.28.1,<2` to stay on the
 `FastMCP` API). Modeled closely on the sibling `blue-data` repo's `platform/registry-mcp/` (same
 `_ok`/`_err` JSON-string tool-return pattern catching every exception rather than raising through
 the transport, same singleton-config-factory shape) — see `platform/mcp/README.md` for the full

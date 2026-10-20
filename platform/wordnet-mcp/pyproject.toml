@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "MCP server exposing WordNet lexical lookups (via nltk) to LLM clients"
 requires-python = ">=3.10,<3.15"
 dependencies = [
-    "mcp[cli]>=1.0.0,<2.0.0",
+    "mcp[cli]>=1.28.1,<2",
     "nltk>=3.8",
 ]
 
