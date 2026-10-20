@@ -9,6 +9,7 @@ description = "Blue Data Knowledge-Base Source Layer"
 requires-python = ">=3.10,<3.15"
 dependencies = [
     "blue-data>=0.1.0",
+    "exceptiongroup>=1.0; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]

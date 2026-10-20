@@ -396,7 +396,7 @@ async def _call_mcp_tool(dispatch: dict[str, tuple[Any, str, Any]], name: str, a
 
 try:
     _BaseExceptionGroup = BaseExceptionGroup  # type: ignore[name-defined]  # 3.11+
-except NameError:  # 3.10: the backport anyio depends on
+except NameError:  # 3.10: the exceptiongroup backport, a dependency below 3.11
     from exceptiongroup import BaseExceptionGroup as _BaseExceptionGroup
 
 
