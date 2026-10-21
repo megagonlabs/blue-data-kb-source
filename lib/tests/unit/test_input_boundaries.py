@@ -39,7 +39,7 @@ async def test_file_backend_cannot_read_a_kb_file_by_absolute_path(file_kb, tmp_
     other.mkdir()
     (other / "kb.json").write_text('{"nodes": {}, "edges": {}}')
     with pytest.raises(KBError, match="invalid database name"):
-        await file_kb.fetch_database_schema(str(other / "kb"))
+        file_kb.fetch_database_schema(str(other / "kb"))
 
 
 @pytest.mark.parametrize("name", ["main", "default", "acme_2026", "my-kb", "A1"])

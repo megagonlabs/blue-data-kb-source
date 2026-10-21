@@ -274,8 +274,7 @@ async def fetch_schema(database: str = "default") -> str:
         database: Target database (default 'default').
     """
     try:
-        schema = await get_kb().fetch_database_schema(database)
-        return _ok(schema.to_json())
+        return _ok(get_kb().fetch_database_schema(database))
     except Exception as e:
         return _err(e)
 

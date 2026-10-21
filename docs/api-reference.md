@@ -69,8 +69,8 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | `await find_class(database, name)` | `dict \| None` | `CLASS` node by exact, case-sensitive name |
 | `await find_relation_type(database, name)` | `dict \| None` | `RELATION` node by exact name |
 | `await find_property(database, name)` | `dict \| None` | `PROPERTY` node by exact name |
-| `await fetch_database_schema(database)` | `DataSchema` | Build a `DataSchema` from the classes/relations declared in *database* |
-| `await export_database_schema(database)` | `dict` | `fetch_database_schema(database).to_json()` — portable JSON, symmetric with `import_database_schema` |
+| `fetch_database_schema(database)` | `dict` | The classes/relations declared in *database*, as `DataSchema.to_json()`'s dict. Synchronous, as `DataSource` declares it (an `async` override handed the registry a coroutine); `DataSchema.from_json(...)` turns it back into a `DataSchema` |
+| `await export_database_schema(database)` | `dict` | The same dict `fetch_database_schema(database)` returns, as a coroutine — portable JSON, symmetric with `import_database_schema` |
 | `await import_database_schema(database, schema_json)` | `None` | Populate *database* from a `DataSchema.to_json()`/`export_database_schema` dict; `IS_SUBCLASS_OF` entries (class and relation hierarchy) are re-wired with `add_is_subclass_of` after everything else is declared, so export → import → export round-trips unchanged |
 | `await fetch_meta_schema()` | `DataSchema` | The fixed `DataSchema` describing the KB's own node/edge taxonomy (not database-specific) |
 | `await search_schema(database, query, k?, mode?, type_filter?)` | `list[SchemaSearchResult]` | Search classes/relations/properties by keyword or semantic similarity |
@@ -204,8 +204,8 @@ Two synchronous methods wrap the async API via `asyncio.run()` internally, for c
 
 | Method | Description |
 |---|---|
-| `execute_query(query: dict, database=None, collection=None, optional_properties=None)` | Generic op-code dispatcher — `query["op"]` such as `"KB.DECLARE_CLASS"`, `"KB.ADD_ENTITY"`, `"KB.GET_DATA"`, mirroring most async methods above 1:1; `GRAPH.*` ops forward to the underlying `GraphSource`. `get_metadata` is deliberately **not** exposed here (library method + MCP tool only — see ADR-018 in [`design/13-decision-log.md`](../design/13-decision-log.md)) |
-| `execute_query_nl(query: str, database=None, ...)` | Sync wrapper around `answer(..., natural_language=False)`, always returning a structured `list[dict]` |
+| `execute_query(query: dict, database=None, collection=None, optional_properties=None)` | Generic op-code dispatcher — `query["op"]` such as `"KB.DECLARE_CLASS"`, `"KB.ADD_ENTITY"`, `"KB.GET_DATA"`, mirroring most async methods above 1:1; `GRAPH.*` ops forward to the underlying `GraphSource`. `get_metadata` is deliberately **not** exposed here (library method + MCP tool only — see ADR-018 in [`design/13-decision-log.md`](../design/13-decision-log.md)). Every result is a `list[dict]`, as the `DataSource` contract requires: a write's id comes back as `[{"id": ...}]`, a write that returns nothing as `[]`, a single record (the schema, a node) as a one-row list, search results as one dict per hit. Safe to call from inside a running event loop (it then runs the operation on a worker thread) |
+| `execute_query_nl(query: str, database=None, ...)` | Sync wrapper around `answer(..., natural_language=False)`, always returning a structured `list[dict]`. `llm_fn` is accepted but not used — an agent loop over KB tools can't be driven by a plain prompt→text function; the model is `optional_properties["model"]`, else `BLUE_DATA_KB_SOURCE_QUERY_LLM_MODEL`, `BLUE_DATA_KB_SOURCE_LLM_MODEL`, `BLUE_DATA_LLM_MODEL`, else `gpt-4o` |
 
 ---
 

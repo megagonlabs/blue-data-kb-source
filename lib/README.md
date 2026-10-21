@@ -356,7 +356,7 @@ Name and id fields are `None` when the corresponding node was not provided.
 
 ### Reading and importing a schema and its data
 
-Export the schema of an existing database to JSON and reload it into a fresh KB. `export_database_schema` is a thin `fetch_database_schema(...).to_json()` wrapper — the symmetric counterpart to `import_database_schema`, which takes that same JSON shape back in:
+Export the schema of an existing database to JSON and reload it into a fresh KB. `export_database_schema` returns the same dict as `fetch_database_schema` (the async form of it) — the symmetric counterpart to `import_database_schema`, which takes that same JSON shape back in:
 
 ```python
 # --- export ---
@@ -420,9 +420,9 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | `await find_class(database, name)` | `dict \| None` | CLASS node by exact, case-sensitive name |
 | `await find_relation_type(database, name)` | `dict \| None` | RELATION node by exact name |
 | `await find_property(database, name)` | `dict \| None` | PROPERTY node by exact name |
-| `await fetch_database_schema(database)` | `DataSchema` | Build a `DataSchema` from the `:CLASS` and `:RELATION` nodes declared in *database* |
+| `fetch_database_schema(database)` | `dict` | The `:CLASS` and `:RELATION` nodes declared in *database*, as `DataSchema.to_json()`'s dict. Synchronous, as `DataSource` declares it (an `async` override handed the registry a coroutine); `DataSchema.from_json(...)` turns it back into a `DataSchema` |
 | `await fetch_meta_schema()` | `DataSchema` | Return the fixed `DataSchema` describing the KB graph schema itself (node and edge type taxonomy) |
-| `await export_database_schema(database)` | `dict` | `fetch_database_schema(database).to_json()` — portable JSON, symmetric with `import_database_schema` |
+| `await export_database_schema(database)` | `dict` | The same dict `fetch_database_schema(database)` returns, as a coroutine — portable JSON, symmetric with `import_database_schema` |
 | `await import_database_schema(database, schema_json)` | `None` | Populate *database* from a `DataSchema.to_json()`/`export_database_schema` dict; declares classes, properties, relations, and domain/range edges; `IS_SUBCLASS_OF` entries (class and relation hierarchy) are re-wired with `add_is_subclass_of` after everything else is declared, so export → import → export round-trips unchanged |
 | `await search_schema(database, query)` | `list[SchemaSearchResult]` | CLASS/RELATION/PROPERTY nodes matching *query*: via the search index when configured, else by keyword (whole query as a substring first, then shared words, names split on `_` so "is proficient in" finds `PROFICIENT_IN`) |
 | `await consolidate_schema(database, operation, source_names, target_name, predicate?)` | `None` | Fold source elements into the target: rewires every reference, deletes the sources, updates the search index. `operation="merge"` only. Refused with `SchemaError`, before anything is written, if the merged hierarchy would contain a cycle or a relation target name is reserved |
@@ -474,8 +474,8 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | `await delete_entity_property_value(database, entity_id, property_id)` | `None` | Remove the entity's value for that property; raises `KnowledgeError` if there is none |
 | `await delete_fact_property_value(database, fact_id, property_id)` | `None` | As above, for a fact's property value |
 | `await search_data(database, query, k?, mode?, type_filter?)` | `list[DataSearchResult]` | Search ENTITY/FACT nodes by keyword (BM25) or `mode="semantic"` (embeddings). Falls back to a substring scan when the database was registered without search |
-| `await execute_query(query, database?, collection?, optional_properties?)` | `Any` | Run one KB operation described as a structured query dict — the generic `DataSource` entry point, used by the query layer |
-| `await execute_query_nl(query, database?, collection?, schema?, llm_fn?, optional_properties?)` | `Any` | Answer a natural-language question by translating it to a structured query first |
+| `execute_query(query, database?, collection?, optional_properties?)` | `list[dict]` | Run one KB operation described as a structured query dict — the generic `DataSource` entry point (synchronous). Every result is a `list[dict]`, as the `DataSource` contract requires: a write's id comes back as `[{"id": ...}]`, a write that returns nothing as `[]`, a single record (the schema, a node) as a one-row list, search results as one dict per hit. Safe to call from inside a running event loop (it then runs the operation on a worker thread) |
+| `execute_query_nl(query, database?, collection?, schema?, llm_fn?, optional_properties?)` | `list[dict]` | Answer a natural-language question (synchronous wrapper around `answer(..., natural_language=False)`). `llm_fn` is accepted but not used — an agent loop over KB tools can't be driven by a plain prompt→text function; the model is `optional_properties["model"]`, else `BLUE_DATA_KB_SOURCE_QUERY_LLM_MODEL`, `BLUE_DATA_KB_SOURCE_LLM_MODEL`, `BLUE_DATA_LLM_MODEL`, else `gpt-4o` |
 
 ---
 

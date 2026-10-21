@@ -195,7 +195,7 @@ def test_execute_query_add_extraction_forwards_confidence_and_type(kb):
         {"op": "KB.ADD_EXTRACTION", "text": "Alice joined IBM.",
           "confidence": 0.8, "extraction_type": "assertion"},
         database="test",
-    )
+    )[0]["id"]
     props = kb.get_node("test", extraction_id)["properties"]
     assert props["confidence"] == 0.8
     assert props["extraction_type"] == "assertion"
@@ -204,7 +204,7 @@ def test_execute_query_add_extraction_forwards_confidence_and_type(kb):
 def test_execute_query_add_extraction_defaults_match_the_method(kb):
     extraction_id = kb.execute_query(
         {"op": "KB.ADD_EXTRACTION", "text": "Alice joined IBM."}, database="test"
-    )
+    )[0]["id"]
     props = kb.get_node("test", extraction_id)["properties"]
     assert props["confidence"] is None
     assert props["extraction_type"] == "text_span"
@@ -212,7 +212,8 @@ def test_execute_query_add_extraction_defaults_match_the_method(kb):
 
 def test_execute_query_creator_ops_forward_confidence_and_type(kb):
     def q(**kw):
-        return kb.execute_query(kw, database="test")
+        rows = kb.execute_query(kw, database="test")   # a write returns [{"id": ...}]
+        return rows[0]["id"] if rows else None
 
     person_id  = q(op="KB.DECLARE_CLASS", name="PERSON", description="")
     company_id = q(op="KB.DECLARE_CLASS", name="COMPANY", description="")
@@ -241,7 +242,8 @@ def test_execute_query_creator_ops_forward_confidence_and_type(kb):
 
 def test_execute_query_extraction_ops_forward_confidence_and_type(kb):
     def q(**kw):
-        return kb.execute_query(kw, database="test")
+        rows = kb.execute_query(kw, database="test")   # a write returns [{"id": ...}]
+        return rows[0]["id"] if rows else None
 
     person_id = q(op="KB.DECLARE_CLASS", name="PERSON", description="")
     company_id = q(op="KB.DECLARE_CLASS", name="COMPANY", description="")

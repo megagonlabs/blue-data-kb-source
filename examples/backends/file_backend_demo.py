@@ -17,6 +17,7 @@ import asyncio
 import shutil
 import tempfile
 
+from blue_data.core.schema import DataSchema
 from blue_data_kb_source import FileKBSource
 
 DIVIDER = "-" * 60
@@ -121,7 +122,7 @@ async def main():
 
     kb2.create_database("copy")
     await kb2.import_database_schema("copy", schema_json)
-    copy_schema = await kb2.fetch_database_schema("copy")
+    copy_schema = DataSchema.from_json(kb2.fetch_database_schema("copy"))
     print("Classes in 'copy' after import:", sorted(copy_schema.entities.keys()))
 
     # ---------------------------------------------------------------- #

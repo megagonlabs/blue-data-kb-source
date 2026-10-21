@@ -8,7 +8,7 @@ from typing import Any
 from blue_data.source.graph.graph_source import GraphSource
 from blue_data.source.graph.neo4j.neo4j_graph_source import NEO4JSource
 
-from blue_data_kb_source.kb_source import KBSource
+from blue_data_kb_source.kb_source import KBSource, as_rows
 
 # Internal properties this class keeps on every node/relationship. They never appear in
 # returned `properties`, matching what the memory/file backends return.
@@ -317,8 +317,8 @@ class NEO4JKBSource(KBSource, NEO4JSource):
             props = dict(optional_properties or {})
             if database is not None:
                 props["params"] = {"db": database, **(props.get("params") or {})}
-            return NEO4JSource.execute_query(self, query, database, collection, props)
+            return as_rows(NEO4JSource.execute_query(self, query, database, collection, props))
         op = (query.get("op") or "").upper() if isinstance(query, dict) else ""
         if op.startswith("GRAPH."):
-            return GraphSource.execute_query(self, query, database, collection, optional_properties)
+            return as_rows(GraphSource.execute_query(self, query, database, collection, optional_properties))
         return KBSource.execute_query(self, query, database, collection, optional_properties)

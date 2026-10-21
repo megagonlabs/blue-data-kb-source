@@ -1,5 +1,6 @@
 import pytest
 
+from blue_data.core.schema import DataSchema
 from blue_data_kb_source import MemoryKBSource
 from blue_data_kb_source.types import SchemaError
 
@@ -191,7 +192,7 @@ async def test_declare_relation_type_failed_call_leaves_no_orphan_node(kb):
     await kb.declare_class("test", "PERSON", "")
     await kb.declare_relation_type("test", "WORKS_AT", "Employment", domain="PERSON", range="COMPANY")
 
-    schema = await kb.fetch_database_schema("test")
+    schema = DataSchema.from_json(kb.fetch_database_schema("test"))
     assert schema.has_relation("PERSON", "WORKS_AT", "COMPANY")
 
 
@@ -458,7 +459,7 @@ async def test_widening_guards_reject_wrong_labels(kb):
 # ------------------------------------------------------------------ #
 
 async def test_fetch_database_schema_includes_classes(populated_kb):
-    schema = await populated_kb.fetch_database_schema("test")
+    schema = DataSchema.from_json(populated_kb.fetch_database_schema("test"))
     names = [e["name"] for e in schema.entities.values()]
     assert "PERSON"   in names
     assert "COMPANY"  in names
@@ -466,13 +467,13 @@ async def test_fetch_database_schema_includes_classes(populated_kb):
 
 
 async def test_fetch_database_schema_includes_relations(populated_kb):
-    schema = await populated_kb.fetch_database_schema("test")
+    schema = DataSchema.from_json(populated_kb.fetch_database_schema("test"))
     rel_names = [r["name"] for r in schema.relations.values()]
     assert "WORKED_AT" in rel_names
 
 
 async def test_fetch_database_schema_empty_database(kb):
-    schema = await kb.fetch_database_schema("test")
+    schema = DataSchema.from_json(kb.fetch_database_schema("test"))
     assert len(list(schema.entities.values())) == 0
     assert len(list(schema.relations.values())) == 0
 
@@ -510,11 +511,11 @@ async def test_import_database_schema_roundtrip(kb):
     await kb.declare_relation_type("test", "WORKS_AT", "Employment",
                                    domain="PERSON", range="COMPANY")
 
-    schema_json = (await kb.fetch_database_schema("test")).to_json()
+    schema_json = kb.fetch_database_schema("test")
     kb.create_database("copy")
     await kb.import_database_schema("copy", schema_json)
 
-    copy_schema = await kb.fetch_database_schema("copy")
+    copy_schema = DataSchema.from_json(kb.fetch_database_schema("copy"))
     copy_names = [e["name"] for e in copy_schema.entities.values()]
     assert "PERSON"  in copy_names
     assert "COMPANY" in copy_names
@@ -574,7 +575,7 @@ async def test_declare_relation_type_rejects_structural_edge_names(kb, name):
 
 
 async def test_import_database_schema_returns_none(kb):
-    schema_json = (await kb.fetch_database_schema("test")).to_json()
+    schema_json = kb.fetch_database_schema("test")
     kb.create_database("copy")
     result = await kb.import_database_schema("copy", schema_json)
     assert result is None

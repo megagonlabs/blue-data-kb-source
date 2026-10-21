@@ -19,6 +19,7 @@ from typing import Any
 
 import arrow
 import click
+from blue_data.core.schema import DataSchema
 from blue_data_kb_source import KBSource
 from blue_data_kb_source._constants import (
     CLASS,
@@ -890,7 +891,7 @@ def schema_list(obj: dict, fmt: str) -> None:
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
-        schema = _run(kb.fetch_database_schema(db))
+        schema = DataSchema.from_json(kb.fetch_database_schema(db))
     except KBError as exc:
         raise click.ClickException(str(exc))
 
@@ -1070,7 +1071,7 @@ def schema_class_list(obj: dict, fmt: str) -> None:
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
-        schema = _run(kb.fetch_database_schema(db))
+        schema = DataSchema.from_json(kb.fetch_database_schema(db))
     except KBError as exc:
         raise click.ClickException(str(exc))
     rows = [
@@ -1397,7 +1398,7 @@ def schema_class_property_list(
     else:
         resolved_class_id = None
     try:
-        schema = _run(kb.fetch_database_schema(db))
+        schema = DataSchema.from_json(kb.fetch_database_schema(db))
     except KBError as exc:
         raise click.ClickException(str(exc))
     rows = []
@@ -1570,7 +1571,7 @@ def schema_relation_list(obj: dict, fmt: str) -> None:
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
     try:
-        schema = _run(kb.fetch_database_schema(db))
+        schema = DataSchema.from_json(kb.fetch_database_schema(db))
     except KBError as exc:
         raise click.ClickException(str(exc))
     real_relations = {k: v for k, v in schema.relations.items() if v["name"] != "IS_SUBCLASS_OF"}
@@ -2049,7 +2050,7 @@ def schema_relation_property_list(
     else:
         resolved_relation_id = None
     try:
-        schema = _run(kb.fetch_database_schema(db))
+        schema = DataSchema.from_json(kb.fetch_database_schema(db))
     except KBError as exc:
         raise click.ClickException(str(exc))
     real_relations = {k: v for k, v in schema.relations.items() if v["name"] != "IS_SUBCLASS_OF"}

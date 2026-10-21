@@ -34,6 +34,7 @@ run it yourself with a real key to see live output.
 """
 import asyncio
 
+from blue_data.core.schema import DataSchema
 from blue_data_kb_source import MemoryKBSource
 
 DIVIDER = "-" * 60
@@ -79,7 +80,7 @@ async def main():
         on_tool_result=on_tool_result,
     )
 
-    schema = await kb.fetch_database_schema("main")
+    schema = DataSchema.from_json(kb.fetch_database_schema("main"))
     print(f"\nSchema after expansion: {len(schema.entities)} classes, "
           f"{len(schema.relations)} relations")
     for name in schema.entities:

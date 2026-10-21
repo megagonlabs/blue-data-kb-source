@@ -9,6 +9,7 @@ another.
 """
 import asyncio
 
+from blue_data.core.schema import DataSchema
 from blue_data_kb_source import MemoryKBSource
 from blue_data_kb_source.types import SchemaError
 
@@ -26,7 +27,7 @@ async def main():
     id1 = await kb.declare_class("main", "PERSON", "A human individual")
     id2 = await kb.declare_class("main", "PERSON", "This description is ignored")
     print(f"declare_class('PERSON', ...) twice -> same id: {id1 == id2} ({id1})")
-    schema = await kb.fetch_database_schema("main")
+    schema = DataSchema.from_json(kb.fetch_database_schema("main"))
     person_desc = schema.entities["PERSON"]["description"]
     print(f"Description is still the first one: {person_desc!r}")
 
@@ -52,7 +53,7 @@ async def main():
     employee = await kb.declare_class("main", "EMPLOYEE", "A person employed by a company")
     person = id1
     await kb.add_is_subclass_of("main", child_id=employee, parent_id=person)
-    schema = await kb.fetch_database_schema("main")
+    schema = DataSchema.from_json(kb.fetch_database_schema("main"))
     print(f"EMPLOYEE is_subclass_of PERSON: {schema.has_relation('EMPLOYEE', 'IS_SUBCLASS_OF', 'PERSON')}")
     await kb.add_is_subclass_of("main", child_id=employee, parent_id=person)
     parents = kb.get_neighbors("main", employee, edge_type="IS_SUBCLASS_OF", direction="out")
@@ -102,7 +103,7 @@ async def main():
     print(f"Acme Corp's IS_INSTANCE_OF edges after merge: {classes}")
     after = await kb.get_metadata("main", acme)
     print(f"get_metadata reports the merge target: class_name={after['class_name']!r}")
-    survivors = [c["name"] for c in (await kb.fetch_database_schema("main")).entities.values()]
+    survivors = [c["name"] for c in DataSchema.from_json(kb.fetch_database_schema("main")).entities.values()]
     print(f"ORGANIZATION is gone from the schema: {sorted(survivors)}")
     print("consolidate_schema('merge') re-points every edge that referenced the source")
     print("class -- instances, subclass links, domain/range, property definitions -- at the")

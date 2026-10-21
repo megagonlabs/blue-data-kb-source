@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
+from blue_data.core.schema import DataSchema
 from blue_data_kb_source import KnowledgeError, SchemaError
 
 
@@ -76,7 +77,7 @@ async def test_untyped_properties_behave_as_before(kb):
 
 async def test_schema_shows_types_and_they_survive_export_and_import(kb):
     await _person_with(kb, AGE="NUMBER", BORN="DATE", TITLE=None)
-    rendered = (await kb.fetch_database_schema("test")).to_str(simplified=True)
+    rendered = DataSchema.from_json(kb.fetch_database_schema("test")).to_str(simplified=True)
     assert "AGE: number" in rendered and "BORN: date" in rendered and "TITLE: str" in rendered
     kb.create_database("copy")
     await kb.import_database_schema("copy", await kb.export_database_schema("test"))

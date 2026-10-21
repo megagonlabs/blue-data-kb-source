@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from unittest.mock import patch
 
+from blue_data.core.schema import DataSchema
 from blue_data_kb_source import KBSource, MemoryKBSource
 
 from .capture import CreationCollector, InstrumentedOpenAI, LLMCallRecord, ToolCallRecord, make_trace_callbacks
@@ -89,7 +90,7 @@ async def _snapshot(kb: KBSource, database: str) -> tuple[str, list[dict]]:
     prompt shows it (`engine.py`'s `schema_str`); data is the compact
     entity/fact/property row form (`fetch_database_data(compact=True)`).
     """
-    schema = await kb.fetch_database_schema(database)
+    schema = DataSchema.from_json(kb.fetch_database_schema(database))
     data = await kb.fetch_database_data(database, compact=True)
     return schema.to_str(simplified=True), data
 

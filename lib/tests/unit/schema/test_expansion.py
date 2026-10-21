@@ -14,6 +14,7 @@ import shutil
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from blue_data.core.schema import DataSchema
 
 
 def _tool_call_response(name, arguments, call_id="call_0"):
@@ -70,7 +71,7 @@ async def test_expand_schema_declares_class(kb):
     with patch("openai.AsyncOpenAI", factory):
         await kb.expand_schema("test", "Alice is a person.", dedup_mode="none")
 
-    schema = await kb.fetch_database_schema("test")
+    schema = DataSchema.from_json(kb.fetch_database_schema("test"))
     assert "PERSON" in schema.entities
 
 
@@ -209,7 +210,7 @@ async def test_expand_schema_add_subclass_of_links_hierarchy(kb):
     with patch("openai.AsyncOpenAI", factory):
         await kb.expand_schema("test", "Bob is an employee.", dedup_mode="none")
 
-    schema = await kb.fetch_database_schema("test")
+    schema = DataSchema.from_json(kb.fetch_database_schema("test"))
     assert any(
         r["name"] == "IS_SUBCLASS_OF" and r["source"] == "EMPLOYEE" and r["target"] == "PERSON"
         for r in schema.relations.values()
@@ -277,7 +278,7 @@ async def test_expand_schema_attach_property_reuses_existing_property(kb):
     with patch("openai.AsyncOpenAI", factory):
         await kb.expand_schema("test", "IBM is a company.", dedup_mode="none")
 
-    schema = await kb.fetch_database_schema("test")
+    schema = DataSchema.from_json(kb.fetch_database_schema("test"))
     assert "NAME" in schema.entities["COMPANY"]["contents"]["attributes"]
     # reused, not duplicated: still the same single PROPERTY node
     props = await kb.search_schema("test", "NAME", type_filter="property")
@@ -303,7 +304,7 @@ async def test_expand_schema_rejects_taxonomic_relation_type(kb):
         )
 
     assert "error" in calls[0][1]
-    schema = await kb.fetch_database_schema("test")
+    schema = DataSchema.from_json(kb.fetch_database_schema("test"))
     assert not any(r["name"] == "IS_A" for r in schema.relations.values())
     _ = person, animal
 
@@ -337,7 +338,7 @@ async def test_expand_schema_auto_dedup_catches_relation_synonym_without_search(
     assert name == "declare_relation_type"
     assert result["id"] == worked_at
     assert result["reused_existing"]["name"] == "WORKED_AT"
-    schema = await kb.fetch_database_schema("test")
+    schema = DataSchema.from_json(kb.fetch_database_schema("test"))
     assert not any(r["name"] == "EMPLOYED_AT" for r in schema.relations.values())
     _ = person, company
 
@@ -376,7 +377,7 @@ async def test_expand_schema_search_dedup_ignores_keyword_overlap():
             on_tool_result=lambda name, args, result: calls.append((name, result)),
         )
 
-    schema = await kb.fetch_database_schema("test")
+    schema = DataSchema.from_json(kb.fetch_database_schema("test"))
     assert "ROLE" in schema.entities
     assert any(r["name"] == "STUDIED_AT" for r in schema.relations.values())
     assert all("reused_existing" not in result for _, result in calls)
@@ -399,7 +400,7 @@ async def test_expand_schema_llm_dedup_rejects_relation_with_incompatible_ends(k
     with patch("openai.AsyncOpenAI", factory):
         await kb.expand_schema("test", "Alice attended CMU.", dedup_mode="llm")
 
-    schema = await kb.fetch_database_schema("test")
+    schema = DataSchema.from_json(kb.fetch_database_schema("test"))
     assert any(r["name"] == "ATTENDED" for r in schema.relations.values())
 
 
@@ -496,7 +497,7 @@ async def test_expand_schema_mcp_reference_bridges_external_tools(kb):
         )
 
     assert any(name.startswith("mcp__server0__lookup_synsets") for name in seen_tools["first"])
-    schema = await kb.fetch_database_schema("test")
+    schema = DataSchema.from_json(kb.fetch_database_schema("test"))
     assert "DOG" in schema.entities
 
 
@@ -633,7 +634,7 @@ async def test_expand_schema_timeout_raises_and_keeps_earlier_declarations(kb):
         with pytest.raises(SchemaError, match=r"timed out after 0.2s, 2 of at most 25 model turn"):
             await kb.expand_schema("test", "Alice is a person.", dedup_mode="none", timeout=0.2)
 
-    schema = await kb.fetch_database_schema("test")
+    schema = DataSchema.from_json(kb.fetch_database_schema("test"))
     assert "PERSON" in schema.entities
 
 

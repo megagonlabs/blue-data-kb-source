@@ -1,7 +1,7 @@
 ------------------------------------------------------------
 1. declare_class is idempotent by name
 ------------------------------------------------------------
-declare_class('PERSON', ...) twice -> same id: True (ee32aebe-8a86-46b2-acbd-7fbc081dc061)
+declare_class('PERSON', ...) twice -> same id: True (82a8ab20-1350-43b2-8a65-35a4bfb6dfde)
 Description is still the first one: 'A human individual'
 
 ------------------------------------------------------------
@@ -13,8 +13,9 @@ declare_relation_type('WORKED_AT', ...) twice -> same id: True
 3. Class hierarchy via add_is_subclass_of
 ------------------------------------------------------------
 EMPLOYEE is_subclass_of PERSON: True
-Gotcha: add_is_subclass_of does not dedupe -- calling it again adds a second,
-identical IS_SUBCLASS_OF edge in the underlying graph between the same two nodes.
+add_is_subclass_of twice -> still one edge: True
+PERSON -> PERSON rejected: PERSON (82a8ab20-1350-43b2-8a65-35a4bfb6dfde) cannot be a subclass of itself.
+PERSON -> EMPLOYEE rejected: EMPLOYEE (b0f15039-73c8-42f5-92cc-b0d9dcf2da70) is already a descendant of PERSON (82a8ab20-1350-43b2-8a65-35a4bfb6dfde) — adding this subclass relationship would create a cycle.
 
 ------------------------------------------------------------
 4. declare_class_property is scoped by class_id, not global

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-import asyncio
+import dataclasses
+import os
 from abc import ABC
 from typing import Any, Callable, Literal
 
@@ -33,6 +34,7 @@ from blue_data_kb_source._constants import (
     STRING,
     TAIL,
 )
+from blue_data_kb_source._sync import run_sync
 from blue_data_kb_source.extraction.engine import ExtractionEngine
 from blue_data_kb_source.ingestion.manager import IngestionManager
 from blue_data_kb_source.knowledge.manager import KnowledgeManager
@@ -70,6 +72,38 @@ def _build_embedding_fn(cfg: dict[str, Any]) -> Callable[[str], list[float]]:
 
         return _embed
     raise ValueError(f"Unsupported embedding provider: {provider!r}")
+
+
+def _configured_model(function: str) -> str:
+    """The model configured for *function* (QUERY, EXTRACTION, ...), as the CLI and the
+    MCP server resolve it: the function's variable, then the KB-wide one, then the
+    family-wide one, then gpt-4o."""
+    for name in (f"BLUE_DATA_KB_SOURCE_{function}_LLM_MODEL", "BLUE_DATA_KB_SOURCE_LLM_MODEL",
+                 "BLUE_DATA_LLM_MODEL"):
+        if os.environ.get(name):
+            return os.environ[name]
+    return "gpt-4o"
+
+
+def as_rows(result: Any) -> list[dict]:
+    """*result* of an ``execute_query`` operation as ``list[dict]`` (design/14 §1)."""
+    if result is None:
+        return []
+    if isinstance(result, (list, tuple)):
+        return [_as_row(item) for item in result]
+    return [_as_row(result)]
+
+
+def _as_row(item: Any) -> dict:
+    if isinstance(item, dict):
+        return item
+    if dataclasses.is_dataclass(item) and not isinstance(item, type):
+        return dataclasses.asdict(item)
+    if isinstance(item, DataSchema):
+        return item.to_json()
+    if isinstance(item, str):
+        return {"id": item}   # the operations that return a bare string return an id
+    return {"value": item}
 
 
 class KBSource(GraphSource, ABC):
@@ -402,8 +436,14 @@ class KBSource(GraphSource, ABC):
     async def find_property(self, database: str, name: str) -> dict | None:
         return await self._schema.find_property(database, name)
 
-    async def fetch_database_schema(self, database: str) -> DataSchema:
-        return await self._schema.fetch_database_schema(database)
+    def fetch_database_schema(self, database: str) -> dict:
+        """The schema as `DataSchema.to_json()`'s dict — `DataSchema.from_json` turns it
+        back into a `DataSchema`.
+
+        Synchronous, as DataSource declares it: the registry calls it synchronously,
+        and an `async` override handed it a coroutine (#147, design/14 §6).
+        """
+        return run_sync(self._schema.fetch_database_schema(database)).to_json()
 
     async def export_database_schema(self, database: str) -> dict:
         return await self._schema.export_database_schema(database)
@@ -1182,14 +1222,22 @@ class KBSource(GraphSource, ABC):
                 "KB.DELETE_SOURCE"             source_id
 
         GRAPH.* ops are also accepted and forwarded to the GraphSource implementation.
+
+        Every result is a ``list[dict]``, as DataSource's contract requires (#147,
+        design/14 §1): an id a write returns comes back as ``[{"id": ...}]``, a write
+        that returns nothing as ``[]``, a single record (the schema, a node) as a
+        one-row list, and search results as one dict per hit.
         """
+        return as_rows(self._execute_op(query, database, collection, optional_properties))
+
+    def _execute_op(self, query, database=None, collection=None, optional_properties=None):
         if not isinstance(query, dict):
             raise ValueError("KBSource.execute_query expects query as a dict with 'op' and operation-specific fields")
 
         op = (query.get("op") or "").upper()
 
         def _r(coro):
-            return asyncio.run(coro)
+            return run_sync(coro)
 
         # -- Schema --------------------------------------------------------
 
@@ -1266,7 +1314,7 @@ class KBSource(GraphSource, ABC):
             return None
 
         if op == "KB.GET_SCHEMA":
-            return _r(self.fetch_database_schema(database))
+            return self.fetch_database_schema(database)
 
         if op == "KB.SEARCH_SCHEMA":
             return _r(self.search_schema(
@@ -1508,13 +1556,19 @@ class KBSource(GraphSource, ABC):
         """Answer a natural-language question against the KB.
 
         Delegates to ``answer`` with ``natural_language=False`` so the result is
-        always a structured ``list[dict]``.  The model is taken from
-        ``optional_properties["model"]``; defaults to ``"gpt-4o"``. ``max_turns``
-        is taken from ``optional_properties["max_turns"]``; defaults to ``25``.
-        ``llm_fn``, ``collection``, and ``schema`` are ignored.
+        always a structured ``list[dict]``. ``max_turns`` is taken from
+        ``optional_properties["max_turns"]``; defaults to ``25``.
+
+        ``llm_fn`` is accepted, as the registry passes it, but not used — an allowed
+        exception to the DataSource contract (#147): answering is an agent loop that
+        calls KB tools, and a plain ``llm_fn(prompt) -> text`` can't drive it. The
+        model it runs is ``optional_properties["model"]``, else the configured one
+        (``BLUE_DATA_KB_SOURCE_QUERY_LLM_MODEL``, ``BLUE_DATA_KB_SOURCE_LLM_MODEL``,
+        ``BLUE_DATA_LLM_MODEL``, as the CLI and MCP server resolve it), else
+        ``"gpt-4o"``. ``collection`` and ``schema`` are ignored.
         """
-        model = (optional_properties or {}).get("model", "gpt-4o")
+        model = (optional_properties or {}).get("model") or _configured_model("QUERY")
         max_turns = (optional_properties or {}).get("max_turns", 25)
-        return asyncio.run(
+        return run_sync(
             self.answer(database, question=query, model=model, natural_language=False, max_turns=max_turns)
         )

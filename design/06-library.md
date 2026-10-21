@@ -109,8 +109,8 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `find_class(database, name)` | `dict \| None` | CLASS node by exact, case-sensitive name |
 | `find_relation_type(database, name)` | `dict \| None` | RELATION node by exact name |
 | `find_property(database, name)` | `dict \| None` | PROPERTY node by exact name |
-| `fetch_database_schema(database)` | `DataSchema` | Assemble a `DataSchema` object from the current graph |
-| `export_database_schema(database)` | `dict` | `fetch_database_schema(database).to_json()` — portable JSON form |
+| `fetch_database_schema(database)` | `dict` | The schema of the current graph as `DataSchema.to_json()`'s dict; synchronous, per the `DataSource` contract (ADR-036) |
+| `export_database_schema(database)` | `dict` | The same dict `fetch_database_schema(database)` returns, as a coroutine — portable JSON form |
 | `fetch_meta_schema()` | `DataSchema` | Return the fixed blue-kb meta-schema |
 | `import_database_schema(database, schema_json)` | `None` | Replay a `DataSchema.to_json()` dict via idempotent `declare_*` calls — safe to import into a database that already has same-named elements; `IS_SUBCLASS_OF` entries (class and relation hierarchy) are re-wired with `add_is_subclass_of` after everything else is declared, so export → import → export round-trips unchanged |
 | `consolidate_schema(database, operation, source_names, target_name, predicate?)` | `None` | Only `operation="merge"` is implemented; any other value raises `SchemaError`. `predicate` is accepted but unused. Merge rewires every reference onto the target, deletes the source elements, and fires change events so the search index follows. Refused with `SchemaError`, before anything is written, if the merged hierarchy would contain a cycle or a relation target name is reserved |
@@ -212,8 +212,8 @@ Two additional synchronous methods exist for callers that can't `await`, both wr
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `execute_query(query, database?, collection?, optional_properties?)` | varies | Generic op-code dispatcher — `query["op"]` such as `"KB.DECLARE_CLASS"`, `"KB.ADD_ENTITY"`, `"KB.GET_SCHEMA"`, mirroring most async methods above 1:1; `GRAPH.*` ops forward to the underlying `GraphSource`. `get_metadata` is deliberately **not** exposed as an op — library method and MCP/agent tool only, by design (see [13-decision-log.md](13-decision-log.md) ADR-018) |
-| `execute_query_nl(query, database?, ...)` | `list[dict]` | Sync convenience wrapper around `answer(..., natural_language=False)` |
+| `execute_query(query, database?, collection?, optional_properties?)` | `list[dict]` | Generic op-code dispatcher — `query["op"]` such as `"KB.DECLARE_CLASS"`, `"KB.ADD_ENTITY"`, `"KB.GET_SCHEMA"`, mirroring most async methods above 1:1; `GRAPH.*` ops forward to the underlying `GraphSource`. `get_metadata` is deliberately **not** exposed as an op — library method and MCP/agent tool only, by design (see [13-decision-log.md](13-decision-log.md) ADR-018). Every result is a `list[dict]`, as the `DataSource` contract requires: a write's id comes back as `[{"id": ...}]`, a write that returns nothing as `[]`, a single record (the schema, a node) as a one-row list, search results as one dict per hit. Safe to call from inside a running event loop (it then runs the operation on a worker thread) |
+| `execute_query_nl(query, database?, ...)` | `list[dict]` | Sync convenience wrapper around `answer(..., natural_language=False)`. `llm_fn` is accepted but not used — an agent loop over KB tools can't be driven by a plain prompt→text function; the model is `optional_properties["model"]`, else `BLUE_DATA_KB_SOURCE_QUERY_LLM_MODEL`, `BLUE_DATA_KB_SOURCE_LLM_MODEL`, `BLUE_DATA_LLM_MODEL`, else `gpt-4o` |
 
 ---
 
@@ -264,7 +264,7 @@ no wildcard/universal relation.
 
 #### `fetch_database_schema(database)`
 
-Traverses all CLASS and RELATION nodes in `database` and assembles a `DataSchema` object capturing classes, their properties, relations, and domain/range constraints.
+Traverses all CLASS and RELATION nodes in `database` and assembles a `DataSchema` capturing classes, their properties, relations, and domain/range constraints, returned as `DataSchema.to_json()`'s dict — synchronously, as `DataSource` declares the method; `DataSchema.from_json` rebuilds the object. The extraction, query and expansion engines take the `DataSchema` straight from `SchemaManager.fetch_database_schema` instead (ADR-036).
 
 #### `find_schema(database, query, type_filter=None)`
 

@@ -13,6 +13,7 @@ import asyncio
 import shutil
 import tempfile
 
+from blue_data.core.schema import DataSchema
 from blue_data_kb_source import FileKBSource, MemoryKBSource
 
 DIVIDER = "-" * 60
@@ -56,7 +57,7 @@ async def main():
     print(f"export_database_schema returned {len(schema_json.get('entities', {}))} class(es)")
     await target_kb.import_database_schema("migrated", schema_json)
     await target_kb.import_database_schema("migrated", schema_json)  # repeat on purpose
-    target_schema = await target_kb.fetch_database_schema("migrated")
+    target_schema = DataSchema.from_json(target_kb.fetch_database_schema("migrated"))
     print(f"Importing the same schema twice is safe: has_entity('PERSON')="
           f"{target_schema.has_entity('PERSON')}, has_entity('COMPANY')="
           f"{target_schema.has_entity('COMPANY')} -- no duplicate PERSON/COMPANY classes")
