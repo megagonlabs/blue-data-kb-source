@@ -23,8 +23,8 @@ Four separate PyPI packages, none of them published yet — installed today from
 | Package | Path | Console script | Depends on |
 |---|---|---|---|
 | `blue-data-kb-source` | `lib/` | — (library only) | `blue-data` (local path) |
-| `blue-data-kb-cli` | `platform/cli/` | `blue-kb` | `blue-data-kb-source>=0.1.0` |
-| `blue-data-kb-mcp` | `platform/mcp/` | `blue-data-kb-mcp` | `blue-data-kb-source>=0.1.0` |
+| `blue-data-kb-cli` | `platform/cli/` | `blue-kb` | `blue-data-kb-source>=1.0.0` |
+| `blue-data-kb-mcp` | `platform/mcp/` | `blue-data-kb-mcp` | `blue-data-kb-source>=1.0.0` |
 | `blue-data-wordnet-mcp` | `platform/wordnet-mcp/` | `blue-data-wordnet-mcp` | none (`mcp[cli]`, `nltk` only — no `blue-data-kb-source`/`blue-data` at all) |
 
 The CLI and MCP server are **not** optional extras of `blue-data-kb-source` — they are their own packages, each depending on it. This is deliberate (see [07-repo-organization.md](07-repo-organization.md)'s rationale on independently deployable `platform/` services) but means there is no single `pip install blue-data-kb-source[cli]`/`[server]` incantation; install each package you need separately. `blue-data-wordnet-mcp` goes a step further — it's not a `KBSource` adapter at all, just an optional peer server `expand_schema(reference="mcp")` can connect to for WordNet grounding, so it can be installed and run entirely independently of the other three.

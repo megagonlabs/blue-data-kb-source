@@ -181,7 +181,7 @@ Provides the `GraphSource` abstract base class and all concrete graph backends c
 
 | Package | Version | Source | Role |
 |---------|---------|--------|------|
-| `blue-data` | ≥0.1.0 | internal | Graph store base classes and backends |
+| `blue-data` | ≥1.0.0 | internal | Graph store base classes and backends |
 | `openai` | ≥1.0 | PyPI | OpenAI SDK for LLM-driven extraction, querying, and embeddings |
 | `neo4j` | latest stable | PyPI | Neo4j Python driver (optional backend) |
 | `rank-bm25` | latest stable | PyPI | BM25 keyword search over schema and data |

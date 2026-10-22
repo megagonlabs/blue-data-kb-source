@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "blue-data-kb-source"
-version = "0.1.0"
+version = "1.0.0"
 description = "Blue Data Knowledge-Base Source Layer"
 requires-python = ">=3.10,<3.15"
 dependencies = [
-    "blue-data>=0.1.0",
+    "blue-data>=1.0.0",
     "exceptiongroup>=1.0; python_version < '3.11'",
 ]
 
