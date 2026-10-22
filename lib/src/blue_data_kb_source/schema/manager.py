@@ -28,7 +28,7 @@ from blue_data_kb_source._text_match import match_score
 from blue_data_kb_source.checks import require_free_id, require_node_type, require_node_type_one_of
 from blue_data_kb_source.schema.expansion import SchemaExpansionEngine
 from blue_data_kb_source.timestamps import edge_stamped, stamped, touched
-from blue_data_kb_source.types import SchemaError, SchemaSearchResult
+from blue_data_kb_source.types import DuplicateNodeError, SchemaError, SchemaSearchResult
 
 import re
 from typing import TYPE_CHECKING, Any, Callable, Literal
@@ -239,12 +239,20 @@ class SchemaManager:
         if node:
             return node["id"]
         require_free_id(self._source, database, class_id, "class_id", SchemaError)
-        node_id = self._source.add_node(
-            database,
-            CLASS,
-            stamped({"name": name, "description": description}),
-            node_id=class_id,
-        )
+        try:
+            node_id = self._source.add_node(
+                database,
+                CLASS,
+                stamped({"name": name, "description": description}),
+                node_id=class_id,
+            )
+        except DuplicateNodeError:
+            # Another writer declared it between the lookup above and this write, and
+            # the store's uniqueness constraint refused a second one (Neo4j, #82).
+            node = await self.find_class(database, name)
+            if node:
+                return node["id"]
+            raise
         self._fire({"type": "class_declared", "database": database, "id": node_id,
                     "name": name, "description": description})
         return node_id
@@ -303,12 +311,18 @@ class SchemaManager:
                 raise SchemaError(f"range class '{class_name}' not found in '{database}'")
             range_ids.append(cls["id"])
         require_free_id(self._source, database, relation_id, "relation_id", SchemaError)
-        rid = self._source.add_node(
-            database,
-            RELATION,
-            stamped({"name": name, "description": description, "is_symmetric": is_symmetric}),
-            node_id=relation_id,
-        )
+        try:
+            rid = self._source.add_node(
+                database,
+                RELATION,
+                stamped({"name": name, "description": description, "is_symmetric": is_symmetric}),
+                node_id=relation_id,
+            )
+        except DuplicateNodeError:
+            node = await self.find_relation_type(database, name)   # declared concurrently (#82)
+            if node:
+                return node["id"]
+            raise
         for class_id in domain_ids:
             self._source.add_edge(database, rid, DOMAIN, class_id, properties=edge_stamped())
         for class_id in range_ids:

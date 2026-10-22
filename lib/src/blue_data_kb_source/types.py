@@ -12,6 +12,13 @@ class SchemaError(KBError):
     """Raised for schema validation or consistency failures."""
 
 
+class DuplicateNodeError(KBError):
+    """A write would create a second node the store keeps unique within a database —
+    a CLASS or RELATION with the same name, or any node with the same id. Raised by
+    backends that enforce it at the database layer (Neo4j, #82); the schema layer
+    treats it as "another writer created it first" and returns the existing node."""
+
+
 class KnowledgeError(KBError):
     """Raised for knowledge-layer write or query failures."""
 

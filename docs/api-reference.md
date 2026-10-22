@@ -12,7 +12,7 @@ Full method-by-method reference for the Python library. For a task-oriented intr
 from blue_data_kb_source import KBSource
 ```
 
-Abstract base class. Three ready-made backends ship alongside it — `MemoryKBSource`, `FileKBSource` (both `from blue_data_kb_source import ...`), and `NEO4JKBSource` (`from blue_data_kb_source.neo4j.neo4j_kb_source import NEO4JKBSource`, kept out of the top-level package so importing it is what pulls in the `neo4j` driver, not `import blue_data_kb_source` itself). To add a genuinely new backend, subclass `KBSource` together with a concrete `GraphSource` implementation directly (`class MyKBSource(KBSource, MyGraphSource): pass`; see [extending.md](extending.md)). Inherits all `GraphSource` primitives (`add_node`, `add_edge`, `get_node`, `get_neighbors`, `match_nodes`, ...).
+Abstract base class. Three ready-made backends ship alongside it — `MemoryKBSource`, `FileKBSource` (both `from blue_data_kb_source import ...`), and `NEO4JKBSource` (`from blue_data_kb_source.neo4j.neo4j_kb_source import NEO4JKBSource`, kept out of the top-level package so importing it is what pulls in the `neo4j` driver, not `import blue_data_kb_source` itself). `NEO4JKBSource.setup_schema()` creates the uniqueness constraints it relies on — one CLASS and one RELATION per name, and one node per id, within each logical KB database; it is idempotent and runs automatically on `create_database` and before the first write, so a fresh server needs no setup step, and it raises `KBError` naming any existing duplicates rather than deleting them. To add a genuinely new backend, subclass `KBSource` together with a concrete `GraphSource` implementation directly (`class MyKBSource(KBSource, MyGraphSource): pass`; see [extending.md](extending.md)). Inherits all `GraphSource` primitives (`add_node`, `add_edge`, `get_node`, `get_neighbors`, `match_nodes`, ...).
 
 ```python
 KBSource(name: str, properties: dict | None = None)
@@ -238,7 +238,7 @@ from blue_data_kb_source.types import (
 ## Exceptions
 
 ```python
-from blue_data_kb_source.types import KBError, SchemaError, KnowledgeError, ExtractionError, ProvenanceError
+from blue_data_kb_source.types import KBError, SchemaError, KnowledgeError, ExtractionError, ProvenanceError, DuplicateNodeError
 ```
 
 All inherit from `KBError`.
@@ -249,6 +249,7 @@ All inherit from `KBError`.
 | `KnowledgeError` | Knowledge-layer write/query failures — an `entity_id` that doesn't exist or refers to the wrong node type, etc. |
 | `ExtractionError` | LLM extraction failures (e.g. `openai` not installed) |
 | `ProvenanceError` | Provenance-tracking failures |
+| `DuplicateNodeError` | A write would create a second node the store keeps unique within a database — a CLASS or RELATION with the same name, or any node with the same id. Raised by the Neo4j backend's constraints; `declare_class`/`declare_relation_type` catch it and return the existing node, so callers normally never see it |
 | `IngestionError` | An assert's resolve phase failed — ambiguity (candidates attached), a judge crash, a collapsed edge; nothing was written |
 
 Methods that take an id referencing an *existing* node (`class_id`, `entity_id`, `fact_id`, `source_id`, ...) validate the node exists and is the expected type before doing anything, raising with the offending id and expected type otherwise. Ids naming a *new* node being created (e.g. `class_id` passed to `declare_class` to force a specific id) must be unused: an id that already belongs to any node raises the method's error (`SchemaError`, `KnowledgeError` or `ProvenanceError`) and nothing is written. Omit the id to have one generated.

@@ -550,6 +550,7 @@ Name-based, resolve-or-create counterparts to the knowledge write operations: re
 | `KnowledgeError` | Knowledge-layer write or query failures (e.g. an `entity_id` that doesn't exist, or refers to a FACT instead) |
 | `ExtractionError` | LLM extraction failures (e.g. missing `openai` package) |
 | `ProvenanceError` | Provenance-tracking failures |
+| `DuplicateNodeError` | A write would create a second node the store keeps unique within a database — a CLASS or RELATION with the same name, or any node with the same id. Raised by the Neo4j backend's constraints; `declare_class`/`declare_relation_type` catch it and return the existing node, so callers normally never see it |
 | `IngestionError` | An assert's resolve phase failed — ambiguity (candidates attached), a judge crash; nothing was written |
 
 `SchemaManager`/`KnowledgeManager` methods that take an id parameter referencing an existing node
