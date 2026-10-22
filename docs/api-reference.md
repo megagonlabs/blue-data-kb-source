@@ -253,7 +253,7 @@ All inherit from `KBError`.
 
 Methods that take an id referencing an *existing* node (`class_id`, `entity_id`, `fact_id`, `source_id`, ...) validate the node exists and is the expected type before doing anything, raising with the offending id and expected type otherwise. Ids naming a *new* node being created (e.g. `class_id` passed to `declare_class` to force a specific id) must be unused: an id that already belongs to any node raises the method's error (`SchemaError`, `KnowledgeError` or `ProvenanceError`) and nothing is written. Omit the id to have one generated.
 
-`database` is a plain name, not a path: 1–64 letters, digits, `_` or `-`. File-backed stores reject anything else (path separators, `..`, absolute paths) with `KBError` before touching the disk, since the name becomes part of the file path.
+`database` is a plain name, not a path: 1–64 letters, digits, `_` or `-`. File-backed stores reject anything else (path separators, `..`, absolute paths) with `KBError` before touching the disk, since the name becomes part of the file path. Every file the KB derives from a name — the database, its transaction and lock files, the BM25 corpus (named after the database and the index collection) — is also built with blue-data's `contain()`, which refuses a path that would end up outside the data directory, a symlink pointing out of it included (`ValueError`).
 
 ---
 

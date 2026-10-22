@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
+from blue_data.core.utils.path_utils import contain
 from blue_data.source.graph.graph_source import GraphSource
 
 from blue_data_kb_source._constants import (
@@ -417,8 +418,10 @@ class KBSearchIndexer:
         return self._meta.setdefault(database, {}).setdefault(collection, {})
 
     def _corpus_file_path(self, database: str, collection: str) -> Path:
-        require_database_name(database)  # the name becomes part of the file path (#116)
-        return Path(self._corpus_dir) / f"{database}_{collection}_bm25.json"  # type: ignore[arg-type]
+        # Both names become part of the file name: refuse anything that would put it
+        # outside the corpus directory — a separator, `..`, or a symlink out (#116, #142).
+        require_database_name(database)  # the friendlier error, for the common case
+        return Path(contain(self._corpus_dir, f"{database}_{collection}", "_bm25.json"))  # type: ignore[arg-type]
 
     def _file_stamp(self, database: str, collection: str) -> tuple[int, int] | None:
         try:

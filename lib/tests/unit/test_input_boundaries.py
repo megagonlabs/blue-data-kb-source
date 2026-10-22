@@ -53,6 +53,31 @@ def test_bm25_corpus_path_rejects_database_names_that_are_paths(file_kb):
         file_kb._search_indexer._corpus_file_path("../escaped", "schema")
 
 
+@pytest.mark.parametrize("collection", ["../../escaped", "a/b", "x/../../y"])
+def test_bm25_corpus_path_rejects_collection_names_that_are_paths(file_kb, collection):
+    """#142: the collection went into the file name unchecked."""
+    with pytest.raises(ValueError, match="path name"):
+        file_kb._search_indexer._corpus_file_path("main", collection)
+
+
+def test_bm25_corpus_path_stays_inside_the_corpus_directory(file_kb, tmp_path):
+    path = file_kb._search_indexer._corpus_file_path("main", "schema")
+    assert path.name == "main_schema_bm25.json"
+    assert path.parent == (tmp_path / "data").resolve()
+
+
+def test_lock_file_cannot_escape_through_a_symlink(tmp_path):
+    """The lock path goes through blue-data's contain(), like the database file, so a
+    symlink in the data directory pointing elsewhere is refused (#142)."""
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / ".main.lock").symlink_to(tmp_path / "elsewhere.lock")
+    kb = FileKBSource(name="kb", properties={"connection": {"directory": str(data)}})
+    with pytest.raises(ValueError, match="escapes"):
+        kb._lock_path("main")
+    assert kb._lock_path("other").endswith("/data/.other.lock")
+
+
 # ------------------------------------------------------------------ #
 # caller-supplied node ids (#117)                                      #
 # ------------------------------------------------------------------ #

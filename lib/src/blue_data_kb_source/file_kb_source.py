@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import os
-
+from blue_data.core.utils.path_utils import contain
 from blue_data.source.graph.file_graph_source import FileGraphSource
 
 from blue_data_kb_source._file_lock import FileLocks
@@ -55,8 +54,9 @@ class FileKBSource(KBSource, FileGraphSource):
     # always replaced whole, so a reader sees either the old version or the new one.
 
     def _lock_path(self, database: str) -> str:
-        # Not "*.json": fetch_databases lists those as databases.
-        return os.path.join(self._directory, f".{require_database_name(database)}.lock")
+        # Not "*.json": fetch_databases lists those as databases. Built with contain(),
+        # like the database and transaction files, so it can't land outside (#142).
+        return contain(self._directory, f".{require_database_name(database)}", ".lock")
 
     def _write_lock(self, database: str):
         if not hasattr(self, "_file_locks"):
