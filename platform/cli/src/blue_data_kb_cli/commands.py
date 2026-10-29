@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -77,6 +78,68 @@ FileKBSource = KBSource  # type alias — runtime type is the MRO class from _ma
 
 def _run(coro: Any) -> Any:
     return asyncio.run(coro)
+
+
+TRACEBACK_ENV = "BLUE_DATA_KB_SOURCE_TRACEBACK"
+
+
+def _one_line(exc: BaseException, limit: int = 300) -> str:
+    text = " ".join(line.strip() for line in str(exc).splitlines() if line.strip())
+    return (text[: limit - 1] + "…") if len(text) > limit else text
+
+
+def _from_package(exc: BaseException, package: str) -> bool:
+    return any(c.__module__.split(".")[0] == package for c in type(exc).__mro__)
+
+
+def _user_error(exc: BaseException) -> str:
+    """A one-line message for an exception no command handled, naming what to fix
+    where the cause is a known one: a missing OpenAI key, an unreachable Neo4j or
+    Redis server (#155). The cause may sit behind a KBError, so walk the chain."""
+    seen, cur = set(), exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        name, msg = type(cur).__name__, _one_line(cur)
+        if _from_package(cur, "openai"):
+            if name == "AuthenticationError":
+                return f"OpenAI rejected the API key (OPENAI_API_KEY): {msg}"
+            if "api_key" in msg or "credentials" in msg.lower():
+                return ("OPENAI_API_KEY is not set: run `blue-kb profile config OPENAI_API_KEY`, "
+                        "or export it.")
+            return f"OpenAI request failed: {msg}"
+        if _from_package(cur, "neo4j"):
+            if name == "AuthError":
+                return ("Neo4j rejected the credentials: set the password with "
+                        "`blue-kb profile config BLUE_DATA_KB_SOURCE_NEO4J_PASSWORD`.")
+            if name == "ServiceUnavailable":
+                return (f"cannot connect to Neo4j: {msg} Check the database's URI "
+                        "(`blue-kb database config show`) and that the server is running.")
+            return f"Neo4j error: {msg}"
+        if _from_package(cur, "redis"):
+            if name in ("ConnectionError", "TimeoutError"):
+                return (f"cannot connect to Redis: {msg} Check the host and port "
+                        "(`blue-kb database search config show`) and that the server is running.")
+            return f"Redis error: {msg}"
+        cur = cur.__cause__ or cur.__context__
+    if isinstance(exc, KBError):
+        return _one_line(exc)
+    return f"{type(exc).__name__}: {_one_line(exc)} (set {TRACEBACK_ENV}=1 for the full traceback)"
+
+
+class _CLIGroup(click.Group):
+    """Turns an exception no command handled into a one-line `Error: …` and exit 1,
+    instead of a raw traceback (#155). BLUE_DATA_KB_SOURCE_TRACEBACK=1 keeps the
+    traceback, for debugging."""
+
+    def invoke(self, ctx: click.Context) -> Any:
+        try:
+            return super().invoke(ctx)
+        except (click.exceptions.ClickException, click.exceptions.Abort, click.exceptions.Exit):
+            raise
+        except Exception as exc:
+            if os.environ.get(TRACEBACK_ENV, "").strip().lower() in ("1", "true", "yes"):
+                raise
+            raise click.ClickException(_user_error(exc)) from exc
 
 
 def _parse_mcp_servers(raw: tuple[str, ...]) -> list[dict] | None:
@@ -421,7 +484,7 @@ class _CommandContext(dict):
         return super().__getitem__(key)
 
 
-@click.group()
+@click.group(cls=_CLIGroup)
 @click.option(
     "--profile",
     "profile_name",
