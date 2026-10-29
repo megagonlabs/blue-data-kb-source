@@ -587,7 +587,7 @@ Scoring combines two techniques: entity/fact/property recall & precision use an 
 
 ```bash
 cd lib
-pytest tests/benchmarks -s          # replays committed VCR cassettes; prints a score table
+pytest tests/benchmarks -s          # replays committed VCR cassettes, no API key needed; prints a score table
 python -m tests.benchmarks.extraction.run --model gpt-4o --model gpt-4o-mini   # live, real API calls
 python -m tests.benchmarks.extraction.run --record   # refresh the cassettes the pytest suite replays
 python -m tests.benchmarks.extraction.report .reports/live-<stamp>.json   # re-render a past run's .md report
