@@ -707,3 +707,110 @@ async def test_import_text_forwards_its_schema_expansion_timeout(kb):
          patch.object(kb._extraction, "import_text", new=AsyncMock()):
         await kb.import_text("test", "x", schema_expansion_timeout=42)
     assert expand.call_args.kwargs["timeout"] == 42
+
+
+# ------------------------------------------------------------------ #
+# reference="mcp": lookups before new declarations (#160)              #
+# ------------------------------------------------------------------ #
+
+_FAKE_REFERENCE_TOOL = {"type": "function", "function": {
+    "name": "mcp__server0__lookup_synsets", "description": "Look a word up.",
+    "parameters": {"type": "object", "properties": {"word": {"type": "string"}}, "required": ["word"]}}}
+
+
+def _fake_reference_server():
+    """Stands in for a connected reference server, without spawning one."""
+    async def connect(mcp_servers, stack):
+        return [_FAKE_REFERENCE_TOOL], {"mcp__server0__lookup_synsets": (None, "lookup_synsets", None)}
+
+    async def call(dispatch, name, arguments):
+        return json.dumps({"synsets": [f"{arguments.get('word')}.n.01"]})
+
+    return (patch("blue_data_kb_source.schema.expansion._connect_mcp_servers", connect),
+            patch("blue_data_kb_source.schema.expansion._call_mcp_tool", call))
+
+
+async def _expand_scripted(kb, steps, reference="mcp"):
+    """Run expand_schema with a scripted model; return {call_id: tool result}."""
+    results = {}
+    responses = [_tool_call_response(n, a, call_id=f"c{i}") for i, (n, a) in enumerate(steps)] + [_text_response("done")]
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(side_effect=responses)
+    connect, call = _fake_reference_server()
+    with patch("openai.AsyncOpenAI", return_value=mock_client), connect, call:
+        await kb.expand_schema(
+            "test", "Alice adopted a poodle.", reference=reference, dedup_mode="none",
+            mcp_servers=[{"transport": "stdio", "command": "fake"}] if reference == "mcp" else None,
+            on_tool_result=lambda n, a, r: results.setdefault(f"{n}:{a.get('name') or a.get('word')}:{len(results)}", r),
+        )
+    return list(results.values())
+
+
+async def test_a_new_class_is_sent_back_for_a_lookup_first(kb):
+    """#160: with the reference tools offered, the model declared everything from its
+    own knowledge. The first declaration of an unlooked-up concept is refused..."""
+    results = await _expand_scripted(kb, [
+        ("declare_class", {"name": "POODLE", "description": "A dog breed"}),
+        ("declare_class", {"name": "POODLE", "description": "A dog breed"}),   # ...the retry goes through
+    ])
+    assert "Look 'POODLE' up with a reference tool" in results[0]["error"]
+    assert "id" in results[1]
+    assert "POODLE" in DataSchema.from_json(kb.fetch_database_schema("test")).entities
+
+
+async def test_a_looked_up_concept_is_declared_at_once(kb):
+    results = await _expand_scripted(kb, [
+        ("mcp__server0__lookup_synsets", {"word": "poodle"}),
+        ("declare_class", {"name": "POODLE", "description": "A dog breed"}),
+        ("mcp__server0__lookup_synsets", {"word": "adopt"}),
+        ("declare_class", {"name": "PERSON", "description": "A human"}),     # not looked up: refused once
+        ("declare_class", {"name": "PERSON", "description": "A human"}),
+        ("declare_relation_type", {"name": "ADOPTED", "description": "Adoption", "domain": "PERSON", "range": "POODLE"}),
+    ])
+    assert "id" in results[1]                    # POODLE, covered by "poodle"
+    assert "error" in results[3]                 # PERSON, no lookup yet
+    assert "id" in results[5]                    # ADOPTED, covered by "adopt"
+
+
+async def test_an_existing_element_is_not_sent_back(kb):
+    await kb.declare_class("test", "PERSON", "A human")
+    results = await _expand_scripted(kb, [("declare_class", {"name": "PERSON", "description": "A human"})])
+    assert "error" not in results[0]
+
+
+async def test_without_reference_tools_nothing_is_sent_back(kb):
+    results = await _expand_scripted(kb, [("declare_class", {"name": "POODLE", "description": "A dog breed"})],
+                                     reference="llm")
+    assert "id" in results[0]
+
+
+async def test_the_default_prompt_differs_from_the_mcp_one_only_by_the_mcp_note(kb):
+    """The #160 changes are scoped to reference="mcp": the prompt every other run
+    sends must not change with them."""
+    from blue_data_kb_source.schema.expansion import _MCP_NOTE
+
+    prompts = {}
+    for reference in ("llm", "mcp"):
+        mock_client = MagicMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=_text_response("done"))
+        connect, call = _fake_reference_server()
+        with patch("openai.AsyncOpenAI", return_value=mock_client), connect, call:
+            await kb.expand_schema("test", "x", reference=reference, dedup_mode="none",
+                                   mcp_servers=[{"transport": "stdio", "command": "fake"}] if reference == "mcp" else None)
+        prompts[reference] = mock_client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+    assert prompts["mcp"].replace(_MCP_NOTE, "") == prompts["llm"]
+    assert "mcp__" not in prompts["llm"] and "Reference lookups" not in prompts["llm"]
+
+
+@pytest.mark.parametrize("name, words, covered", [
+    ("POODLE", {"poodle"}, True),
+    ("WORKED_AT", {"work"}, True),
+    ("TABBY_CAT", {"cat"}, True),
+    ("EDUCATED_AT", {"educate"}, True),
+    ("PERSON", {"poodle", "adopt"}, False),
+    ("AT", {"at"}, False),                    # tokens under 3 letters never count
+])
+def test_covered_by_lookup(name, words, covered):
+    from blue_data_kb_source.schema.expansion import _covered_by_lookup
+
+    assert _covered_by_lookup(name, words) is covered

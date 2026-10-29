@@ -85,7 +85,9 @@ blue-kb data extract "..." \
 
 Add `-v` (or `-l` for one line per tool call) to watch the WordNet lookups
 (`lookup_synsets`, `get_hypernyms`, ...) the model makes before it declares
-classes and relations.
+classes and relations. In this mode a lookup is required: the first
+declaration of a new class or relation whose word wasn't looked up is sent
+back to the model with a request to look it up.
 
 ---
 

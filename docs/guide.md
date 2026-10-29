@@ -225,6 +225,12 @@ await kb.import_text("main", text="...", expand_schema=False)  # reuse the schem
 - **`reference`** — `"llm"` (default) proposes schema freely; `"mcp"` additionally connects the
   servers in `mcp_servers` and gives the model their tools too, to ground new names and hierarchy
   placement (e.g. WordNet hypernyms/synonyms via [`platform/wordnet-mcp`](../platform/wordnet-mcp)).
+  Lookups are required in this mode: the prompt tells the model to look each new element up before
+  declaring it, and the first `declare_class`/`declare_relation_type` of a new element whose word
+  no reference tool was asked about is sent back with an error asking for that lookup (a repeated
+  attempt goes through, for concepts the resource doesn't cover). Expect roughly twice the tool
+  calls of `"llm"`, and hierarchy that follows the resource's taxonomy (WordNet puts `PERSON`
+  under `ORGANISM`).
 - **`dedup_mode`** — how it checks for an existing schema element before declaring a new one. This
   applies both to the `search_schema` tool the model can call, and — for `declare_class`/
   `declare_relation_type` specifically — as an automatic check run before the node is created,

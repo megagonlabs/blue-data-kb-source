@@ -298,12 +298,17 @@ Current schema:
 Work through the text systematically and stop calling tools when you are done.\
 """
 
-_MCP_NOTE = (
-    " Tools prefixed 'mcp__' connect to an external lexical/ontology resource — use "
-    "them to ground new names and hierarchy placement (e.g. a hypernym lookup for the "
-    "right parent CLASS, a synonym lookup to catch a near-duplicate search_schema might "
-    "miss) before declaring."
-)
+_MCP_NOTE = """
+   Reference lookups are REQUIRED in this run. Tools prefixed 'mcp__' query an
+   external lexical/ontology resource; ground every new element in it rather than
+   in your own knowledge. Before each declare_class or declare_relation_type of a
+   new element, look its concept up — for a WordNet server: lookup_synsets on the
+   plain word (e.g. "poodle", "employ") to confirm the sense and pick the
+   canonical name, then get_hypernyms on that synset to find the parent category,
+   which you then find or declare and link with add_subclass_of (a poodle is a
+   DOG before it is an ANIMAL). Use get_synonyms when search_schema might miss an
+   existing element under another word. Fall back to your own judgment only when
+   a lookup returns nothing."""
 
 
 # Per-server limits for reference MCP servers, overridable per entry with
@@ -382,6 +387,20 @@ async def _connect_mcp_servers(
             dispatch[prefixed] = (session, tool.name, call_timeout)
 
     return tool_specs, dispatch
+
+
+def _looked_up_words(arguments: dict[str, Any]) -> set[str]:
+    """The words a reference-tool call looked up: its string arguments, with a
+    WordNet-style synset id reduced to its lemma ("dog.n.01" -> "dog")."""
+    return {v.split(".")[0].strip().lower() for v in arguments.values() if isinstance(v, str) and v.strip()}
+
+
+def _covered_by_lookup(name: str, words: set[str]) -> bool:
+    """Whether some reference lookup was about *name*: a word of the element's
+    UPPER_SNAKE name and a looked-up word share their first four letters, so
+    WORKED_AT is covered by a lookup of "work" and POODLE by "poodle"."""
+    tokens = [t for t in name.lower().replace("-", "_").split("_") if len(t) > 2]
+    return any(w[:4] == t[:4] for w in words if len(w) > 2 for t in tokens)
 
 
 async def _call_mcp_tool(dispatch: dict[str, tuple[Any, str, Any]], name: str, arguments: dict[str, Any]) -> str:
@@ -559,6 +578,8 @@ class SchemaExpansionEngine:
         async with AsyncExitStack() as stack:
             tools = list(base_tools)
             mcp_dispatch: dict[str, tuple[Any, str, Any]] = {}
+            looked_up: set[str] = set()     # words reference tools were asked about
+            refused: set[str] = set()       # new elements already sent back for a lookup
             if reference == "mcp":
                 progress["phase"] = "connecting"
                 mcp_tools, mcp_dispatch = await _connect_mcp_servers(mcp_servers or [], stack)
@@ -604,8 +625,14 @@ class SchemaExpansionEngine:
                         if bad_args is not None:
                             raise ValueError(bad_args)  # back to the model, not a crash (#130)
                         if tc.function.name in mcp_dispatch:
+                            looked_up |= _looked_up_words(args)
                             content_str = await _call_mcp_tool(mcp_dispatch, tc.function.name, args)
                             callback_result: Any = content_str
+                        elif (refusal := await self._lookup_first(
+                            database, tc.function.name, args, mcp_dispatch, looked_up, refused
+                        )) is not None:
+                            callback_result = refusal
+                            content_str = json.dumps(callback_result)
                         else:
                             callback_result = await self._dispatch_tool(
                                 database, tc.function.name, args, dedup_mode, model
@@ -622,6 +649,39 @@ class SchemaExpansionEngine:
                         "content": tool_message_content(content_str),
                     })
             progress["done"] = True  # the model loop finished; only teardown is left
+
+    async def _lookup_first(
+        self,
+        database: str,
+        fn: str,
+        args: dict[str, Any],
+        mcp_dispatch: dict[str, tuple[Any, str, Any]],
+        looked_up: set[str],
+        refused: set[str],
+    ) -> dict[str, Any] | None:
+        """With reference tools connected, send a declaration of a *new* CLASS or
+        RELATION back for a lookup first (#160): told to ground names and hierarchy
+        in the reference resource, the model still declared everything from its
+        own knowledge and never called the tools. Only the first attempt per name
+        is refused, so a concept the resource doesn't cover can't loop."""
+        if not mcp_dispatch or fn not in ("declare_class", "declare_relation_type"):
+            return None
+        from blue_data_kb_source.schema.manager import _canonicalize_schema_name
+
+        name = args.get("name")
+        if not isinstance(name, str) or not name.strip():
+            return None
+        canonical = _canonicalize_schema_name(name)
+        find = self._schema.find_class if fn == "declare_class" else self._schema.find_relation_type
+        if canonical in refused or _covered_by_lookup(canonical, looked_up) or await find(database, canonical):
+            return None
+        refused.add(canonical)
+        return {"error": (
+            f"Look '{canonical}' up with a reference tool (mcp__…) before declaring it — e.g. "
+            f"lookup_synsets on its plain word, then get_hypernyms for its parent category — and "
+            f"declare from what it returns. If the resource has nothing for it, declare it again "
+            f"and it will go through."
+        )}
 
     async def _dispatch_tool(
         self,
