@@ -149,6 +149,58 @@ def test_search_config_set_refuses_redis_options_for_another_backend(runner):
     assert "--redis-* options don't apply to --vector-backend chromadb" in result.output
 
 
+def _search_cfg(runner, db):
+    return invoke_json(runner, ["--database", db, "database", "search", "config", "show"])
+
+
+def test_semantic_search_defaults_to_file_vectors_beside_the_graph(runner, tmp_path):
+    """#162: the default was `memory`, which a one-process-per-command CLI loses
+    before the next command, so semantic search never found anything."""
+    invoke(runner, ["database", "register", "v", "--search", "semantic", "--directory", str(tmp_path / "g")])
+    vector = _search_cfg(runner, "v")["vector"]
+    assert vector["_class"].endswith("FileVectorSource")
+    assert vector["connection"] == {"directory": str(tmp_path / "g")}
+
+
+def test_chromadb_without_a_path_gets_one_beside_the_graph(runner, tmp_path):
+    invoke(runner, ["database", "register", "v", "--search", "semantic", "--vector-backend", "chromadb",
+                    "--directory", str(tmp_path / "g")])
+    assert _search_cfg(runner, "v")["vector"]["connection"] == {"path": str(tmp_path / "g" / "chromadb")}
+
+
+def test_an_explicit_vector_location_is_kept(runner, tmp_path):
+    invoke(runner, ["database", "register", "v", "--search", "semantic", "--vector-directory", str(tmp_path / "vec")])
+    assert _search_cfg(runner, "v")["vector"]["connection"] == {"directory": str(tmp_path / "vec")}
+
+
+@pytest.mark.parametrize("args", [
+    ["database", "register", "v", "--search", "semantic", "--vector-backend", "memory"],
+    ["--database", "v", "database", "search", "config", "set", "--vector-backend", "memory"],
+])
+def test_memory_vectors_are_refused(runner, args):
+    result = runner.invoke(cli, args)
+    assert result.exit_code != 0
+    assert "every blue-kb command is a new process" in result.output
+
+
+def test_turning_semantic_search_on_later_gets_a_vector_store_and_embedding(runner, tmp_path):
+    invoke(runner, ["database", "register", "v", "--directory", str(tmp_path)])
+    invoke(runner, ["--database", "v", "database", "search", "config", "set", "--search", "semantic"])
+    cfg = _search_cfg(runner, "v")
+    assert cfg["vector"]["connection"] == {"directory": str(tmp_path)}
+    assert cfg["embedding"] == {"provider": "openai"}
+
+
+def test_a_database_registered_without_a_vector_location_gets_the_default_when_loaded(tmp_path):
+    from blue_data_kb_cli.config import _VECTOR_CLASS_BY_BACKEND, _with_search_defaults
+
+    for backend, expected in (("file", {"directory": str(tmp_path)}),
+                              ("chromadb", {"path": str(tmp_path / "chromadb")})):
+        props = {"connection": {"directory": str(tmp_path)},
+                 "search": {"mode": "semantic", "vector": {"_class": _VECTOR_CLASS_BY_BACKEND[backend], "connection": {}}}}
+        assert _with_search_defaults(props)["search"]["vector"]["connection"] == expected
+
+
 def _failing_initialization(monkeypatch):
     """`register` whose backend registers but can't initialize, like an unreachable Neo4j."""
     import blue_data_kb_cli.commands as commands

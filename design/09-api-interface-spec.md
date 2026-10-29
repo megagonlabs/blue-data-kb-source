@@ -745,7 +745,7 @@ blue-kb database list [--format table|json]
 blue-kb database register NAME [--graph-backend file|neo4j] [--directory DIR]
                            [--neo4j-uri URI] [--neo4j-user USER]
                            [--search none|bm25|semantic] [--bm25-index-dir DIR]
-                           [--vector-backend memory|file|chromadb|redis]
+                           [--vector-backend file|chromadb|redis]   (default file)
                            [--vector-directory DIR] [--vector-path PATH]
                            [--redis-host HOST] [--redis-port PORT] [--redis-db N]
                            [--redis-scan-prefix PREFIX]

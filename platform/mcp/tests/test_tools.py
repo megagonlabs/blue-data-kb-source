@@ -471,6 +471,8 @@ def test_every_variable_this_server_reads_is_a_name_the_cli_also_uses():
         "BLUE_DATA_KB_SOURCE_NEO4J_URI",
         "BLUE_DATA_KB_SOURCE_NEO4J_USER",
         "BLUE_DATA_KB_SOURCE_NEO4J_DATABASE",
+        "BLUE_DATA_KB_SOURCE_VECTOR_DIRECTORY",
+        "BLUE_DATA_KB_SOURCE_VECTOR_PATH",
         "BLUE_DATA_KB_SOURCE_REDIS_HOST",
         "BLUE_DATA_KB_SOURCE_REDIS_PORT",
         "BLUE_DATA_KB_SOURCE_REDIS_DB",
@@ -585,6 +587,36 @@ def test_redis_vector_connection_comes_from_the_environment(monkeypatch, tmp_pat
     assert {k: vector["connection"][k] for k in ("host", "port", "db", "scan_prefix")} == {
         "host": "redis.internal", "port": 6380, "db": 2, "scan_prefix": "team_a:",
     }
+
+
+def _semantic_env(monkeypatch, tmp_path, backend=None):
+    monkeypatch.setenv("BLUE_DATA_KB_SOURCE_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("BLUE_DATA_KB_SOURCE_GRAPH_BACKEND", "file")
+    monkeypatch.setenv("BLUE_DATA_KB_SOURCE_SEARCH", "semantic")
+    for var in ("VECTOR_BACKEND", "VECTOR_DIRECTORY", "VECTOR_PATH"):
+        monkeypatch.delenv(f"BLUE_DATA_KB_SOURCE_{var}", raising=False)
+    if backend:
+        monkeypatch.setenv("BLUE_DATA_KB_SOURCE_VECTOR_BACKEND", backend)
+
+
+def test_semantic_search_defaults_to_file_vectors_in_the_data_dir(monkeypatch, tmp_path):
+    """#162: the `memory` default lost every embedding when the server restarted."""
+    _semantic_env(monkeypatch, tmp_path)
+    vector = config_module._build_kb().properties["search"]["vector"]
+    assert vector["_class"].endswith("FileVectorSource")
+    assert vector["connection"]["directory"] == str(tmp_path)
+    monkeypatch.setenv("BLUE_DATA_KB_SOURCE_VECTOR_DIRECTORY", str(tmp_path / "vec"))
+    assert config_module._build_kb().properties["search"]["vector"]["connection"]["directory"] == str(tmp_path / "vec")
+
+
+def test_chromadb_gets_a_persistent_path(monkeypatch, tmp_path):
+    """#162: with no path, ChromaDB fell back to an in-memory client."""
+    pytest.importorskip("chromadb")
+    _semantic_env(monkeypatch, tmp_path, "chromadb")
+    conn = config_module._build_kb().properties["search"]["vector"]["connection"]
+    assert conn["path"] == str(tmp_path / "chromadb")
+    monkeypatch.setenv("BLUE_DATA_KB_SOURCE_VECTOR_PATH", str(tmp_path / "elsewhere"))
+    assert config_module._build_kb().properties["search"]["vector"]["connection"]["path"] == str(tmp_path / "elsewhere")
 
 
 def test_a_non_integer_redis_port_is_refused(monkeypatch):

@@ -198,10 +198,19 @@ def _build_kb() -> KBSource:
         bm25_dir = os.environ.get("BLUE_DATA_KB_SOURCE_BM25_INDEX_DIR") or default_index_dir
         search_cfg: dict[str, Any] = {"mode": search_mode, "bm25_index_dir": str(Path(bm25_dir).expanduser())}
         if search_mode == "semantic":
-            vector_backend = os.environ.get("BLUE_DATA_KB_SOURCE_VECTOR_BACKEND", "memory")
+            # `file` by default, and a location for every on-disk backend, so the
+            # embeddings outlive the server process the way the graph and the BM25
+            # corpus do; `memory` and a path-less ChromaDB lost them on restart (#162).
+            vector_backend = os.environ.get("BLUE_DATA_KB_SOURCE_VECTOR_BACKEND", "file")
             vector_connection: dict[str, Any] = {}
             if vector_backend == "file":
-                vector_connection["directory"] = _directory()
+                vector_connection["directory"] = str(Path(
+                    os.environ.get("BLUE_DATA_KB_SOURCE_VECTOR_DIRECTORY") or _directory()
+                ).expanduser())
+            elif vector_backend == "chromadb":
+                vector_connection["path"] = str(Path(
+                    os.environ.get("BLUE_DATA_KB_SOURCE_VECTOR_PATH") or Path(_directory()) / "chromadb"
+                ).expanduser())
             elif vector_backend == "redis":
                 vector_connection = _redis_connection()
             search_cfg["vector"] = {

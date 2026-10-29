@@ -57,13 +57,18 @@ Use `blue-kb database register` to create and configure a database:
 # File backend, BM25 keyword search (index persisted to disk)
 blue-kb database register main --graph-backend file --search bm25
 
-# File backend, semantic (vector) search with OpenAI embeddings, ChromaDB vector store.
-# Install the driver first: `pip install chromadb` (or the CLI's `chromadb` extra).
+# File backend, semantic (vector) search with OpenAI embeddings. Vectors are stored
+# as files beside the graph (`--vector-directory` to put them elsewhere).
+blue-kb database register main --graph-backend file --search semantic
+
+# The same with a ChromaDB vector store, at <graph directory>/chromadb unless
+# --vector-path says otherwise. Install the driver first: `pip install chromadb`
+# (or the CLI's `chromadb` extra). `--vector-backend memory` is refused: every
+# blue-kb command is a new process, so in-memory vectors would never be found.
 blue-kb database register main \
     --graph-backend file \
     --search semantic \
     --vector-backend chromadb \
-    --vector-path ~/.blue-kb/chromadb \
     --embedding-provider openai \
     --embedding-model text-embedding-3-small
 

@@ -45,7 +45,7 @@ BLUE_DATA_KB_SOURCE_NEO4J_URI=bolt://localhost:7687 \
 BLUE_DATA_KB_SOURCE_NEO4J_PASSWORD=secret \
     blue-data-kb-mcp
 
-# Semantic search (OpenAI embeddings + in-memory vector store)
+# Semantic search (OpenAI embeddings; vectors stored as files in the data directory)
 BLUE_DATA_KB_SOURCE_SEARCH=semantic OPENAI_API_KEY=sk-... \
     blue-data-kb-mcp
 ```
@@ -118,7 +118,9 @@ All configuration is via environment variables — there is no config file, and 
 |---|---|---|
 | `BLUE_DATA_KB_SOURCE_SEARCH` | `none` | `none` — index-free keyword matching. `bm25` — keyword ranking. `semantic` — BM25 + vector similarity (requires `OPENAI_API_KEY`). |
 | `BLUE_DATA_KB_SOURCE_BM25_INDEX_DIR` | `BLUE_DATA_KB_SOURCE_DATA_DIR` | Directory for the BM25 corpus files. |
-| `BLUE_DATA_KB_SOURCE_VECTOR_BACKEND` | `memory` | `memory` \| `file` \| `chromadb` \| `redis`. Used when `BLUE_DATA_KB_SOURCE_SEARCH=semantic`. |
+| `BLUE_DATA_KB_SOURCE_VECTOR_BACKEND` | `file` | `file` \| `chromadb` \| `redis` \| `memory`. Used when `BLUE_DATA_KB_SOURCE_SEARCH=semantic`. `memory` keeps embeddings in the server process only, so they are lost on restart. |
+| `BLUE_DATA_KB_SOURCE_VECTOR_DIRECTORY` | `BLUE_DATA_KB_SOURCE_DATA_DIR` | Directory for the `file` vector backend. |
+| `BLUE_DATA_KB_SOURCE_VECTOR_PATH` | `<DATA_DIR>/chromadb` | Directory for the `chromadb` vector backend. |
 | `BLUE_DATA_KB_SOURCE_REDIS_HOST` | `localhost` | Redis host, for `BLUE_DATA_KB_SOURCE_VECTOR_BACKEND=redis`. |
 | `BLUE_DATA_KB_SOURCE_REDIS_PORT` | `6379` | Redis port. |
 | `BLUE_DATA_KB_SOURCE_REDIS_DB` | `0` | Redis database number. |

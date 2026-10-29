@@ -226,6 +226,33 @@ def _vector_properties(backend: str, connection: dict[str, Any]) -> dict[str, An
     return {"_class": _VECTOR_CLASS_BY_BACKEND[backend], "name": "kb_vectors", "connection": connection}
 
 
+def _with_vector_location(vector: dict[str, Any], base_dir: str) -> dict[str, Any]:
+    """`vector` with a storage location filled in where it has none (#162).
+
+    Without one, the file backend writes to the current working directory and
+    ChromaDB keeps everything in memory — and every blue-kb command is a new
+    process, so semantic search would find nothing. Defaults sit beside the
+    graph data, like the BM25 corpus: the directory itself for `file` (its files
+    are `kb_<collection>_<database>.json`), a `chromadb/` folder for ChromaDB.
+    """
+    conn = dict(vector.get("connection") or {})
+    if vector.get("_class") == _VECTOR_CLASS_BY_BACKEND["file"]:
+        conn.setdefault("directory", base_dir)
+    elif vector.get("_class") == _VECTOR_CLASS_BY_BACKEND["chromadb"]:
+        conn.setdefault("path", str(Path(base_dir) / "chromadb"))
+    return {**vector, "connection": conn}
+
+
+def _with_search_defaults(props: dict[str, Any]) -> dict[str, Any]:
+    """`props` with the vector location defaults applied, for databases registered
+    before `register` filled them in."""
+    vector = (props.get("search") or {}).get("vector")
+    if not isinstance(vector, dict):
+        return props
+    base = (props.get("connection") or {}).get("directory") or _data_dir()
+    return {**props, "search": {**props["search"], "vector": _with_vector_location(vector, base)}}
+
+
 # ------------------------------------------------------------------ #
 # KBSource factory                                                     #
 # ------------------------------------------------------------------ #
@@ -265,6 +292,7 @@ def _with_neo4j_password(class_path: str, props: dict[str, Any]) -> dict[str, An
 def _make_kb(database: str) -> KBSource:
     props = _get_registry().get_source_properties(database)
     if props:
+        props = _with_search_defaults(props)
         return DataSource.instantiate(props["_class"], database, properties=_with_neo4j_password(props["_class"], props))
     # Not registered — default to an unregistered file-backed KB, matching the
     # CLI's long-standing "no explicit `register` required" behavior.

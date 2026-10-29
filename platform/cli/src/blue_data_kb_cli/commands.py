@@ -58,6 +58,7 @@ from blue_data_kb_cli.config import (
     _resolve_database,
     _selected_database_path,
     _vector_properties,
+    _with_vector_location,
     list_databases,
     load_db_config,
     masked,
@@ -653,9 +654,10 @@ def _redis_connection(
 @click.option("--neo4j-password", hidden=True)
 @click.option("--search",         type=click.Choice(["none", "bm25", "semantic"]), default="none", show_default=True)
 @click.option("--bm25-index-dir", help="Directory for BM25 corpus files. Default: graph directory.")
-@click.option("--vector-backend", "vector_backend", type=click.Choice(["memory", "file", "chromadb", "redis"]), default="memory", show_default=True)
-@click.option("--vector-directory", help="Directory for file vector backend.")
-@click.option("--vector-path",    help="Path for ChromaDB backend.")
+@click.option("--vector-backend", "vector_backend", type=click.Choice(["memory", "file", "chromadb", "redis"]), default="file", show_default=True,
+              help="Vector store for --search semantic. `memory` is refused: it doesn't outlive a command.")
+@click.option("--vector-directory", help="Directory for the file vector backend. Default: the graph directory.")
+@click.option("--vector-path",    help="Path for the ChromaDB backend. Default: <graph directory>/chromadb.")
 @click.option("--redis-host",     help="Redis host.")
 @click.option("--redis-port",     type=int, help="Redis port.")
 @click.option("--redis-db",       type=int, help="Redis database number.")
@@ -700,6 +702,12 @@ def database_register(
         # documented the graph directory as its default; this implements it.
         search_cfg["bm25_index_dir"] = bm25_index_dir or _bm25_dir_for(connection)
         if search == "semantic":
+            if vector_backend == "memory":
+                raise click.ClickException(
+                    "--vector-backend memory keeps vectors in the process, and every blue-kb command is a "
+                "new process, so semantic search would never find anything. Use file (the default), "
+                "chromadb or redis."
+                )
             vconn: dict[str, Any] = {}
             if vector_backend == "file" and vector_directory:
                 vconn["directory"] = vector_directory
@@ -707,7 +715,9 @@ def database_register(
                 vconn["path"] = vector_path
             if vector_backend == "redis":
                 vconn.update(_redis_connection(redis_host, redis_port, redis_db, redis_scan_prefix))
-            search_cfg["vector"] = _vector_properties(vector_backend, vconn)
+            search_cfg["vector"] = _with_vector_location(
+                _vector_properties(vector_backend, vconn), _bm25_dir_for(connection)
+            )
             embedding_cfg: dict[str, Any] = {"provider": embedding_provider}
             if embedding_model:
                 embedding_cfg["model"] = embedding_model
@@ -903,9 +913,10 @@ def database_search_config_show(obj: dict) -> None:
 @database_search_config_group.command("set")
 @click.option("--search",         type=click.Choice(["none", "bm25", "semantic"]), help="Search mode.")
 @click.option("--bm25-index-dir", help="Directory for BM25 corpus files.")
-@click.option("--vector-backend", "vector_backend", type=click.Choice(["memory", "file", "chromadb", "redis"]))
-@click.option("--vector-directory", help="Directory for file vector backend.")
-@click.option("--vector-path",    help="Path for ChromaDB backend.")
+@click.option("--vector-backend", "vector_backend", type=click.Choice(["memory", "file", "chromadb", "redis"]),
+              help="Vector store; replaces the whole vector config. `memory` is refused: it doesn't outlive a command.")
+@click.option("--vector-directory", help="Directory for the file vector backend. Default: the graph directory.")
+@click.option("--vector-path",    help="Path for the ChromaDB backend. Default: <graph directory>/chromadb.")
 @click.option("--redis-host",     help="Redis host.")
 @click.option("--redis-port",     type=int, help="Redis port.")
 @click.option("--redis-db",       type=int, help="Redis database number.")
@@ -945,12 +956,30 @@ def database_search_config_set(
             vconn["directory"] = vector_directory
         if vector_path:
             vconn["path"] = vector_path
-        backend = vector_backend or ("redis" if redis_given else "memory")
+        backend = vector_backend or (
+            "redis" if redis_given else "chromadb" if vector_path else "file"
+        )
+        if backend == "memory":
+            raise click.ClickException(
+                "--vector-backend memory keeps vectors in the process, and every blue-kb command is a "
+                "new process, so semantic search would never find anything. Use file (the default), "
+                "chromadb or redis."
+            )
         if backend == "redis":
             vconn.update(_redis_connection(redis_host, redis_port, redis_db, redis_scan_prefix))
         elif redis_given:
             raise click.ClickException(f"--redis-* options don't apply to --vector-backend {backend}.")
-        search_updates["vector"] = _vector_properties(backend, vconn)
+        search_updates["vector"] = _with_vector_location(
+            _vector_properties(backend, vconn), _bm25_dir_for(load_db_config(db).get("connection") or {})
+        )
+    elif search == "semantic" and not (load_db_config(db).get("search") or {}).get("vector"):
+        # Turning semantic search on later needs the vector store and embedding a
+        # fresh `register --search semantic` would have given it.
+        search_updates["vector"] = _with_vector_location(
+            _vector_properties("file", {}), _bm25_dir_for(load_db_config(db).get("connection") or {})
+        )
+        if not (load_db_config(db).get("search") or {}).get("embedding") and not embedding_provider:
+            search_updates["embedding"] = {"provider": "openai"}
     embedding_updates: dict[str, Any] = {}
     if embedding_provider:
         embedding_updates["provider"] = embedding_provider
