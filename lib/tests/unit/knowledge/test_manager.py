@@ -968,26 +968,25 @@ async def test_validate_counter_empty_by_default(populated_kb):
 # enrich  (QueryEngine — openai patched)                              #
 # ------------------------------------------------------------------ #
 
-_ENRICH_PAYLOAD = [
-    {"entity": "Alice → IBM", "relation": "WORKED_AT", "value": None, "distance": 1},
-]
+def _alice_id(kb):
+    return next(n["id"] for n in kb.match_nodes("test", label="ENTITY") if n["properties"]["name"] == "Alice")
+
 
 async def test_enrich_finds_connected_facts(populated_kb):
-    with patch("openai.AsyncOpenAI", _mock_openai(_ENRICH_PAYLOAD)):
+    with patch("openai.AsyncOpenAI", _mock_openai({"seed_entity_ids": [_alice_id(populated_kb)]})):
         results = await populated_kb.enrich("test", "Alice")
     assert len(results) > 0
-    assert all(r.distance >= 1 for r in results)
-    assert all(r.distance <= 2 for r in results)
+    assert all(0 <= r.distance <= 2 for r in results)
 
 
 async def test_enrich_result_includes_relation_name(populated_kb):
-    with patch("openai.AsyncOpenAI", _mock_openai(_ENRICH_PAYLOAD)):
+    with patch("openai.AsyncOpenAI", _mock_openai({"seed_entity_ids": [_alice_id(populated_kb)]})):
         results = await populated_kb.enrich("test", "Alice")
     assert any(r.relation == "WORKED_AT" for r in results)
 
 
 async def test_enrich_no_results_for_unknown_entity(populated_kb):
-    with patch("openai.AsyncOpenAI", _mock_openai([])):
+    with patch("openai.AsyncOpenAI", _mock_openai({"seed_entity_ids": []})):
         results = await populated_kb.enrich("test", "zzz_not_a_person_zzz")
     assert results == []
 

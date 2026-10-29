@@ -338,12 +338,20 @@ async def test_validate_returns_supporting():
     assert len(result["supporting"]) == 1
 
 
-async def test_enrich_returns_list():
-    payload = [{"entity": "Alice → IBM", "relation": "WORKED_AT", "value": None, "distance": 1}]
-    factory = _mock_openai_sequence(_return_result_response(payload))
+async def test_enrich_returns_list(kb):
+    """The agent only picks the seed; the rows come from walking the graph (#163)."""
+    person = await kb.declare_class(DB, "PERSON", "A person")
+    company = await kb.declare_class(DB, "COMPANY", "A company")
+    rel = await kb.declare_relation_type(DB, "WORKED_AT", "Employment", domain="PERSON", range="COMPANY")
+    alice = await kb.add_entity(DB, "Alice", class_id=person)
+    ibm = await kb.add_entity(DB, "IBM", class_id=company)
+    await kb.add_fact(DB, head_entity_id=alice, tail_entity_id=ibm, relation_id=rel)
+    factory = _mock_openai_sequence(_return_result_response({"seed_entity_ids": [alice]}))
     with patch("openai.AsyncOpenAI", factory):
-        result = json.loads(await enrich("Alice", database=DB))
-    assert result[0]["relation"] == "WORKED_AT"
+        result = json.loads(await enrich("Alice", depth=1, database=DB))
+    assert [(r["entity"], r["relation"], r["distance"]) for r in result] == [
+        ("Alice", None, 0), ("Alice → IBM", "WORKED_AT", 1), ("IBM", None, 1),
+    ]
 
 
 # ---------------------------------------------------------------------------

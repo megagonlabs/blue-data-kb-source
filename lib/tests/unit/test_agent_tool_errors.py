@@ -249,3 +249,74 @@ async def test_a_literal_id_that_is_not_a_property_value_is_not_evidence(kb):
     with _use(model):
         result = await kb.validate("main", "Alice exists.")
     assert result.supporting == [] and len(result.unverified) == 1
+
+
+# ------------------------------------------------------------------ #
+# enrich: the agent picks seeds, the walk is the graph's (#163)        #
+# ------------------------------------------------------------------ #
+
+async def _chain(kb):
+    """Alice (TITLE) -WORKED_AT-> IBM -ACQUIRED-> Red Hat; the START_DATE sits on the first fact."""
+    person = kb.match_nodes("main", label="CLASS")[0]["id"]
+    company = await kb.declare_class("main", "COMPANY", "A company")
+    title = await kb.declare_class_property("main", "TITLE", "Job title", class_id=person)
+    worked_at = await kb.declare_relation_type("main", "WORKED_AT", "Employment", domain="PERSON", range="COMPANY")
+    acquired = await kb.declare_relation_type("main", "ACQUIRED", "Acquisition", domain="COMPANY", range="COMPANY")
+    start = await kb.declare_relation_property("main", "START_DATE", "Start", relation_id=worked_at)
+    alice = await kb.add_entity("main", "Alice", class_id=person)
+    ibm = await kb.add_entity("main", "IBM", class_id=company)
+    redhat = await kb.add_entity("main", "Red Hat", class_id=company)
+    await kb.add_entity_property_value("main", "Engineer", entity_id=alice, property_id=title)
+    job = await kb.add_fact("main", head_entity_id=alice, tail_entity_id=ibm, relation_id=worked_at)
+    await kb.add_fact_property_value("main", "1998-06", fact_id=job, property_id=start)
+    await kb.add_fact("main", head_entity_id=ibm, tail_entity_id=redhat, relation_id=acquired)
+    return alice, ibm, redhat
+
+
+def _rows(results):
+    return [(r.entity, r.relation, r.value, r.distance) for r in results]
+
+
+async def test_enrich_walks_the_graph_with_real_hop_counts(kb):
+    alice, _, _ = await _chain(kb)
+    model = ScriptedModel([("return_result", {"result": {"seed_entity_ids": [alice]}})])
+    with _use(model):
+        results = await kb.enrich("main", "Alice", depth=2)
+    assert _rows(results) == [
+        ("Alice", None, None, 0),
+        ("Alice", "TITLE", "Engineer", 0),
+        ("Alice → IBM", "WORKED_AT", None, 1),
+        ("Alice → IBM", "START_DATE", "1998-06", 1),
+        ("IBM", None, None, 1),
+        ("IBM → Red Hat", "ACQUIRED", None, 2),
+        ("Red Hat", None, None, 2),
+    ]
+
+
+async def test_enrich_depth_is_enforced(kb):
+    """The #163 case: depth=1 returned the two-hop ACQUIRED fact, labelled distance 1."""
+    alice, _, _ = await _chain(kb)
+    model = ScriptedModel([("return_result", {"result": {"seed_entity_ids": [alice]}})])
+    with _use(model):
+        results = await kb.enrich("main", "Alice", depth=1)
+    assert max(r.distance for r in results) == 1
+    assert not any("Red Hat" in r.entity for r in results)
+
+
+async def test_enrich_seeds_are_checked_against_the_graph(kb):
+    alice, ibm, _ = await _chain(kb)
+    model = ScriptedModel([("return_result", {"result": {"seed_entity_ids": [
+        "not-a-real-id",                                   # dropped
+        kb.match_nodes("main", label="CLASS")[0]["id"],    # a CLASS id, not an entity: dropped
+        "Red Hat",                                         # a name: accepted as a fallback
+    ]}})])
+    with _use(model):
+        results = await kb.enrich("main", "Red Hat", depth=0)
+    assert _rows(results) == [("Red Hat", None, None, 0)]
+
+
+async def test_enrich_with_no_seed_returns_nothing(kb):
+    await _chain(kb)
+    model = ScriptedModel([("return_result", {"result": {"seed_entity_ids": ["made-up"]}})])
+    with _use(model):
+        assert await kb.enrich("main", "Zed") == []

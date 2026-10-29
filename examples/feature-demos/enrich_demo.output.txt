@@ -1,21 +1,25 @@
 ------------------------------------------------------------
 1. enrich with the default depth=2 -- 1-2 hop context around the best match
 ------------------------------------------------------------
-enrich('Alice') -> 3 EnrichmentResult(s):
+enrich('Alice') -> 6 EnrichmentResult(s):
+  entity='Alice' relation=None value=None distance=0
   entity='Alice' relation='TITLE' value='Senior Software Engineer' distance=0
   entity='Alice → IBM' relation='WORKED_AT' value=None distance=1
+  entity='IBM' relation=None value=None distance=1
   entity='IBM → Red Hat' relation='ACQUIRED' value=None distance=2
+  entity='Red Hat' relation=None value=None distance=2
 distance=0 is Alice herself and her own properties (her TITLE); distance=1 her
 direct facts and their other endpoint (WORKED_AT IBM); distance=2 one hop further
 out (IBM's ACQUIRED Red Hat fact), reached by walking past Alice's WORKED_AT edge.
-The distances are the agent's, so a run can label them differently (#163).
 
 ------------------------------------------------------------
 2. depth=1 -- only the immediate neighborhood
 ------------------------------------------------------------
-enrich('Alice', depth=1) -> 2 result(s):
+enrich('Alice', depth=1) -> 4 result(s):
+  entity='Alice' relation=None value=None distance=0
   entity='Alice' relation='TITLE' value='Senior Software Engineer' distance=0
   entity='Alice → IBM' relation='WORKED_AT' value=None distance=1
-Red Hat is two hops from Alice, so depth=1 should leave it out: it did.
+  entity='IBM' relation=None value=None distance=1
+Red Hat is two hops from Alice, so depth=1 leaves it out.
 
 Demo complete.

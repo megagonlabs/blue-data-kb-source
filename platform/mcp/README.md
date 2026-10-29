@@ -302,8 +302,10 @@ cited that the KB doesn't hold are listed under `unverified`.
 
 #### `enrich`
 
-`query`, `depth` (default 2), `model`, `database`. Returns a list of
-`{entity, relation, value, distance}`.
+`query`, `depth` (default 2, at most 3), `model`, `database`. Returns a list of
+`{entity, relation, value, distance}`: an LLM agent only picks the seed entities the
+query is about; everything within `depth` hops of them is then collected by walking
+the graph, and `distance` is the hop count.
 
 ---
 

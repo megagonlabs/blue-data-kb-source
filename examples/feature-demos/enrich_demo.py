@@ -1,10 +1,11 @@
 """
 Natural language querying -- enrich().
 
-enrich() walks outward from whatever the query best matches in the KB,
-returning a ranked list of EnrichmentResult(entity, relation, value,
-distance) -- candidate facts within `depth` hops that the query didn't
-directly ask for but that a caller building a fuller picture might want.
+enrich() finds the entities the query is about (an LLM agent picks them from
+the KB) and returns everything within `depth` hops of them as
+EnrichmentResult(entity, relation, value, distance) -- the facts, property
+values and neighboring entities a caller building a fuller picture might want.
+The walk itself is deterministic: distances are hop counts in the graph.
 Unlike answer()/validate(), it has no natural_language/include_metadata
 flags -- it always returns structured results.
 
@@ -56,7 +57,6 @@ async def main():
     print("distance=0 is Alice herself and her own properties (her TITLE); distance=1 her")
     print("direct facts and their other endpoint (WORKED_AT IBM); distance=2 one hop further")
     print("out (IBM's ACQUIRED Red Hat fact), reached by walking past Alice's WORKED_AT edge.")
-    print("The distances are the agent's, so a run can label them differently (#163).")
 
     print()
     print(DIVIDER)
@@ -68,10 +68,8 @@ async def main():
     for r in shallow:
         print(f"  entity={r.entity!r} relation={r.relation!r} value={r.value!r} distance={r.distance}")
     beyond = [r for r in shallow if "Red Hat" in str(r.entity)]
-    print("Red Hat is two hops from Alice, so depth=1 should leave it out: "
-          + ("it did." if not beyond else
-             f"{len(beyond)} result(s) mention it anyway. depth and distance are the agent's "
-             "own reading of the graph, not enforced yet (#163)."))
+    print("Red Hat is two hops from Alice, so depth=1 leaves it out"
+          + ("." if not beyond else f" -- but {len(beyond)} result(s) mention it."))
 
     print()
     print("Demo complete.")

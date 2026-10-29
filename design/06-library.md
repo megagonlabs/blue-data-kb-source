@@ -422,7 +422,7 @@ ValidationResult(
 
 #### `enrich(database, query, depth=2, model="gpt-4o", on_tool_call=None, on_tool_result=None)`
 
-Fetches the schema, constructs a system prompt directing the agent to traverse the graph up to `depth` hops from seed entities, and runs the agent loop. The agent uses `search_entities` to find seeds, then `get_neighbors` and `get_entity_facts` to explore, then calls `return_result` with a list of `{entity, relation, value, distance}` items. Returns a list of `EnrichmentResult` objects.
+Fetches the schema and runs an agent whose only job is to pick the seed entities the query is about: it uses `search_entities` (and `get_entity_facts`/`get_neighbors` when the query names an entity only through its relations), then calls `return_result` with `{"seed_entity_ids": [...]}`. Each id is checked against the graph (a name is accepted as a fallback; anything else is dropped). A deterministic breadth-first walk from the seeds then produces the `EnrichmentResult` list: each seed and its property values at distance 0, each fact one hop out with its property values and its other endpoint at distance 1, and so on up to `depth` (clamped to 3; at most 500 rows). The traversal used to be the agent's, and so were the distances, so `depth=1` could return a two-hop fact labelled distance 1 (#163).
 
 **Example**
 

@@ -652,12 +652,14 @@ async def validate(
 async def enrich(
     query: str, depth: int = 2, model: Optional[str] = None, database: str = "default"
 ) -> str:
-    """Traverse the graph up to *depth* hops from entities matching *query* and
-    return related knowledge.
+    """Everything within *depth* hops of the entities *query* is about.
+
+    An LLM agent picks the seed entities; the walk itself is deterministic, and
+    each row's distance is its hop count in the graph.
 
     Args:
-        query:    Seed query — an LLM agent finds starting entities matching this.
-        depth:    Maximum hops to traverse (default 2).
+        query:    Seed query — an LLM agent finds the entities it is about.
+        depth:    Maximum hops to walk (default 2, at most 3).
         model:    OpenAI model (default: server's configured default model).
         database: Target database (default 'default').
     """

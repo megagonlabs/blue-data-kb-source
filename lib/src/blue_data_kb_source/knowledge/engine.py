@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 # Bounds on the graph-walking query tools, so one call on a hub entity can't return
 # the whole graph (#130). A capped result says so with "truncated": true.
 _MAX_NEIGHBOR_DEPTH = 3
+_MAX_ENRICH_RESULTS = 500
 _MAX_TOOL_ROWS = 100
 
 
@@ -350,25 +351,22 @@ call get_metadata with its id before calling return_result.\
 """
 
 _ENRICH_PROMPT = """\
-You are a knowledge base enrichment agent. Starting from entities that match the
-query, traverse the graph up to {depth} hops to find all related knowledge.
+You are a knowledge base enrichment agent. Your only job is to find the entities in
+the knowledge base that the query is about: the seeds that everything within {depth}
+hops of them will be collected from. The traversal itself is done for you.
 
-Use search_entities to find seed entities, then get_neighbors and get_entity_facts
-to explore. When done, call return_result with a JSON array:
+Use search_entities (and get_entity_facts or get_neighbors if the query names an
+entity only through its relations) to find them. When done, call return_result with
+the ids of the seed entities, as a tool returned them:
 
-  {{"result": [
-    {{"entity":   "<entity name or 'head → tail'>",
-      "relation": "<relation name or null>",
-      "value":    "<literal value or null>",
-      "distance": <integer hop count>}},
-    ...
-  ]}}
+  {{"result": {{"seed_entity_ids": ["<entity id>", ...]}}}}
+
+Return an empty list if no entity in the knowledge base matches.
 
 Current schema:
 {schema}
 
-Query: {query}
-Max depth: {depth}\
+Query: {query}\
 """
 
 
@@ -567,15 +565,82 @@ class QueryEngine:
         raw = await self._run_agent(
             database, system, query, model, on_tool_call, on_tool_result, max_turns=max_turns
         )
-        return [
-            EnrichmentResult(
-                entity=item.get("entity"),
-                relation=item.get("relation"),
-                value=item.get("value"),
-                distance=item.get("distance", 0),
-            )
-            for item in (raw if isinstance(raw, list) else [])
-        ]
+        seeds = self._enrich_seeds(database, raw)
+        return self._enrich_walk(database, seeds, min(max(int(depth), 0), _MAX_NEIGHBOR_DEPTH))
+
+    def _enrich_seeds(self, database: str, raw: Any) -> list[dict]:
+        """The ENTITY nodes the agent named as seeds (#163). Ids are checked against
+        the graph; a name is accepted as a fallback; anything else is dropped."""
+        cited = raw.get("seed_entity_ids") if isinstance(raw, dict) else raw
+        seeds: dict[str, dict] = {}
+        for item in cited if isinstance(cited, list) else []:
+            if isinstance(item, dict):
+                item = item.get("entity_id") or item.get("id") or item.get("name") or item.get("entity")
+            if not isinstance(item, str):
+                continue
+            node = self._source.get_node(database, item)
+            found = [node] if node is not None and node.get("label") == ENTITY else self._entities_named(database, item)
+            for n in found:
+                seeds.setdefault(n["id"], n)
+        return list(seeds.values())
+
+    def _enrich_walk(self, database: str, seeds: list[dict], depth: int) -> list[EnrichmentResult]:
+        """Everything within *depth* hops of the seeds, breadth-first, with the hop
+        count from the graph (#163): distance 0 is a seed and its own property values;
+        a fact one hop out, its property values and its other endpoint (with that
+        entity's property values) are distance 1; and so on. Capped at
+        _MAX_ENRICH_RESULTS rows."""
+        results: list[EnrichmentResult] = []
+
+        def emit(entity: str | None, relation: str | None, value: Any, distance: int) -> bool:
+            if len(results) >= _MAX_ENRICH_RESULTS:
+                return False
+            results.append(EnrichmentResult(entity=entity, relation=relation,
+                                            value=None if value is None else str(value), distance=distance))
+            return True
+
+        def emit_with_properties(owner_id: str, label: str, relation: str | None, distance: int) -> bool:
+            if not emit(label, relation, None, distance):
+                return False
+            for pv in property_values(self._source, database, owner_id):
+                prop = pv["property"]
+                name = prop.get("properties", {}).get("name") if prop else None
+                if not emit(label, name, pv["literal"].get("properties", {}).get("value"), distance):
+                    return False
+            return True
+
+        visited_entities: set[str] = set()
+        visited_facts: set[str] = set()
+        frontier: list[dict] = []
+        for seed in seeds:
+            if seed["id"] not in visited_entities:
+                visited_entities.add(seed["id"])
+                frontier.append(seed)
+                if not emit_with_properties(seed["id"], seed.get("properties", {}).get("name"), None, 0):
+                    return results
+        for distance in range(1, depth + 1):
+            next_frontier: list[dict] = []
+            for entity in frontier:
+                for edge_type in (HEAD, TAIL):
+                    for nb in self._source.get_neighbors(database, entity["id"], edge_type=edge_type, direction="in"):
+                        fact = nb["node"]
+                        if fact["id"] in visited_facts:
+                            continue
+                        visited_facts.add(fact["id"])
+                        parts = fact_parts(self._source, database, fact["id"])
+                        head = (parts["head"] or {}).get("properties", {}).get("name")
+                        tail = (parts["tail"] or {}).get("properties", {}).get("name")
+                        rel = (parts["relation"] or {}).get("properties", {}).get("name")
+                        if not emit_with_properties(fact["id"], f"{head} → {tail}", rel, distance):
+                            return results
+                        for end in (parts["head"], parts["tail"]):
+                            if end is not None and end["id"] not in visited_entities:
+                                visited_entities.add(end["id"])
+                                next_frontier.append(end)
+                                if not emit_with_properties(end["id"], end.get("properties", {}).get("name"), None, distance):
+                                    return results
+            frontier = next_frontier
+        return results
 
     async def answer_as_text(
         self,
