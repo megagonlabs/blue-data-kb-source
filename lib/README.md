@@ -5,7 +5,7 @@ Python library for building and querying knowledge-base graphs with a typed sche
 ## Requirements
 
 - Python 3.10–3.14 (3.15 is not supported yet)
-- [`blue-data`](../../blue-data/lib) (local dependency)
+- [`blue-data`](https://github.com/megagon-internal/blue-data/tree/1.0/lib) (local dependency)
 
 ## Installation
 
@@ -20,7 +20,7 @@ Or manually:
 
 ```bash
 pip install -e ../../blue-data/lib
-pip install -e ".[dev]"
+pip install -e ".[all,dev]"     # what the script installs: every optional extra + dev tools
 ```
 
 ## Development setup

@@ -1,11 +1,12 @@
 # Quick Start
 
-The fastest way to see the knowledge base in action is the `blue-kb` CLI — no Python code required. See [installation.md](installation.md) if you haven't installed anything yet.
+The fastest way to see the knowledge base in action is the `blue-kb` CLI — no Python code required. Install everything from the repo root, with the sibling [`blue-data`](https://github.com/megagon-internal/blue-data) repository checked out beside this one (`../blue-data`):
 
 ```bash
-cd lib && bash scripts/install.sh
-cd ../platform/cli && bash scripts/install.sh
+bash scripts/install.sh
 ```
+
+That installs `blue-data`, the library with every extra (steps 5 and 6 need `openai`; BM25 search needs `rank-bm25`), the CLI and the MCP servers. See [installation.md](installation.md) to install components one at a time.
 
 ## 1. Create a database
 
@@ -128,8 +129,7 @@ See [guide.md](guide.md) for the full walkthrough (provenance, search, change ho
 To let Claude or another MCP client build and query a knowledge base directly:
 
 ```bash
-cd platform/mcp && bash scripts/install.sh
-blue-data-kb-mcp
+blue-data-kb-mcp    # installed by scripts/install.sh above
 ```
 
 See [mcp.md](mcp.md) for the Claude Desktop config and full tool reference.

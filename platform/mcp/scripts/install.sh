@@ -15,8 +15,10 @@ BLUE_DATA_LIB="$(cd "$MCP_ROOT/../../../blue-data/lib" && pwd)"
 echo "Installing blue-data..."
 pip install -e "$BLUE_DATA_LIB"
 
+# With every lib extra: `answer`/`extract` need openai, BM25 search needs rank-bm25
+# (#150). Same as the top-level scripts/install.sh.
 echo "Installing blue-data-kb-source..."
-pip install -e "$LIB_ROOT"
+pip install -e "$LIB_ROOT[all]"
 
 echo "Installing blue-data-kb-mcp..."
 pip install -e "$MCP_ROOT"

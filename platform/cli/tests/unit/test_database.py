@@ -113,12 +113,14 @@ def _vector_connection(runner, db):
 def test_register_redis_always_stores_a_scan_prefix(runner):
     """#148: without a scan_prefix RedisVectorSource can't create its index, and
     writes go to keys literally prefixed "None"."""
+    pytest.importorskip("redis")  # register builds the vector source
     invoke(runner, ["database", "register", "r", "--search", "semantic", "--vector-backend", "redis",
                     "--redis-host", "127.0.0.1", "--redis-port", "46591"])
     assert _vector_connection(runner, "r") == {"scan_prefix": "blue_kb:", "host": "127.0.0.1", "port": 46591}
 
 
 def test_register_redis_takes_a_scan_prefix(runner):
+    pytest.importorskip("redis")
     invoke(runner, ["database", "register", "r", "--search", "semantic", "--vector-backend", "redis",
                     "--redis-scan-prefix", "team_a:"])
     assert _vector_connection(runner, "r") == {"scan_prefix": "team_a:"}

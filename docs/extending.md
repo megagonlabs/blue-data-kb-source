@@ -1,6 +1,6 @@
 # Extending blue-data-kb-source
 
-`KBSource` itself has no plugin/hook mechanism for its own behavior — schema and knowledge operations, provenance, and change hooks are fixed. The two things this library is designed to have swapped out are the **graph storage backend** and the **vector search backend**, both via the sibling [`blue-data`](../../blue-data) library's abstractions. This page covers implementing a new one of each, plus what to know if you want to change how LLM calls are made.
+`KBSource` itself has no plugin/hook mechanism for its own behavior — schema and knowledge operations, provenance, and change hooks are fixed. The two things this library is designed to have swapped out are the **graph storage backend** and the **vector search backend**, both via the sibling [`blue-data`](https://github.com/megagon-internal/blue-data) library's abstractions. This page covers implementing a new one of each, plus what to know if you want to change how LLM calls are made.
 
 ## Implementing a new GraphSource backend
 

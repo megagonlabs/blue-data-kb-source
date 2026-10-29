@@ -2,7 +2,7 @@
 
 ## Components
 
-`blue-data-kb-source` is organized into a core library (`lib/`) and platform components (`platform/`). Install `lib` first — every platform component depends on it, and `lib` itself depends on the sibling [`blue-data`](../../blue-data) repository's `lib/` for the underlying `GraphSource`/`VectorSource` abstractions.
+`blue-data-kb-source` is organized into a core library (`lib/`) and platform components (`platform/`). Install `lib` first — every platform component depends on it, and `lib` itself depends on the sibling [`blue-data`](https://github.com/megagon-internal/blue-data) repository's `lib/` for the underlying `GraphSource`/`VectorSource` abstractions.
 
 ```
 blue-data-kb-source/
@@ -41,9 +41,9 @@ pip install -e platform/mcp              # blue-data-kb-mcp
 
 ```bash
 pip install build
-cd lib && bash scripts/build.sh
-cd platform/cli && bash scripts/build.sh
-cd platform/mcp && bash scripts/build.sh
+(cd lib && bash scripts/build.sh)
+(cd platform/cli && bash scripts/build.sh)
+(cd platform/mcp && bash scripts/build.sh)
 ```
 
 ---
@@ -51,7 +51,7 @@ cd platform/mcp && bash scripts/build.sh
 ## Requirements
 
 - Python 3.10–3.14 (3.15 is not supported yet). Every package declares `requires-python = ">=3.10,<3.15"`, so pip refuses to install on another version, and the `install.sh` scripts check it before installing anything
-- [`blue-data`](../../blue-data) (local sibling dependency — not yet published)
+- [`blue-data`](https://github.com/megagon-internal/blue-data) (local sibling dependency — not yet published)
 - An OpenAI API key (`OPENAI_API_KEY`) for any LLM feature: `import_text`/`blue-kb data extract`, `answer`/`validate`/`enrich`, and semantic search embeddings. Nothing else in the library needs it — schema declaration, instance writes, keyword search, and change hooks are all plain Python with no network calls.
 
 None of the three packages are published to PyPI yet — always install from the local checkout as shown above.
@@ -67,8 +67,9 @@ None of the three packages are published to PyPI yet — always install from the
 | `openai` | `openai>=1.0` | `import_text`, `answer`, `validate`, `enrich` (all LLM agent operations) |
 | `neo4j` | `neo4j` | The `NEO4JSource`/`NEO4JKBSource` backend |
 | `search` | `rank-bm25` | `properties["search"]["mode"]="bm25"` (real BM25 ranking; without it, keyword search falls back to index-free keyword matching ranked by shared words) |
-| `dev` | `pytest`, `pytest-asyncio`, `pytest-recording`, `pytest-cov`, `pyyaml`, `rich` | Running the test suite and benchmarks |
-| `all` | `neo4j`, `openai>=1.0`, `rank-bm25` | Everything above except `dev` |
+| `mcp` | `mcp>=1.28.1,<2` | `expand_schema(reference="mcp")` / `blue-kb schema expand --reference mcp`, which connect to reference MCP servers such as `platform/wordnet-mcp` |
+| `dev` | `pytest`, `pytest-asyncio`, `pytest-recording`, `pytest-cov`, `pyyaml`, `rich`, `openai>=1.0` | Running the test suite and benchmarks. Includes `openai` because the LLM-agent tests mock its client but still import it |
+| `all` | `neo4j`, `openai>=1.0`, `rank-bm25`, `mcp>=1.28.1,<2` | Everything above except `dev` |
 
 ```bash
 pip install -e "lib[openai,search]"
@@ -96,21 +97,21 @@ cd platform/cli && pip install -e ".[neo4j,all]"
 
 ## Running tests
 
-Run from each component's root directory:
+Run from the repo root; each suite runs from its component's own directory:
 
 ```bash
-cd lib && pytest                    # unit tests (mocked LLM calls, no API key needed)
-cd platform/cli && pytest           # CLI tests
-cd platform/mcp && pytest tests/    # MCP server tests
+(cd lib && pytest)                    # unit tests (mocked LLM calls, no API key needed)
+(cd platform/cli && pytest)           # CLI tests
+(cd platform/mcp && pytest tests/)    # MCP server tests
 ```
 
 Install with the `dev` extra first:
 
 ```bash
-cd lib && pip install -e ".[dev]"
+pip install -e "lib[dev]" -e "platform/cli[dev]" -e "platform/mcp[dev]"
 ```
 
-The `dev` extra is enough to run every suite. Tests that exercise an optional backend — the Neo4j driver (`neo4j`), BM25 search (`rank-bm25`, the library's `search` extra), the MCP client (`mcp`) — are skipped when that package isn't installed; install the component's `all` extra (or the library's `all,dev`) to run them too. The tests don't depend on the terminal: they pass whether or not it forces colour (`FORCE_COLOR`, `TTY_COMPATIBLE`).
+Each component's `dev` extra is enough to run its suite. Tests that exercise an optional backend — the Neo4j driver (`neo4j`), BM25 search (`rank-bm25`, the library's `search` extra), the MCP client (`mcp`) — are skipped when that package isn't installed; install the component's `all` extra (or the library's `all,dev`) to run them too. The tests don't depend on the terminal: they pass whether or not it forces colour (`FORCE_COLOR`, `TTY_COMPATIBLE`).
 
 The library's benchmark suites (`lib/tests/benchmarks/`) are separate from the default test run — see [guide.md](guide.md#benchmarks) and [`lib/README.md`](../lib/README.md#running-tests) for details. They require the `openai` (and, for the querying benchmark, `search`) extras, and skip cleanly without `OPENAI_API_KEY` if no VCR cassette has been recorded for a given case.
 

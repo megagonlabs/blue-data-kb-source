@@ -64,7 +64,9 @@ class TestNeo4jKBSourceConformance(DataSourceConformance):
 # ------------------------------------------------------------------ #
 
 def test_every_execute_query_operation_returns_rows():
-    kb = MemoryKBSource("t", properties={"search": {"mode": "bm25"}})
+    # No search index: KB.SEARCH_SCHEMA answers through the index-free fallback, so
+    # this runs without the optional rank-bm25 package (#151).
+    kb = MemoryKBSource("t")
     kb.create_database("m")
 
     def q(**op):

@@ -14,6 +14,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 echo 'Installing blue-data from local path...'
 python3 -m pip install -e "$SCRIPT_DIR/../../../blue-data/lib"
 
-# Install this package in editable mode with dev extras
+# Install this package in editable mode with every optional extra (openai, search,
+# neo4j, mcp) and the dev tools, the same as the top-level scripts/install.sh, so the
+# quickstart, the examples and the whole test suite work after it (#150).
 echo 'Installing blue-data-kb-source...'
-python3 -m pip install -e "$SCRIPT_DIR/..[dev]"
+python3 -m pip install -e "$SCRIPT_DIR/..[all,dev]"

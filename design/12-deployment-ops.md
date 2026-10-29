@@ -46,8 +46,8 @@ None of the four packages are published to PyPI yet — `pip install blue-data-k
 ```bash
 cd lib && bash scripts/install.sh                 # installs blue-data (local path) + this package
 cd ../platform/cli && bash scripts/install.sh      # + blue-kb CLI
-cd ../platform/mcp && bash scripts/install.sh      # + blue-data-kb-mcp server
-cd ../platform/wordnet-mcp && bash scripts/install.sh  # + blue-data-wordnet-mcp server (independent of the above)
+cd ../mcp && bash scripts/install.sh               # + blue-data-kb-mcp server
+cd ../wordnet-mcp && bash scripts/install.sh       # + blue-data-wordnet-mcp server (independent of the above)
 ```
 
 ---

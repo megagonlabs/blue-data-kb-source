@@ -5,7 +5,7 @@ Command-line interface for the Blue Data Knowledge-Base. A thin adapter over the
 ## Requirements
 
 - Python 3.10–3.14 (3.15 is not supported yet)
-- [`blue-data`](../../blue-data/lib) (local dependency)
+- [`blue-data`](https://github.com/megagon-internal/blue-data/tree/1.0/lib) (local dependency)
 - [`blue-data-kb-source`](../lib) (local dependency)
 
 ## Installation
@@ -57,7 +57,8 @@ Use `blue-kb database register` to create and configure a database:
 # File backend, BM25 keyword search (index persisted to disk)
 blue-kb database register main --graph-backend file --search bm25
 
-# File backend, semantic (vector) search with OpenAI embeddings, ChromaDB vector store
+# File backend, semantic (vector) search with OpenAI embeddings, ChromaDB vector store.
+# Install the driver first: `pip install chromadb` (or the CLI's `chromadb` extra).
 blue-kb database register main \
     --graph-backend file \
     --search semantic \

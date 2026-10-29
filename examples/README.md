@@ -1,13 +1,19 @@
 # blue-data-kb-source Examples
 
 This directory contains runnable examples organized by purpose, mirroring the sibling
-[`blue-data/examples/`](../../blue-data/examples/) layout.
+[`blue-data/examples/`](https://github.com/megagon-internal/blue-data/tree/1.0/examples) layout.
 
 ## Quick start
 
+From the repo root, with the sibling `blue-data` repository checked out beside this one:
+
 ```bash
-cd lib && bash scripts/install.sh
+bash scripts/install.sh
 ```
+
+This installs the library with every extra (`openai` for the LLM examples, `rank-bm25` for BM25,
+`neo4j`, `mcp`). The Neo4j, ChromaDB and Redis examples also need their server or driver; each
+example's docstring says which.
 
 ---
 
