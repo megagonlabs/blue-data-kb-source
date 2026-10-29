@@ -1,0 +1,43 @@
+Scratch KB directory: /tmp/blue-data-kb-mcp-demo-k0u3s72m
+
+Loaded 26 tools from blue-data-kb-mcp: ['declare_class', 'declare_relation', 'declare_class_property', 'declare_relation_property', 'add_is_subclass_of', 'attach_property', 'search_schema', 'fetch_schema', 'fetch_meta_schema', 'add_entity', 'add_fact', 'add_entity_property', 'add_fact_property', 'add_entity_extraction', 'add_fact_extraction', 'add_entity_property_extraction', 'add_fact_property_extraction', 'search_data', 'fetch_data', 'get_metadata', 'answer', 'validate', 'enrich', 'expand_schema', 'import_text', 'add_source']
+
+Query: Declare a PERSON class and a COMPANY class, then a WORKED_AT relation between them (domain PERSON, range COMPANY).
+Answer: The classes and relation have been successfully declared:
+
+- **PERSON** class has been created.
+- **COMPANY** class has been created.
+- **WORKED_AT** relation has been established between PERSON (domain) and COMPANY (range).
+
+Query: Add Alice as a PERSON described as a software engineer, add IBM as a COMPANY, and record that Alice worked at IBM.
+Answer: I have successfully added the following information:
+
+- **Alice** has been added as a **PERSON** described as a software engineer.
+- **IBM** has been added as a **COMPANY**.
+- A record has been created indicating that **Alice worked at IBM**.
+
+Query: Search the knowledge base for 'Alice' and tell me what you find.
+Answer: I found the following information related to "Alice":
+
+1. **Entity: Alice**
+   - **Description:** A software engineer
+   - **Class Name:** PERSON
+   - **ID:** ba116b03-7afe-4f4d-bcf7-592a75c65700
+
+2. **Entity: Alice**
+   - **Description:** A software engineer
+   - **Class Name:** PERSON
+   - **ID:** d72b380c-3e07-4910-a221-e8122851eac5
+
+3. **Fact: Alice_WORKED_AT_IBM**
+   - **Relation Name:** WORKED_AT
+   - **Head Name:** Alice
+   - **Tail Name:** IBM
+   - **ID:** bdf9f787-4a2c-4ea2-b20d-d8fdb2272637
+
+It appears that there are two entities named "Alice," both described as a software engineer, and a fact indicating that Alice worked at IBM.
+
+Query: Using the knowledge base, answer: where does Alice work?
+Answer: Alice works at IBM.
+
+Cleaned up /tmp/blue-data-kb-mcp-demo-k0u3s72m

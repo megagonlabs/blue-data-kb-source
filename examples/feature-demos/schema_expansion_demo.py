@@ -24,10 +24,7 @@ It also shows dedup_mode (avoiding near-duplicate schema elements) and
 attach_property (reusing an existing property on another class/relation
 instead of declaring a same-meaning duplicate).
 
-Requires OPENAI_API_KEY -- not live-verified in this session (no key
-available in the sandboxed environment this was written in). The calls
-below are structurally correct against KBSource.expand_schema's signature;
-run it yourself with a real key to see live output.
+Requires OPENAI_API_KEY.
 
     export OPENAI_API_KEY=sk-...
     python3 schema_expansion_demo.py

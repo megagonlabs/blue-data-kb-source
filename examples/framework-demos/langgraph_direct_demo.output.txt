@@ -1,0 +1,17 @@
+------------------------------------------------------------
+1. Seed the KB
+------------------------------------------------------------
+Declared PERSON/COMPANY/WORKED_AT/TITLE and added Alice, IBM, and their fact
+
+------------------------------------------------------------
+2. Run the discover -> select -> respond pipeline
+------------------------------------------------------------
+Question: Where does Alice work and what is her title?
+
+[discover] search_data('Where does Alice work and what is her title?') -> 2 hit(s)
+[select] LLM chose 2 relevant hit(s): ['0352caf1-74bb-4bf1-8c54-75ae5380b744', '1a46ebc2-4443-43f3-af87-d82159416072']
+[respond] Alice works at IBM and her title is Software Engineer.
+
+Final answer: Alice works at IBM and her title is Software Engineer.
+
+Demo complete.

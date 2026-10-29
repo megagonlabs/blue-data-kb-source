@@ -1,0 +1,25 @@
+------------------------------------------------------------
+1. A statement the KB supports
+------------------------------------------------------------
+supporting: [{'fact_id': 'd227773c-4f09-4b57-acaa-cfed0c870071', 'fact': 'Alice_WORKED_AT_IBM', 'head': 'Alice', 'relation': 'WORKED_AT', 'tail': 'IBM'}]
+counter:    []
+
+------------------------------------------------------------
+2. A statement the KB contradicts
+------------------------------------------------------------
+supporting: []
+counter:    [{'fact_id': 'd227773c-4f09-4b57-acaa-cfed0c870071', 'fact': 'Alice_WORKED_AT_IBM', 'head': 'Alice', 'relation': 'WORKED_AT', 'tail': 'IBM'}]
+
+------------------------------------------------------------
+3. natural_language=True -- prose verdict instead of a ValidationResult
+------------------------------------------------------------
+validate(..., natural_language=True) -> str:
+The statement "Alice works at IBM" is supported by the evidence provided. The evidence indicates that Alice has a relationship with IBM as someone who "worked at" the company, implying past or present employment. However, there is no counter evidence, so we can consider the statement supported based on available information.
+
+------------------------------------------------------------
+4. include_metadata=True -- provenance alongside the verdict
+------------------------------------------------------------
+supporting: [{'fact_id': 'd227773c-4f09-4b57-acaa-cfed0c870071', 'fact': 'Alice_WORKED_AT_IBM', 'head': 'Alice', 'relation': 'WORKED_AT', 'tail': 'IBM'}]
+metadata keyed by node id: 2 entr(y/ies)
+
+Demo complete.

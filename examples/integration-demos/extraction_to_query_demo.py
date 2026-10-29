@@ -9,10 +9,7 @@ two: write-side LLM extraction and read-side LLM querying, against the same
 KBSource instance, so the KB that gets queried is exactly what a real
 "paste in a document, then ask questions about it" workflow would produce.
 
-Requires OPENAI_API_KEY -- not live-verified in this session (no key
-available in the sandboxed environment this was written in). Structurally
-correct against import_text/answer/validate/enrich's signatures; run it
-yourself with a real key to see live output.
+Requires OPENAI_API_KEY.
 
     export OPENAI_API_KEY=sk-...
     python3 extraction_to_query_demo.py

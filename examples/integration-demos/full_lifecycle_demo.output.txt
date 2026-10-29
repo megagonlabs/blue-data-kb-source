@@ -27,7 +27,6 @@ search_data('acquired open-source company', mode='keyword'):
   FACT     IBM_ACQUIRED_Red Hat
   ENTITY   IBM
   ENTITY   Nimbus Analytics
-  ENTITY   Alice
 search_data('acquired open-source company', mode='semantic'):
   ENTITY   Carol                score=0.19
   ENTITY   Nimbus Analytics     score=0.03
@@ -41,7 +40,7 @@ would rank Red Hat/IBM/the ACQUIRED fact above Carol for this query)
 ------------------------------------------------------------
 5. Migrate -- export/import the graph into a second, file-backed KB
 ------------------------------------------------------------
-Migrated KB (FileGraphSource, /tmp/blue-data-kb-lifecycle-s8ioz_4u) now has 13 graph rows
+Migrated KB (FileGraphSource, /tmp/blue-data-kb-lifecycle-rs2oczq5) now has 13 graph rows
 Semantic search still works after migration (import re-triggers the target's own indexer):
   ENTITY   Carol                score=0.19
   FACT     Bob_WORKED_AT_Red Hat score=0.095
@@ -54,5 +53,5 @@ export_database_data(include_provenance=True) carries each evidence record with 
 confidence, extraction type and SOURCE; import_database_data recreates them one by
 one, creating any SOURCE the target database doesn't have yet.
 
-Cleaned up /tmp/blue-data-kb-lifecycle-s8ioz_4u
+Cleaned up /tmp/blue-data-kb-lifecycle-rs2oczq5
 Demo complete.

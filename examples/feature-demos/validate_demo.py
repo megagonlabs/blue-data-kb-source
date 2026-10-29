@@ -9,10 +9,7 @@ takes natural_language and include_metadata (see answer_demo.py for how
 those two flags combine); validate() has no separate "confidence score",
 the supporting/counter lists are the evidence.
 
-Requires OPENAI_API_KEY -- not live-verified in this session (no key
-available in the sandboxed environment this was written in). The calls
-below are structurally correct against KnowledgeManager.validate's
-signature; run it yourself with a real key to see live output.
+Requires OPENAI_API_KEY.
 
     export OPENAI_API_KEY=sk-...
     python3 validate_demo.py

@@ -1,0 +1,39 @@
+------------------------------------------------------------
+1. Structured answer -- natural_language=False, include_metadata=False
+------------------------------------------------------------
+  [tool call]   search_entities({'query': 'Alice'})
+  [tool call]   get_entity_facts({'entity_id': 'cd9d09f1-ee41-475a-8bdd-904c4ce03092'})
+  [tool call]   get_entity_properties({'entity_id': 'cd9d09f1-ee41-475a-8bdd-904c4ce03092'})
+  [tool call]   get_metadata({'id': '83bf8805-4888-44b0-80ad-e68c536a1f4b'})
+  [tool call]   get_metadata({'id': '2863c483-33e8-49f1-a2f2-a71ddf148f41'})
+  [tool call]   return_result({'result': [{'company': 'IBM', 'relation': 'WORKED_AT', 'title': 'Senior Software Engineer', 'provenance': 'Alice has worked at IBM since 2019.', 'source': "Alice's resume"}]})
+answer() -> list[dict]: [{'company': 'IBM', 'relation': 'WORKED_AT', 'title': 'Senior Software Engineer', 'provenance': 'Alice has worked at IBM since 2019.', 'source': "Alice's resume"}]
+
+------------------------------------------------------------
+2. Structured answer + metadata -- include_metadata=True
+------------------------------------------------------------
+answer() -> (list[dict], metadata): rows=[{'company': 'IBM', 'relation': 'WORKED_AT', 'provenance': 'Alice has worked at IBM since 2019.', 'title': 'Senior Software Engineer', 'title_provenance': "Alice's title is Senior Software Engineer."}]
+metadata is keyed by node id, one get_metadata()-shaped dict per id: 2 entr(y/ies)
+
+------------------------------------------------------------
+3. Prose answer -- natural_language=True
+------------------------------------------------------------
+answer() -> str:
+Alice works at IBM, and her title is Senior Software Engineer.
+
+------------------------------------------------------------
+4. Prose answer + metadata -- both flags set
+------------------------------------------------------------
+answer() -> (str, metadata): the str has a metadata section appended, e.g.
+provenance/source/original-date facts narrated in prose, not just raw dicts:
+Alice works at IBM as a Senior Software Engineer.
+
+**Provenance Information Summary:**
+
+1. The fact that Alice worked at IBM was created and last modified on October 29, 2026. This information was sourced from Alice's resume, originally dated January 15, 2020, which states, "Alice has worked at IBM since 2019."
+
+2. The title of Alice as "Senior Software Engineer" was noted as of October 29, 2026. The supporting evidence is found in Alice's resume, dated January 15, 2020, with the statement, "Alice's title is Senior Software Engineer."
+
+3. The entity "Alice," classified as a "PERSON" and described as a software engineer, was created and last updated on October 29, 2026. This description is supported by Alice's resume with the text stating, "Alice is a software engineer," originally dated January 15, 2020.
+
+Demo complete.

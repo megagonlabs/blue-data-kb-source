@@ -58,9 +58,8 @@ export NEO4J_PASSWORD=<password>
 python3 examples/backends/neo4j_backend_demo.py
 ```
 
-**Requires:** a running Neo4j instance | *(not live-verified in this session — no
-reachable credentials in the sandboxed environment it was written in; code was checked
-up to the point of actual connection, which is as far as it can go without one)*
+**Requires:** a running Neo4j instance, reached through `NEO4J_URI`, `NEO4J_USER` and
+`NEO4J_PASSWORD` (defaults: `bolt://localhost:7687`, `neo4j`) | **[Sample output](backends/neo4j_backend_demo.output.txt)**
 
 ### BM25 keyword search (`keyword_search_demo.py`)
 
@@ -120,7 +119,7 @@ python3 examples/backends/redis_vector_backend_demo.py
 |------|--------|---------|----------|--------|
 | `memory_quickstart.py` | backends | none | — | [output](backends/memory_quickstart.output.txt) |
 | `file_backend_demo.py` | backends | none | — | [output](backends/file_backend_demo.output.txt) |
-| `neo4j_backend_demo.py` | backends | none | Neo4j | — (not live-verified) |
+| `neo4j_backend_demo.py` | backends | none | Neo4j | [output](backends/neo4j_backend_demo.output.txt) |
 | `keyword_search_demo.py` | backends | none | — | [output](backends/keyword_search_demo.output.txt) |
 | `semantic_search_demo.py` | backends | none | — | [output](backends/semantic_search_demo.output.txt) |
 | `chromadb_vector_backend_demo.py` | backends | none | — | [output](backends/chromadb_vector_backend_demo.output.txt) |
@@ -220,9 +219,7 @@ export OPENAI_API_KEY=sk-...
 python3 examples/feature-demos/llm_extraction_demo.py
 ```
 
-**Requires:** `OPENAI_API_KEY` | *(not live-verified in this session — no key available
-in the sandboxed environment it was written in; verified structurally up to the point of
-the actual OpenAI call, which is as far as it can go without one)*
+**Requires:** `OPENAI_API_KEY` | **[Sample output](feature-demos/llm_extraction_demo.output.txt)**
 
 ### Natural language querying — answer (`answer_demo.py`)
 
@@ -235,8 +232,7 @@ export OPENAI_API_KEY=sk-...
 python3 examples/feature-demos/answer_demo.py
 ```
 
-**Requires:** `OPENAI_API_KEY` | *(not live-verified in this session — same reason as
-llm_extraction_demo.py)*
+**Requires:** `OPENAI_API_KEY` | **[Sample output](feature-demos/answer_demo.output.txt)**
 
 ### Natural language querying — validate (`validate_demo.py`)
 
@@ -248,8 +244,7 @@ export OPENAI_API_KEY=sk-...
 python3 examples/feature-demos/validate_demo.py
 ```
 
-**Requires:** `OPENAI_API_KEY` | *(not live-verified in this session — same reason as
-llm_extraction_demo.py)*
+**Requires:** `OPENAI_API_KEY` | **[Sample output](feature-demos/validate_demo.output.txt)**
 
 ### Natural language querying — enrich (`enrich_demo.py`)
 
@@ -262,8 +257,7 @@ export OPENAI_API_KEY=sk-...
 python3 examples/feature-demos/enrich_demo.py
 ```
 
-**Requires:** `OPENAI_API_KEY` | *(not live-verified in this session — same reason as
-llm_extraction_demo.py)*
+**Requires:** `OPENAI_API_KEY` | **[Sample output](feature-demos/enrich_demo.output.txt)**
 
 ---
 
@@ -288,12 +282,7 @@ export OPENAI_API_KEY=sk-...
 python3 examples/framework-demos/langgraph_direct_demo.py
 ```
 
-**Requires:** `OPENAI_API_KEY` | *(not live-verified in this session — no key available
-in the sandboxed environment it was written in. Verified further than the other
-key-gated demos, though: with a syntactically-valid but fake key, the full pipeline runs
-end to end — real BM25 search, real LangGraph node execution, real prompt construction —
-and only fails at the genuine OpenAI network call with a 401, which is as far as it can
-go without a real key.)*
+**Requires:** `OPENAI_API_KEY` | **[Sample output](framework-demos/langgraph_direct_demo.output.txt)**
 
 ### MCP-based integration (`langgraph_mcp_demo.py`)
 
@@ -310,10 +299,7 @@ export OPENAI_API_KEY=sk-...
 python3 examples/framework-demos/langgraph_mcp_demo.py
 ```
 
-**Requires:** `OPENAI_API_KEY` | *(not live-verified in this session — same reason as
-langgraph_direct_demo.py. Verified the same way: with a fake key, the subprocess launch,
-all-26-tool auto-discovery, and ReAct agent construction all succeed, failing only at the
-genuine OpenAI network call with a 401.)*
+**Requires:** `OPENAI_API_KEY` | **[Sample output](framework-demos/langgraph_mcp_demo.output.txt)**
 
 ---
 
@@ -359,10 +345,7 @@ export OPENAI_API_KEY=sk-...
 python3 examples/integration-demos/extraction_to_query_demo.py
 ```
 
-**Requires:** `OPENAI_API_KEY` | *(not live-verified in this session — same reason as the
-other OpenAI-gated demos. Verified the same way: with a fake key, schema seeding and
-`import_text`'s request construction succeed, failing only at the genuine OpenAI network
-call with a 401.)*
+**Requires:** `OPENAI_API_KEY` | **[Sample output](integration-demos/extraction_to_query_demo.output.txt)**
 
 ---
 
@@ -407,7 +390,7 @@ python3 examples/scenario-demos/contradiction_catching_demo.py
 |------|--------|---------|----------|--------|
 | `memory_quickstart.py` | backends | none | — | [output](backends/memory_quickstart.output.txt) |
 | `file_backend_demo.py` | backends | none | — | [output](backends/file_backend_demo.output.txt) |
-| `neo4j_backend_demo.py` | backends | none | Neo4j | — (not live-verified) |
+| `neo4j_backend_demo.py` | backends | none | Neo4j | [output](backends/neo4j_backend_demo.output.txt) |
 | `keyword_search_demo.py` | backends | none | — | [output](backends/keyword_search_demo.output.txt) |
 | `semantic_search_demo.py` | backends | none | — | [output](backends/semantic_search_demo.output.txt) |
 | `chromadb_vector_backend_demo.py` | backends | none | — | [output](backends/chromadb_vector_backend_demo.output.txt) |
@@ -418,13 +401,13 @@ python3 examples/scenario-demos/contradiction_catching_demo.py
 | `schema_data_export_import_demo.py` | feature-demos | none | — | [output](feature-demos/schema_data_export_import_demo.output.txt) |
 | `schema_expansion_demo.py` | feature-demos | OpenAI | — | [output](feature-demos/schema_expansion_demo.output.txt) |
 | `llm_extraction_demo.py` | feature-demos | OpenAI | — | [output](feature-demos/llm_extraction_demo.output.txt) |
-| `answer_demo.py` | feature-demos | OpenAI | — | — (not live-verified) |
-| `validate_demo.py` | feature-demos | OpenAI | — | — (not live-verified) |
-| `enrich_demo.py` | feature-demos | OpenAI | — | — (not live-verified) |
-| `langgraph_direct_demo.py` | framework-demos | OpenAI | — | — (not live-verified) |
-| `langgraph_mcp_demo.py` | framework-demos | OpenAI | — | — (not live-verified) |
+| `answer_demo.py` | feature-demos | OpenAI | — | [output](feature-demos/answer_demo.output.txt) |
+| `validate_demo.py` | feature-demos | OpenAI | — | [output](feature-demos/validate_demo.output.txt) |
+| `enrich_demo.py` | feature-demos | OpenAI | — | [output](feature-demos/enrich_demo.output.txt) |
+| `langgraph_direct_demo.py` | framework-demos | OpenAI | — | [output](framework-demos/langgraph_direct_demo.output.txt) |
+| `langgraph_mcp_demo.py` | framework-demos | OpenAI | — | [output](framework-demos/langgraph_mcp_demo.output.txt) |
 | `full_lifecycle_demo.py` | integration-demos | none | — | [output](integration-demos/full_lifecycle_demo.output.txt) |
-| `extraction_to_query_demo.py` | integration-demos | OpenAI | — | — (not live-verified) |
+| `extraction_to_query_demo.py` | integration-demos | OpenAI | — | [output](integration-demos/extraction_to_query_demo.output.txt) |
 | `contradiction_catching_demo.py` | scenario-demos | optional OpenAI | — | [output](scenario-demos/contradiction_catching_demo.output.txt) |
 
 All five proposed sections (`backends/`, `feature-demos/`, `framework-demos/`,

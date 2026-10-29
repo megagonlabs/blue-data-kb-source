@@ -8,10 +8,7 @@ directly ask for but that a caller building a fuller picture might want.
 Unlike answer()/validate(), it has no natural_language/include_metadata
 flags -- it always returns structured results.
 
-Requires OPENAI_API_KEY -- not live-verified in this session (no key
-available in the sandboxed environment this was written in). The calls
-below are structurally correct against KnowledgeManager.enrich's signature;
-run it yourself with a real key to see live output.
+Requires OPENAI_API_KEY.
 
     export OPENAI_API_KEY=sk-...
     python3 enrich_demo.py
@@ -56,9 +53,10 @@ async def main():
     print(f"enrich('Alice') -> {len(results)} EnrichmentResult(s):")
     for r in results:
         print(f"  entity={r.entity!r} relation={r.relation!r} value={r.value!r} distance={r.distance}")
-    print("distance=1 results are direct facts/properties on Alice (title, WORKED_AT IBM);")
-    print("distance=2 results are one hop further out (e.g. IBM's ACQUIRED Red Hat fact),")
-    print("reached by walking past Alice's WORKED_AT edge into IBM's own neighborhood.")
+    print("distance=0 is Alice herself and her own properties (her TITLE); distance=1 her")
+    print("direct facts and their other endpoint (WORKED_AT IBM); distance=2 one hop further")
+    print("out (IBM's ACQUIRED Red Hat fact), reached by walking past Alice's WORKED_AT edge.")
+    print("The distances are the agent's, so a run can label them differently (#163).")
 
     print()
     print(DIVIDER)
@@ -66,7 +64,14 @@ async def main():
     print(DIVIDER)
 
     shallow = await kb.enrich("main", "Alice", depth=1)
-    print(f"enrich('Alice', depth=1) -> {len(shallow)} result(s), all distance=1")
+    print(f"enrich('Alice', depth=1) -> {len(shallow)} result(s):")
+    for r in shallow:
+        print(f"  entity={r.entity!r} relation={r.relation!r} value={r.value!r} distance={r.distance}")
+    beyond = [r for r in shallow if "Red Hat" in str(r.entity)]
+    print("Red Hat is two hops from Alice, so depth=1 should leave it out: "
+          + ("it did." if not beyond else
+             f"{len(beyond)} result(s) mention it anyway. depth and distance are the agent's "
+             "own reading of the graph, not enforced yet (#163)."))
 
     print()
     print("Demo complete.")

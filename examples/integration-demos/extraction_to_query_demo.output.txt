@@ -1,0 +1,76 @@
+------------------------------------------------------------
+1. Seed a minimal starting schema -- import_text extends this as needed
+------------------------------------------------------------
+Declared PERSON, COMPANY
+
+------------------------------------------------------------
+2. import_text -- extract entities, facts, and provenance from the bio
+------------------------------------------------------------
+  [tool call]   search_schema({'query': 'WORKED_AT', 'type': 'relation'})
+  [tool call]   search_schema({'query': 'ACQUIRED', 'type': 'relation'})
+  [tool call]   search_schema({'query': 'HEADQUARTERED_IN', 'type': 'relation'})
+  [tool call]   search_schema({'query': 'START_DATE', 'type': 'property'})
+  [tool call]   search_schema({'query': 'SPECIALIZES_IN', 'type': 'relation'})
+  [tool call]   declare_relation_type({'name': 'WORKED_AT', 'description': 'Indicates the employing company of a person', 'domain': 'PERSON', 'range': 'COMPANY'})
+  [tool call]   declare_relation_type({'name': 'ACQUIRED', 'description': 'Indicates that one company has acquired another company', 'domain': 'COMPANY', 'range': 'COMPANY'})
+  [tool call]   declare_relation_type({'name': 'HEADQUARTERED_IN', 'description': 'Indicates the location of the headquarters of a company', 'domain': 'COMPANY', 'range': 'STRING'})
+  [tool call]   declare_relation_type({'name': 'SPECIALIZES_IN', 'description': 'Indicates the specialization of a person or an organization', 'domain': 'PERSON', 'range': 'STRING'})
+  [tool call]   declare_relation_property({'relation_id': 'WORKED_AT', 'name': 'START_DATE', 'description': 'The start date of the employment', 'literal_type': 'DATE'})
+  [tool call]   declare_class({'name': 'LOCATION', 'description': 'Represents a geographical location.'})
+  [tool call]   declare_class({'name': 'SPECIALIZATION', 'description': 'Describes an area of expertise or focus for a person or organization.'})
+  [tool call]   declare_relation_type({'name': 'HEADQUARTERED_IN', 'description': 'Indicates the location of the headquarters of a company', 'domain': 'COMPANY', 'range': 'LOCATION'})
+  [tool call]   declare_relation_type({'name': 'SPECIALIZES_IN', 'description': 'Indicates the specialization of a person or an organization', 'domain': 'PERSON', 'range': 'SPECIALIZATION'})
+  [tool call]   declare_relation_property({'relation_id': 'd284fd2e-4998-4b76-ba7d-3927805e4fa3', 'name': 'START_DATE', 'description': 'The start date of the employment', 'literal_type': 'DATE'})
+  [tool call]   find_entity({'name': 'Alice Johnson', 'class_id': 'fcc1005f-db51-43a3-8f12-cc5b05fd48d9'})
+  [tool call]   find_entity({'name': 'IBM', 'class_id': '8ef8b1f9-8de8-4fb3-90f3-884848484cba'})
+  [tool call]   find_entity({'name': 'Nimbus Analytics', 'class_id': '8ef8b1f9-8de8-4fb3-90f3-884848484cba'})
+  [tool call]   find_entity({'name': 'Red Hat', 'class_id': '8ef8b1f9-8de8-4fb3-90f3-884848484cba'})
+  [tool call]   find_entity({'name': 'Armonk, New York', 'class_id': '6316ebdf-590d-45e2-b58c-0cbdd418c1d8'})
+  [tool call]   find_entity({'name': 'distributed systems', 'class_id': 'fc7d67e7-dc33-46a3-ad59-4b015f6e71d8'})
+  [tool call]   add_entity({'name': 'Alice Johnson', 'class_id': 'fcc1005f-db51-43a3-8f12-cc5b05fd48d9', 'text': 'Alice Johnson is a senior software engineer at IBM, where she has worked since 2019.'})
+  [tool call]   add_entity({'name': 'IBM', 'class_id': '8ef8b1f9-8de8-4fb3-90f3-884848484cba', 'text': 'Alice Johnson is a senior software engineer at IBM, where she has worked since 2019.'})
+  [tool call]   add_entity({'name': 'Nimbus Analytics', 'class_id': '8ef8b1f9-8de8-4fb3-90f3-884848484cba', 'text': 'Before IBM, she was a backend developer at a startup called Nimbus Analytics.'})
+  [tool call]   add_entity({'name': 'Red Hat', 'class_id': '8ef8b1f9-8de8-4fb3-90f3-884848484cba', 'text': 'In October 2019, IBM acquired Red Hat, an enterprise open-source software company.'})
+  [tool call]   add_entity({'name': 'Armonk, New York', 'class_id': '6316ebdf-590d-45e2-b58c-0cbdd418c1d8', 'text': 'IBM is a technology and consulting company headquartered in Armonk, New York.'})
+  [tool call]   add_entity({'name': 'distributed systems', 'class_id': 'fc7d67e7-dc33-46a3-ad59-4b015f6e71d8', 'text': "Alice specializes in distributed systems and has led IBM's internal knowledge graph initiative since 2022."})
+  [tool call]   search_schema({'query': 'worked at', 'mode': 'semantic', 'type': 'relation'})
+  [tool call]   search_schema({'query': 'acquired', 'mode': 'semantic', 'type': 'relation'})
+  [tool call]   search_schema({'query': 'headquartered in', 'mode': 'semantic', 'type': 'relation'})
+  [tool call]   search_schema({'query': 'specializes in', 'mode': 'semantic', 'type': 'relation'})
+  [tool call]   add_fact({'head_entity_id': 'da216317-defe-47eb-b188-5a5591da2c7a', 'tail_entity_id': 'fe61a950-15eb-4440-99f8-2d25fab454fb', 'relation_id': 'd284fd2e-4998-4b76-ba7d-3927805e4fa3', 'text': 'Alice Johnson is a senior software engineer at IBM, where she has worked since 2019.'})
+  [tool call]   add_fact({'head_entity_id': 'da216317-defe-47eb-b188-5a5591da2c7a', 'tail_entity_id': 'c05e4ac2-e4f2-4a3f-85cd-ebdd49252cfc', 'relation_id': 'd284fd2e-4998-4b76-ba7d-3927805e4fa3', 'text': 'Before IBM, she was a backend developer at a startup called Nimbus Analytics.'})
+  [tool call]   add_fact({'head_entity_id': 'fe61a950-15eb-4440-99f8-2d25fab454fb', 'tail_entity_id': '12a84195-2f7d-4ba1-9711-e8097aba83e3', 'relation_id': '2e374b26-335a-449c-bb84-35c0ca119c4b', 'text': 'In October 2019, IBM acquired Red Hat, an enterprise open-source software company.'})
+  [tool call]   add_fact({'head_entity_id': 'fe61a950-15eb-4440-99f8-2d25fab454fb', 'tail_entity_id': 'f7a0c60b-9b85-4e00-acf4-05f1f7f509c5', 'relation_id': '16ba77b0-d158-4963-85ff-a078bb022a6b', 'text': 'IBM is a technology and consulting company headquartered in Armonk, New York.'})
+  [tool call]   add_fact({'head_entity_id': 'da216317-defe-47eb-b188-5a5591da2c7a', 'tail_entity_id': '7e846cf2-9155-4025-b63c-91288534bc1e', 'relation_id': 'ae72f699-e4ff-43ac-a007-51dbf0b88eac', 'text': "Alice specializes in distributed systems and has led IBM's internal knowledge graph initiative since 2022."})
+  [tool call]   search_schema({'query': 'start date', 'mode': 'keyword', 'type': 'property'})
+  [tool call]   search_schema({'query': 'start date', 'mode': 'keyword', 'type': 'property'})
+  [tool call]   find_literal({'owner_id': '5205a2cf-515d-4634-a5c4-a6fb50df0d0c', 'property_id': '35af158a-cf0f-42c1-8de1-35b6047698c2'})
+  [tool call]   find_literal({'owner_id': '52e592b0-bb75-42d3-9e61-456b5f796b28', 'property_id': '35af158a-cf0f-42c1-8de1-35b6047698c2'})
+  [tool call]   add_fact_property_value({'fact_id': '5205a2cf-515d-4634-a5c4-a6fb50df0d0c', 'property_id': '35af158a-cf0f-42c1-8de1-35b6047698c2', 'value': '2019-01', 'literal_type': 'DATE', 'text': 'Alice Johnson is a senior software engineer at IBM, where she has worked since 2019.'})
+  [tool call]   add_fact_property_value({'fact_id': '52e592b0-bb75-42d3-9e61-456b5f796b28', 'property_id': '35af158a-cf0f-42c1-8de1-35b6047698c2', 'value': '2019-10', 'literal_type': 'DATE', 'text': 'IBM is a technology and consulting company headquartered in Armonk, New York. In October 2019, IBM acquired Red Hat, an enterprise open-source software company.'})
+  [tool call]   search_schema({'query': 'POSITION', 'type': 'property'})
+
+fetch_database_data(compact=True) -> 13 rows extracted from one paragraph
+
+------------------------------------------------------------
+3. answer() -- query the KB that import_text just built
+------------------------------------------------------------
+answer(): In October 2019, IBM acquired Red Hat, an enterprise open-source software company.
+
+------------------------------------------------------------
+4. validate() -- check a statement against the extracted facts
+------------------------------------------------------------
+validate() supporting: [{'fact_id': '5205a2cf-515d-4634-a5c4-a6fb50df0d0c', 'fact': 'Alice Johnson_WORKED_AT_IBM', 'head': 'Alice Johnson', 'relation': 'WORKED_AT', 'tail': 'IBM'}, {'literal_id': '1977689a-209d-4f5d-b5c5-4e2dade3c2c0', 'owner_id': '5205a2cf-515d-4634-a5c4-a6fb50df0d0c', 'owner': 'Alice Johnson_WORKED_AT_IBM', 'property': 'START_DATE', 'value': '2019-01', 'type': 'DATE'}]
+validate() counter:    []
+
+------------------------------------------------------------
+5. enrich() -- pull additional context around Alice from the extracted graph
+------------------------------------------------------------
+enrich('Alice') -> 5 result(s):
+  entity='Alice Johnson' relation='WORKED_AT' value='IBM' distance=1
+  entity='Alice Johnson' relation='WORKED_AT' value='Nimbus Analytics' distance=1
+  entity='Alice Johnson' relation='SPECIALIZES_IN' value='distributed systems' distance=1
+  entity='IBM' relation='ACQUIRED' value='Red Hat' distance=2
+  entity='IBM' relation='HEADQUARTERED_IN' value='Armonk, New York' distance=2
+
+Demo complete.

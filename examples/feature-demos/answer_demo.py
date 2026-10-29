@@ -16,10 +16,7 @@ per-node metadata -- see the table below for how `natural_language` and
                                            has the metadata narrated as an
                                            appended section
 
-Requires OPENAI_API_KEY -- not live-verified in this session (no key
-available in the sandboxed environment this was written in). The calls
-below are structurally correct against KnowledgeManager.answer's signature;
-run it yourself with a real key to see live output.
+Requires OPENAI_API_KEY.
 
     export OPENAI_API_KEY=sk-...
     python3 answer_demo.py

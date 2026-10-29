@@ -1,0 +1,23 @@
+Connecting to Neo4j at bolt://127.0.0.1:17694
+
+------------------------------------------------------------
+1. Create database, declare schema
+------------------------------------------------------------
+create_database result: {'status': 'success'}
+Declared PERSON, COMPANY, WORKED_AT
+
+------------------------------------------------------------
+2. Add data
+------------------------------------------------------------
+Added Alice, IBM, and the WORKED_AT fact between them
+
+------------------------------------------------------------
+3. Query
+------------------------------------------------------------
+fetch_database_data → 3 rows:
+  {'relation_type': 'IS_INSTANCE_OF', 'entity_name': 'Alice', 'class_name': 'PERSON'}
+  {'relation_type': 'IS_INSTANCE_OF', 'entity_name': 'IBM', 'class_name': 'COMPANY'}
+  {'relation_type': 'REPRESENTS', 'entity_name': 'Alice_WORKED_AT_IBM', 'source_name': 'Alice', 'target_name': 'IBM', 'relation_name': 'WORKED_AT'}
+Neo4j-reported stats: {'node_count': 6, 'relationship_count': 7}
+
+Demo complete. (Database 'kb_example' left in place — rerun with overwrite to reset it.)
