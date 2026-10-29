@@ -31,7 +31,7 @@ pip install -e ".[neo4j,chromadb,redis,search]"
 ## Running
 
 ```bash
-# Default: ephemeral file-backed KB at ~/.blue-kb, no search
+# Default: persistent file-backed KB at ~/.blue-kb, no search
 blue-data-kb-mcp
 
 # Persistent KB in a specific directory, with BM25 keyword search

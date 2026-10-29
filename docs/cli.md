@@ -214,7 +214,7 @@ $ blue-kb database select main
 $ blue-kb schema class add PERSON "A human individual"
 Added class: PERSON (id: 3b2a906c-…)
 
-$ blue-kb schema class property add AGE "Age of a person" --class PERSON
+$ blue-kb schema class property add AGE "Age of a person" --class PERSON --type number
 Added class property: AGE (id: 0d9eaaac-bf07-41e6-bd6d-34f60f4c90d7)
 
 $ blue-kb schema class add COMPANY "A business organization"
@@ -225,7 +225,7 @@ $ blue-kb schema relation add WORKED_AT "Employment relationship" \
 Added relation: WORKED_AT (id: 67a75f53-…)
 
 $ blue-kb schema relation property add START_DATE "Start of employment" \
-    --relation WORKED_AT
+    --relation WORKED_AT --type date
 Added relation property: START_DATE (id: 8c3d0a1e-…)
 
 # 3. Register a provenance source
@@ -279,24 +279,24 @@ $ blue-kb schema list
 │ COMPANY      │ A business organization │
 │ PERSON       │ A human individual      │
 └──────────────┴─────────────────────────┘
-                Class Properties                 
-┏━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┓
-┃ Class        ┃ Property     ┃ Description     ┃
-┡━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━┩
-│ PERSON       │ AGE          │ Age of a person │
-└──────────────┴──────────────┴─────────────────┘
+                     Class Properties                     
+┏━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━┓
+┃ Class        ┃ Property     ┃ Type   ┃ Description     ┃
+┡━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━┩
+│ PERSON       │ AGE          │ number │ Age of a person │
+└──────────────┴──────────────┴────────┴─────────────────┘
                              Relations                              
 ┏━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃ Source     ┃ Relation     ┃ Target     ┃ Description             ┃
 ┡━━━━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━┩
 │ PERSON     │ WORKED_AT    │ COMPANY    │ Employment relationship │
 └────────────┴──────────────┴────────────┴─────────────────────────┘
-                 Relation Properties                 
-┏━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┓
-┃ Relation     ┃ Property     ┃ Description         ┃
-┡━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━┩
-│ WORKED_AT    │ START_DATE   │ Start of employment │
-└──────────────┴──────────────┴─────────────────────┘
+                    Relation Properties                     
+┏━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┓
+┃ Relation     ┃ Property     ┃ Type ┃ Description         ┃
+┡━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━╇━━━━━━━━━━━━━━━━━━━━━┩
+│ WORKED_AT    │ START_DATE   │ date │ Start of employment │
+└──────────────┴──────────────┴──────┴─────────────────────┘
 # 9. List all instances
 $ blue-kb data list
 # optionally with provenance:

@@ -94,7 +94,7 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `delete_class(database, class_id)` | `None` | Delete a CLASS node |
 | `delete_relation(database, relation_id)` | `None` | Delete a RELATION node |
 | `delete_property(database, property_id)` | `None` | Delete a PROPERTY node |
-| `add_is_subclass_of(database, child_id, parent_id)` | `None` | Wire IS_SUBCLASS_OF edge; not deduplicated — calling twice adds two edges. The only way to express an is-a/type-of/kind-of hierarchy between two CLASSes or two RELATIONs — never a declared RELATION |
+| `add_is_subclass_of(database, child_id, parent_id)` | `None` | Wire IS_SUBCLASS_OF edge; idempotent (a repeated call adds nothing); refuses self-loops and cycles with `SchemaError`. The only way to express an is-a/type-of/kind-of hierarchy between two CLASSes or two RELATIONs — never a declared RELATION |
 | `remove_is_subclass_of(database, child_id, parent_id)` | `None` | Remove an IS_SUBCLASS_OF edge |
 | `attach_property(database, target_id, property_id)` | `None` | Wire DEFINE_PROPERTY from an existing CLASS/RELATION to an existing PROPERTY (idempotent) — reuse a property across classes/relations instead of declaring a same-meaning duplicate under a new name |
 | `attach_relation_domain(database, relation_id, class_id)` | `None` | Attach a CLASS to the relation's DOMAIN; deduplicated, and add-only — no detach counterpart, domains only widen |

@@ -297,6 +297,8 @@ kb.add_change_hook("main", on_kb_change)
 # Schema declarations fire the hook:
 person   = await kb.declare_class("main", "PERSON", "A human individual")
 # → class      'PERSON'
+company  = await kb.declare_class("main", "COMPANY", "A business organization")
+# → class      'COMPANY'
 
 worked_at = await kb.declare_relation_type("main", "WORKED_AT", "Employment", domain="PERSON", range="COMPANY")
 # → relation   'WORKED_AT'  (['PERSON'] → ['COMPANY'])
@@ -305,6 +307,7 @@ await kb.declare_class_property("main", "AGE", "Age", class_id=person)
 # → property   'AGE'  on class 'PERSON'
 
 employee = await kb.declare_class("main", "EMPLOYEE", "")
+# → class      'EMPLOYEE'
 await kb.add_is_subclass_of("main", employee, person)
 # → subclass   EMPLOYEE IS_SUBCLASS_OF PERSON
 
@@ -314,12 +317,16 @@ await kb.declare_class("main", "PERSON", "ignored")   # hook does not fire
 # Instance writes fire the hook:
 alice = await kb.add_entity("main", name="Alice", class_id=person)
 # → entity     'Alice'  (class: PERSON)
+ibm   = await kb.add_entity("main", name="IBM", class_id=company)
+# → entity     'IBM'  (class: COMPANY)
 
 fact = await kb.add_fact("main", relation_id=worked_at, head_entity_id=alice, tail_entity_id=ibm)
 # → fact       Alice —WORKED_AT→ IBM
 
 # Writes to other databases are not observed:
-await kb.add_entity("other", name="Bob", class_id=person)   # hook does not fire
+kb.create_database("other")
+other_person = await kb.declare_class("other", "PERSON", "A human individual")   # hook does not fire
+await kb.add_entity("other", name="Bob", class_id=other_person)                 # hook does not fire
 
 # Remove when no longer needed:
 kb.remove_change_hook("main", on_kb_change)

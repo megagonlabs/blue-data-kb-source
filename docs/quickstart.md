@@ -25,7 +25,7 @@ Classes, relations, and properties — the typed vocabulary your data will use.
 blue-kb schema class add PERSON "A human individual"
 blue-kb schema class add COMPANY "A business organization"
 blue-kb schema relation add WORKED_AT "Employment relationship" --domain PERSON --range COMPANY
-blue-kb schema class property add AGE "Age of a person" --class PERSON
+blue-kb schema class property add AGE "Age of a person" --class PERSON --type number
 ```
 
 ## 3. Add data
@@ -39,7 +39,7 @@ blue-kb data entity add --name IBM --class COMPANY
 blue-kb data fact add --head Alice --relation WORKED_AT --tail IBM \
     --text "Alice joined IBM in June 1998."
 
-blue-kb data entity property set 30 --entity Alice --property AGE --type NUMBER
+blue-kb data entity property set 30 --entity Alice --property AGE
 ```
 
 ## 4. Look at what you built
