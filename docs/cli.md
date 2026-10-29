@@ -169,8 +169,8 @@ $ blue-kb profile config OPENAI_API_KEY
 |---|---|---|---|
 | `OPENAI_API_KEY` | secret | — | ✓ |
 | `ANTHROPIC_API_KEY` | secret | — | |
-| `BLUE_DATA_LLM_PROVIDER` | str | `openai` | |
-| `BLUE_DATA_LLM_MODEL` | str | `gpt-4o` | ✓ |
+| `BLUE_DATA_LLM_PROVIDER` | str | blank | |
+| `BLUE_DATA_LLM_MODEL` | str | unset (`gpt-4o`) | |
 | `BLUE_DATA_CLI_FORMAT` | str | `table` | |
 | `BLUE_DATA_CLI_LOG_LIMIT` | int | `80` | |
 | `BLUE_DATA_KB_SOURCE_DATA_DIR` | directory | `~/.blue-kb` | ✓ |
@@ -181,6 +181,7 @@ $ blue-kb profile config OPENAI_API_KEY
 | `BLUE_DATA_KB_SOURCE_QUERY_LLM_MODEL` | str | *inherits* | |
 | `BLUE_DATA_KB_SOURCE_VALIDATION_LLM_MODEL` | str | *inherits* | |
 | `BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_LLM_MODEL` | str | *inherits* | |
+| `BLUE_DATA_KB_SOURCE_ENRICHMENT_LLM_MODEL` | str | *inherits* | |
 | `BLUE_DATA_KB_SOURCE_INGESTION_LLM_MODEL` | str | *inherits* | |
 | `BLUE_DATA_KB_SOURCE_ASSERTION_LLM_MODEL` | str | *inherits* | |
 | `BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_TIMEOUT` | float | `1800` | |
@@ -190,7 +191,7 @@ $ blue-kb profile config OPENAI_API_KEY
 | `BLUE_DATA_KB_SOURCE_EXTRACTION_RELATED_DATA_K` | int | `10` | |
 | `BLUE_DATA_KB_SOURCE_EXTRACTION_EXPAND_SCHEMA` | bool | `true` | |
 
-Each per-function model falls back to `BLUE_DATA_KB_SOURCE_LLM_MODEL`, then to `BLUE_DATA_LLM_MODEL` — so setting one value covers every command, and a single function can still be pinned to a different model.
+Each per-function model falls back to `BLUE_DATA_KB_SOURCE_LLM_MODEL`, then to `BLUE_DATA_LLM_MODEL` — so setting one value covers every command, and a single function can still be pinned to a different model. When none of them is set, `profile inspect` shows the model as unset and the LLM commands use `gpt-4o`. `BLUE_DATA_LLM_PROVIDER` is a family parameter that `blue-kb` doesn't read yet: its LLM features always use OpenAI.
 
 `BLUE_DATA_KB_SOURCE_HOME` (default `~/.blue-kb`) is deliberately *not* a profile parameter: it is the directory the profiles themselves live in, so it can only be set in the environment.
 

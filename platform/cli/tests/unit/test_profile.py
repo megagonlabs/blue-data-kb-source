@@ -24,12 +24,13 @@ def test_spec_merges_the_family_parameters_with_this_cli_s_own():
     assert "BLUE_DATA_KB_SOURCE_EXTRACTION_LLM_MODEL" in spec
 
 
-def test_only_four_parameters_are_asked_on_a_first_run():
+def test_a_first_run_asks_only_for_the_key_and_where_data_lives():
     """`blue-kb profile config` walks the required set; keeping it small is the
-    difference between a usable first run and an interrogation."""
+    difference between a usable first run and an interrogation. blue-data 1.0
+    made BLUE_DATA_LLM_MODEL optional (unset = the provider's default), so it is
+    no longer asked (#153)."""
     assert [p.name for p in cli_spec().required()] == [
         "OPENAI_API_KEY",
-        "BLUE_DATA_LLM_MODEL",
         "BLUE_DATA_KB_SOURCE_DATA_DIR",
         "BLUE_DATA_KB_SOURCE_DATABASE",
     ]
@@ -37,7 +38,7 @@ def test_only_four_parameters_are_asked_on_a_first_run():
 
 def test_every_llm_model_parameter_inherits_toward_the_family_default():
     spec = cli_spec()
-    for fn in ("EXTRACTION", "QUERY", "VALIDATION", "SCHEMA_EXPANSION", "INGESTION", "ASSERTION"):
+    for fn in ("EXTRACTION", "QUERY", "VALIDATION", "SCHEMA_EXPANSION", "ENRICHMENT", "INGESTION", "ASSERTION"):
         param = spec[f"BLUE_DATA_KB_SOURCE_{fn}_LLM_MODEL"]
         assert param.inherits == ("BLUE_DATA_KB_SOURCE_LLM_MODEL", "BLUE_DATA_LLM_MODEL")
 
@@ -240,7 +241,7 @@ def test_an_unconfigured_cli_still_runs(runner):
     """A fresh install must not require `profile add` before anything works."""
     invoke(runner, ["schema", "class", "add", "PERSON", "A human"])
     out = json.loads(invoke(runner, ["profile", "inspect", "--format", "json"]).output)
-    assert out["values"]["BLUE_DATA_LLM_MODEL"] == {"value": "gpt-4o", "source": "default"}
+    assert out["values"]["BLUE_DATA_KB_SOURCE_DATABASE"] == {"value": "default", "source": "default"}
 
 
 def test_inspect_secret_display_matches_the_tier_that_won(runner, monkeypatch):
@@ -309,7 +310,8 @@ def test_the_first_command_creates_the_default_profile(runner, tmp_path):
 def test_the_created_profile_is_empty_so_values_track_the_spec_defaults(runner):
     """Seeding it with today's defaults would freeze them at install time."""
     out = json.loads(invoke(runner, ["profile", "inspect", "--format", "json"]).output)
-    assert out["values"]["BLUE_DATA_LLM_MODEL"] == {"value": "gpt-4o", "source": "default"}
+    assert out["values"]["BLUE_DATA_CLI_FORMAT"] == {"value": "table", "source": "default"}
+    assert not any(v["source"].startswith("profile:") for v in out["values"].values())
 
 
 def test_first_use_creates_no_database(runner, tmp_path):
