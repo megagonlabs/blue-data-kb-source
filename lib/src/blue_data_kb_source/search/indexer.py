@@ -496,8 +496,15 @@ class KBSearchIndexer:
                 "dim": self._vector_dim,
                 "distance_metric": self._distance_metric,
             })
-        except Exception:
-            pass
+        except Exception as exc:
+            # Raise rather than carry on: upserts into a collection with no index
+            # land where no search can reach them, and the failure would only
+            # surface later as "No such index" on every search (#148). Left
+            # unmarked, so the next write retries the creation.
+            raise KBError(
+                f"could not create vector index {coll_name!r} on "
+                f"{type(self._vector_source).__name__}: {exc}"
+            ) from exc
         self._vector_indices_created.add(key)
 
     def _upsert_vector(

@@ -142,6 +142,28 @@ def _neo4j_connection() -> dict[str, Any]:
     return connection
 
 
+REDIS_SCAN_PREFIX_DEFAULT = "blue_kb:"  # same default as `blue-kb database register`
+
+
+def _redis_connection() -> dict[str, Any]:
+    """Redis vector connection from the REDIS_HOST/PORT/DB/SCAN_PREFIX variables.
+    Always carries a scan_prefix: RedisVectorSource can neither create an index nor
+    build key names without one (#148)."""
+    connection: dict[str, Any] = {
+        "scan_prefix": os.environ.get("BLUE_DATA_KB_SOURCE_REDIS_SCAN_PREFIX") or REDIS_SCAN_PREFIX_DEFAULT,
+    }
+    if host := os.environ.get("BLUE_DATA_KB_SOURCE_REDIS_HOST"):
+        connection["host"] = host
+    for key, var in (("port", "BLUE_DATA_KB_SOURCE_REDIS_PORT"), ("db", "BLUE_DATA_KB_SOURCE_REDIS_DB")):
+        raw = os.environ.get(var)
+        if raw:
+            try:
+                connection[key] = int(raw)
+            except ValueError:
+                raise ValueError(f"{var} must be an integer, got {raw!r}") from None
+    return connection
+
+
 # ---------------------------------------------------------------------------
 # KBSource factory
 # ---------------------------------------------------------------------------
@@ -180,6 +202,8 @@ def _build_kb() -> KBSource:
             vector_connection: dict[str, Any] = {}
             if vector_backend == "file":
                 vector_connection["directory"] = _directory()
+            elif vector_backend == "redis":
+                vector_connection = _redis_connection()
             search_cfg["vector"] = {
                 "_class": _VECTOR_CLASS_BY_BACKEND[vector_backend],
                 "name": "kb_vectors",

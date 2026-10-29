@@ -105,6 +105,48 @@ def test_database_search_config_set(runner):
     assert cfg["mode"] == "bm25"
 
 
+def _vector_connection(runner, db):
+    cfg = invoke_json(runner, ["--database", db, "database", "search", "config", "show"])
+    return cfg["vector"]["connection"]
+
+
+def test_register_redis_always_stores_a_scan_prefix(runner):
+    """#148: without a scan_prefix RedisVectorSource can't create its index, and
+    writes go to keys literally prefixed "None"."""
+    invoke(runner, ["database", "register", "r", "--search", "semantic", "--vector-backend", "redis",
+                    "--redis-host", "127.0.0.1", "--redis-port", "46591"])
+    assert _vector_connection(runner, "r") == {"scan_prefix": "blue_kb:", "host": "127.0.0.1", "port": 46591}
+
+
+def test_register_redis_takes_a_scan_prefix(runner):
+    invoke(runner, ["database", "register", "r", "--search", "semantic", "--vector-backend", "redis",
+                    "--redis-scan-prefix", "team_a:"])
+    assert _vector_connection(runner, "r") == {"scan_prefix": "team_a:"}
+
+
+def test_search_config_set_redis_stores_a_scan_prefix(runner):
+    invoke(runner, ["--database", "main", "database", "create", "main"])
+    invoke(runner, ["--database", "main", "database", "search", "config", "set", "--search", "semantic",
+                    "--vector-backend", "redis", "--redis-db", "2"])
+    assert _vector_connection(runner, "main") == {"scan_prefix": "blue_kb:", "db": 2}
+
+
+def test_search_config_set_redis_options_imply_the_redis_backend(runner):
+    invoke(runner, ["--database", "main", "database", "create", "main"])
+    invoke(runner, ["--database", "main", "database", "search", "config", "set", "--redis-port", "6380"])
+    cfg = invoke_json(runner, ["--database", "main", "database", "search", "config", "show"])
+    assert cfg["vector"]["_class"].endswith("RedisVectorSource")
+    assert cfg["vector"]["connection"] == {"scan_prefix": "blue_kb:", "port": 6380}
+
+
+def test_search_config_set_refuses_redis_options_for_another_backend(runner):
+    invoke(runner, ["--database", "main", "database", "create", "main"])
+    result = runner.invoke(cli, ["--database", "main", "database", "search", "config", "set",
+                                 "--vector-backend", "chromadb", "--redis-port", "6380"])
+    assert result.exit_code != 0
+    assert "--redis-* options don't apply to --vector-backend chromadb" in result.output
+
+
 def test_database_select_changes_default(runner):
     invoke(runner, ["--database", "main", "database", "create", "main"])
     invoke(runner, ["database", "select", "main"])

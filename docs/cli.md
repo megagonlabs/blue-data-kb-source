@@ -79,6 +79,11 @@ blue-kb database register main \
     --vector-backend redis \
     --redis-host localhost \
     --redis-port 6379
+# Redis keys and indexes are namespaced by --redis-scan-prefix (default `blue_kb:`);
+# set a different one to keep two KB installations on one Redis server apart.
+# If a vector index can't be created, the write that triggered it fails with the
+# cause. The graph write itself is already committed, so after fixing the vector
+# config run `blue-kb data reindex` to index what was written in the meantime.
 
 # Update search configuration for an existing database
 blue-kb --database main database search config set --search bm25
@@ -383,14 +388,14 @@ Shared `ASSERT_OPTS` on every `assert` command and `blue-kb data ingest`: `[--de
 | `blue-kb profile inspect [NAME] [--format table\|json]` | Show every configuration value and the tier it came from; secrets masked |
 | `blue-kb profile config [PARAM [VALUE]] [--profile NAME]` | Set configuration: no args walks the required parameters, PARAM prompts for one, PARAM VALUE sets it directly. Secrets always prompt |
 | `blue-kb database list [--format table\|json]` | List registered databases with backend and search mode |
-| `blue-kb database register NAME [options]` | Register a new database with graph and search backends |
+| `blue-kb database register NAME [options]` | Register a new database with graph and search backends. Redis vector options: `--redis-host`, `--redis-port`, `--redis-db`, `--redis-scan-prefix` (key/index namespace, default `blue_kb:`) |
 | `blue-kb database create NAME` | Create a database, inheriting the session database's backend and search config |
 | `blue-kb database delete NAME [--yes]` | Delete a database and unregister it |
 | `blue-kb database select NAME` | Set the default target database |
 | `blue-kb database config show` | Print graph backend config for the current database |
 | `blue-kb database config set [--graph-backend …] [--directory …] [--neo4j-uri …] …` | Update graph backend config |
 | `blue-kb database search config show` | Print search config for the current database |
-| `blue-kb database search config set [--search none\|bm25\|semantic] [--bm25-index-dir …] [--vector-backend …] …` | Update search config |
+| `blue-kb database search config set [--search none\|bm25\|semantic] [--bm25-index-dir …] [--vector-backend …] …` | Update search config. A vector option replaces the whole vector config; `--redis-*` options alone imply `--vector-backend redis` |
 | `blue-kb schema list [--format table\|json]` | List classes, relations, properties, and hierarchy |
 | `blue-kb schema export [-o\|--output FILE]` | Export the schema as JSON (default: stdout); same shape `blue-kb schema import` reads |
 | `blue-kb schema import FILE` | Import a schema previously produced by `blue-kb schema export` (declares idempotently; `-` reads stdin) |

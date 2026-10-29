@@ -108,6 +108,59 @@ def test_live_vector_source_and_embedding_fn_objects_are_used_as_is():
     assert kb._search_indexer._embedding_fn is _fake_embedding
 
 
+class _FailingIndexVectorSource(MemoryVectorSource):
+    """Refuses VECTOR.CREATE_INDEX the first *failures* times, the way a
+    RedisVectorSource with no scan_prefix refuses it every time (#148)."""
+
+    def __init__(self, name, failures=1):
+        super().__init__(name)
+        self.failures = failures
+        self.create_calls = 0
+
+    def execute_query(self, query, **kwargs):
+        if query.get("op") == "VECTOR.CREATE_INDEX":
+            self.create_calls += 1
+            if self.create_calls <= self.failures:
+                raise Exception("VECTOR.CREATE_INDEX requires index, scan_prefix, collection, dim")
+        return super().execute_query(query, **kwargs)
+
+
+def _kb_with_vectors(vector_source):
+    kb = MemoryKBSource(
+        name="t",
+        properties={"search": {
+            "mode": "semantic", "vector_dim": 4,
+            "vector_source": vector_source, "embedding_fn": _fake_embedding,
+        }},
+    )
+    kb.create_database("main")
+    return kb
+
+
+async def test_a_failed_vector_index_creation_is_raised_not_swallowed():
+    """#148: the failure used to be swallowed and the index marked created, so vectors
+    went to an unindexed collection and every later search failed with "No such index"."""
+    from blue_data_kb_source import KBError
+
+    kb = _kb_with_vectors(_FailingIndexVectorSource("v", failures=99))
+    with pytest.raises(KBError, match="could not create vector index 'kb_schema_main'.*scan_prefix"):
+        await kb.declare_class("main", "PERSON", "A human individual")
+
+
+async def test_a_failed_vector_index_creation_is_retried_on_the_next_write():
+    from blue_data_kb_source import KBError
+
+    vectors = _FailingIndexVectorSource("v", failures=1)
+    kb = _kb_with_vectors(vectors)
+    with pytest.raises(KBError):
+        await kb.declare_class("main", "PERSON", "A human individual")
+    company = await kb.declare_class("main", "COMPANY", "A business")
+    assert vectors.create_calls == 2
+    await kb.add_entity("main", "Acme", class_id=company)
+    hits = await kb.search_schema("main", "COMPANY", mode="semantic")
+    assert any(h.name == "COMPANY" for h in hits)
+
+
 # ------------------------------------------------------------------ #
 # attach events keep the search index fresh                            #
 # ------------------------------------------------------------------ #

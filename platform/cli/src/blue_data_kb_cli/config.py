@@ -55,6 +55,10 @@ _VECTOR_CLASS_BY_BACKEND = {
     "redis": "blue_data.source.vector.redis.redis_vector_source.RedisVectorSource",
 }
 
+# Every Redis vector key and index is namespaced by this. Collection names already
+# carry the database (kb_<collection>_<database>), so one prefix serves them all.
+REDIS_SCAN_PREFIX_DEFAULT = "blue_kb:"
+
 
 CLI_HOME_DEFAULT = "~/.blue-kb"
 

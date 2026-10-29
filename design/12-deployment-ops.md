@@ -84,6 +84,7 @@ A completely separate `BLUE_DATA_KB_SOURCE_*` namespace, since the server owns o
 | `BLUE_DATA_KB_SOURCE_NEO4J_DATABASE` | `neo4j` | Physical Neo4j database; logical KB databases are tags inside it (ADR-033), so tool calls can't select another one (#132) |
 | `BLUE_DATA_KB_SOURCE_SEARCH` | `none` | `none` \| `bm25` \| `semantic` |
 | `BLUE_DATA_KB_SOURCE_VECTOR_BACKEND` | `memory` | `memory` \| `file` \| `chromadb` \| `redis`, when `SEARCH=semantic` |
+| `BLUE_DATA_KB_SOURCE_REDIS_HOST` / `_PORT` / `_DB` / `_SCAN_PREFIX` | `localhost` / `6379` / `0` / `blue_kb:` | Redis vector connection, when `VECTOR_BACKEND=redis`; every key and index is namespaced by the scan prefix (#148) |
 | `BLUE_DATA_KB_SOURCE_EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model, when `SEARCH=semantic` |
 | `BLUE_DATA_KB_SOURCE_LLM_MODEL` | `gpt-4o` | Default model for `answer`/`validate`/`enrich`/`expand_schema`/`import_text` |
 | `BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_TIMEOUT` | `1800` | Overall cap (seconds) on each expansion run, including `import_text`'s (#113); `0` = none |

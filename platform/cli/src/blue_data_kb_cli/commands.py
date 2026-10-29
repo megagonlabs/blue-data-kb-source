@@ -45,6 +45,7 @@ from rich.tree import Tree
 
 from blue_data_kb_cli.config import (
     NEO4J_PASSWORD_ENV,
+    REDIS_SCAN_PREFIX_DEFAULT,
     _BACKEND_BY_KB_CLASS,
     _FILE_KB_CLASS,
     _KB_CLASS_BY_BACKEND,
@@ -562,6 +563,21 @@ def _neo4j_flags(uri: str | None, user: str | None, password: str | None) -> dic
         raise click.ClickException(f"--neo4j-uri: {exc}") from None
 
 
+def _redis_connection(
+    host: str | None, port: int | None, db: int | None, scan_prefix: str | None
+) -> dict[str, Any]:
+    """The Redis vector connection. Always carries a scan_prefix: RedisVectorSource
+    can neither create an index nor build key names without one (#148)."""
+    conn: dict[str, Any] = {"scan_prefix": scan_prefix or REDIS_SCAN_PREFIX_DEFAULT}
+    if host:
+        conn["host"] = host
+    if port is not None:
+        conn["port"] = port
+    if db is not None:
+        conn["db"] = db
+    return conn
+
+
 @database_group.command("register")
 @click.argument("name")
 @click.option("--graph-backend", "graph_backend", type=click.Choice(["file", "neo4j"]), default="file", show_default=True)
@@ -577,6 +593,7 @@ def _neo4j_flags(uri: str | None, user: str | None, password: str | None) -> dic
 @click.option("--redis-host",     help="Redis host.")
 @click.option("--redis-port",     type=int, help="Redis port.")
 @click.option("--redis-db",       type=int, help="Redis database number.")
+@click.option("--redis-scan-prefix", help=f"Key prefix for this database's vectors in Redis. Default: {REDIS_SCAN_PREFIX_DEFAULT!r}.")
 @click.option("--embedding-provider", "embedding_provider", type=click.Choice(["openai"]), default="openai", show_default=True)
 @click.option("--embedding-model", help="Embedding model name.")
 def database_register(
@@ -594,6 +611,7 @@ def database_register(
     redis_host: str | None,
     redis_port: int | None,
     redis_db: int | None,
+    redis_scan_prefix: str | None,
     embedding_provider: str,
     embedding_model: str | None,
 ) -> None:
@@ -622,12 +640,7 @@ def database_register(
             if vector_backend == "chromadb" and vector_path:
                 vconn["path"] = vector_path
             if vector_backend == "redis":
-                if redis_host:
-                    vconn["host"] = redis_host
-                if redis_port is not None:
-                    vconn["port"] = redis_port
-                if redis_db is not None:
-                    vconn["db"] = redis_db
+                vconn.update(_redis_connection(redis_host, redis_port, redis_db, redis_scan_prefix))
             search_cfg["vector"] = _vector_properties(vector_backend, vconn)
             embedding_cfg: dict[str, Any] = {"provider": embedding_provider}
             if embedding_model:
@@ -816,6 +829,7 @@ def database_search_config_show(obj: dict) -> None:
 @click.option("--redis-host",     help="Redis host.")
 @click.option("--redis-port",     type=int, help="Redis port.")
 @click.option("--redis-db",       type=int, help="Redis database number.")
+@click.option("--redis-scan-prefix", help=f"Key prefix for this database's vectors in Redis. Default: {REDIS_SCAN_PREFIX_DEFAULT!r}.")
 @click.option("--embedding-provider", "embedding_provider", type=click.Choice(["openai"]))
 @click.option("--embedding-model", help="Embedding model name.")
 @click.pass_obj
@@ -829,6 +843,7 @@ def database_search_config_set(
     redis_host: str | None,
     redis_port: int | None,
     redis_db: int | None,
+    redis_scan_prefix: str | None,
     embedding_provider: str | None,
     embedding_model: str | None,
 ) -> None:
@@ -843,19 +858,19 @@ def database_search_config_set(
         # Turning search on after the fact needs the same corpus directory a
         # fresh `database register` would have given it.
         search_updates["bm25_index_dir"] = _bm25_dir_for(load_db_config(db).get("connection") or {})
-    if vector_backend or vector_directory or vector_path or redis_host or redis_port is not None or redis_db is not None:
+    redis_given = redis_host or redis_port is not None or redis_db is not None or redis_scan_prefix
+    if vector_backend or vector_directory or vector_path or redis_given:
         vconn: dict[str, Any] = {}
         if vector_directory:
             vconn["directory"] = vector_directory
         if vector_path:
             vconn["path"] = vector_path
-        if redis_host:
-            vconn["host"] = redis_host
-        if redis_port is not None:
-            vconn["port"] = redis_port
-        if redis_db is not None:
-            vconn["db"] = redis_db
-        search_updates["vector"] = _vector_properties(vector_backend or "memory", vconn)
+        backend = vector_backend or ("redis" if redis_given else "memory")
+        if backend == "redis":
+            vconn.update(_redis_connection(redis_host, redis_port, redis_db, redis_scan_prefix))
+        elif redis_given:
+            raise click.ClickException(f"--redis-* options don't apply to --vector-backend {backend}.")
+        search_updates["vector"] = _vector_properties(backend, vconn)
     embedding_updates: dict[str, Any] = {}
     if embedding_provider:
         embedding_updates["provider"] = embedding_provider
