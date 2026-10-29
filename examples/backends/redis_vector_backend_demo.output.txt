@@ -8,23 +8,23 @@ Declared PERSON/COMPANY/WORKED_AT, added Alice, IBM, and their fact
 ------------------------------------------------------------
 2. BM25 keyword search — local, doesn't touch Redis at all
 ------------------------------------------------------------
-search_data('Alice', mode='keyword'): ['Alice_WORKED_AT_IBM', 'Alice', 'IBM']
+search_data('Alice', mode='keyword'): ['Alice', 'Alice_WORKED_AT_IBM']
 
 ------------------------------------------------------------
 3. Semantic search via Redis Stack — write path
 ------------------------------------------------------------
 Documents actually written to Redis by add_entity/declare_class: 6
-  blue_data_kb_examples_demo:kb_data_main:3d789330-7d9a-4804-b66e-cc03116843ca
-  blue_data_kb_examples_demo:kb_data_main:5dc19811-43d2-4d88-ae40-adce4a1bb5ce
+  blue_data_kb_examples_demo:kb_data_main:6438adb3-5ded-4274-82e1-cd7cab1107de
+  blue_data_kb_examples_demo:kb_data_main:9b3b4903-3789-47e2-9acd-b842a7588b91
 
 ------------------------------------------------------------
 4. Semantic search via Redis Stack — read path (known gap)
 ------------------------------------------------------------
-search_data('Alice', mode='semantic'): []
+search_data('Alice', mode='semantic'): [('Alice', 0.371), ('Alice_WORKED_AT_IBM', 0.169), ('IBM', 0.088)]
 
 ------------------------------------------------------------
 5. Cleanup
 ------------------------------------------------------------
-Cleanup: dropped 2 index(es), deleted 0 leftover key(s)
+Cleanup: dropped 2 index(es), deleted 6 leftover key(s)
 
 Demo complete.

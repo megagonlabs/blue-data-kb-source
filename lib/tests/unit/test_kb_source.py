@@ -384,3 +384,41 @@ async def test_raw_cypher_gets_the_logical_database_as_db(kb):
     assert rows == []
     rows = kb.execute_query("MATCH (n:CLASS {_kb_db: $db}) RETURN n.name AS name", database="test")
     assert [r["name"] for r in rows] == ["SECRET_A"]
+
+
+# ------------------------------------------------------------------ #
+# BM25 keyword search returns only documents that match (#152)         #
+# ------------------------------------------------------------------ #
+
+def _bm25_kb(backend, tmp_path):
+    if backend == "file":
+        from blue_data_kb_source import FileKBSource
+        return FileKBSource(name="s", properties={
+            "connection": {"directory": str(tmp_path)},
+            "search": {"mode": "bm25", "bm25_index_dir": str(tmp_path)},
+        })
+    return MemoryKBSource("s", properties={"search": {"mode": "bm25"}})  # Neo4j under KB_TEST_BACKEND=neo4j
+
+
+@pytest.mark.parametrize("backend", ["memory", "file"])
+async def test_bm25_search_returns_only_documents_sharing_a_query_term(backend, tmp_path):
+    """BM25Plus gives every document a positive score once a query term occurs in the
+    corpus, so `s > 0` kept them all: `search_data("Alice")` also returned IBM and Bob."""
+    pytest.importorskip("rank_bm25")
+    kb = _bm25_kb(backend, tmp_path)
+    kb.create_database("m")
+    person = await kb.declare_class("m", "PERSON", "A human")
+    company = await kb.declare_class("m", "COMPANY", "A business")
+    worked_at = await kb.declare_relation_type("m", "WORKED_AT", "Employment", domain="PERSON", range="COMPANY")
+    alice = await kb.add_entity("m", "Alice", class_id=person)
+    ibm = await kb.add_entity("m", "IBM", class_id=company)
+    await kb.add_entity("m", "Bob", class_id=person)
+    await kb.add_fact("m", relation_id=worked_at, head_entity_id=alice, tail_entity_id=ibm)
+
+    assert sorted(r.name for r in await kb.search_data("m", "Alice")) == ["Alice", "Alice_WORKED_AT_IBM"]
+    assert await kb.search_data("m", "zzz") == []
+    assert [r.name for r in await kb.search_schema("m", "employment")] == ["WORKED_AT"]
+    # Ranking is unchanged among the documents that do match.
+    hits = await kb.search_data("m", "Alice IBM")
+    assert {r.name for r in hits} == {"Alice", "IBM", "Alice_WORKED_AT_IBM"}
+    assert hits[0].name == "Alice_WORKED_AT_IBM"

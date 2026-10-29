@@ -11,15 +11,12 @@ search_data('software') with no search configured (graph iteration order):
 search_data('software') with BM25 (most relevant first):
   ENTITY   Alice      Software engineer
   ENTITY   Red Hat    Enterprise open-source software company
-  ENTITY   Bob        Sales director
-  ENTITY   IBM        Technology and consulting company
-  FACT     Alice_WORKED_AT_IBM 
-search_schema('employment'): ['WORKED_AT', 'PERSON', 'COMPANY', 'ACQUIRED']
+search_schema('employment'): ['WORKED_AT']
 
 ------------------------------------------------------------
 3. type_filter
 ------------------------------------------------------------
 search_schema('company', type_filter='relation'): ['ACQUIRED', 'WORKED_AT']
-search_data('Alice', type_filter='fact'): ['Alice_WORKED_AT_IBM', 'Bob_WORKED_AT_Red Hat']
+search_data('Alice', type_filter='fact'): ['Alice_WORKED_AT_IBM']
 
 Demo complete.

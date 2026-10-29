@@ -587,12 +587,19 @@ class KBSearchIndexer:
             return []
 
         tokenized = [_bm25_tokens(corpus[nid]) for nid in doc_ids]
+        query_tokens = _bm25_tokens(query)
         bm25 = BM25Plus(tokenized)
-        scores = bm25.get_scores(_bm25_tokens(query))
-        ranked = sorted(zip(doc_ids, scores.tolist()), key=lambda x: x[1], reverse=True)
-        # print(f"BM25 ranked results: {ranked}")
-        # print(ranked)
-        return [(nid, float(s)) for nid, s in ranked if s > 0][:k]
+        scores = bm25.get_scores(query_tokens)
+        # BM25Plus adds idf·δ to *every* document's score once a query term occurs
+        # anywhere in the corpus, so a positive score doesn't mean a match: keep only
+        # documents that share a token with the query (#152). (Plus, not Okapi, so a
+        # term in most documents of a small corpus still scores above zero.)
+        wanted = set(query_tokens)
+        ranked = sorted(
+            ((nid, s) for nid, s, toks in zip(doc_ids, scores.tolist(), tokenized) if wanted.intersection(toks)),
+            key=lambda x: x[1], reverse=True,
+        )
+        return [(nid, float(s)) for nid, s in ranked][:k]
 
     def _knn_search(
         self,
