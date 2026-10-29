@@ -61,12 +61,15 @@ from blue_data_kb_cli.config import (
     load_db_config,
     masked,
     register_database,
+    registered_db_config,
+    restore_db_config,
     unregister_database,
     update_db_config,
 )
 from blue_data_kb_cli.profile import profile_group, profile_store, resolver_for
 
 console = Console()
+err_console = Console(stderr=True)
 
 # Keep a local alias so existing helpers still compile
 FileKBSource = KBSource  # type alias — runtime type is the MRO class from _make_kb
@@ -647,11 +650,16 @@ def database_register(
                 embedding_cfg["model"] = embedding_model
             search_cfg["embedding"] = embedding_cfg
 
+    previous = registered_db_config(name)
     try:
         kb = register_database(name, class_path, connection=connection, search=search_cfg)
         if name not in kb.fetch_databases():
             kb.create_database(name)
     except Exception as exc:
+        # Don't leave a half-registered name behind: a registry entry for a backend
+        # that never initialized (an unreachable server) is selectable and fails on
+        # every later command (#154).
+        restore_db_config(name, previous)
         raise click.ClickException(f"Failed to register/initialize backend: {exc}")
     console.print(f"Registered database: [bold]{name}[/bold] (graph={graph_backend}, search={search})")
 
@@ -745,6 +753,15 @@ def database_select(name: str) -> None:
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(name)
     console.print(f"Default database set to: [bold]{name}[/bold]")
+    if registered_db_config(name) is None and name not in _make_kb(name).fetch_databases():
+        # Selecting an unknown name is allowed (commands create a file-backed database
+        # on first use), but after a failed `register` it silently sends data meant for
+        # another backend into a local file, so say so (#154).
+        err_console.print(
+            f"[yellow]Warning:[/yellow] '{name}' is not registered and doesn't exist yet; "
+            f"commands will create a file-backed database of that name in {_data_dir()}. "
+            f"Use `blue-kb database register {name} …` to configure another backend."
+        )
 
 
 # ------------------------------------------------------------------ #

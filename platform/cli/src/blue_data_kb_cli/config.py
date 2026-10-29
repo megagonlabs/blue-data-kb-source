@@ -158,6 +158,21 @@ def unregister_database(name: str) -> None:
     _get_registry().deregister_source(name)
 
 
+def registered_db_config(name: str) -> dict[str, Any] | None:
+    """The persisted properties for `name`, or None if it was never registered
+    (unlike `load_db_config`, no file-backend fallback)."""
+    return _get_registry().get_source_properties(name) or None
+
+
+def restore_db_config(name: str, previous: dict[str, Any] | None) -> None:
+    """Put `name`'s registry entry back as it was: `previous` properties, or no entry."""
+    if previous is None:
+        if registered_db_config(name) is not None:
+            unregister_database(name)
+    else:
+        _get_registry().register_record(name, "source", "/", properties=previous)
+
+
 def update_db_config(name: str, updates: dict[str, Any]) -> None:
     """Shallow-merge `updates` into the persisted properties for `name` (one level —
     a dict value is merged key-by-key into the existing dict at that key; anything

@@ -149,6 +149,56 @@ def test_search_config_set_refuses_redis_options_for_another_backend(runner):
     assert "--redis-* options don't apply to --vector-backend chromadb" in result.output
 
 
+def _failing_initialization(monkeypatch):
+    """`register` whose backend registers but can't initialize, like an unreachable Neo4j."""
+    import blue_data_kb_cli.commands as commands
+    real = commands.register_database
+
+    def flaky(*args, **kwargs):
+        kb = real(*args, **kwargs)
+        kb.fetch_databases = lambda: []
+        def refuse(name):
+            raise RuntimeError("Couldn't connect to 127.0.0.1:7999")
+        kb.create_database = refuse
+        return kb
+    monkeypatch.setattr(commands, "register_database", flaky)
+
+
+def test_a_failed_register_leaves_no_registry_entry(runner, monkeypatch):
+    """#154: an unreachable server used to leave the name registered anyway."""
+    _failing_initialization(monkeypatch)
+    result = runner.invoke(cli, ["database", "register", "main", "--search", "bm25"])
+    assert result.exit_code != 0 and "Couldn't connect" in result.output
+    assert "main" not in invoke_json(runner, ["database", "list", "--format", "json"])
+
+
+def test_a_failed_re_register_keeps_the_previous_config(runner, monkeypatch):
+    invoke(runner, ["database", "register", "main", "--search", "bm25"])
+    _failing_initialization(monkeypatch)
+    result = runner.invoke(cli, ["database", "register", "main", "--search", "none"])
+    assert result.exit_code != 0
+    cfg = invoke_json(runner, ["--database", "main", "database", "search", "config", "show"])
+    assert cfg["mode"] == "bm25"
+
+
+def test_selecting_an_unknown_name_warns_that_it_will_be_file_backed(runner):
+    """#154: after a failed register, `select` then silently sent writes to a file."""
+    result = invoke(runner, ["database", "select", "ghost"])
+    assert "Default database set to: ghost" in result.output
+    assert "'ghost' is not registered and doesn't exist yet" in result.output
+    assert "file-backed" in result.output
+
+
+@pytest.mark.parametrize("make", [
+    ["database", "register", "known"],                 # registered
+    ["--database", "known", "database", "create", "known"],  # exists as a file database
+])
+def test_selecting_a_known_database_does_not_warn(runner, make):
+    invoke(runner, make)
+    result = invoke(runner, ["database", "select", "known"])
+    assert "Warning" not in result.output
+
+
 def test_database_select_changes_default(runner):
     invoke(runner, ["--database", "main", "database", "create", "main"])
     invoke(runner, ["database", "select", "main"])
