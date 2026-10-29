@@ -15,13 +15,14 @@ from blue_data_kb_source._constants import (
     HEAD,
     IS_INSTANCE_OF,
     IS_VALUE_OF,
+    LITERAL,
     PROPERTY,
     RELATION,
     REPRESENTS,
     TAIL,
 )
 from blue_data_kb_source._text_match import match_score as _match_score
-from blue_data_kb_source.knowledge.helpers import fact_parts, fetch_node_metadata, find_fact
+from blue_data_kb_source.knowledge.helpers import fact_parts, fetch_node_metadata, find_fact, property_values
 from blue_data_kb_source.schema.manager import _canonicalize_schema_name
 from blue_data_kb_source.types import EnrichmentResult, KBError, ValidationResult
 
@@ -127,7 +128,7 @@ _TOOLS: list[dict[str, Any]] = [
             "name": "get_entity_properties",
             "description": (
                 "Return all property values attached to an entity. "
-                "Returns {properties: [{property_name, value, type, provenance}]}."
+                "Returns {properties: [{literal_id, property_name, value, type, provenance}]}."
             ),
             "parameters": {
                 "type": "object",
@@ -144,7 +145,7 @@ _TOOLS: list[dict[str, Any]] = [
             "name": "get_fact_properties",
             "description": (
                 "Return all property values attached to a fact. "
-                "Returns {properties: [{property_name, value, type}]}."
+                "Returns {properties: [{literal_id, property_name, value, type, provenance}]}."
             ),
             "parameters": {
                 "type": "object",
@@ -273,16 +274,27 @@ _VALIDATE_PROMPT = """\
 You are a knowledge base validation agent. Use the provided tools to find evidence
 that supports or contradicts the statement below.
 
+Evidence comes in two shapes. A relationship between two entities is a FACT; an
+attribute of an entity or fact (a title, a date, an age) is a PROPERTY VALUE, which
+get_entity_properties / get_fact_properties return with a literal_id. Cite each in
+its own shape:
+
+  fact:            {{"fact_id": "<id>", "fact": "<fact name>", "head": "<head>", "tail": "<tail>", "relation": "<relation>"}}
+  property value:  {{"literal_id": "<id>", "owner": "<entity or fact name>", "property": "<property>", "value": "<value>"}}
+
 When done, call return_result with:
 
-  {{"result": {{
-    "supporting": [{{"fact_id": "<id>", "fact": "<fact name>", "head": "<head>", "tail": "<tail>", "relation": "<relation>"}}],
-    "counter":    [{{"fact_id": "<id>", "fact": "<fact name>", "head": "<head>", "tail": "<tail>", "relation": "<relation>"}}]
-  }}}}
+  {{"result": {{"supporting": [<items>], "counter": [<items>]}}}}
 
-Both lists may be empty. Cite only facts you retrieved with the tools, each with the
-fact_id a tool returned for it: every item is checked against the KB, and one that
-isn't there is reported as unverified rather than as evidence.
+An item is supporting when it says what the statement says, and counter when it says
+something incompatible with it — for an attribute, a stored value that differs from
+the value the statement gives is counter-evidence, even when another stored value
+agrees. Look up the properties of the entities the statement is about, not only their
+facts.
+
+Both lists may be empty. Cite only evidence you retrieved with the tools, each with
+the fact_id or literal_id a tool returned for it: every item is checked against the
+KB, and one that isn't there is reported as unverified rather than as evidence.
 
 Current schema:
 {schema}
@@ -430,13 +442,17 @@ class QueryEngine:
         return self._verified(database, raw)
 
     def _verified(self, database: str, raw: Any) -> ValidationResult:
-        """The agent's evidence, keeping only facts that exist in the KB (#129).
+        """The agent's evidence, keeping only facts and property values that exist
+        in the KB (#129, #149).
 
         The agent's lists used to be returned as they came, so a model that
         hallucinated — or followed an instruction stored in KB text — could report
-        support the KB doesn't contain. Each item is resolved by its `fact_id`, or
-        failing that by its exact head/relation/tail names, and rewritten from the
-        graph; one that resolves to no FACT goes to `unverified`.
+        support the KB doesn't contain. A fact item is resolved by its `fact_id`, or
+        failing that by its exact head/relation/tail names; a property-value item
+        (one carrying `literal_id`, or `owner`/`property`/`value`) by its
+        `literal_id`, or failing that by its exact owner, property and value. Each
+        is rewritten from the graph; one that resolves to nothing goes to
+        `unverified`.
         """
         result = ValidationResult()
         if not isinstance(raw, dict):
@@ -444,7 +460,7 @@ class QueryEngine:
         for key in ("supporting", "counter"):
             items = raw.get(key) or []
             for item in items if isinstance(items, list) else []:
-                fact = self._resolve_cited_fact(database, item) if isinstance(item, dict) else None
+                fact = self._resolve_cited(database, item) if isinstance(item, dict) else None
                 if fact is None:
                     result.unverified.append({**item, "cited_as": key} if isinstance(item, dict)
                                              else {"item": item, "cited_as": key})
@@ -458,6 +474,57 @@ class QueryEngine:
             return []
         return [n for n in self._source.match_nodes(database, label=ENTITY)
                 if n.get("properties", {}).get("name") == name.strip()]
+
+    def _resolve_cited(self, database: str, item: dict) -> dict | None:
+        if item.get("literal_id") or ("property" in item and "value" in item and not item.get("fact_id")):
+            return self._resolve_cited_property_value(database, item)
+        return self._resolve_cited_fact(database, item)
+
+    def _resolve_cited_property_value(self, database: str, item: dict) -> dict | None:
+        literal_id = item.get("literal_id")
+        node = self._source.get_node(database, literal_id) if isinstance(literal_id, str) else None
+        if node is None or node.get("label") != LITERAL:
+            node = None
+            prop, value = item.get("property"), item.get("value")
+            if not (isinstance(prop, str) and prop.strip()) or value is None:
+                return None
+            wanted_prop = _canonicalize_schema_name(prop)
+            wanted_value = str(value).strip().casefold()
+            owner = item.get("owner")
+            owners = self._entities_named(database, owner) + [
+                f for f in self._source.match_nodes(database, label=FACT)
+                if isinstance(owner, str) and f.get("properties", {}).get("name") == owner.strip()
+            ]
+            for o in owners:
+                for pv in property_values(self._source, database, o["id"]):
+                    if (pv["property"] is not None
+                            and pv["property"].get("properties", {}).get("name") == wanted_prop
+                            and str(pv["literal"].get("properties", {}).get("value")).strip().casefold()
+                                == wanted_value):
+                        node = node or pv["literal"]
+        if node is None:
+            return None
+        owner_nbs = self._source.get_neighbors(database, node["id"], edge_type=HAS_PROPERTY, direction="in")
+        owner_node = owner_nbs[0]["node"] if owner_nbs else None
+        prop_nbs = self._source.get_neighbors(database, node["id"], edge_type=IS_VALUE_OF, direction="out")
+        props = node.get("properties", {})
+        return {
+            "literal_id": node["id"],
+            "owner_id": owner_node["id"] if owner_node else None,
+            "owner": self._owner_display_name(database, owner_node) if owner_node else None,
+            "property": _node_name(prop_nbs),
+            "value": props.get("value"),
+            "type": props.get("type"),
+        }
+
+    def _owner_display_name(self, database: str, owner: dict) -> str | None:
+        """An entity's name; a fact's name, or "head RELATION tail" when it has none."""
+        name = owner.get("properties", {}).get("name")
+        if owner.get("label") != FACT or name:
+            return name
+        parts = fact_parts(self._source, database, owner["id"])
+        names = [(parts[k] or {}).get("properties", {}).get("name") for k in ("head", "relation", "tail")]
+        return " ".join(n for n in names if n) or None
 
     def _resolve_cited_fact(self, database: str, item: dict) -> dict | None:
         fact_id = item.get("fact_id") or item.get("id")
@@ -812,6 +879,7 @@ class QueryEngine:
                 lit_p    = lit.get("properties", {})
                 prop_nbs = self._source.get_neighbors(database, lit["id"], edge_type=IS_VALUE_OF, direction="out")
                 props.append({
+                    "literal_id":    lit["id"],
                     "property_name": _node_name(prop_nbs),
                     "value":         lit_p.get("value"),
                     "type":          lit_p.get("type"),
@@ -827,9 +895,11 @@ class QueryEngine:
                 lit_p    = lit.get("properties", {})
                 prop_nbs = self._source.get_neighbors(database, lit["id"], edge_type=IS_VALUE_OF, direction="out")
                 props.append({
+                    "literal_id":    lit["id"],
                     "property_name": _node_name(prop_nbs),
                     "value":         lit_p.get("value"),
                     "type":          lit_p.get("type"),
+                    "provenance":    self._provenance_text(database, lit["id"]),
                 })
             return {"properties": props}
 

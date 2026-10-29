@@ -22,8 +22,9 @@ provenance-aware one. No LLM, no API key -- this is a deterministic,
 reproducible claim about the graph structure and provenance data itself.
 
 A bonus section at the end shows validate() surfacing the same conflict
-conversationally -- that part needs OPENAI_API_KEY and is not live-verified
-in this session (see examples/README.md).
+conversationally: both stored values come back as evidence, each with the
+source it came from. That part needs OPENAI_API_KEY; without it the demo says
+so and still completes.
 """
 import asyncio
 
@@ -147,16 +148,27 @@ async def main():
     print(STEP)
     print("Bonus -- validate() surfaces the same conflict conversationally (needs an LLM)")
     print(STEP)
-    print("Requires OPENAI_API_KEY -- not live-verified in this session (no key available")
-    print("in the sandboxed environment this was written in).")
-
+    statement = "Alice's title is Software Engineer."
     try:
-        result = await kb.validate("main", "Alice's title is Software Engineer.")
-        print(f"validate() supporting: {result.supporting}")
-        print(f"validate() counter:    {result.counter}")
-        print("A real run shows the 2020 resume as supporting evidence and the 2024")
-        print("performance review as counter-evidence -- validate() surfaces both, with their")
-        print("provenance, rather than silently picking one.")
+        result = await kb.validate("main", statement)
+        print(f"validate({statement!r})")
+
+        async def show(label, items):
+            print(f"  {label}:")
+            for item in items or [None]:
+                if item is None:
+                    print("    (none)")
+                elif "literal_id" in item:
+                    meta = await kb.get_metadata("main", item["literal_id"])
+                    sources = ", ".join(f"{e['source']} ({e['source_original']})" for e in meta["evidence"])
+                    print(f"    {item['owner']} . {item['property']} = {item['value']!r}   <- {sources}")
+                else:
+                    print(f"    {item['head']} -{item['relation']}-> {item['tail']}")
+
+        await show("supporting", result.supporting)
+        await show("counter", result.counter)
+        print("Both stored values come back as evidence, each traced to its source --")
+        print("validate() surfaces the conflict rather than silently picking one.")
     except Exception as e:
         print(f"validate() did not run: {type(e).__name__}: {e}")
         print("Set OPENAI_API_KEY and rerun to see the live conflict-surfacing behavior.")

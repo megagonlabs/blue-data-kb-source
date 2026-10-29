@@ -2,11 +2,12 @@
 Natural language querying -- validate().
 
 validate() checks a free-text statement against the KB and returns a
-ValidationResult(supporting: list[dict], counter: list[dict]) -- facts that
-support the statement and facts that contradict it. Like answer(), it also
+ValidationResult(supporting, counter, unverified) -- the stored facts and
+property values that support the statement, those that contradict it, and
+anything the agent cited that the KB doesn't hold. Like answer(), it also
 takes natural_language and include_metadata (see answer_demo.py for how
 those two flags combine); validate() has no separate "confidence score",
-the supporting/counter fact lists are the evidence.
+the supporting/counter lists are the evidence.
 
 Requires OPENAI_API_KEY -- not live-verified in this session (no key
 available in the sandboxed environment this was written in). The calls

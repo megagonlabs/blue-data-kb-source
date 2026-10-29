@@ -44,12 +44,12 @@ records, no LLM involved.
 ------------------------------------------------------------
 Bonus -- validate() surfaces the same conflict conversationally (needs an LLM)
 ------------------------------------------------------------
-Requires OPENAI_API_KEY -- not live-verified in this session (no key available
-in the sandboxed environment this was written in).
-validate() supporting: [{'fact': 'Alice', 'head': 'Alice', 'tail': 'Software Engineer', 'relation': 'TITLE'}]
-validate() counter:    []
-A real run shows the 2020 resume as supporting evidence and the 2024
-performance review as counter-evidence -- validate() surfaces both, with their
-provenance, rather than silently picking one.
+validate("Alice's title is Software Engineer.")
+  supporting:
+    Alice . TITLE = 'Software Engineer'   <- resume-2020.pdf (2020-01-15)
+  counter:
+    Alice . TITLE = 'Staff Software Engineer'   <- performance-review-2024.pdf (2024-06-01)
+Both stored values come back as evidence, each traced to its source --
+validate() surfaces the conflict rather than silently picking one.
 
 Demo complete.

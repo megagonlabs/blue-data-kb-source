@@ -4079,6 +4079,9 @@ def validate_cmd(
         return
 
     def _fact_label(fact: dict) -> str:
+        if "property" in fact and "fact_id" not in fact:
+            # A property value (#149): "owner · PROPERTY = value".
+            return f"{fact.get('owner') or '?'} · {fact.get('property')} = {fact.get('value')}"
         head, rel, tail = fact.get("head") or "", fact.get("relation") or "", fact.get("tail") or ""
         return f"{head} —{rel}→ {tail}" if rel else fact.get("fact", str(fact))
 

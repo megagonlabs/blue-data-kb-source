@@ -617,8 +617,9 @@ async def validate(
 ) -> str:
     """Return supporting and counter evidence from the knowledge base for a statement.
 
-    Every supporting/counter item is a fact that exists in the KB (with its fact_id);
-    anything the agent cited that isn't is listed under "unverified" instead.
+    Every supporting/counter item exists in the KB: a fact (with its fact_id) or a
+    property value (with its literal_id, owner, property and value). Anything the
+    agent cited that isn't is listed under "unverified" instead.
 
     Args:
         statement:         The statement to check.

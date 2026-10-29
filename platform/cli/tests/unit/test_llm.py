@@ -218,6 +218,25 @@ def test_validate_structured_format(runner):
     assert "(none)" in result.output
 
 
+def test_validate_prints_property_value_evidence(runner):
+    """#149: property values are evidence too, printed as owner · PROPERTY = value."""
+    _seed(runner)
+    invoke(runner, DB + ["schema", "class", "property", "add", "TITLE", "Job title", "--class", "EMPLOYEE"])
+    invoke(runner, DB + ["data", "entity", "property", "set", "Software Engineer", "--entity", "Alice", "--property", "TITLE"])
+    invoke(runner, DB + ["data", "entity", "property", "set", "Staff Software Engineer", "--entity", "Alice", "--property", "TITLE"])
+    payload = {
+        "supporting": [{"owner": "Alice", "property": "TITLE", "value": "Software Engineer"}],
+        "counter": [{"owner": "Alice", "property": "TITLE", "value": "Staff Software Engineer"}],
+    }
+    with patch("openai.AsyncOpenAI", _mock_openai_return_result(payload)):
+        result = runner.invoke(cli, DB + ["data", "validate", "Alice's title is Software Engineer."])
+    assert result.exit_code == 0, result.output
+    supporting, counter = result.output.split("Counter:")
+    assert "Alice · TITLE = Software Engineer" in supporting
+    assert "Alice · TITLE = Staff Software Engineer" in counter
+    assert "Unverified" not in result.output
+
+
 def test_validate_natural_language_format(runner):
     _seed(runner)
     mock_client = MagicMock()

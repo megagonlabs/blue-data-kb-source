@@ -388,8 +388,9 @@ the conflict correctly.
 **Result:** naive lookup 0/4 correct → provenance-aware lookup 4/4 correct — computed
 live from real graph traversal and `get_metadata` calls, not scripted. No LLM involved in
 the scored part at all; a bonus section shows `validate()` surfacing the same conflict
-conversationally, gracefully degrading with a clear message if `OPENAI_API_KEY` isn't set
-so the demo always completes.
+conversationally — the 2020 resume's `TITLE` as supporting evidence, the 2024 review's as
+counter-evidence, each traced to its source — and degrades with a clear message if
+`OPENAI_API_KEY` isn't set, so the demo always completes.
 
 ```bash
 python3 examples/scenario-demos/contradiction_catching_demo.py

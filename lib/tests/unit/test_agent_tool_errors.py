@@ -156,3 +156,96 @@ async def test_validate_resolves_a_cited_fact_by_its_names(kb):
     with _use(model):
         result = await kb.validate("main", "Alice never worked at IBM")
     assert [f["fact_id"] for f in result.counter] == [fact_id]
+
+
+# ------------------------------------------------------------------ #
+# validate cites property values too (#149)                            #
+# ------------------------------------------------------------------ #
+
+async def _alice_titles(kb):
+    person = kb.match_nodes("main", label="CLASS")[0]["id"]
+    title = await kb.declare_class_property("main", "TITLE", "Job title", class_id=person)
+    alice = await kb.add_entity("main", "Alice", class_id=person)
+    old = await kb.add_entity_property_value("main", "Software Engineer", entity_id=alice, property_id=title)
+    new = await kb.add_entity_property_value("main", "Staff Software Engineer", entity_id=alice, property_id=title)
+    return alice, old, new
+
+
+async def test_property_tools_return_each_value_with_its_literal_id(kb):
+    alice, old, new = await _alice_titles(kb)
+    fact_id = await _alice_at_ibm(kb)
+    start = await kb.declare_relation_property(
+        "main", "START_DATE", "Start", relation_id=kb.match_nodes("main", label="RELATION")[0]["id"])
+    started = await kb.add_fact_property_value("main", "1998-06", fact_id=fact_id, property_id=start,
+                                               text="Alice joined IBM in June 1998.")
+    results = {}
+    model = ScriptedModel(
+        [("get_entity_properties", {"entity_id": alice}), ("get_fact_properties", {"fact_id": fact_id})],
+        [("return_result", {"result": {"supporting": [], "counter": []}})],
+    )
+    with _use(model):
+        await kb.validate("main", "x", on_tool_result=lambda n, a, r: results.setdefault(n, r))
+    assert {p["literal_id"] for p in results["get_entity_properties"]["properties"]} == {old, new}
+    assert results["get_fact_properties"]["properties"] == [{
+        "literal_id": started, "property_name": "START_DATE", "value": "1998-06", "type": "STRING",
+        "provenance": "Alice joined IBM in June 1998.",
+    }]
+
+
+async def test_validate_resolves_cited_property_values_by_literal_id(kb):
+    """The issue's case: the stored values used to land in `unverified`, the bucket
+    for citations the KB doesn't hold."""
+    alice, old, new = await _alice_titles(kb)
+    model = ScriptedModel([("return_result", {"result": {
+        "supporting": [{"literal_id": old, "owner": "Alice", "property": "title", "value": "SWE"}],
+        "counter": [{"literal_id": new}]}})])
+    with _use(model):
+        result = await kb.validate("main", "Alice's title is Software Engineer.")
+    assert result.supporting == [{"literal_id": old, "owner_id": alice, "owner": "Alice", "property": "TITLE",
+                                  "value": "Software Engineer", "type": "STRING"}]
+    assert [c["value"] for c in result.counter] == ["Staff Software Engineer"]
+    assert result.unverified == []
+
+
+async def test_validate_resolves_a_cited_property_value_by_owner_property_and_value(kb):
+    alice, old, _ = await _alice_titles(kb)
+    model = ScriptedModel([("return_result", {"result": {"supporting": [
+        {"owner": "Alice", "property": "title", "value": "software engineer"}], "counter": []}})])
+    with _use(model):
+        result = await kb.validate("main", "Alice's title is Software Engineer.")
+    assert [s["literal_id"] for s in result.supporting] == [old]
+
+
+async def test_validate_resolves_a_property_value_of_a_fact(kb):
+    fact_id = await _alice_at_ibm(kb)
+    start = await kb.declare_relation_property(
+        "main", "START_DATE", "Start", relation_id=kb.match_nodes("main", label="RELATION")[0]["id"])
+    started = await kb.add_fact_property_value("main", "1998-06", fact_id=fact_id, property_id=start)
+    model = ScriptedModel([("return_result", {"result": {"supporting": [
+        {"owner": "Alice at IBM", "property": "START_DATE", "value": "1998-06"}], "counter": []}})])
+    with _use(model):
+        result = await kb.validate("main", "Alice joined IBM in June 1998.")
+    assert result.supporting == [{"literal_id": started, "owner_id": fact_id, "owner": "Alice at IBM",
+                                  "property": "START_DATE", "value": "1998-06", "type": "STRING"}]
+
+
+@pytest.mark.parametrize("cited", [
+    {"owner": "Alice", "property": "TITLE", "value": "Principal Engineer"},   # value not stored
+    {"owner": "Bob", "property": "TITLE", "value": "Software Engineer"},      # wrong owner
+    {"literal_id": "not-a-real-id", "property": "TITLE", "value": "CEO"},     # made-up id, no match
+])
+async def test_validate_flags_a_cited_property_value_the_kb_does_not_hold(kb, cited):
+    await _alice_titles(kb)
+    model = ScriptedModel([("return_result", {"result": {"supporting": [cited], "counter": []}})])
+    with _use(model):
+        result = await kb.validate("main", "Alice's title is Software Engineer.")
+    assert result.supporting == [] and result.unverified == [{**cited, "cited_as": "supporting"}]
+
+
+async def test_a_literal_id_that_is_not_a_property_value_is_not_evidence(kb):
+    """#129's guarantee holds for the new shape: an id has to name a LITERAL."""
+    alice, _, _ = await _alice_titles(kb)
+    model = ScriptedModel([("return_result", {"result": {"supporting": [{"literal_id": alice}], "counter": []}})])
+    with _use(model):
+        result = await kb.validate("main", "Alice exists.")
+    assert result.supporting == [] and len(result.unverified) == 1

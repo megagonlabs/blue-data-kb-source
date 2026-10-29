@@ -294,8 +294,11 @@ prose), `database`. Returns `{"result": [...]}`, or
 #### `validate`
 
 `statement`, `model`, `natural_language`, `include_metadata`, `database`.
-Returns `{"supporting": [...], "counter": [...]}` (plus `metadata` with
-`include_metadata=True`).
+Returns `{"supporting": [...], "counter": [...], "unverified": [...]}` (plus
+`metadata` with `include_metadata=True`). Each supporting/counter item exists in the
+KB: a fact (`fact_id`, `fact`, `head`, `relation`, `tail`) or a property value
+(`literal_id`, `owner_id`, `owner`, `property`, `value`, `type`). Items the agent
+cited that the KB doesn't hold are listed under `unverified`.
 
 #### `enrich`
 

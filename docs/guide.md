@@ -256,7 +256,7 @@ for a in answers:
     print(a)   # flat dict, LLM-chosen column names — not a fixed schema
 
 result = await kb.validate("main", "Alice worked at IBM")
-print(result.supporting)   # [{fact, head, tail, relation}, ...]
+print(result.supporting)   # facts {fact_id, fact, head, relation, tail} and property values {literal_id, owner, property, value, ...}
 print(result.counter)      # contradicting evidence
 
 related = await kb.enrich("main", "Alice", depth=2)
