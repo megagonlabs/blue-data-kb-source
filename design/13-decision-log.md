@@ -9,7 +9,7 @@ Architectural decisions are recorded here as they are made, throughout the desig
 **Date:** 2026-07-07
 **Status:** Accepted
 
-**Decision:** Python, minimum version 3.10.
+**Decision:** Python, minimum version 3.10; the supported range is now 3.12–3.13 (`requires-python = ">=3.12,<3.14"`, #168).
 
 **Rationale:** Python is the dominant language in the AI/ML ecosystem, providing the broadest access to LLM clients, graph database clients, and data tooling relevant to blue-kb.
 

@@ -44,7 +44,7 @@ blue-data-kb-source/
 
 ## Requirements
 
-- Python 3.10–3.14 (3.15 is not supported yet)
+- Python 3.12 or 3.13
 - The sibling [`blue-data`](https://github.com/megagon-internal/blue-data) repository, cloned beside this one (`../blue-data`); its `lib/` provides the graph and vector storage layer
 - An OpenAI API key for the LLM features (extraction, schema expansion, `answer` / `validate` / `enrich`)
 - Optional: a Neo4j 5 server, for the Neo4j backend

@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "blue-data-kb-cli"
 version = "1.0.0"
 description = "CLI for Blue Data Knowledge-Base Source"
-requires-python = ">=3.10,<3.15"
+requires-python = ">=3.12,<3.14"
 dependencies = [
     "blue-data-kb-source>=1.0.0",
     "click>=8.0",

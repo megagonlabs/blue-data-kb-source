@@ -137,6 +137,30 @@ class KBSource(GraphSource, ABC):
     design/06-library.md for the full properties shape.
     """
 
+    # Every op execute_query serves sits in exactly one of these sets. blue-data's
+    # DataRegistry.execute_query refuses an op in _WRITE_OPS without
+    # optional_properties["commit"], and runs one without commit only when it is a
+    # read (#167; blue-data #206, #237).
+    _READ_OPS: frozenset = frozenset({
+        "KB.GET_SCHEMA", "KB.SEARCH_SCHEMA", "KB.SEARCH_DATA", "KB.GET_DATA",
+        "GRAPH.GET_NODE", "GRAPH.MATCH_NODE", "GRAPH.MATCH_EDGE", "GRAPH.GET_NEIGHBORS",
+    })
+    _WRITE_OPS: frozenset = GraphSource._WRITE_OPS | frozenset({
+        "KB.DECLARE_CLASS", "KB.DECLARE_RELATION",
+        "KB.DECLARE_CLASS_PROPERTY", "KB.DECLARE_RELATION_PROPERTY",
+        "KB.UPDATE_CLASS", "KB.UPDATE_RELATION", "KB.UPDATE_PROPERTY",
+        "KB.DELETE_CLASS", "KB.DELETE_RELATION", "KB.DELETE_PROPERTY",
+        "KB.ADD_SUBCLASS", "KB.REMOVE_SUBCLASS",
+        "KB.ADD_ENTITY", "KB.ADD_FACT", "KB.ADD_ENTITY_PROPERTY", "KB.ADD_FACT_PROPERTY",
+        "KB.UPDATE_ENTITY", "KB.UPDATE_FACT",
+        "KB.UPDATE_ENTITY_PROPERTY", "KB.UPDATE_FACT_PROPERTY",
+        "KB.DELETE_ENTITY", "KB.DELETE_FACT",
+        "KB.DELETE_ENTITY_PROPERTY", "KB.DELETE_FACT_PROPERTY",
+        "KB.ADD_ENTITY_EXTRACTION", "KB.ADD_FACT_EXTRACTION",
+        "KB.ADD_ENTITY_PROPERTY_EXTRACTION", "KB.ADD_FACT_PROPERTY_EXTRACTION",
+        "KB.ADD_SOURCE", "KB.ADD_EXTRACTION", "KB.UPDATE_SOURCE", "KB.DELETE_SOURCE",
+    })
+
     # ------------------------------------------------------------------ #
     # Node label constants (re-exported for callers)                       #
     # ------------------------------------------------------------------ #

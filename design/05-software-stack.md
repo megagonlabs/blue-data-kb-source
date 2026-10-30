@@ -9,7 +9,7 @@
 | Concern | Choice |
 |---------|--------|
 | Language | Python |
-| Minimum version | 3.10 |
+| Supported versions | 3.12, 3.13 |
 | Package manager | pip |
 | Project config | `pyproject.toml` |
 
