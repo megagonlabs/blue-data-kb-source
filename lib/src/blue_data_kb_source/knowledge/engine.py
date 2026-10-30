@@ -24,7 +24,8 @@ from blue_data_kb_source._constants import (
 from blue_data_kb_source._text_match import match_score as _match_score
 from blue_data_kb_source.knowledge.helpers import fact_parts, fetch_node_metadata, find_fact, property_values
 from blue_data_kb_source.schema.manager import _canonicalize_schema_name
-from blue_data_kb_source.types import EnrichmentResult, KBError, ValidationResult
+from blue_data_kb_source.types import EnrichmentResult, ValidationResult
+from blue_data_kb_source import llm
 
 if TYPE_CHECKING:
     from blue_data_kb_source.schema.manager import SchemaManager
@@ -395,7 +396,7 @@ class QueryEngine:
         self,
         database: str,
         question: str,
-        model: str = "gpt-4o",
+        model: str | None = None,
         include_metadata: bool = False,
         on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
         on_tool_result: Callable[[str, dict[str, Any], Any], None] | None = None,
@@ -419,7 +420,7 @@ class QueryEngine:
         self,
         database: str,
         statement: str,
-        model: str = "gpt-4o",
+        model: str | None = None,
         include_metadata: bool = False,
         on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
         on_tool_result: Callable[[str, dict[str, Any], Any], None] | None = None,
@@ -555,7 +556,7 @@ class QueryEngine:
         database: str,
         query: str,
         depth: int = 2,
-        model: str = "gpt-4o",
+        model: str | None = None,
         on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
         on_tool_result: Callable[[str, dict[str, Any], Any], None] | None = None,
         max_turns: int = 25,
@@ -646,7 +647,7 @@ class QueryEngine:
         self,
         question: str,
         results: list[dict],
-        model: str = "gpt-4o",
+        model: str | None = None,
     ) -> str:
         results_str = "\n".join(
             "- " + ", ".join(f"{k}={v!r}" for k, v in item.items())
@@ -659,7 +660,7 @@ class QueryEngine:
         self,
         statement: str,
         result: ValidationResult,
-        model: str = "gpt-4o",
+        model: str | None = None,
     ) -> str:
         def _fmt(items: list[dict]) -> str:
             if not items:
@@ -678,7 +679,7 @@ class QueryEngine:
     async def metadata_as_text(
         self,
         metadata: dict,
-        model: str = "gpt-4o",
+        model: str | None = None,
     ) -> str:
         metadata_str = "\n".join(
             "- " + ", ".join(f"{k}={v!r}" for k, v in item.items())
@@ -702,14 +703,7 @@ class QueryEngine:
         include_metadata: bool = False,
         max_turns: int = 25,
     ) -> Any:
-        try:
-            import openai
-        except ImportError as exc:
-            raise KBError(
-                "QueryEngine requires the 'openai' package: pip install openai"
-            ) from exc
-
-        client = openai.AsyncOpenAI()
+        client = llm.AsyncClient()
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": system_prompt},
             {"role": "user",   "content": user_message},
@@ -815,13 +809,7 @@ class QueryEngine:
     # ------------------------------------------------------------------ #
 
     async def _complete(self, prompt: str, model: str) -> str:
-        try:
-            import openai
-        except ImportError as exc:
-            raise KBError(
-                "QueryEngine requires the 'openai' package: pip install openai"
-            ) from exc
-        client = openai.AsyncOpenAI()
+        client = llm.AsyncClient()
         response = await client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],

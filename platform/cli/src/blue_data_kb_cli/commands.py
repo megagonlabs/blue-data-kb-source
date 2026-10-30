@@ -21,7 +21,7 @@ from typing import Any
 import arrow
 import click
 from blue_data.core.schema import DataSchema
-from blue_data_kb_source import KBSource
+from blue_data_kb_source import KBSource, llm
 from blue_data_kb_source._constants import (
     CLASS,
     DEFINE_PROPERTY,
@@ -89,19 +89,32 @@ def _one_line(exc: BaseException, limit: int = 300) -> str:
     return (text[: limit - 1] + "…") if len(text) > limit else text
 
 
+_PROVIDER_NAMES = {"openai": "OpenAI", "anthropic": "Anthropic"}
+
+
 def _from_package(exc: BaseException, package: str) -> bool:
     return any(c.__module__.split(".")[0] == package for c in type(exc).__mro__)
 
 
 def _user_error(exc: BaseException) -> str:
     """A one-line message for an exception no command handled, naming what to fix
-    where the cause is a known one: a missing OpenAI key, an unreachable Neo4j or
+    where the cause is a known one: a missing LLM key, an unreachable Neo4j or
     Redis server (#155). The cause may sit behind a KBError, so walk the chain."""
     seen, cur = set(), exc
     while cur is not None and id(cur) not in seen:
         seen.add(id(cur))
         name, msg = type(cur).__name__, _one_line(cur)
+        if isinstance(cur, llm.MissingKeyError):
+            return f"{cur.env} is not set: run `blue-kb profile config {cur.env}`, or export it."
+        if _from_package(cur, "litellm"):
+            # The agents' calls, sent to the BLUE_DATA_LLM_PROVIDER provider (#164).
+            who = _PROVIDER_NAMES.get(llm.provider(), llm.provider())
+            if name == "AuthenticationError":
+                env = llm.api_key_env()
+                return f"{who} rejected the API key{f' ({env})' if env else ''}: {msg}"
+            return f"{who} request failed: {msg}"
         if _from_package(cur, "openai"):
+            # Embeddings, which call OpenAI directly.
             if name == "AuthenticationError":
                 return f"OpenAI rejected the API key (OPENAI_API_KEY): {msg}"
             if "api_key" in msg or "credentials" in msg.lower():
@@ -542,13 +555,15 @@ def _model_for(obj: dict, function: str, option: str | None) -> str:
 
     `--model` wins; otherwise the profile's parameter for this function, which
     itself falls back through BLUE_DATA_KB_SOURCE_LLM_MODEL to
-    BLUE_DATA_LLM_MODEL. The Click options default to None rather than a
-    hardcoded model so an unset option is distinguishable from a chosen one.
+    BLUE_DATA_LLM_MODEL, then the default of the BLUE_DATA_LLM_PROVIDER provider
+    (gpt-4o for openai, claude-opus-4-8 for anthropic). The Click options default
+    to None rather than a hardcoded model so an unset option is distinguishable
+    from a chosen one.
     """
     if option:
         return option
     resolver = obj["config"]
-    return resolver.get(f"BLUE_DATA_KB_SOURCE_{function}_LLM_MODEL") or "gpt-4o"
+    return resolver.get(f"BLUE_DATA_KB_SOURCE_{function}_LLM_MODEL") or llm.default_model()
 
 
 def _log_limit(obj: dict, option: int | None) -> int:
@@ -2404,8 +2419,8 @@ def schema_expand(
     extracting any data. Run separately from `blue-kb data extract`, so the same
     expanded schema can be reused across many extraction calls.
 
-    Requires the openai extra: pip install 'blue-data-kb-source[openai]'
-    and OPENAI_API_KEY in the environment.
+    Requires the llm extra: pip install 'blue-data-kb-source[llm]', and the
+    API key of the BLUE_DATA_LLM_PROVIDER provider (OPENAI_API_KEY by default).
     """
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]
@@ -4053,8 +4068,8 @@ def extract_cmd(
     """Extract entities and facts from text.
     also expands the schema first (see --no-expand-schema and `blue-kb schema expand`).
 
-    Requires the openai extra: pip install 'blue-data-kb-source[openai]'
-    and OPENAI_API_KEY in the environment.
+    Requires the llm extra: pip install 'blue-data-kb-source[llm]', and the
+    API key of the BLUE_DATA_LLM_PROVIDER provider (OPENAI_API_KEY by default).
     """
     kb: FileKBSource = obj["kb"]
     db: str = obj["db"]

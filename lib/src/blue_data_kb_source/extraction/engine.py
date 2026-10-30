@@ -31,6 +31,7 @@ from blue_data_kb_source.knowledge.helpers import (
 from blue_data_kb_source.extraction.handles import Handles
 from blue_data_kb_source.resolution.resolver import NodeResolver
 from blue_data_kb_source.types import DataSearchResult, ExtractionError
+from blue_data_kb_source import llm
 
 if TYPE_CHECKING:
     from blue_data_kb_source.knowledge.manager import KnowledgeManager
@@ -903,7 +904,7 @@ class ExtractionEngine:
         database: str,
         text: str,
         queries: list[str] | None = None,
-        model: str = "gpt-4o",
+        model: str | None = None,
         source_id: str | None = None,
         on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
         on_tool_result: Callable[[str, dict[str, Any], Any], None] | None = None,
@@ -944,16 +945,10 @@ class ExtractionEngine:
         what each stage added — the extraction benchmark snapshots the graph there. With
         max_concurrency > 1 the chunks' stages interleave.
         """
-        try:
-            import openai
-        except ImportError as exc:
-            raise ExtractionError(
-                "import_text requires the 'openai' package: pip install openai"
-            ) from exc
         if effort not in EFFORT_PASSES:
             raise ExtractionError(f"effort must be one of {list(EFFORT_PASSES)}, got {effort!r}")
 
-        client = openai.AsyncOpenAI()
+        client = llm.AsyncClient()
         total_passes = EFFORT_PASSES[effort]
         chunks = _split_into_chunks(text, max_concurrency)
         write_lock = asyncio.Lock()

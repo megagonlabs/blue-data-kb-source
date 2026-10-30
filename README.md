@@ -46,7 +46,7 @@ blue-data-kb-source/
 
 - Python 3.12 or 3.13
 - The sibling [`blue-data`](https://github.com/megagon-internal/blue-data) repository, cloned beside this one (`../blue-data`); its `lib/` provides the graph and vector storage layer
-- An OpenAI API key for the LLM features (extraction, schema expansion, `answer` / `validate` / `enrich`)
+- An API key for the LLM features (extraction, schema expansion, `answer` / `validate` / `enrich`): OpenAI by default, or another provider through `BLUE_DATA_LLM_PROVIDER` (`anthropic` with `ANTHROPIC_API_KEY`; see [the CLI's parameters](docs/cli.md#parameters))
 - Optional: a Neo4j 5 server, for the Neo4j backend
 
 ```bash
@@ -73,7 +73,7 @@ blue-kb data fact add --head Alice --relation WORKED_AT --tail IBM \
     --text "Alice joined IBM in June 1998." --source resume
 blue-kb data list --show-provenance
 
-# Extract from free text, then ask in plain language (needs OPENAI_API_KEY)
+# Extract from free text, then ask in plain language (needs the provider's API key)
 blue-kb data extract "Alice left IBM in 2005 to join Google as a staff engineer." \
     --query "Where has Alice worked?"
 blue-kb data answer "Where has Alice worked, and since when?" --format nl

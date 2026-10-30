@@ -50,9 +50,11 @@ BLUE_DATA_KB_SOURCE_SEARCH=semantic OPENAI_API_KEY=sk-... \
     blue-data-kb-mcp
 ```
 
-`OPENAI_API_KEY` is required for the `answer`/`validate`/`enrich`/`expand_schema`/`import_text`
-tools (each runs its own LLM agent loop) and for `BLUE_DATA_KB_SOURCE_SEARCH=semantic`
-(embeddings).
+The `answer`/`validate`/`enrich`/`expand_schema`/`import_text` tools each run an LLM agent
+loop, through LiteLLM, on the provider `BLUE_DATA_LLM_PROVIDER` names (blank means `openai`), so
+they need that provider's key: `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY` under
+`BLUE_DATA_LLM_PROVIDER=anthropic`. `BLUE_DATA_KB_SOURCE_SEARCH=semantic` needs `OPENAI_API_KEY`
+whatever the provider (embeddings).
 
 Note: this server does **not** read the `blue-kb` CLI's `~/.blue-kb/registry.json` — it
 owns one independently-configured `KBSource` for the process lifetime (see
@@ -131,7 +133,7 @@ All configuration is via environment variables — there is no config file, and 
 
 | Variable | Default | Description |
 |---|---|---|
-| `BLUE_DATA_KB_SOURCE_LLM_MODEL` | `gpt-4o` | Default model when a call omits `model`. A per-function variable overrides it — `BLUE_DATA_KB_SOURCE_{EXTRACTION,QUERY,VALIDATION,SCHEMA_EXPANSION,ENRICHMENT}_LLM_MODEL` — and it in turn falls back to the family-wide `BLUE_DATA_LLM_MODEL`. These are the same names, and the same precedence, the `blue-kb` CLI uses. |
+| `BLUE_DATA_KB_SOURCE_LLM_MODEL` | the provider's default | Default model when a call omits `model`. A per-function variable overrides it — `BLUE_DATA_KB_SOURCE_{EXTRACTION,QUERY,VALIDATION,SCHEMA_EXPANSION,ENRICHMENT}_LLM_MODEL` — and it in turn falls back to the family-wide `BLUE_DATA_LLM_MODEL`, then to the default of the `BLUE_DATA_LLM_PROVIDER` provider (`gpt-4o` for `openai`, `claude-opus-4-8` for `anthropic`). These are the same names, and the same precedence, the `blue-kb` CLI uses. |
 | `BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_MCP_SERVERS` | *(none)* | JSON list of the reference MCP servers `expand_schema`/`import_text` may connect when called with `reference="mcp"` / `schema_expansion_mode="mcp"`, e.g. `[{"transport": "stdio", "command": "blue-data-wordnet-mcp"}]`. Each entry is `{"transport": "stdio", "command", "args", "env"}` or `{"transport": "sse"\|"streamable_http", "url", "headers"}`. Only the operator sets these: tool callers can't pass server definitions, since an entry is a command to run or a URL to connect to. With none configured, `reference="mcp"` returns an error. Each entry may also set `startup_timeout` (seconds, default 30) for its handshake and `call_timeout` (default 120) per tool call; a server that misses either fails clearly instead of hanging the run. |
 | `BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_TIMEOUT` | `1800` | Overall cap, in seconds, on each schema expansion run — `expand_schema`, and `import_text` when it expands first (`0` = no limit). The same variable and default as the `blue-kb` CLI's profile. |
 
@@ -415,4 +417,4 @@ python3 -m pytest tests/ -v
 
 Tests inject an in-memory `KBSource` directly — no file I/O, no network, no
 `OPENAI_API_KEY` required, except the `answer`/`validate`/`enrich`/`expand_schema`/`import_text`
-tests, which mock `openai.AsyncOpenAI`.
+tests, which mock `blue_data_kb_source.llm.AsyncClient`.

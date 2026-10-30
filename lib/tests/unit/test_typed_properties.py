@@ -107,7 +107,7 @@ async def test_expand_schema_declares_the_type(kb):
         [("return_property_check", {"describes_owner": True, "same_as_id": None, "reason": "fits"})],
         "done",
     )
-    with patch("openai.AsyncOpenAI", return_value=model):
+    with patch("blue_data_kb_source.llm.AsyncClient", return_value=model):
         await kb.expand_schema("test", "Alice is 41.", dedup_mode="none")
     age = next(n for n in kb.match_nodes("test", label="PROPERTY") if n["properties"]["name"] == "AGE")
     assert age["properties"]["literal_type"] == "NUMBER"
@@ -125,7 +125,7 @@ async def test_extraction_sees_the_type_and_a_misfit_goes_back_to_the_model(kb):
                                         "value": "Senior Project Manager", "text": text})],
         "done",
     )
-    with patch("openai.AsyncOpenAI", return_value=model):
+    with patch("blue_data_kb_source.llm.AsyncClient", return_value=model):
         await kb.import_text("test", text, expand_schema=False, related_data_k=0)
     search, add = model.tool_replies()
     assert {"name": "AGE", "literal_type": "NUMBER"}.items() <= json.loads(search)["schema_elements"][0].items()

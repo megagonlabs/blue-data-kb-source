@@ -152,11 +152,11 @@ async def run_query_case(case: QueryCase, model: str, search_mode: str) -> Query
     on_tool_call, on_tool_result, trace = make_trace_callbacks()
     llm_calls: list[LLMCallRecord] = []
 
-    import openai
+    from blue_data_kb_source import llm
 
-    instrumented = functools.partial(InstrumentedOpenAI, real_client_cls=openai.AsyncOpenAI, sink=llm_calls)
+    instrumented = functools.partial(InstrumentedOpenAI, real_client_cls=llm.AsyncClient, sink=llm_calls)
     nl_text: str | None = None
-    with patch("openai.AsyncOpenAI", instrumented):
+    with patch("blue_data_kb_source.llm.AsyncClient", instrumented):
         if case.operation == "answer":
             actual = await kb.answer(
                 DB, case.question, model=model, on_tool_call=on_tool_call, on_tool_result=on_tool_result

@@ -23,10 +23,10 @@ pip install -e ../../lib
 pip install -e .
 ```
 
-For LLM features (`answer`, `validate`, `extract`), also install the `openai` extra on the library:
+For LLM features (`answer`, `validate`, `extract`, `schema expand`), also install the `llm` extra on the library — LiteLLM, which sends the calls to the `BLUE_DATA_LLM_PROVIDER` provider (`openai` is the extra's former name and still works):
 
 ```bash
-pip install -e "../../lib[openai]"
+pip install -e "../../lib[llm]"
 ```
 
 ## State persistence
@@ -174,8 +174,8 @@ $ blue-kb profile config OPENAI_API_KEY
 |---|---|---|---|
 | `OPENAI_API_KEY` | secret | — | ✓ |
 | `ANTHROPIC_API_KEY` | secret | — | |
-| `BLUE_DATA_LLM_PROVIDER` | str | blank | |
-| `BLUE_DATA_LLM_MODEL` | str | unset (`gpt-4o`) | |
+| `BLUE_DATA_LLM_PROVIDER` | str | blank (`openai`) | |
+| `BLUE_DATA_LLM_MODEL` | str | unset (the provider's default) | |
 | `BLUE_DATA_CLI_FORMAT` | str | `table` | |
 | `BLUE_DATA_CLI_LOG_LIMIT` | int | `80` | |
 | `BLUE_DATA_KB_SOURCE_DATA_DIR` | directory | `~/.blue-kb` | ✓ |
@@ -196,7 +196,9 @@ $ blue-kb profile config OPENAI_API_KEY
 | `BLUE_DATA_KB_SOURCE_EXTRACTION_RELATED_DATA_K` | int | `10` | |
 | `BLUE_DATA_KB_SOURCE_EXTRACTION_EXPAND_SCHEMA` | bool | `true` | |
 
-Each per-function model falls back to `BLUE_DATA_KB_SOURCE_LLM_MODEL`, then to `BLUE_DATA_LLM_MODEL` — so setting one value covers every command, and a single function can still be pinned to a different model. When none of them is set, `profile inspect` shows the model as unset and the LLM commands use `gpt-4o`. `BLUE_DATA_LLM_PROVIDER` is a family parameter that `blue-kb` doesn't read yet: its LLM features always use OpenAI.
+Each per-function model falls back to `BLUE_DATA_KB_SOURCE_LLM_MODEL`, then to `BLUE_DATA_LLM_MODEL` — so setting one value covers every command, and a single function can still be pinned to a different model. When none of them is set, the LLM commands use the provider's default — `gpt-4o` for `openai`, `claude-opus-4-8` for `anthropic` — and `profile inspect` shows that default, with `openai default` or `anthropic default` as its source.
+
+**Provider.** Every LLM call goes through [LiteLLM](https://docs.litellm.ai) to the provider `BLUE_DATA_LLM_PROVIDER` names; blank means `openai`, as in blue-data-ops. The models are that provider's: with `BLUE_DATA_LLM_PROVIDER=anthropic`, set `ANTHROPIC_API_KEY` and use Claude model names (`claude-opus-4-8`, the default). Another LiteLLM provider (`gemini`, say) works when you name a model — kb has no default for it — and set the key variable LiteLLM reads for it. Embeddings for semantic search use OpenAI and `OPENAI_API_KEY` whatever the provider.
 
 `BLUE_DATA_KB_SOURCE_HOME` (default `~/.blue-kb`) is deliberately *not* a profile parameter: it is the directory the profiles themselves live in, so it can only be set in the environment.
 
@@ -370,7 +372,7 @@ Supporting:
 Counter:
   (none)
 
-# 13. LLM extraction (requires openai extra and OPENAI_API_KEY)
+# 13. LLM extraction (requires the llm extra and the provider's API key)
 $ blue-kb data extract \
     "Alice later joined Google as a senior engineer in May 2002." \
     --query "What is her role?" --query "When did she start?"
@@ -484,7 +486,7 @@ Shared `ASSERT_OPTS` on every `assert` command and `blue-kb data ingest`: `[--de
 | `blue-kb data validate STATEMENT [--natural-language] [--model M] [--include-metadata] [--verbose\|-v] [--log\|-l] [--log-limit N]` | LLM supporting / counter evidence — only facts and property values that exist in the KB, printed as `head —RELATION→ tail` and `owner · PROPERTY = value`; anything else the agent cited is listed under "Unverified"; `--natural-language` returns a prose assessment; `--include-metadata` behaves as in `blue-kb data answer` (a "Metadata" table normally, folded into the prose with `--natural-language`); `--verbose` shows tool call arguments in the status line; `--log` also prints each tool call on its own persistent line; `--log-limit` sets the truncation length for verbose/log output, defaulting to the profile's `BLUE_DATA_CLI_LOG_LIMIT` |
 | `blue-kb data extract TEXT [--query Q]… [--source NAME\|--source-id ID] [--model M] [--effort low\|medium\|high] [--max-concurrency N] [--max-turns N] [--related-data-k N] [--expand-schema\|--no-expand-schema] [--schema-expansion-target text\|queries]… [--schema-expansion-depth N] [--schema-expansion-mode llm\|mcp] [--schema-expansion-mcp-server JSON]… [--schema-expansion-dedup-mode search\|llm\|none] [--schema-expansion-timeout SECONDS] [--verbose\|-v] [--log\|-l] [--log-limit N]` | LLM extraction against the schema as it currently stands (never declares new schema — a mention with no matching element is skipped). `--expand-schema` (default: on) runs `blue-kb schema expand` first, grounded by `--schema-expansion-target` (any combination of `text`/`queries`, default both); `--schema-expansion-depth`/`--schema-expansion-mode`/`--schema-expansion-mcp-server`/`--schema-expansion-dedup-mode` mirror `blue-kb schema expand`'s `--depth`/`--reference`/`--mcp-server`/`--dedup-mode`. Use `--no-expand-schema` to only extract, e.g. against a schema already expanded once via `blue-kb schema expand`. `--verbose` shows tool call arguments in the status line; `--log` also prints each tool call on its own persistent line; `--log-limit` sets the truncation length for verbose/log output. `--model`, `--effort`, `--max-concurrency`, `--max-turns`, `--related-data-k`, `--expand-schema/--no-expand-schema` and `--log-limit` each default to the selected profile's corresponding parameter — see [Profiles and configuration](#profiles-and-configuration) |
 
-Exit codes: `0` success · `1` any error · `2` bad arguments. Errors print as one line, `Error: …`, naming the setting to fix where the cause is known (a missing or rejected `OPENAI_API_KEY`, an unreachable or refusing Neo4j or Redis server); set `BLUE_DATA_KB_SOURCE_TRACEBACK=1` to get the full Python traceback instead.
+Exit codes: `0` success · `1` any error · `2` bad arguments. Errors print as one line, `Error: …`, naming the setting to fix where the cause is known (a missing or rejected provider API key — `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` — an unreachable or refusing Neo4j or Redis server); set `BLUE_DATA_KB_SOURCE_TRACEBACK=1` to get the full Python traceback instead.
 
 ## Project structure
 
@@ -513,5 +515,5 @@ python3 -m pytest tests/ -v
 
 Every test runs the real Click commands through `CliRunner` against an isolated home directory
 (a per-test `tmp_path` stands in for `~/.blue-kb`), so nothing touches your own databases or
-profiles. No network or `OPENAI_API_KEY` is needed: the LLM commands (`data extract`,
-`data answer`, `data validate`, `schema expand`, …) are tested with `openai.AsyncOpenAI` mocked.
+profiles. No network or API key is needed: the LLM commands (`data extract`,
+`data answer`, `data validate`, `schema expand`, …) are tested with `blue_data_kb_source.llm.AsyncClient` mocked.

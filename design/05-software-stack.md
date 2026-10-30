@@ -19,23 +19,23 @@
 
 | Concern | Choice |
 |---------|--------|
-| Initial provider | OpenAI (`openai>=1.0`) |
-| Interface | OpenAI function-calling (tool use) |
+| Provider | The one `BLUE_DATA_LLM_PROVIDER` names (blank = `openai`), reached through LiteLLM (`litellm>=1.102,<1.106`) — ADR-038 |
+| Interface | OpenAI function-calling (tool use); LiteLLM translates it for other providers |
 
-Four components call the OpenAI API directly, all through the `openai` Python SDK. The ingestion judges are the lightest dependency: single forced-function calls, no loop, made during `assert_*`/`ingest` under the default `schema_creation_mode="llm"` and skipped entirely under `"none"`. The Schema Expansion Engine (inside the Schema Layer) runs an OpenAI tool-use loop that drives schema declaration (`declare_class`/`declare_relation_type`/etc.); with `reference="mcp"` its tool set is additionally extended at call time with tools from connected MCP servers (e.g. WordNet via `platform/wordnet-mcp`) — see MCP Server below. The Extraction Engine runs its own tool loop that drives *only* instance creation (`add_entity`/`add_fact`/etc.) by presenting the relevant KB operations as OpenAI function definitions — it has no schema-declaration tool; `KBSource.import_text` composes the two, calling `expand_schema` first (`expand_schema=True`, the default) and then running the extraction loop against the result. The Query Engine (inside the Knowledge Layer) runs its own tool-use loop for each of `answer`, `validate`, and `enrich` over a read-only set of graph tools. The model is configurable per call (`model` parameter, defaulting to `gpt-4o`). The Graph Store has no LLM dependency; the four above all require an API key at call time, so the `openai` extra gates ingest, schema expansion, extraction, and querying alike.
+Four components make LLM calls, all through `blue_data_kb_source.llm.AsyncClient`, an OpenAI-shaped client whose completions LiteLLM sends to the deployment's provider. The ingestion judges are the lightest dependency: single forced-function calls, no loop, made during `assert_*`/`ingest` under the default `schema_creation_mode="llm"` and skipped entirely under `"none"`. The Schema Expansion Engine (inside the Schema Layer) runs an OpenAI tool-use loop that drives schema declaration (`declare_class`/`declare_relation_type`/etc.); with `reference="mcp"` its tool set is additionally extended at call time with tools from connected MCP servers (e.g. WordNet via `platform/wordnet-mcp`) — see MCP Server below. The Extraction Engine runs its own tool loop that drives *only* instance creation (`add_entity`/`add_fact`/etc.) by presenting the relevant KB operations as OpenAI function definitions — it has no schema-declaration tool; `KBSource.import_text` composes the two, calling `expand_schema` first (`expand_schema=True`, the default) and then running the extraction loop against the result. The Query Engine (inside the Knowledge Layer) runs its own tool-use loop for each of `answer`, `validate`, and `enrich` over a read-only set of graph tools. The model is configurable per call (`model` parameter, defaulting to the provider's default: `gpt-4o` for `openai`, `claude-opus-4-8` for `anthropic`). The Graph Store has no LLM dependency; the four above all require the provider's API key at call time, so the `llm` extra gates ingest, schema expansion, extraction, and querying alike.
 
-**OpenAI SDK usage:**
+**LLM client usage:**
 
 | Class / Function | Role |
 |-----------------|------|
-| `openai.OpenAI` / `openai.AsyncOpenAI` | Client for API calls (Query Engine uses the async client) |
-| `client.chat.completions.create` | Drives the tool-use loop |
-| `client.embeddings.create` | Generates embeddings for semantic search (Search Indexer) |
+| `llm.AsyncClient().chat.completions.create` | Drives the tool-use loops; calls `litellm.acompletion` with `custom_llm_provider` pinned to the deployment's provider, and returns OpenAI's response shape for every provider |
+| `llm.configured_model(function)` / `llm.default_model()` | Resolve the model: `BLUE_DATA_KB_SOURCE_{FUNCTION}_LLM_MODEL`, `BLUE_DATA_KB_SOURCE_LLM_MODEL`, `BLUE_DATA_LLM_MODEL`, then the provider's default |
+| `openai.OpenAI().embeddings.create` | Generates embeddings for semantic search (Search Indexer) — OpenAI's, whatever the LLM provider |
 | Function definitions (JSON Schema) | Expose KB operations as LLM-callable tools |
 
 **Configuration:**
 
-The `OPENAI_API_KEY` environment variable is read by the `openai` SDK automatically. No other global configuration is required. The model and API key can also be passed explicitly at call time.
+`BLUE_DATA_LLM_PROVIDER` picks the provider (blank = `openai`); the key comes from the provider's own variable — `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` — and a missing one is reported (`llm.MissingKeyError`) before any call. The model can also be passed explicitly at call time.
 
 ---
 

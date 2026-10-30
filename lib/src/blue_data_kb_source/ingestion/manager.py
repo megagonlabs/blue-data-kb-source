@@ -119,7 +119,7 @@ class IngestionManager:
         confidence: float | None = None,
         extraction_type: _ExtractionType = "assertion",
         schema_creation_mode: _SchemaCreationMode = "llm",
-        model: str = "gpt-4o",
+        model: str | None = None,
     ) -> AssertResult:
         hit = self._pick(await self._resolver.resolve_class(database, name), f"class {name!r}")
         if hit is not None:
@@ -145,7 +145,7 @@ class IngestionManager:
         confidence: float | None = None,
         extraction_type: _ExtractionType = "assertion",
         schema_creation_mode: _SchemaCreationMode = "llm",
-        model: str = "gpt-4o",
+        model: str | None = None,
     ) -> AssertResult:
         domain_names = [domain] if isinstance(domain, str) else list(domain)
         range_names = [range] if isinstance(range, str) else list(range)
@@ -212,7 +212,7 @@ class IngestionManager:
         confidence: float | None = None,
         extraction_type: _ExtractionType = "assertion",
         schema_creation_mode: _SchemaCreationMode = "llm",
-        model: str = "gpt-4o",
+        model: str | None = None,
     ) -> AssertResult:
         text = f"{class_name} has {name}"
         chit = self._pick(await self._resolver.resolve_class(database, class_name),
@@ -256,7 +256,7 @@ class IngestionManager:
         confidence: float | None = None,
         extraction_type: _ExtractionType = "assertion",
         schema_creation_mode: _SchemaCreationMode = "llm",
-        model: str = "gpt-4o",
+        model: str | None = None,
     ) -> AssertResult:
         text = f"{relation_name} has {name}"
         rhit = self._pick(await self._resolver.resolve_relation(database, relation_name),
@@ -292,7 +292,7 @@ class IngestionManager:
         confidence: float | None = None,
         extraction_type: _ExtractionType = "assertion",
         schema_creation_mode: _SchemaCreationMode = "llm",
-        model: str = "gpt-4o",
+        model: str | None = None,
     ) -> AssertResult:
         text = f"{child} IS_SUBCLASS_OF {parent}"
         ids: dict[str, str] = {}
@@ -323,7 +323,7 @@ class IngestionManager:
         confidence: float | None = None,
         extraction_type: _ExtractionType = "assertion",
         schema_creation_mode: _SchemaCreationMode = "llm",
-        model: str = "gpt-4o",
+        model: str | None = None,
     ) -> AssertResult:
         ids: dict[str, str] = {}
         for rname in dict.fromkeys((child, parent)):
@@ -353,7 +353,7 @@ class IngestionManager:
         confidence: float | None = None,
         extraction_type: _ExtractionType = "assertion",
         schema_creation_mode: _SchemaCreationMode = "llm",
-        model: str = "gpt-4o",
+        model: str | None = None,
     ) -> AssertResult:
         # Phase 1: resolve and run every judge; phase 2: write (#126).
         plan = await self._plan_entity(database, name, schema_creation_mode, model,
@@ -380,7 +380,7 @@ class IngestionManager:
         confidence: float | None = None,
         extraction_type: _ExtractionType = "assertion",
         schema_creation_mode: _SchemaCreationMode = "llm",
-        model: str = "gpt-4o",
+        model: str | None = None,
     ) -> AssertResult:
         text = f"{head} {relation} {tail}"
         rel_hit = self._pick(await self._resolver.resolve_relation(database, relation),
@@ -470,7 +470,7 @@ class IngestionManager:
         confidence: float | None = None,
         extraction_type: _ExtractionType = "assertion",
         schema_creation_mode: _SchemaCreationMode = "llm",
-        model: str = "gpt-4o",
+        model: str | None = None,
     ) -> AssertResult:
         text = f"{entity} {property} {value}"
         # Phase 1: the entity's plan, then — if the property is new to its classes —
@@ -534,7 +534,7 @@ class IngestionManager:
         confidence: float | None = None,
         extraction_type: _ExtractionType = "assertion",
         schema_creation_mode: _SchemaCreationMode = "llm",
-        model: str = "gpt-4o",
+        model: str | None = None,
     ) -> AssertResult:
         text = f"{head} {relation} {tail}: {property} {value}"
         # A property new to the relation is described before assert_fact writes
@@ -591,7 +591,7 @@ class IngestionManager:
         confidence: float | None = None,
         extraction_type: _ExtractionType = "assertion",
         schema_creation_mode: _SchemaCreationMode = "llm",
-        model: str = "gpt-4o",
+        model: str | None = None,
     ) -> IngestReport:
         """Run every payload row through its per-item assert, collecting a report.
 

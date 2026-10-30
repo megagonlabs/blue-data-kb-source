@@ -314,7 +314,7 @@ def _return_result_response(payload):
 
 async def test_answer_returns_structured_result():
     factory = _mock_openai_sequence(_return_result_response(_ANSWER_PAYLOAD))
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         result = json.loads(await answer("Where did Alice work?", database=DB))
     assert result["result"] == _ANSWER_PAYLOAD
 
@@ -325,7 +325,7 @@ async def test_answer_include_metadata(kb):
         _tool_call_response("get_metadata", {"id": alice_id}),
         _return_result_response(_ANSWER_PAYLOAD),
     )
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         result = json.loads(await answer("Where did Alice work?", include_metadata=True, database=DB))
     assert alice_id in result["metadata"]
     assert result["metadata"][alice_id]["evidence"][0]["source"] == "Alice's résumé"
@@ -333,7 +333,7 @@ async def test_answer_include_metadata(kb):
 
 async def test_validate_returns_supporting():
     factory = _mock_openai_sequence(_return_result_response(_VALIDATE_PAYLOAD))
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         result = json.loads(await validate("Alice worked at IBM.", database=DB))
     assert len(result["supporting"]) == 1
 
@@ -347,7 +347,7 @@ async def test_enrich_returns_list(kb):
     ibm = await kb.add_entity(DB, "IBM", class_id=company)
     await kb.add_fact(DB, head_entity_id=alice, tail_entity_id=ibm, relation_id=rel)
     factory = _mock_openai_sequence(_return_result_response({"seed_entity_ids": [alice]}))
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         result = json.loads(await enrich("Alice", depth=1, database=DB))
     assert [(r["entity"], r["relation"], r["distance"]) for r in result] == [
         ("Alice", None, 0), ("Alice → IBM", "WORKED_AT", 1), ("IBM", None, 1),
@@ -363,7 +363,7 @@ async def test_expand_schema_declares_class():
         _tool_call_response("declare_class", {"name": "PERSON", "description": "A human individual"}),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         result = json.loads(await expand_schema("Alice is a person.", dedup_mode="none", database=DB))
     assert result["status"] == "ok"
     schema = json.loads(await fetch_schema(database=DB))
@@ -399,7 +399,7 @@ def _schema_expansion_prompts(factory):
 
 async def test_import_text_completes_with_no_tool_calls():
     factory = _mock_openai_endless_done()
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         result = json.loads(await import_text("Some text.", expand_schema=False, database=DB))
     assert result["status"] == "ok"
     # expand_schema=False, so the expansion agent must not have run.
@@ -408,7 +408,7 @@ async def test_import_text_completes_with_no_tool_calls():
 
 async def test_import_text_default_also_runs_schema_expansion():
     factory = _mock_openai_endless_done()
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         result = json.loads(await import_text("Some text.", database=DB))
     assert result["status"] == "ok"
     assert _schema_expansion_prompts(factory)
@@ -428,14 +428,16 @@ async def test_add_source_returns_id():
 # ---------------------------------------------------------------------------
 
 def test_model_resolution_matches_the_cli_precedence(monkeypatch):
-    """Function-specific > KB-wide > family-wide > built-in default, the same
-    chain the CLI resolves from its profile."""
+    """Function-specific > KB-wide > family-wide > the provider's default, the
+    same chain the CLI resolves from its profile."""
     from blue_data_kb_mcp.config import model_for
 
     for var in ("BLUE_DATA_LLM_MODEL", "BLUE_DATA_KB_SOURCE_LLM_MODEL",
-                "BLUE_DATA_KB_SOURCE_EXTRACTION_LLM_MODEL"):
+                "BLUE_DATA_KB_SOURCE_EXTRACTION_LLM_MODEL", "BLUE_DATA_LLM_PROVIDER"):
         monkeypatch.delenv(var, raising=False)
     assert model_for("EXTRACTION") == "gpt-4o"
+    monkeypatch.setenv("BLUE_DATA_LLM_PROVIDER", "anthropic")
+    assert model_for("EXTRACTION") == "claude-opus-4-8"
 
     monkeypatch.setenv("BLUE_DATA_LLM_MODEL", "family")
     assert model_for("EXTRACTION") == "family"

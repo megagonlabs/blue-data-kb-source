@@ -115,15 +115,15 @@ class LLMCallRecord:
 
 
 class InstrumentedOpenAI:
-    """Drop-in replacement for `openai.AsyncOpenAI` that records usage/latency.
+    """Drop-in replacement for `blue_data_kb_source.llm.AsyncClient` that records usage/latency.
 
     Delegates to a real client under the hood so responses are genuine whether
     the underlying HTTP call is live or replayed from a VCR cassette; only
     `chat.completions.create` is wrapped. Construct via
-    `functools.partial(InstrumentedOpenAI, real_client_cls=openai.AsyncOpenAI, sink=calls)`
-    *before* patching, then patch `openai.AsyncOpenAI` with the partial — the
-    same patch site the existing unit tests use. `real_client_cls` must be
-    captured before the patch is applied: looking up `openai.AsyncOpenAI`
+    `functools.partial(InstrumentedOpenAI, real_client_cls=llm.AsyncClient, sink=calls)`
+    *before* patching, then patch `blue_data_kb_source.llm.AsyncClient` with the
+    partial — the same patch site the unit tests use. `real_client_cls` must be
+    captured before the patch is applied: looking up `llm.AsyncClient`
     from inside `__init__` would resolve to this very wrapper once patched,
     recursing forever.
     """
@@ -156,7 +156,7 @@ class _InstrumentedCompletions:
         usage = getattr(response, "usage", None)
         msg = response.choices[0].message
         self._sink.append(LLMCallRecord(
-            model=kwargs.get("model", ""),
+            model=kwargs.get("model") or "",
             latency_seconds=elapsed,
             prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
             completion_tokens=getattr(usage, "completion_tokens", 0) or 0,

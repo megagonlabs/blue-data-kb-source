@@ -27,6 +27,10 @@ def test_a_missing_openai_key_is_one_line_naming_the_setting(runner, monkeypatch
 @pytest.mark.parametrize("exc, expected", [
     (_exc("openai", "AuthenticationError", "Error code: 401 - invalid_api_key"),
      "OpenAI rejected the API key (OPENAI_API_KEY): Error code: 401 - invalid_api_key"),
+    (_exc("litellm.exceptions", "AuthenticationError", "invalid x-api-key"),
+     "OpenAI rejected the API key (OPENAI_API_KEY): invalid x-api-key"),
+    (_exc("litellm.exceptions", "NotFoundError", "model: claude-nope"),
+     "OpenAI request failed: model: claude-nope"),
     (_exc("neo4j.exceptions", "ServiceUnavailable", "Couldn't connect to 127.0.0.1:7999\nConnection refused"),
      "cannot connect to Neo4j: Couldn't connect to 127.0.0.1:7999 Connection refused Check the database's URI"),
     (_exc("neo4j.exceptions", "AuthError", "unauthorized"),
@@ -70,3 +74,10 @@ def test_the_traceback_env_lets_the_exception_through(runner, monkeypatch):
     monkeypatch.setenv("BLUE_DATA_KB_SOURCE_TRACEBACK", "1")
     result = runner.invoke(cli, ["--database", "main", "schema", "list"])
     assert isinstance(result.exception, RuntimeError)
+
+
+def test_a_provider_error_names_the_configured_provider(monkeypatch):
+    monkeypatch.setenv("BLUE_DATA_LLM_PROVIDER", "anthropic")
+    assert _user_error(_exc("litellm.exceptions", "AuthenticationError", "invalid x-api-key")) == (
+        "Anthropic rejected the API key (ANTHROPIC_API_KEY): invalid x-api-key"
+    )

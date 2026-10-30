@@ -40,7 +40,7 @@ def _text_response(text):
 
 
 def _mock_openai(result_payload):
-    """Patch openai.AsyncOpenAI for a single agent call (return_result)."""
+    """Patch llm.AsyncClient for a single agent call (return_result)."""
     mock_client = MagicMock()
     mock_client.chat.completions.create = AsyncMock(
         return_value=_agent_response(result_payload)
@@ -49,7 +49,7 @@ def _mock_openai(result_payload):
 
 
 def _mock_openai_nl(result_payload, nl_text):
-    """Patch openai.AsyncOpenAI for agent call followed by NL completion call."""
+    """Patch llm.AsyncClient for agent call followed by NL completion call."""
     mock_client = MagicMock()
     mock_client.chat.completions.create = AsyncMock(
         side_effect=[_agent_response(result_payload), _text_response(nl_text)]
@@ -77,7 +77,7 @@ def _tool_call_response(fn, args, call_id="call_0"):
 
 
 def _mock_openai_with_metadata(node_id, result_payload):
-    """Patch openai.AsyncOpenAI: calls get_metadata(node_id) once, then return_result."""
+    """Patch llm.AsyncClient: calls get_metadata(node_id) once, then return_result."""
     mock_client = MagicMock()
     mock_client.chat.completions.create = AsyncMock(
         side_effect=[_tool_call_response("get_metadata", {"id": node_id}), _agent_response(result_payload)]
@@ -86,7 +86,7 @@ def _mock_openai_with_metadata(node_id, result_payload):
 
 
 def _mock_openai_repeating_tool_call(fn, args=None):
-    """Patch openai.AsyncOpenAI: every call returns the same tool call, forever
+    """Patch llm.AsyncClient: every call returns the same tool call, forever
     (never return_result) — used to test the max_turns cutoff."""
     response = _tool_call_response(fn, args or {}, call_id="call_repeat")
     mock_client = MagicMock()
@@ -95,7 +95,7 @@ def _mock_openai_repeating_tool_call(fn, args=None):
 
 
 def _mock_openai_with_metadata_nl(node_id, result_payload, nl_text, metadata_nl_text):
-    """Patch openai.AsyncOpenAI: get_metadata tool call, return_result, then two NL completions
+    """Patch llm.AsyncClient: get_metadata tool call, return_result, then two NL completions
     (main answer/validate text, then metadata text)."""
     mock_client = MagicMock()
     mock_client.chat.completions.create = AsyncMock(
@@ -888,14 +888,14 @@ _ANSWER_PAYLOAD = [
 ]
 
 async def test_answer_finds_entity_by_name(populated_kb):
-    with patch("openai.AsyncOpenAI", _mock_openai(_ANSWER_PAYLOAD)):
+    with patch("blue_data_kb_source.llm.AsyncClient", _mock_openai(_ANSWER_PAYLOAD)):
         results = await populated_kb.answer("test", "Where did Alice work?")
     entities = [r["entity"] for r in results if r.get("entity")]
     assert any("Alice" in e for e in entities)
 
 
 async def test_answer_returns_provenance(populated_kb):
-    with patch("openai.AsyncOpenAI", _mock_openai(_ANSWER_PAYLOAD)):
+    with patch("blue_data_kb_source.llm.AsyncClient", _mock_openai(_ANSWER_PAYLOAD)):
         results = await populated_kb.answer("test", "Alice")
     alice_result = next((r for r in results if r.get("entity") and "Alice" in r["entity"]), None)
     assert alice_result is not None
@@ -903,14 +903,14 @@ async def test_answer_returns_provenance(populated_kb):
 
 
 async def test_answer_returns_empty_for_unknown_term(populated_kb):
-    with patch("openai.AsyncOpenAI", _mock_openai([])):
+    with patch("blue_data_kb_source.llm.AsyncClient", _mock_openai([])):
         results = await populated_kb.answer("test", "zzz_unknown_zzz")
     assert results == []
 
 
 async def test_answer_stops_after_max_turns(populated_kb):
     factory, mock_client = _mock_openai_repeating_tool_call("get_schema")
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         results = await populated_kb.answer("test", "Where did Alice work?", max_turns=3)
     assert results == []
     # 3 turns, then one forced return_result call (which this mock never honours).
@@ -926,7 +926,7 @@ async def test_answer_out_of_turns_still_returns_what_was_gathered(populated_kb)
     final = _tool_call_response("return_result", {"result": rows}, call_id="call_final")
     mock_client = MagicMock()
     mock_client.chat.completions.create = AsyncMock(side_effect=[explore, explore, final])
-    with patch("openai.AsyncOpenAI", MagicMock(return_value=mock_client)):
+    with patch("blue_data_kb_source.llm.AsyncClient", MagicMock(return_value=mock_client)):
         results = await populated_kb.answer("test", "Can we onboard Atlas?", max_turns=2)
     assert results == rows
     forced_kwargs = mock_client.chat.completions.create.call_args_list[2].kwargs
@@ -943,13 +943,13 @@ _VALIDATE_PAYLOAD = {
 }
 
 async def test_validate_returns_supporting_facts(populated_kb):
-    with patch("openai.AsyncOpenAI", _mock_openai(_VALIDATE_PAYLOAD)):
+    with patch("blue_data_kb_source.llm.AsyncClient", _mock_openai(_VALIDATE_PAYLOAD)):
         result = await populated_kb.validate("test", "Alice worked at IBM")
     assert len(result.supporting) > 0
 
 
 async def test_validate_supporting_fact_has_expected_fields(populated_kb):
-    with patch("openai.AsyncOpenAI", _mock_openai(_VALIDATE_PAYLOAD)):
+    with patch("blue_data_kb_source.llm.AsyncClient", _mock_openai(_VALIDATE_PAYLOAD)):
         result = await populated_kb.validate("test", "Alice worked at IBM")
     fact = result.supporting[0]
     assert "fact" in fact
@@ -959,7 +959,7 @@ async def test_validate_supporting_fact_has_expected_fields(populated_kb):
 
 
 async def test_validate_counter_empty_by_default(populated_kb):
-    with patch("openai.AsyncOpenAI", _mock_openai(_VALIDATE_PAYLOAD)):
+    with patch("blue_data_kb_source.llm.AsyncClient", _mock_openai(_VALIDATE_PAYLOAD)):
         result = await populated_kb.validate("test", "Alice worked at IBM")
     assert result.counter == []
 
@@ -973,20 +973,20 @@ def _alice_id(kb):
 
 
 async def test_enrich_finds_connected_facts(populated_kb):
-    with patch("openai.AsyncOpenAI", _mock_openai({"seed_entity_ids": [_alice_id(populated_kb)]})):
+    with patch("blue_data_kb_source.llm.AsyncClient", _mock_openai({"seed_entity_ids": [_alice_id(populated_kb)]})):
         results = await populated_kb.enrich("test", "Alice")
     assert len(results) > 0
     assert all(0 <= r.distance <= 2 for r in results)
 
 
 async def test_enrich_result_includes_relation_name(populated_kb):
-    with patch("openai.AsyncOpenAI", _mock_openai({"seed_entity_ids": [_alice_id(populated_kb)]})):
+    with patch("blue_data_kb_source.llm.AsyncClient", _mock_openai({"seed_entity_ids": [_alice_id(populated_kb)]})):
         results = await populated_kb.enrich("test", "Alice")
     assert any(r.relation == "WORKED_AT" for r in results)
 
 
 async def test_enrich_no_results_for_unknown_entity(populated_kb):
-    with patch("openai.AsyncOpenAI", _mock_openai({"seed_entity_ids": []})):
+    with patch("blue_data_kb_source.llm.AsyncClient", _mock_openai({"seed_entity_ids": []})):
         results = await populated_kb.enrich("test", "zzz_not_a_person_zzz")
     assert results == []
 
@@ -998,20 +998,20 @@ async def test_enrich_no_results_for_unknown_entity(populated_kb):
 _ANSWER_NL_TEXT = "Alice worked at IBM starting in June 1998."
 
 async def test_answer_natural_language_returns_string(populated_kb):
-    with patch("openai.AsyncOpenAI", _mock_openai_nl(_ANSWER_PAYLOAD, _ANSWER_NL_TEXT)):
+    with patch("blue_data_kb_source.llm.AsyncClient", _mock_openai_nl(_ANSWER_PAYLOAD, _ANSWER_NL_TEXT)):
         result = await populated_kb.answer("test", "Where did Alice work?", natural_language=True)
     assert isinstance(result, str)
     assert len(result) > 0
 
 
 async def test_answer_natural_language_contains_expected_content(populated_kb):
-    with patch("openai.AsyncOpenAI", _mock_openai_nl(_ANSWER_PAYLOAD, _ANSWER_NL_TEXT)):
+    with patch("blue_data_kb_source.llm.AsyncClient", _mock_openai_nl(_ANSWER_PAYLOAD, _ANSWER_NL_TEXT)):
         result = await populated_kb.answer("test", "Where did Alice work?", natural_language=True)
     assert result == _ANSWER_NL_TEXT
 
 
 async def test_answer_default_returns_structured(populated_kb):
-    with patch("openai.AsyncOpenAI", _mock_openai(_ANSWER_PAYLOAD)):
+    with patch("blue_data_kb_source.llm.AsyncClient", _mock_openai(_ANSWER_PAYLOAD)):
         result = await populated_kb.answer("test", "Where did Alice work?")
     assert isinstance(result, list)
 
@@ -1029,7 +1029,7 @@ def _alice_id(populated_kb):
 
 async def test_answer_include_metadata_returns_tuple(populated_kb):
     alice_id = _alice_id(populated_kb)
-    with patch("openai.AsyncOpenAI", _mock_openai_with_metadata(alice_id, _ANSWER_PAYLOAD)):
+    with patch("blue_data_kb_source.llm.AsyncClient", _mock_openai_with_metadata(alice_id, _ANSWER_PAYLOAD)):
         results, metadata = await populated_kb.answer("test", "Where did Alice work?", include_metadata=True)
     assert isinstance(results, list)
     assert alice_id in metadata
@@ -1040,14 +1040,14 @@ async def test_answer_include_metadata_returns_tuple(populated_kb):
 
 
 async def test_answer_without_include_metadata_returns_bare_list(populated_kb):
-    with patch("openai.AsyncOpenAI", _mock_openai(_ANSWER_PAYLOAD)):
+    with patch("blue_data_kb_source.llm.AsyncClient", _mock_openai(_ANSWER_PAYLOAD)):
         result = await populated_kb.answer("test", "Where did Alice work?")
     assert isinstance(result, list)
 
 
 async def test_validate_include_metadata_returns_tuple(populated_kb):
     alice_id = _alice_id(populated_kb)
-    with patch("openai.AsyncOpenAI", _mock_openai_with_metadata(alice_id, _VALIDATE_PAYLOAD)):
+    with patch("blue_data_kb_source.llm.AsyncClient", _mock_openai_with_metadata(alice_id, _VALIDATE_PAYLOAD)):
         result, metadata = await populated_kb.validate("test", "Alice worked at IBM", include_metadata=True)
     assert len(result.supporting) > 0
     assert alice_id in metadata
@@ -1059,7 +1059,7 @@ _METADATA_NL_TEXT = "This was extracted from Alice's résumé, added on 2026-08-
 async def test_answer_include_metadata_natural_language_appends_metadata_section(populated_kb):
     alice_id = _alice_id(populated_kb)
     mock = _mock_openai_with_metadata_nl(alice_id, _ANSWER_PAYLOAD, _ANSWER_NL_TEXT, _METADATA_NL_TEXT)
-    with patch("openai.AsyncOpenAI", mock):
+    with patch("blue_data_kb_source.llm.AsyncClient", mock):
         text, metadata = await populated_kb.answer(
             "test", "Where did Alice work?", natural_language=True, include_metadata=True
         )
@@ -1072,7 +1072,7 @@ async def test_answer_include_metadata_natural_language_appends_metadata_section
 async def test_validate_include_metadata_natural_language_appends_metadata_section(populated_kb):
     alice_id = _alice_id(populated_kb)
     mock = _mock_openai_with_metadata_nl(alice_id, _VALIDATE_PAYLOAD, _VALIDATE_NL_TEXT, _METADATA_NL_TEXT)
-    with patch("openai.AsyncOpenAI", mock):
+    with patch("blue_data_kb_source.llm.AsyncClient", mock):
         text, metadata = await populated_kb.validate(
             "test", "Alice worked at IBM", natural_language=True, include_metadata=True
         )
@@ -1089,20 +1089,20 @@ async def test_validate_include_metadata_natural_language_appends_metadata_secti
 _VALIDATE_NL_TEXT = "The statement is supported: Alice did work at IBM according to the knowledge base."
 
 async def test_validate_natural_language_returns_string(populated_kb):
-    with patch("openai.AsyncOpenAI", _mock_openai_nl(_VALIDATE_PAYLOAD, _VALIDATE_NL_TEXT)):
+    with patch("blue_data_kb_source.llm.AsyncClient", _mock_openai_nl(_VALIDATE_PAYLOAD, _VALIDATE_NL_TEXT)):
         result = await populated_kb.validate("test", "Alice worked at IBM", natural_language=True)
     assert isinstance(result, str)
     assert len(result) > 0
 
 
 async def test_validate_natural_language_contains_expected_content(populated_kb):
-    with patch("openai.AsyncOpenAI", _mock_openai_nl(_VALIDATE_PAYLOAD, _VALIDATE_NL_TEXT)):
+    with patch("blue_data_kb_source.llm.AsyncClient", _mock_openai_nl(_VALIDATE_PAYLOAD, _VALIDATE_NL_TEXT)):
         result = await populated_kb.validate("test", "Alice worked at IBM", natural_language=True)
     assert result == _VALIDATE_NL_TEXT
 
 
 async def test_validate_default_returns_structured(populated_kb):
-    with patch("openai.AsyncOpenAI", _mock_openai(_VALIDATE_PAYLOAD)):
+    with patch("blue_data_kb_source.llm.AsyncClient", _mock_openai(_VALIDATE_PAYLOAD)):
         result = await populated_kb.validate("test", "Alice worked at IBM")
     assert hasattr(result, "supporting")
 
@@ -1629,7 +1629,7 @@ async def test_answer_stops_after_a_run_of_empty_lookups(populated_kb):
     """An agent rephrasing searches for something the KB doesn't hold is stopped and asked
     for its result, instead of spending every remaining turn."""
     factory, mock_client = _mock_openai_repeating_tool_call("search_entities", {"query": "zzz unknown"})
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         results = await populated_kb.answer("test", "Where did Zed work?", max_turns=25)
     assert results == []
     # 8 empty lookups, then one forced return_result — not 25 turns.

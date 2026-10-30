@@ -22,8 +22,9 @@ dev    = ["pytest", "pytest-asyncio"]
 neo4j  = ["neo4j>=5.0"]
 chromadb = ["chromadb>=0.4"]
 redis  = ["redis>=5.0"]
-openai = ["openai>=1.0"]
-all    = ["neo4j>=5.0", "chromadb>=0.4", "redis>=5.0", "openai>=1.0"]
+llm    = ["litellm>=1.102,<1.106"]
+openai = ["litellm>=1.102,<1.106"]  # the former name of `llm`, kept for existing install commands
+all    = ["neo4j>=5.0", "chromadb>=0.4", "redis>=5.0", "litellm>=1.102,<1.106"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

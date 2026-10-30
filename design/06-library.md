@@ -316,7 +316,7 @@ After a merge, `fetch_database_schema` lists the target only, and each affected 
 
 Wires a `DEFINE_PROPERTY` edge from an existing CLASS or RELATION (`target_id`) to an existing PROPERTY (`property_id`). Idempotent — calling it again with the same pair is a no-op, not a duplicate edge. Raises `SchemaError` if `target_id` isn't a CLASS/RELATION or `property_id` isn't a PROPERTY. Exists so a property discovered via `search_schema` on one class/relation can be reused on another instead of `declare_class_property`/`declare_relation_property` creating a same-meaning duplicate under a new name — both `SchemaExpansionEngine` (below) and `blue-kb schema class/relation property attach` use it for exactly this.
 
-#### `expand_schema(database, text, *, depth=1, reference="llm", mcp_servers=None, dedup_mode="search", model="gpt-4o", on_tool_call=None, on_tool_result=None, max_turns=25, timeout=None)`
+#### `expand_schema(database, text, *, depth=1, reference="llm", mcp_servers=None, dedup_mode="search", model=None, on_tool_call=None, on_tool_result=None, max_turns=25, timeout=None)`
 
 Thin delegation to `SchemaExpansionEngine.expand_schema` (below) — `SchemaManager` owns one `SchemaExpansionEngine` instance, constructed with a reference back to itself so the engine's tool dispatch can call `declare_class`/`add_is_subclass_of`/`attach_property`/etc. directly.
 
@@ -354,15 +354,15 @@ Creates an ENTITY node.
 
 Ranks ENTITY and FACT nodes by keyword match of `query` (the whole query as a substring first, then the number of shared words, stopwords ignored) against their own name/description plus related names (class name for entities; head, relation, and tail names for facts), with no relevance ranking. This is the fallback used by `KBSource.search_data` when the database was not registered with search enabled; when it is enabled, `KBSource.search_data` calls `KBSearchIndexer.search_data` instead, which supports BM25 ranking and semantic mode. Returns a list of `DataSearchResult`.
 
-#### `answer(database, question, model="gpt-4o", natural_language=False, include_metadata=False, on_tool_call=None, on_tool_result=None)`
+#### `answer(database, question, model=None, natural_language=False, include_metadata=False, on_tool_call=None, on_tool_result=None)`
 
 Delegates to `QueryEngine.answer(..., include_metadata=...)` for the structured result, then applies `natural_language` handling **at this layer**, not inside `QueryEngine` — `QueryEngine` itself has no `natural_language` parameter. Returns a list of plain dicts (not `AnswerResult` — see note below); a prose string when `natural_language=True`; or a `(result, metadata)` tuple when `include_metadata=True` (prose composition and the metadata tuple compose — with both flags set, the prose has a metadata section appended and `metadata` is still returned as the second element). `on_tool_call`/`on_tool_result`, if given, are invoked with `(tool_name, arguments)`/`(tool_name, arguments, result)` for each tool call the agent makes.
 
-#### `validate(database, statement, model="gpt-4o", natural_language=False, include_metadata=False, on_tool_call=None, on_tool_result=None)`
+#### `validate(database, statement, model=None, natural_language=False, include_metadata=False, on_tool_call=None, on_tool_result=None)`
 
 Delegates to `QueryEngine.validate`, with the same `natural_language`/`include_metadata` layering as `answer` above. Returns a `ValidationResult`, a prose string, or a `(result, metadata)` tuple.
 
-#### `enrich(database, query, depth=2, model="gpt-4o", on_tool_call=None, on_tool_result=None)`
+#### `enrich(database, query, depth=2, model=None, on_tool_call=None, on_tool_result=None)`
 
 Delegates to `QueryEngine.enrich`. Returns a list of `EnrichmentResult` objects. No `natural_language`/`include_metadata` variance — unlike `answer`/`validate`, `enrich` doesn't take either parameter.
 
@@ -386,7 +386,7 @@ QueryEngine(source, schema_manager, search_indexer=None)
 
 ### Methods
 
-#### `answer(database, question, model="gpt-4o", include_metadata=False, on_tool_call=None, on_tool_result=None)`
+#### `answer(database, question, model=None, include_metadata=False, on_tool_call=None, on_tool_result=None)`
 
 Fetches the schema, constructs a system prompt, and runs the agent loop. The agent calls graph tools to find relevant entities, facts, and property values (plus `get_metadata` when `include_metadata=True`), then calls `return_result` with a list of `{entity, relation, value, provenance}` items. That payload is returned as-is — a plain `list[dict]`, not wrapped in `AnswerResult`. `QueryEngine.answer` has no `natural_language` parameter — prose composition happens one layer up, in `KnowledgeManager.answer`.
 
@@ -404,7 +404,7 @@ Output:
 ]
 ```
 
-#### `validate(database, statement, model="gpt-4o", include_metadata=False, on_tool_call=None, on_tool_result=None)`
+#### `validate(database, statement, model=None, include_metadata=False, on_tool_call=None, on_tool_result=None)`
 
 Fetches the schema, constructs a system prompt directing the agent to find supporting and counter evidence, and runs the agent loop. The agent calls `return_result` with `{supporting: [...], counter: [...]}` where each item is `{fact, head, tail, relation}`. Returns a `ValidationResult` — like `answer`, no `natural_language` parameter at this layer; that's handled by `KnowledgeManager.validate`.
 
@@ -420,7 +420,7 @@ ValidationResult(
 )
 ```
 
-#### `enrich(database, query, depth=2, model="gpt-4o", on_tool_call=None, on_tool_result=None)`
+#### `enrich(database, query, depth=2, model=None, on_tool_call=None, on_tool_result=None)`
 
 Fetches the schema and runs an agent whose only job is to pick the seed entities the query is about: it uses `search_entities` (and `get_entity_facts`/`get_neighbors` when the query names an entity only through its relations), then calls `return_result` with `{"seed_entity_ids": [...]}`. Each id is checked against the graph (a name is accepted as a fallback; anything else is dropped). A deterministic breadth-first walk from the seeds then produces the `EnrichmentResult` list: each seed and its property values at distance 0, each fact one hop out with its property values and its other endpoint at distance 1, and so on up to `depth` (clamped to 3; at most 500 rows). The traversal used to be the agent's, and so were the distances, so `depth=1` could return a two-hop fact labelled distance 1 (#163).
 
@@ -586,7 +586,7 @@ One identity-certain candidate (`exact`, `alias`, `structural`) auto-resolves; t
 
 ### Methods
 
-All eleven take trailing `source_id=None, confidence=None, extraction_type="assertion", schema_creation_mode="llm", model="gpt-4o"` keyword options, elided below. `AssertResult` reports the subject (`node_id`, `created`, `match_type`, `extraction_id`) plus the full cascade (`created_nodes`) and any `widened_relations`.
+All eleven take trailing `source_id=None, confidence=None, extraction_type="assertion", schema_creation_mode="llm", model=None` keyword options, elided below. `AssertResult` reports the subject (`node_id`, `created`, `match_type`, `extraction_id`) plus the full cascade (`created_nodes`) and any `widened_relations`.
 
 #### `assert_class(database, name, description=None)`
 
@@ -687,7 +687,7 @@ ExtractionEngine(source, schema_manager, knowledge_manager, provenance_tracker, 
 
 ### Methods
 
-#### `import_text(database, text, queries=None, model="gpt-4o", source_id=None, on_tool_call=None, on_tool_result=None, max_turns=25, related_data_k=10, effort="low", max_concurrency=1)`
+#### `import_text(database, text, queries=None, model=None, source_id=None, on_tool_call=None, on_tool_result=None, max_turns=25, related_data_k=10, effort="low", max_concurrency=1)`
 
 Extracts entities, facts, and property values from `text` into `database`, against the schema as it
 currently stands. Called directly by `ExtractionEngine`'s consumer — `KBSource.import_text` (see the
@@ -797,7 +797,7 @@ SchemaExpansionEngine(source, schema_manager, search_indexer=None)
 
 ### Methods
 
-#### `expand_schema(database, text, *, depth=1, reference="llm", mcp_servers=None, dedup_mode="search", model="gpt-4o", on_tool_call=None, on_tool_result=None, max_turns=25, timeout=None)`
+#### `expand_schema(database, text, *, depth=1, reference="llm", mcp_servers=None, dedup_mode="search", model=None, on_tool_call=None, on_tool_result=None, max_turns=25, timeout=None)`
 
 **Parameters**
 

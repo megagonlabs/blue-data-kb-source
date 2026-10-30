@@ -670,7 +670,7 @@ class SchemaManager:
         reference: Literal["llm", "mcp"] = "llm",
         mcp_servers: list[dict[str, Any]] | None = None,
         dedup_mode: Literal["search", "llm", "none"] = "search",
-        model: str = "gpt-4o",
+        model: str | None = None,
         on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
         on_tool_result: Callable[[str, dict[str, Any], Any], None] | None = None,
         max_turns: int = 25,

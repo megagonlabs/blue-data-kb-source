@@ -10,7 +10,7 @@ requires-python = ">=3.12,<3.14"
 dependencies = [
     "blue-data-kb-source>=1.0.0",
     "mcp[cli]>=1.28.1,<2",
-    "openai>=1.0",
+    "litellm>=1.102,<1.106",
 ]
 
 [project.scripts]

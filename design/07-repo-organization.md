@@ -261,6 +261,6 @@ lib/tests/
 
 Each `unit/` subdirectory carries an `__init__.py` to prevent pytest from confusing identically-named test files (e.g. `schema/test_manager.py` and `knowledge/test_manager.py`). See [11-testing-strategy.md](11-testing-strategy.md) for the full testing approach, including why the benchmark tier is kept separate from `unit/`.
 
-`answer`, `validate`, and `enrich` tests in `unit/knowledge/` mock `openai.AsyncOpenAI` via `unittest.mock.patch` so the agent loop runs without a live API key.
+`answer`, `validate`, and `enrich` tests in `unit/knowledge/` mock `blue_data_kb_source.llm.AsyncClient` via `unittest.mock.patch` so the agent loop runs without a live API key.
 
 Platform adapter tests define their own fixtures rather than importing `lib/tests/conftest.py`, since each adapter exercises a different entry point. The CLI's `tests/unit/conftest.py` provides a `click.testing.CliRunner` fixture that points every home/data variable at a fresh `tmp_path` per test, clears every configuration parameter so a developer's own exported keys cannot change what the tests see, snapshots the environment around each invocation (the CLI applies a profile by exporting into `os.environ`, which a real run discards when the process exits), and asserts afterwards that nothing was written to the real `~/.blue-kb`; its `extract`/`answer`/`validate` tests mock `openai.AsyncOpenAI` the same way the library tests do.

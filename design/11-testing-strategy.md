@@ -91,7 +91,7 @@ def kb() -> MemoryKBSource:
 
 Two different, deliberately separate mocking strategies exist depending on the tier:
 
-**`lib/tests/unit/`** (fast, offline, no network) mocks `openai.AsyncOpenAI` directly via `unittest.mock.patch`, returning a scripted `MagicMock`/`AsyncMock` response sequence via a `_mock_openai_sequence` helper — the same small pattern independently redefined in each of `unit/extraction/test_engine.py`, `unit/schema/test_expansion.py`, and `unit/knowledge/test_manager.py`'s `answer`/`validate`/`enrich` tests, rather than imported from one shared module. `unit/ingestion/` patches the judge functions at their import site the same way. `unit/schema/test_expansion.py`'s `reference="mcp"` test is the one exception to "no network/subprocess at all": only the model's decisions are mocked (`openai.AsyncOpenAI`, as above) — the MCP half (spawn, `list_tools`, `call_tool`) is real, spawning the actual `blue-data-wordnet-mcp` binary over stdio to prove the generic MCP bridge drives an external server's tools, not a scripted fake of the MCP protocol. It's skipped (`pytest.mark.skipif`) when `blue-data-wordnet-mcp` isn't installed on `PATH`, so it degrades gracefully rather than failing in an environment that only installed `lib/`'s `dev` extra. No cassettes, no `@pytest.mark.vcr` anywhere in this tier — this is what otherwise makes `lib/tests/unit/` safe to run with no `OPENAI_API_KEY` and no network access.
+**`lib/tests/unit/`** (fast, offline, no network) mocks `blue_data_kb_source.llm.AsyncClient` (the client every agent calls) via `unittest.mock.patch`, returning a scripted `MagicMock`/`AsyncMock` response sequence via a `_mock_openai_sequence` helper — the same small pattern independently redefined in each of `unit/extraction/test_engine.py`, `unit/schema/test_expansion.py`, and `unit/knowledge/test_manager.py`'s `answer`/`validate`/`enrich` tests, rather than imported from one shared module. `unit/ingestion/` patches the judge functions at their import site the same way. `unit/schema/test_expansion.py`'s `reference="mcp"` test is the one exception to "no network/subprocess at all": only the model's decisions are mocked (`openai.AsyncOpenAI`, as above) — the MCP half (spawn, `list_tools`, `call_tool`) is real, spawning the actual `blue-data-wordnet-mcp` binary over stdio to prove the generic MCP bridge drives an external server's tools, not a scripted fake of the MCP protocol. It's skipped (`pytest.mark.skipif`) when `blue-data-wordnet-mcp` isn't installed on `PATH`, so it degrades gracefully rather than failing in an environment that only installed `lib/`'s `dev` extra. No cassettes, no `@pytest.mark.vcr` anywhere in this tier — this is what otherwise makes `lib/tests/unit/` safe to run with no `OPENAI_API_KEY` and no network access.
 
 **`lib/tests/benchmarks/`** (opt-in, heavier) uses `pytest-recording` (VCR.py) against real OpenAI responses, scoped per suite — `lib/tests/benchmarks/extraction/cassettes/`, `lib/tests/benchmarks/querying/cassettes/`, and `lib/tests/benchmarks/judges/cassettes/`, each with its own `conftest.py` defining `vcr_config`/`vcr_cassette_dir`, and `pytestmark = pytest.mark.vcr` set at the module level in each suite's `test_*_benchmark.py`. This is where cassette-recording rules apply:
 
@@ -103,7 +103,7 @@ Two different, deliberately separate mocking strategies exist depending on the t
 
 ```python
 async def test_import_text_extracts_entity(kb):
-    with patch("openai.AsyncOpenAI", return_value=_mock_openai_sequence([...])):
+    with patch("blue_data_kb_source.llm.AsyncClient", return_value=_mock_openai_sequence([...])):
         src = await kb.add_source("test", source="doc1", name="Test Document")
         await kb.import_text(
             "test",
@@ -252,7 +252,7 @@ source = ["src"]
 ## 11. Running Tests
 
 ```bash
-# Library unit tests (fast, offline, no OPENAI_API_KEY needed)
+# Library unit tests (fast, offline, no API key needed)
 cd lib && pytest tests/unit/
 
 # With coverage

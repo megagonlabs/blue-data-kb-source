@@ -39,7 +39,7 @@ def _text_response(text):
 
 
 def _mock_openai_return_result(payload):
-    """Patch openai.AsyncOpenAI so the agent immediately calls return_result."""
+    """Patch llm.AsyncClient so the agent immediately calls return_result."""
     mock_client = MagicMock()
     mock_client.chat.completions.create = AsyncMock(
         return_value=_tool_call_response("return_result", {"result": payload})
@@ -48,7 +48,7 @@ def _mock_openai_return_result(payload):
 
 
 def _mock_openai_no_tool_calls():
-    """Patch openai.AsyncOpenAI so the agent stops on the first turn (extraction loop)."""
+    """Patch llm.AsyncClient so the agent stops on the first turn (extraction loop)."""
     mock_client = MagicMock()
     mock_client.chat.completions.create = AsyncMock(
         return_value=_text_response("Nothing further to extract.")
@@ -73,7 +73,7 @@ def _seed(runner):
 
 def test_extract_reports_completion(runner):
     invoke(runner, DB + ["schema", "class", "add", "EMPLOYEE", "A person employed by an organization"])
-    with patch("openai.AsyncOpenAI", _mock_openai_no_tool_calls()):
+    with patch("blue_data_kb_source.llm.AsyncClient", _mock_openai_no_tool_calls()):
         result = runner.invoke(cli, DB + ["data", "extract", "Alice joined IBM in June 1998."])
     assert result.exit_code == 0, result.output
     assert "Extraction complete." in result.output
@@ -92,7 +92,7 @@ def _schema_expansion_prompts(factory):
 def test_extract_no_expand_schema_skips_expansion(runner):
     invoke(runner, DB + ["schema", "class", "add", "EMPLOYEE", "A person employed by an organization"])
     factory = _mock_openai_no_tool_calls()
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         result = runner.invoke(cli, DB + [
             "data", "extract", "Alice joined IBM in June 1998.",
             "--no-expand-schema",
@@ -110,7 +110,7 @@ def test_extract_expands_schema_by_default(runner):
     agent does run — otherwise the test above would pass for the wrong reason."""
     invoke(runner, DB + ["schema", "class", "add", "EMPLOYEE", "A person employed by an organization"])
     factory = _mock_openai_no_tool_calls()
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         result = runner.invoke(cli, DB + ["data", "extract", "Alice joined IBM in June 1998."])
     assert result.exit_code == 0, result.output
     assert _schema_expansion_prompts(factory)
@@ -119,7 +119,7 @@ def test_extract_expands_schema_by_default(runner):
 def test_schema_expand_dedup_mode_none_omits_search_schema_tool(runner):
     invoke(runner, DB + ["schema", "class", "add", "EMPLOYEE", "A person employed by an organization"])
     factory = _mock_openai_no_tool_calls()
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         result = runner.invoke(cli, DB + [
             "schema", "expand", "Alice joined IBM in June 1998.",
             "--dedup-mode", "none",
@@ -132,7 +132,7 @@ def test_schema_expand_dedup_mode_none_omits_search_schema_tool(runner):
 
 
 def _mock_openai_stalled():
-    """Patch openai.AsyncOpenAI so every model call hangs, like a stalled request."""
+    """Patch llm.AsyncClient so every model call hangs, like a stalled request."""
     import asyncio
 
     async def _hang(*args, **kwargs):
@@ -144,7 +144,7 @@ def _mock_openai_stalled():
 
 
 def test_schema_expand_timeout_fails_with_a_clear_error(runner):
-    with patch("openai.AsyncOpenAI", _mock_openai_stalled()):
+    with patch("blue_data_kb_source.llm.AsyncClient", _mock_openai_stalled()):
         result = runner.invoke(cli, DB + [
             "schema", "expand", "Alice joined IBM.", "--model", "gpt-5", "--timeout", "0.2",
         ])
@@ -172,7 +172,7 @@ def test_extract_caps_schema_expansion_with_the_profile_timeout(runner):
 def test_answer_table_format(runner):
     _seed(runner)
     payload = [{"entity": "Alice", "relation": "WORKED_AT", "value": None, "provenance": "Alice joined IBM in June 1998."}]
-    with patch("openai.AsyncOpenAI", _mock_openai_return_result(payload)):
+    with patch("blue_data_kb_source.llm.AsyncClient", _mock_openai_return_result(payload)):
         result = runner.invoke(cli, DB + ["data", "answer", "Where did Alice work?"])
     assert result.exit_code == 0, result.output
     assert "Alice" in result.output
@@ -182,7 +182,7 @@ def test_answer_table_format(runner):
 def test_answer_json_format(runner):
     _seed(runner)
     payload = [{"entity": "Alice", "relation": "WORKED_AT"}]
-    with patch("openai.AsyncOpenAI", _mock_openai_return_result(payload)):
+    with patch("blue_data_kb_source.llm.AsyncClient", _mock_openai_return_result(payload)):
         result = runner.invoke(cli, DB + ["data", "answer", "Where did Alice work?", "--format", "json"])
     assert result.exit_code == 0, result.output
     assert json.loads(result.output) == payload
@@ -197,7 +197,7 @@ def test_answer_natural_language_format(runner):
             _text_response("Alice worked at IBM."),
         ]
     )
-    with patch("openai.AsyncOpenAI", MagicMock(return_value=mock_client)):
+    with patch("blue_data_kb_source.llm.AsyncClient", MagicMock(return_value=mock_client)):
         result = runner.invoke(cli, DB + ["data", "answer", "Where did Alice work?", "--format", "nl"])
     assert result.exit_code == 0, result.output
     assert "Alice worked at IBM." in result.output
@@ -209,7 +209,7 @@ def test_validate_structured_format(runner):
         "supporting": [{"fact": "Alice_WORKED_AT_IBM", "head": "Alice", "tail": "IBM", "relation": "WORKED_AT"}],
         "counter": [],
     }
-    with patch("openai.AsyncOpenAI", _mock_openai_return_result(payload)):
+    with patch("blue_data_kb_source.llm.AsyncClient", _mock_openai_return_result(payload)):
         result = runner.invoke(cli, DB + ["data", "validate", "Alice worked at IBM."])
     assert result.exit_code == 0, result.output
     assert "Supporting" in result.output
@@ -228,7 +228,7 @@ def test_validate_prints_property_value_evidence(runner):
         "supporting": [{"owner": "Alice", "property": "TITLE", "value": "Software Engineer"}],
         "counter": [{"owner": "Alice", "property": "TITLE", "value": "Staff Software Engineer"}],
     }
-    with patch("openai.AsyncOpenAI", _mock_openai_return_result(payload)):
+    with patch("blue_data_kb_source.llm.AsyncClient", _mock_openai_return_result(payload)):
         result = runner.invoke(cli, DB + ["data", "validate", "Alice's title is Software Engineer."])
     assert result.exit_code == 0, result.output
     supporting, counter = result.output.split("Counter:")
@@ -246,7 +246,52 @@ def test_validate_natural_language_format(runner):
             _text_response("This statement is supported."),
         ]
     )
-    with patch("openai.AsyncOpenAI", MagicMock(return_value=mock_client)):
+    with patch("blue_data_kb_source.llm.AsyncClient", MagicMock(return_value=mock_client)):
         result = runner.invoke(cli, DB + ["data", "validate", "Alice worked at IBM.", "--natural-language"])
     assert result.exit_code == 0, result.output
     assert "This statement is supported." in result.output
+
+
+# ------------------------------------------------------------------ #
+# provider (#164, #166)                                               #
+# ------------------------------------------------------------------ #
+
+def _answer_dispatch(runner, monkeypatch, **env):
+    """Run `data answer` with *env*, LiteLLM stubbed; return what reached it."""
+    for name in ("BLUE_DATA_LLM_PROVIDER", "BLUE_DATA_LLM_MODEL", "BLUE_DATA_KB_SOURCE_LLM_MODEL",
+                 "BLUE_DATA_KB_SOURCE_QUERY_LLM_MODEL"):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    invoke(runner, DB + ["database", "create", "main"])
+    acompletion = AsyncMock(return_value=_tool_call_response("return_result", {"result": []}))
+    with patch("litellm.acompletion", acompletion):
+        invoke(runner, DB + ["data", "answer", "Where did Alice work?"])
+    return acompletion.call_args.kwargs
+
+
+def test_a_claude_family_model_goes_to_anthropic(runner, monkeypatch):
+    """The #164 setup: the family pair for the Claude-based packages."""
+    kwargs = _answer_dispatch(runner, monkeypatch, BLUE_DATA_LLM_PROVIDER="anthropic",
+                              BLUE_DATA_LLM_MODEL="claude-opus-4-8", ANTHROPIC_API_KEY="sk-ant-test")
+    assert (kwargs["model"], kwargs["custom_llm_provider"]) == ("claude-opus-4-8", "anthropic")
+
+
+def test_with_no_model_set_each_provider_uses_its_default(runner, monkeypatch):
+    kwargs = _answer_dispatch(runner, monkeypatch, BLUE_DATA_LLM_PROVIDER="anthropic",
+                              ANTHROPIC_API_KEY="sk-ant-test")
+    assert (kwargs["model"], kwargs["custom_llm_provider"]) == ("claude-opus-4-8", "anthropic")
+    kwargs = _answer_dispatch(runner, monkeypatch, OPENAI_API_KEY="sk-test")
+    assert (kwargs["model"], kwargs["custom_llm_provider"]) == ("gpt-4o", "openai")
+
+
+def test_a_missing_anthropic_key_is_one_line_naming_the_setting(runner, monkeypatch):
+    monkeypatch.setenv("BLUE_DATA_LLM_PROVIDER", "anthropic")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("BLUE_DATA_KB_SOURCE_TRACEBACK", raising=False)
+    invoke(runner, DB + ["database", "create", "main"])
+    result = runner.invoke(cli, DB + ["data", "answer", "Where did Alice work?"])
+    assert result.exit_code == 1
+    assert result.output.strip() == (
+        "Error: ANTHROPIC_API_KEY is not set: run `blue-kb profile config ANTHROPIC_API_KEY`, or export it."
+    )

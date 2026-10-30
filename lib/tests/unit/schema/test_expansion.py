@@ -1,9 +1,9 @@
 """Tests for SchemaManager.expand_schema / SchemaExpansionEngine.
 
-reference="llm" cases mock openai.AsyncOpenAI entirely (same pattern as
+reference="llm" cases mock llm.AsyncClient entirely (same pattern as
 extraction/test_engine.py). The reference="mcp" test connects to the real,
 already-installed blue-data-wordnet-mcp package over stdio — only the model's
-decisions are scripted (via a mocked openai.AsyncOpenAI), so the MCP half of
+decisions are scripted (via a mocked llm.AsyncClient), so the MCP half of
 the round trip (spawn, list_tools, call_tool) is real, proving the generic
 bridge actually drives an external server's tools.
 """
@@ -68,7 +68,7 @@ async def test_expand_schema_declares_class(kb):
         _tool_call_response("declare_class", {"name": "PERSON", "description": "A human individual"}),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         await kb.expand_schema("test", "Alice is a person.", dedup_mode="none")
 
     schema = DataSchema.from_json(kb.fetch_database_schema("test"))
@@ -81,7 +81,7 @@ async def test_expand_schema_dedup_mode_none_omits_search_schema_tool():
     kb = MemoryKBSource(name="t")
     kb.create_database("test")
     factory, mock_client = _mock_openai_sequence(_text_response("done"))
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         await kb.expand_schema("test", "Some text.", dedup_mode="none")
     call_kwargs = mock_client.chat.completions.create.call_args.kwargs
     tool_names = {t["function"]["name"] for t in call_kwargs["tools"]}
@@ -94,7 +94,7 @@ async def test_expand_schema_prompt_warns_against_entity_classes(kb):
     UNITED_NATIONS) instead of the general kind it belongs to (PERSON, ORGANIZATION) — a
     prompt/tool-description-only fix, so this just pins the guidance stays present."""
     factory, mock_client = _mock_openai_sequence(_text_response("done"))
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         await kb.expand_schema("test", "Alice also worked at United Nations.", dedup_mode="none")
 
     call_kwargs = mock_client.chat.completions.create.call_args.kwargs
@@ -112,7 +112,7 @@ async def test_expand_schema_prompt_pushes_relation_coverage_for_new_classes(kb)
     connecting them to the rest of the schema (e.g. HAS_SKILL/HAS_HOBBY from PERSON) — a
     prompt/tool-description-only fix, so this just pins the guidance stays present."""
     factory, mock_client = _mock_openai_sequence(_text_response("done"))
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         await kb.expand_schema(
             "test", "Alice has programming skills, and hobbies such as wood working.", dedup_mode="none"
         )
@@ -141,7 +141,7 @@ async def test_expand_schema_dedup_mode_search_finds_existing_property(kb):
         _tool_call_response("search_schema", {"query": "Start of employment", "type": "property"}),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         await kb.expand_schema(
             "test", "Alice joined IBM in 1998.", dedup_mode="search",
             on_tool_result=lambda name, args, result: calls.append((name, result)),
@@ -168,7 +168,7 @@ async def test_expand_schema_dedup_mode_llm_judges_synonym(kb):
         _tool_call_response("return_matches", {"matching_ids": [prop_id]}),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         await kb.expand_schema(
             "test", "Alice joined IBM in 1998.", dedup_mode="llm",
             on_tool_result=lambda name, args, result: calls.append((name, result)),
@@ -182,7 +182,7 @@ async def test_expand_schema_dedup_mode_llm_judges_synonym(kb):
 async def test_expand_schema_stops_after_max_turns(kb):
     response = _tool_call_response("get_schema", {})
     factory, mock_client = _mock_openai_endless(response)
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         await kb.expand_schema("test", "Some text.", max_turns=3)
     assert mock_client.chat.completions.create.call_count == 3
 
@@ -207,7 +207,7 @@ async def test_expand_schema_add_subclass_of_links_hierarchy(kb):
         _tool_call_response("return_verdict", {"is_subtype": True, "reason": "An employee is a person."}),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         await kb.expand_schema("test", "Bob is an employee.", dedup_mode="none")
 
     schema = DataSchema.from_json(kb.fetch_database_schema("test"))
@@ -229,7 +229,7 @@ async def test_expand_schema_add_subclass_of_rejects_implausible_link(kb):
         _tool_call_response("return_verdict", {"is_subtype": False, "reason": "A company employs engineers; it is not one."}),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         await kb.expand_schema(
             "test", "Alice is an engineer at Google.", dedup_mode="none",
             on_tool_result=lambda name, args, result: calls.append((name, result)),
@@ -255,7 +255,7 @@ async def test_expand_schema_add_subclass_of_skips_judge_for_malformed_pairs(kb)
         _tool_call_response("add_subclass_of", {"child_id": engineer, "parent_id": person}),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         await kb.expand_schema(
             "test", "Alice is an engineer.", dedup_mode="none",
             on_tool_result=lambda name, args, result: calls.append((name, result)),
@@ -275,7 +275,7 @@ async def test_expand_schema_attach_property_reuses_existing_property(kb):
         _tool_call_response("attach_property", {"target_id": company, "property_id": name_prop}),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         await kb.expand_schema("test", "IBM is a company.", dedup_mode="none")
 
     schema = DataSchema.from_json(kb.fetch_database_schema("test"))
@@ -297,7 +297,7 @@ async def test_expand_schema_rejects_taxonomic_relation_type(kb):
         ),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         await kb.expand_schema(
             "test", "A person is an animal.", dedup_mode="none",
             on_tool_result=lambda name, args, result: calls.append((name, result)),
@@ -328,7 +328,7 @@ async def test_expand_schema_auto_dedup_catches_relation_synonym_without_search(
         _tool_call_response("return_matches", {"matching_ids": [worked_at]}),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         await kb.expand_schema(
             "test", "Alice is employed at IBM.", dedup_mode="llm",
             on_tool_result=lambda name, args, result: calls.append((name, result)),
@@ -371,7 +371,7 @@ async def test_expand_schema_search_dedup_ignores_keyword_overlap():
         ),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         await kb.expand_schema(
             "test", "Alice studied at CMU and is a staff engineer.", dedup_mode="search",
             on_tool_result=lambda name, args, result: calls.append((name, result)),
@@ -397,7 +397,7 @@ async def test_expand_schema_llm_dedup_rejects_relation_with_incompatible_ends(k
         _tool_call_response("return_matches", {"matching_ids": [worked_at]}),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         await kb.expand_schema("test", "Alice attended CMU.", dedup_mode="llm")
 
     schema = DataSchema.from_json(kb.fetch_database_schema("test"))
@@ -419,7 +419,7 @@ async def test_expand_schema_llm_dedup_reuses_relation_on_subclass_domain(kb):
         _tool_call_response("return_matches", {"matching_ids": [worked_at]}),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         await kb.expand_schema(
             "test", "Alice is employed by Google.", dedup_mode="llm",
             on_tool_result=lambda name, args, result: calls.append((name, result)),
@@ -443,7 +443,7 @@ async def test_expand_schema_semantic_dedup_applies_score_cutoff(kb, score, reus
         _tool_call_response("declare_class", {"name": "FIRM", "description": "A business"}),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         await kb.expand_schema(
             "test", "Acme is a firm.", dedup_mode="search",
             on_tool_result=lambda name, args, result: calls.append((name, result)),
@@ -487,7 +487,7 @@ async def test_expand_schema_mcp_reference_bridges_external_tools(kb):
     mock_client = MagicMock()
     mock_client.chat.completions.create = AsyncMock(side_effect=create_side_effect)
 
-    with patch("openai.AsyncOpenAI", return_value=mock_client):
+    with patch("blue_data_kb_source.llm.AsyncClient", return_value=mock_client):
         await kb.expand_schema(
             "test",
             "The dog barked all night.",
@@ -534,7 +534,7 @@ async def test_expand_schema_property_check_reuses_same_owner_synonym(kb):
         }),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         await kb.expand_schema(
             "test", "Alice joined Google in 2005.",
             on_tool_result=lambda name, args, result: calls.append((name, result)),
@@ -560,7 +560,7 @@ async def test_expand_schema_property_check_rejects_misplaced_property(kb):
         }),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         await kb.expand_schema(
             "test", "Alice holds a master's degree from CMU.",
             on_tool_result=lambda name, args, result: calls.append((name, result)),
@@ -581,7 +581,7 @@ async def test_expand_schema_property_check_with_dedup_none_still_checks_placeme
         }),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         await kb.expand_schema("test", "Alice left IBM in 2005.", dedup_mode="none")
 
     check_prompt = client.chat.completions.create.call_args_list[1].kwargs["messages"][1]["content"]
@@ -598,7 +598,7 @@ async def test_expand_schema_property_check_skipped_for_exact_name_redeclaration
         }),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         await kb.expand_schema(
             "test", "Alice joined Google in 2005.",
             on_tool_result=lambda name, args, result: calls.append((name, result)),
@@ -630,7 +630,7 @@ async def test_expand_schema_timeout_raises_and_keeps_earlier_declarations(kb):
 
     mock_client = MagicMock()
     mock_client.chat.completions.create = AsyncMock(side_effect=create)
-    with patch("openai.AsyncOpenAI", return_value=mock_client):
+    with patch("blue_data_kb_source.llm.AsyncClient", return_value=mock_client):
         with pytest.raises(SchemaError, match=r"timed out after 0.2s, 2 of at most 25 model turn"):
             await kb.expand_schema("test", "Alice is a person.", dedup_mode="none", timeout=0.2)
 
@@ -691,7 +691,7 @@ async def test_hanging_reference_tool_call_times_out_and_returns_an_error(kb, tm
         _text_response("done"),
     )
     start = _time.monotonic()
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         await kb.expand_schema(
             "test", "x", reference="mcp", dedup_mode="none",
             mcp_servers=[{"name": "slow", "transport": "stdio", "command": _sys.executable,
@@ -737,7 +737,7 @@ async def _expand_scripted(kb, steps, reference="mcp"):
     mock_client = MagicMock()
     mock_client.chat.completions.create = AsyncMock(side_effect=responses)
     connect, call = _fake_reference_server()
-    with patch("openai.AsyncOpenAI", return_value=mock_client), connect, call:
+    with patch("blue_data_kb_source.llm.AsyncClient", return_value=mock_client), connect, call:
         await kb.expand_schema(
             "test", "Alice adopted a poodle.", reference=reference, dedup_mode="none",
             mcp_servers=[{"transport": "stdio", "command": "fake"}] if reference == "mcp" else None,
@@ -794,7 +794,7 @@ async def test_the_default_prompt_differs_from_the_mcp_one_only_by_the_mcp_note(
         mock_client = MagicMock()
         mock_client.chat.completions.create = AsyncMock(return_value=_text_response("done"))
         connect, call = _fake_reference_server()
-        with patch("openai.AsyncOpenAI", return_value=mock_client), connect, call:
+        with patch("blue_data_kb_source.llm.AsyncClient", return_value=mock_client), connect, call:
             await kb.expand_schema("test", "x", reference=reference, dedup_mode="none",
                                    mcp_servers=[{"transport": "stdio", "command": "fake"}] if reference == "mcp" else None)
         prompts[reference] = mock_client.chat.completions.create.call_args.kwargs["messages"][0]["content"]

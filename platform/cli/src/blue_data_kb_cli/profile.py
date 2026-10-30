@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import click
+from blue_data_kb_source import llm
 from blue_data.utils.config import (
     MASK,
     ConfigError,
@@ -198,6 +199,11 @@ def profile_inspect(obj: dict, name: str | None, fmt: str) -> None:
         else:
             value = res.get(param.name)
             shown = "(unset)" if value is None else str(value)
+            if value is None and _is_model_param(param.name):
+                # What the LLM commands will use: the provider's default (#166).
+                provider = (res.get(llm.PROVIDER_ENV) or "").strip().lower() or llm.DEFAULT_PROVIDER
+                if provider in llm.DEFAULT_MODELS:
+                    shown, source = llm.DEFAULT_MODELS[provider], f"{provider} default"
         rows.append({"name": param.name, "value": shown, "source": source})
 
     if fmt == "json":
@@ -213,6 +219,12 @@ def profile_inspect(obj: dict, name: str | None, fmt: str) -> None:
     for r in rows:
         t.add_row(r["name"], r["value"], r["source"])
     console.print(t)
+
+
+def _is_model_param(name: str) -> bool:
+    return name == "BLUE_DATA_LLM_MODEL" or (
+        name.startswith("BLUE_DATA_KB_SOURCE_") and name.endswith("_LLM_MODEL")
+    )
 
 
 @profile_group.command("config")

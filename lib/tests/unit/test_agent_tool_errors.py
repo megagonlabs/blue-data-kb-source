@@ -49,7 +49,7 @@ async def kb():
 
 
 def _use(model):
-    return patch("openai.AsyncOpenAI", return_value=model)
+    return patch("blue_data_kb_source.llm.AsyncClient", return_value=model)
 
 
 async def test_answer_survives_malformed_arguments(kb):

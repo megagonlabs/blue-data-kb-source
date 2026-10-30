@@ -13,12 +13,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# LiteLLM: 1.102 is blue-data-llm-source's floor and the oldest release tested
+# with the agents' calls; 1.106 pulls mcp 2.x types into the completion path, and the `mcp`
+# extra (the MCP server and schema expansion's reference servers) is pinned below 2.
 neo4j  = ["neo4j"]
-openai = ["openai>=1.0"]
+llm    = ["litellm>=1.102,<1.106"]
+openai = ["litellm>=1.102,<1.106"]  # the former name of `llm`, kept for existing install commands
 search = ["rank-bm25"]
 mcp    = ["mcp>=1.28.1,<2"]
-dev    = ["pytest", "pytest-asyncio", "pytest-recording", "pytest-cov", "pyyaml", "rich", "openai>=1.0"]
-all    = ["neo4j", "openai>=1.0", "rank-bm25", "mcp>=1.28.1,<2"]
+dev    = ["pytest", "pytest-asyncio", "pytest-recording", "pytest-cov", "pyyaml", "rich", "litellm>=1.102,<1.106"]
+all    = ["neo4j", "litellm>=1.102,<1.106", "rank-bm25", "mcp>=1.28.1,<2"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

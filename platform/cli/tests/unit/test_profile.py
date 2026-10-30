@@ -333,3 +333,20 @@ def test_a_removed_default_profile_is_not_resurrected(runner):
 def test_commands_work_against_a_freshly_created_empty_profile(runner, tmp_path):
     invoke(runner, ["schema", "class", "add", "PERSON", "A human"])
     assert (tmp_path / "default.json").exists()
+
+
+def test_inspect_shows_the_model_the_llm_commands_will_use(runner, monkeypatch):
+    """An unset model shows the provider's default, not "(unset)" (#166)."""
+    for name in ("BLUE_DATA_LLM_PROVIDER", "BLUE_DATA_LLM_MODEL", "BLUE_DATA_KB_SOURCE_LLM_MODEL",
+                 "BLUE_DATA_KB_SOURCE_QUERY_LLM_MODEL"):
+        monkeypatch.delenv(name, raising=False)
+
+    def values():
+        return json.loads(invoke(runner, ["profile", "inspect", "--format", "json"]).output)["values"]
+
+    assert values()["BLUE_DATA_KB_SOURCE_QUERY_LLM_MODEL"] == {"value": "gpt-4o", "source": "openai default"}
+    monkeypatch.setenv("BLUE_DATA_LLM_PROVIDER", "anthropic")
+    assert values()["BLUE_DATA_LLM_MODEL"] == {"value": "claude-opus-4-8", "source": "anthropic default"}
+    monkeypatch.setenv("BLUE_DATA_KB_SOURCE_LLM_MODEL", "claude-sonnet-4-5")
+    query = values()["BLUE_DATA_KB_SOURCE_QUERY_LLM_MODEL"]
+    assert query["value"] == "claude-sonnet-4-5" and query["source"] != "anthropic default"

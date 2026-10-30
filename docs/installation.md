@@ -64,15 +64,16 @@ None of the three packages are published to PyPI yet — always install from the
 
 | Extra | Packages | Required for |
 |---|---|---|
-| `openai` | `openai>=1.0` | `import_text`, `answer`, `validate`, `enrich` (all LLM agent operations) |
+| `llm` | `litellm>=1.102,<1.106` | `expand_schema`, `import_text`, `answer`, `validate`, `enrich` and the `schema_creation_mode="llm"` judges — every LLM call, sent through LiteLLM to the `BLUE_DATA_LLM_PROVIDER` provider. Also pulls in `openai`, which semantic search's OpenAI embeddings use. The range stays below 1.106, which needs `mcp` 2.x |
+| `openai` | `litellm>=1.102,<1.106` | The `llm` extra's former name, kept so existing install commands work |
 | `neo4j` | `neo4j` | The `NEO4JSource`/`NEO4JKBSource` backend |
 | `search` | `rank-bm25` | `properties["search"]["mode"]="bm25"` (real BM25 ranking; without it, keyword search falls back to index-free keyword matching ranked by shared words) |
 | `mcp` | `mcp>=1.28.1,<2` | `expand_schema(reference="mcp")` / `blue-kb schema expand --reference mcp`, which connect to reference MCP servers such as `platform/wordnet-mcp` |
-| `dev` | `pytest`, `pytest-asyncio`, `pytest-recording`, `pytest-cov`, `pyyaml`, `rich`, `openai>=1.0` | Running the test suite and benchmarks. Includes `openai` because the LLM-agent tests mock its client but still import it |
-| `all` | `neo4j`, `openai>=1.0`, `rank-bm25`, `mcp>=1.28.1,<2` | Everything above except `dev` |
+| `dev` | `pytest`, `pytest-asyncio`, `pytest-recording`, `pytest-cov`, `pyyaml`, `rich`, `litellm>=1.102,<1.106` | Running the test suite and benchmarks. Includes LiteLLM because the benchmarks replay recorded calls through it |
+| `all` | `neo4j`, `litellm>=1.102,<1.106`, `rank-bm25`, `mcp>=1.28.1,<2` | Everything above except `dev` |
 
 ```bash
-pip install -e "lib[openai,search]"
+pip install -e "lib[llm,search]"
 ```
 
 ### `blue-data-kb-cli` (`platform/cli/`) and `blue-data-kb-mcp` (`platform/mcp/`)
@@ -87,7 +88,7 @@ Both share the same extras shape (the CLI and MCP server support the same backen
 | `dev` | `pytest`, `pytest-asyncio` | Running the test suite |
 | `all` | all of the above except `dev` | Everything |
 
-The CLI additionally has an `openai` extra (LLM commands); the MCP server depends on `openai>=1.0` unconditionally, since every deployment can reach `answer`/`validate`/`enrich`/`import_text` as tools. Neither package bundles `search` — enable BM25 by installing it on `lib` (`pip install -e "lib[search]"`), which both the CLI and MCP server pick up transparently since they share the same `blue-data-kb-source` install.
+The CLI additionally has an `llm` extra (LLM commands; `openai` is its former name); the MCP server depends on `litellm>=1.102,<1.106` unconditionally, since every deployment can reach `answer`/`validate`/`enrich`/`import_text` as tools. Neither package bundles `search` — enable BM25 by installing it on `lib` (`pip install -e "lib[search]"`), which both the CLI and MCP server pick up transparently since they share the same `blue-data-kb-source` install.
 
 ```bash
 cd platform/cli && pip install -e ".[neo4j,all]"

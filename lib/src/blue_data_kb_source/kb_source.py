@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import dataclasses
-import os
 from abc import ABC
 from typing import Any, Callable, Literal
 
@@ -34,6 +33,7 @@ from blue_data_kb_source._constants import (
     STRING,
     TAIL,
 )
+from blue_data_kb_source import llm
 from blue_data_kb_source._sync import run_sync
 from blue_data_kb_source.extraction.engine import ExtractionEngine
 from blue_data_kb_source.ingestion.manager import IngestionManager
@@ -72,17 +72,6 @@ def _build_embedding_fn(cfg: dict[str, Any]) -> Callable[[str], list[float]]:
 
         return _embed
     raise ValueError(f"Unsupported embedding provider: {provider!r}")
-
-
-def _configured_model(function: str) -> str:
-    """The model configured for *function* (QUERY, EXTRACTION, ...), as the CLI and the
-    MCP server resolve it: the function's variable, then the KB-wide one, then the
-    family-wide one, then gpt-4o."""
-    for name in (f"BLUE_DATA_KB_SOURCE_{function}_LLM_MODEL", "BLUE_DATA_KB_SOURCE_LLM_MODEL",
-                 "BLUE_DATA_LLM_MODEL"):
-        if os.environ.get(name):
-            return os.environ[name]
-    return "gpt-4o"
 
 
 def as_rows(result: Any) -> list[dict]:
@@ -366,7 +355,7 @@ class KBSource(GraphSource, ABC):
         reference: Literal["llm", "mcp"] = "llm",
         mcp_servers: list[dict[str, Any]] | None = None,
         dedup_mode: Literal["search", "llm", "none"] = "search",
-        model: str = "gpt-4o",
+        model: str | None = None,
         on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
         on_tool_result: Callable[[str, dict[str, Any], Any], None] | None = None,
         max_turns: int = 25,
@@ -731,7 +720,7 @@ class KBSource(GraphSource, ABC):
         self,
         database: str,
         question: str,
-        model: str = "gpt-4o",
+        model: str | None = None,
         natural_language: bool = False,
         include_metadata: bool = False,
         on_tool_call: Callable[[str, dict], None] | None = None,
@@ -747,7 +736,7 @@ class KBSource(GraphSource, ABC):
         self,
         database: str,
         statement: str,
-        model: str = "gpt-4o",
+        model: str | None = None,
         natural_language: bool = False,
         include_metadata: bool = False,
         on_tool_call: Callable[[str, dict], None] | None = None,
@@ -764,7 +753,7 @@ class KBSource(GraphSource, ABC):
         database: str,
         query: str,
         depth: int = 2,
-        model: str = "gpt-4o",
+        model: str | None = None,
         on_tool_call: Callable[[str, dict], None] | None = None,
         on_tool_result: Callable[[str, dict, Any], None] | None = None,
         max_turns: int = 25,
@@ -884,7 +873,7 @@ class KBSource(GraphSource, ABC):
         confidence: float | None = None,
         extraction_type: Literal["text_span", "external_record", "assertion"] = "assertion",
         schema_creation_mode: Literal["llm", "none"] = "llm",
-        model: str = "gpt-4o",
+        model: str | None = None,
     ) -> AssertResult:
         return await self._ingestion.assert_class(
             database, name, description,
@@ -905,7 +894,7 @@ class KBSource(GraphSource, ABC):
         confidence: float | None = None,
         extraction_type: Literal["text_span", "external_record", "assertion"] = "assertion",
         schema_creation_mode: Literal["llm", "none"] = "llm",
-        model: str = "gpt-4o",
+        model: str | None = None,
     ) -> AssertResult:
         return await self._ingestion.assert_relation_type(
             database, name, domain, range, description, is_symmetric,
@@ -924,7 +913,7 @@ class KBSource(GraphSource, ABC):
         confidence: float | None = None,
         extraction_type: Literal["text_span", "external_record", "assertion"] = "assertion",
         schema_creation_mode: Literal["llm", "none"] = "llm",
-        model: str = "gpt-4o",
+        model: str | None = None,
     ) -> AssertResult:
         return await self._ingestion.assert_class_property(
             database, name, class_name, description,
@@ -943,7 +932,7 @@ class KBSource(GraphSource, ABC):
         confidence: float | None = None,
         extraction_type: Literal["text_span", "external_record", "assertion"] = "assertion",
         schema_creation_mode: Literal["llm", "none"] = "llm",
-        model: str = "gpt-4o",
+        model: str | None = None,
     ) -> AssertResult:
         return await self._ingestion.assert_relation_property(
             database, name, relation_name, description,
@@ -961,7 +950,7 @@ class KBSource(GraphSource, ABC):
         confidence: float | None = None,
         extraction_type: Literal["text_span", "external_record", "assertion"] = "assertion",
         schema_creation_mode: Literal["llm", "none"] = "llm",
-        model: str = "gpt-4o",
+        model: str | None = None,
     ) -> AssertResult:
         return await self._ingestion.assert_subclass(
             database, child, parent,
@@ -979,7 +968,7 @@ class KBSource(GraphSource, ABC):
         confidence: float | None = None,
         extraction_type: Literal["text_span", "external_record", "assertion"] = "assertion",
         schema_creation_mode: Literal["llm", "none"] = "llm",
-        model: str = "gpt-4o",
+        model: str | None = None,
     ) -> AssertResult:
         return await self._ingestion.assert_subrelation(
             database, child, parent,
@@ -998,7 +987,7 @@ class KBSource(GraphSource, ABC):
         confidence: float | None = None,
         extraction_type: Literal["text_span", "external_record", "assertion"] = "assertion",
         schema_creation_mode: Literal["llm", "none"] = "llm",
-        model: str = "gpt-4o",
+        model: str | None = None,
     ) -> AssertResult:
         return await self._ingestion.assert_entity(
             database, name, class_name, description,
@@ -1019,7 +1008,7 @@ class KBSource(GraphSource, ABC):
         confidence: float | None = None,
         extraction_type: Literal["text_span", "external_record", "assertion"] = "assertion",
         schema_creation_mode: Literal["llm", "none"] = "llm",
-        model: str = "gpt-4o",
+        model: str | None = None,
     ) -> AssertResult:
         return await self._ingestion.assert_fact(
             database, head, relation, tail, name, description,
@@ -1039,7 +1028,7 @@ class KBSource(GraphSource, ABC):
         confidence: float | None = None,
         extraction_type: Literal["text_span", "external_record", "assertion"] = "assertion",
         schema_creation_mode: Literal["llm", "none"] = "llm",
-        model: str = "gpt-4o",
+        model: str | None = None,
     ) -> AssertResult:
         return await self._ingestion.assert_entity_property(
             database, entity, property, value, literal_type,
@@ -1061,7 +1050,7 @@ class KBSource(GraphSource, ABC):
         confidence: float | None = None,
         extraction_type: Literal["text_span", "external_record", "assertion"] = "assertion",
         schema_creation_mode: Literal["llm", "none"] = "llm",
-        model: str = "gpt-4o",
+        model: str | None = None,
     ) -> AssertResult:
         return await self._ingestion.assert_fact_property(
             database, head, relation, tail, property, value, literal_type,
@@ -1078,7 +1067,7 @@ class KBSource(GraphSource, ABC):
         confidence: float | None = None,
         extraction_type: Literal["text_span", "external_record", "assertion"] = "assertion",
         schema_creation_mode: Literal["llm", "none"] = "llm",
-        model: str = "gpt-4o",
+        model: str | None = None,
     ) -> IngestReport:
         return await self._ingestion.ingest(
             database, payload,
@@ -1143,7 +1132,7 @@ class KBSource(GraphSource, ABC):
         database: str,
         text: str,
         queries: list[str] | None = None,
-        model: str = "gpt-4o",
+        model: str | None = None,
         source_id: str | None = None,
         expand_schema: bool = True,
         schema_expansion_target: list[Literal["text", "queries"]] | None = None,
@@ -1588,10 +1577,12 @@ class KBSource(GraphSource, ABC):
         calls KB tools, and a plain ``llm_fn(prompt) -> text`` can't drive it. The
         model it runs is ``optional_properties["model"]``, else the configured one
         (``BLUE_DATA_KB_SOURCE_QUERY_LLM_MODEL``, ``BLUE_DATA_KB_SOURCE_LLM_MODEL``,
-        ``BLUE_DATA_LLM_MODEL``, as the CLI and MCP server resolve it), else
-        ``"gpt-4o"``. ``collection`` and ``schema`` are ignored.
+        ``BLUE_DATA_LLM_MODEL``, as the CLI and MCP server resolve it), else the
+        default of the ``BLUE_DATA_LLM_PROVIDER`` provider (``gpt-4o`` for ``openai``,
+        the default, ``claude-opus-4-8`` for ``anthropic``). ``collection`` and
+        ``schema`` are ignored.
         """
-        model = (optional_properties or {}).get("model") or _configured_model("QUERY")
+        model = (optional_properties or {}).get("model") or llm.configured_model("QUERY")
         max_turns = (optional_properties or {}).get("max_turns", 25)
         return run_sync(
             self.answer(database, question=query, model=model, natural_language=False, max_turns=max_turns)

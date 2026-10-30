@@ -51,29 +51,20 @@ def reset_kb() -> None:
 
 # Model resolution, per function, matching the `blue-kb` CLI exactly: a
 # function-specific variable falls back to the KB-wide one, then to the
-# family-wide one, then to the built-in default. The CLI resolves these from a
-# profile; this server reads them from the environment only, and has no
-# connection to the CLI's profiles. The names are shared deliberately — the
-# reference list is the CLI's `profile_spec.json`.
-_MODEL_DEFAULT = "gpt-4o"
-
-
+# family-wide one, then to the default of the BLUE_DATA_LLM_PROVIDER provider.
+# The CLI resolves these from a profile; this server reads them from the
+# environment only, and has no connection to the CLI's profiles. The names are
+# shared deliberately — the reference list is the CLI's `profile_spec.json` —
+# and the library holds the chain, so the two can't drift.
 def model_for(function: str | None = None) -> str:
     """The model to use, optionally for a named function.
 
     `function` is one of EXTRACTION, QUERY, VALIDATION, SCHEMA_EXPANSION,
     ENRICHMENT, INGESTION, ASSERTION — the same set the CLI uses.
     """
-    names = []
-    if function:
-        names.append(f"BLUE_DATA_KB_SOURCE_{function}_LLM_MODEL")
-    names += ["BLUE_DATA_KB_SOURCE_LLM_MODEL", "BLUE_DATA_LLM_MODEL"]
-    for name in names:
-        value = os.environ.get(name)
-        if value:
-            return value
-    return _MODEL_DEFAULT
+    from blue_data_kb_source import llm
 
+    return llm.configured_model(function)
 
 
 # ---------------------------------------------------------------------------

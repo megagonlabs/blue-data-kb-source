@@ -34,7 +34,7 @@ The CLI and MCP server are **not** optional extras of `blue-data-kb-source` — 
 ```
 pip install blue-data-kb-source                  # library only, MemoryGraphSource/FileGraphSource
 pip install blue-data-kb-source[neo4j]           # + Neo4j graph backend
-pip install blue-data-kb-source[openai]          # + LLM schema expansion/extraction/querying (expand_schema, import_text, answer, validate, enrich)
+pip install blue-data-kb-source[llm]             # + LLM schema expansion/extraction/querying (expand_schema, import_text, answer, validate, enrich), via LiteLLM
 pip install blue-data-kb-source[search]          # + semantic search vector backends
 pip install blue-data-kb-source[mcp]             # + MCP client SDK, for expand_schema(reference="mcp")
 pip install blue-data-kb-source[all]             # everything
@@ -63,8 +63,9 @@ The CLI is configured by **profiles** — `~/.blue-kb/.profiles`, managed with `
 | `BLUE_DATA_KB_SOURCE_HOME` | `~/.blue-kb` | CLI state: `.profiles`, `.selected.profile`, `.selected.database`. Environment-only — it is where the profiles themselves are read from, so it cannot come from one |
 | `BLUE_DATA_KB_SOURCE_DATA_DIR` | `~/.blue-kb` | Directory holding `registry.json` (per-database backend/search config) and file-backed graph data |
 | `BLUE_DATA_KB_SOURCE_DATABASE` | `default` | Which database `--database` falls back to, when no `blue-kb database select` has been made |
-| `OPENAI_API_KEY` | — | Required for `blue-kb schema expand`/`blue-kb data extract`/`answer`/`validate`, and for the `assert`/`ingest` commands under `--schema-creation-mode llm` (the default; `none` needs no key) |
-| `BLUE_DATA_LLM_MODEL`, `BLUE_DATA_KB_SOURCE_*_LLM_MODEL` | `gpt-4o` | The model each LLM command uses. A function-specific value falls back to `BLUE_DATA_KB_SOURCE_LLM_MODEL`, then to `BLUE_DATA_LLM_MODEL` |
+| `BLUE_DATA_LLM_PROVIDER` | blank (`openai`) | The provider every LLM call goes to, through LiteLLM (ADR-038) |
+| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | — | The provider's key: required for `blue-kb schema expand`/`blue-kb data extract`/`answer`/`validate`, and for the `assert`/`ingest` commands under `--schema-creation-mode llm` (the default; `none` needs no key). `OPENAI_API_KEY` also serves semantic search's embeddings |
+| `BLUE_DATA_LLM_MODEL`, `BLUE_DATA_KB_SOURCE_*_LLM_MODEL` | the provider's default (`gpt-4o` / `claude-opus-4-8`) | The model each LLM command uses. A function-specific value falls back to `BLUE_DATA_KB_SOURCE_LLM_MODEL`, then to `BLUE_DATA_LLM_MODEL` |
 | `BLUE_DATA_KB_SOURCE_EXTRACTION_*` | — | Extraction defaults (`EFFORT`, `MAX_CONCURRENCY`, `MAX_TURNS`, `RELATED_DATA_K`, `EXPAND_SCHEMA`), each overridable by the matching `blue-kb data extract` option |
 | `BLUE_DATA_CLI_FORMAT`, `BLUE_DATA_CLI_LOG_LIMIT` | `table`, `80` | Family-wide CLI output defaults |
 
@@ -87,10 +88,11 @@ A completely separate `BLUE_DATA_KB_SOURCE_*` namespace, since the server owns o
 | `BLUE_DATA_KB_SOURCE_VECTOR_DIRECTORY` / `_VECTOR_PATH` | `DATA_DIR` / `DATA_DIR/chromadb` | Where the `file` / `chromadb` vector backends store embeddings (#162) |
 | `BLUE_DATA_KB_SOURCE_REDIS_HOST` / `_PORT` / `_DB` / `_SCAN_PREFIX` | `localhost` / `6379` / `0` / `blue_kb:` | Redis vector connection, when `VECTOR_BACKEND=redis`; every key and index is namespaced by the scan prefix (#148) |
 | `BLUE_DATA_KB_SOURCE_EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model, when `SEARCH=semantic` |
-| `BLUE_DATA_KB_SOURCE_LLM_MODEL` | `gpt-4o` | Default model for `answer`/`validate`/`enrich`/`expand_schema`/`import_text` |
+| `BLUE_DATA_LLM_PROVIDER` | blank (`openai`) | The provider every LLM call goes to, through LiteLLM (ADR-038) |
+| `BLUE_DATA_KB_SOURCE_LLM_MODEL` | the provider's default | Default model for `answer`/`validate`/`enrich`/`expand_schema`/`import_text`; falls back to `BLUE_DATA_LLM_MODEL` |
 | `BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_TIMEOUT` | `1800` | Overall cap (seconds) on each expansion run, including `import_text`'s (#113); `0` = none |
 | `BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_MCP_SERVERS` | — | JSON list of reference MCP servers for `reference="mcp"` expansion. Operator-only: tool callers can't supply server definitions (ADR-032) |
-| `OPENAI_API_KEY` | — | Required for LLM features |
+| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | — | The provider's key, required for LLM features; `OPENAI_API_KEY` also for `SEARCH=semantic` |
 
 Full table with examples: [platform/mcp/README.md](../platform/mcp/README.md) Configuration reference. Pointing the CLI's and the MCP server's `BLUE_DATA_KB_SOURCE_DATA_DIR` at the same path gives the CLI and MCP server access to the same file-backed data; both can run at once, since every write locks the database file and the BM25 index merges the other process's changes.
 

@@ -67,7 +67,7 @@ def _tool_replies(factory):
 
 
 def _mock_openai_sequence(*responses):
-    """Patch openai.AsyncOpenAI so every AsyncOpenAI() call shares one client
+    """Patch llm.AsyncClient so every AsyncClient() call shares one client
     whose chat.completions.create returns *responses* in order."""
     mock_client = MagicMock()
     mock_client.chat.completions.create = AsyncMock(side_effect=list(responses))
@@ -75,7 +75,7 @@ def _mock_openai_sequence(*responses):
 
 
 def _mock_openai_endless(response):
-    """Patch openai.AsyncOpenAI so every call returns the same tool-call response,
+    """Patch llm.AsyncClient so every call returns the same tool-call response,
     forever — used to test the max_turns cutoff."""
     mock_client = MagicMock()
     mock_client.chat.completions.create = AsyncMock(side_effect=itertools.repeat(response))
@@ -83,7 +83,7 @@ def _mock_openai_endless(response):
 
 
 def _mock_openai_with_delay(delay):
-    """Patch openai.AsyncOpenAI so every call sleeps `delay` seconds before
+    """Patch llm.AsyncClient so every call sleeps `delay` seconds before
     returning a 'done' response — used to prove concurrent chunks actually
     overlap in wall-clock time rather than running one after another."""
     async def _delayed(*args, **kwargs):
@@ -146,7 +146,7 @@ async def test_related_data_absent_without_search_indexer(kb):
     """No search_indexer configured (the default `blue-kb` fixture): the system
     prompt says so plainly rather than silently omitting the section."""
     responses = _four_stage_done()
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Alice joined IBM.", expand_schema=False)
     # Every stage's prompt carries the same related-data section; check stage 1's.
     system_prompt = factory.return_value.chat.completions.create.call_args_list[0].kwargs["messages"][0]["content"]
@@ -163,7 +163,7 @@ async def test_related_data_injects_matching_existing_entities():
     await kb.add_entity("test", "IBM", class_id=company)
 
     responses = _four_stage_done()
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "IBM reported strong earnings.", expand_schema=False)
     system_prompt = factory.return_value.chat.completions.create.call_args_list[0].kwargs["messages"][0]["content"]
     assert "IBM (COMPANY)" in system_prompt
@@ -178,7 +178,7 @@ async def test_related_data_k_zero_skips_the_search_call():
     await kb.add_entity("test", "IBM", class_id=company)
 
     responses = _four_stage_done()
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "IBM reported strong earnings.", expand_schema=False, related_data_k=0)
     system_prompt = factory.return_value.chat.completions.create.call_args_list[0].kwargs["messages"][0]["content"]
     assert "search not configured" in system_prompt
@@ -193,7 +193,7 @@ async def test_import_text_stops_after_max_turns(kb):
     # max_turns once per stage: 4 stages x max_turns=3 = 12 calls total.
     response = _tool_call_response("get_schema", {})
     factory, mock_client = _mock_openai_endless(response)
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         await kb.import_text("test", "Some text.", expand_schema=False, max_turns=3)
     assert mock_client.chat.completions.create.call_count == 12
 
@@ -213,7 +213,7 @@ async def test_search_schema_finds_existing_property_by_description(kb):
         _text_response("done"),
         _text_response("done"), _text_response("done"), _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses):
+    with patch("blue_data_kb_source.llm.AsyncClient", responses):
         await kb.import_text(
             "test", "Alice joined IBM in 1998.",
             expand_schema=False,
@@ -236,7 +236,7 @@ async def test_search_schema_no_match_returns_empty(kb):
         _text_response("done"),
         _text_response("done"), _text_response("done"), _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses):
+    with patch("blue_data_kb_source.llm.AsyncClient", responses):
         await kb.import_text(
             "test", "Some text.",
             expand_schema=False,
@@ -258,7 +258,7 @@ async def test_import_text_runs_expand_schema_by_default(kb):
             _text_response("done"), _text_response("done"),
             _text_response("done"), _text_response("done"),
         )
-        with patch("openai.AsyncOpenAI", responses):
+        with patch("blue_data_kb_source.llm.AsyncClient", responses):
             await kb.import_text(
                 "test", "Some text.",
                 on_tool_result=lambda name, args, result: calls.append((name, result)),
@@ -272,7 +272,7 @@ async def test_import_text_skips_expand_schema_when_disabled(kb):
             _text_response("done"), _text_response("done"),
             _text_response("done"), _text_response("done"),
         )
-        with patch("openai.AsyncOpenAI", responses):
+        with patch("blue_data_kb_source.llm.AsyncClient", responses):
             await kb.import_text("test", "Some text.", expand_schema=False)
     mock_expand.assert_not_awaited()
 
@@ -290,7 +290,7 @@ async def test_find_entity_tool_returns_id_name_description(kb):
         _text_response("done"), _text_response("done"), _text_response("done"),
     )
     results = []
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         await kb.import_text(
             "test", "irrelevant",
             expand_schema=False,
@@ -307,7 +307,7 @@ async def test_find_entity_tool_falls_back_to_normalized_match(kb):
         _text_response("done"), _text_response("done"), _text_response("done"),
     )
     results = []
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         await kb.import_text(
             "test", "irrelevant",
             expand_schema=False,
@@ -324,7 +324,7 @@ async def test_find_entity_tool_unrelated_name_still_returns_null_id(kb):
         _text_response("done"), _text_response("done"), _text_response("done"),
     )
     results = []
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         await kb.import_text(
             "test", "irrelevant",
             expand_schema=False,
@@ -355,7 +355,7 @@ async def test_find_fact_tool_miss_returns_null_id(kb):
         _text_response("done"), _text_response("done"),
     )
     results = []
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         await kb.import_text(
             "test", "irrelevant",
             expand_schema=False,
@@ -389,7 +389,7 @@ async def test_all_find_tools_honor_result_contract(kb):
         _text_response("done"),
     )
     results = []
-    with patch("openai.AsyncOpenAI", factory):
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
         await kb.import_text(
             "test", "irrelevant",
             expand_schema=False,
@@ -460,7 +460,7 @@ async def test_relation_stage_prompt_lists_entities_resolved_by_entity_stage(kb)
         _text_response("done"),   # stage 3 (entity properties)
         _text_response("done"),   # stage 4 (fact properties)
     )
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Alice joined IBM.", expand_schema=False)
 
     stage2_prompt = factory.return_value.chat.completions.create.call_args_list[3].kwargs["messages"][0]["content"]
@@ -490,7 +490,7 @@ async def test_staged_pipeline_creates_fact_from_stage1_resolved_entity_ids(kb):
         _text_response("done"),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses):
+    with patch("blue_data_kb_source.llm.AsyncClient", responses):
         await kb.import_text("test", "Alice joined IBM.", expand_schema=False)
 
     facts = kb.match_nodes("test", label="FACT")
@@ -520,7 +520,7 @@ async def test_fact_property_stage_prompt_lists_facts_resolved_by_relation_stage
         _text_response("done"),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Alice joined IBM.", expand_schema=False)
 
     # Fact properties now run *before* entity properties, so this is call 6.
@@ -537,21 +537,21 @@ async def test_fact_property_stage_prompt_lists_facts_resolved_by_relation_stage
 async def test_effort_low_runs_pipeline_once(kb):
     # 4 stages x 1 pass, each ending immediately.
     responses = _mock_openai_sequence(*[_text_response("done")] * 4)
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Some text.", expand_schema=False, effort="low")
     assert factory.return_value.chat.completions.create.call_count == 4
 
 
 async def test_effort_medium_runs_pipeline_twice(kb):
     responses = _mock_openai_sequence(*[_text_response("done")] * 8)
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Some text.", expand_schema=False, effort="medium")
     assert factory.return_value.chat.completions.create.call_count == 8
 
 
 async def test_effort_high_runs_pipeline_three_times(kb):
     responses = _mock_openai_sequence(*[_text_response("done")] * 12)
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Some text.", expand_schema=False, effort="high")
     assert factory.return_value.chat.completions.create.call_count == 12
 
@@ -565,7 +565,7 @@ async def test_effort_invalid_value_raises(kb):
 
 async def test_effort_low_prompt_carries_no_pass_note(kb):
     responses = _mock_openai_sequence(*[_text_response("done")] * 4)
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Some text.", expand_schema=False, effort="low")
     prompt = factory.return_value.chat.completions.create.call_args_list[0].kwargs["messages"][0]["content"]
     assert "extraction pass" not in prompt.lower()
@@ -573,7 +573,7 @@ async def test_effort_low_prompt_carries_no_pass_note(kb):
 
 async def test_effort_medium_first_pass_announces_more_passes_without_claiming_a_prior_one(kb):
     responses = _mock_openai_sequence(*[_text_response("done")] * 8)
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Some text.", expand_schema=False, effort="medium")
     first_pass_prompt = factory.return_value.chat.completions.create.call_args_list[0].kwargs["messages"][0]["content"]
     assert "pass 1 of 2" in first_pass_prompt
@@ -582,7 +582,7 @@ async def test_effort_medium_first_pass_announces_more_passes_without_claiming_a
 
 async def test_effort_medium_second_pass_references_the_prior_pass(kb):
     responses = _mock_openai_sequence(*[_text_response("done")] * 8)
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Some text.", expand_schema=False, effort="medium")
     second_pass_prompt = factory.return_value.chat.completions.create.call_args_list[4].kwargs["messages"][0]["content"]
     assert "pass 2 of 2" in second_pass_prompt
@@ -606,7 +606,7 @@ async def test_effort_second_pass_related_data_sees_entities_from_first_pass():
         _text_response("done"),   # pass-2 entity stage — prompt captured below
         _text_response("done"), _text_response("done"), _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Alice works somewhere.", expand_schema=False, effort="medium")
 
     pass2_entity_prompt = factory.return_value.chat.completions.create.call_args_list[5].kwargs["messages"][0]["content"]
@@ -650,7 +650,7 @@ def test_split_into_chunks_caps_at_paragraph_count():
 
 async def test_max_concurrency_one_is_unchanged_from_default(kb):
     responses = _mock_openai_sequence(*[_text_response("done")] * 4)
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Some text.", expand_schema=False, max_concurrency=1)
     assert factory.return_value.chat.completions.create.call_count == 4
 
@@ -664,7 +664,7 @@ async def test_max_concurrency_runs_chunks_concurrently_not_sequentially(kb):
     text = "Para one.\n\nPara two.\n\nPara three."
     delay = 0.05
     responses = _mock_openai_with_delay(delay)
-    with patch("openai.AsyncOpenAI", responses):
+    with patch("blue_data_kb_source.llm.AsyncClient", responses):
         start = time.monotonic()
         await kb.import_text("test", text, expand_schema=False, max_concurrency=3)
         elapsed = time.monotonic() - start
@@ -706,7 +706,7 @@ async def test_entity_stage_prompt_lists_every_class_with_id_and_description(kb)
     person, skill = await _resume_schema(kb)
 
     responses = _mock_openai_sequence(*[_text_response("done")] * 4)
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Some text.", expand_schema=False)
 
     stage1_prompt = factory.return_value.chat.completions.create.call_args_list[0].kwargs["messages"][0]["content"]
@@ -719,7 +719,7 @@ async def test_entity_stage_checklist_is_name_sorted_for_a_stable_prompt(kb):
     await kb.declare_class("test", "APPLE", "")
 
     responses = _mock_openai_sequence(*[_text_response("done")] * 4)
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Some text.", expand_schema=False)
 
     stage1_prompt = factory.return_value.chat.completions.create.call_args_list[0].kwargs["messages"][0]["content"]
@@ -741,7 +741,7 @@ async def test_gap_stage_runs_for_a_class_the_entity_stage_left_empty(kb):
         _text_response("done"),   # entity properties
         _text_response("done"),   # fact properties
     )
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Alice Chen knows SQL.", expand_schema=False)
 
     assert factory.return_value.chat.completions.create.call_count == 6
@@ -767,7 +767,7 @@ async def test_gap_stage_entities_reach_the_relation_stage(kb):
         _text_response("done"),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Alice Chen knows SQL.", expand_schema=False)
 
     relation_prompt = factory.return_value.chat.completions.create.call_args_list[4].kwargs["messages"][0]["content"]
@@ -786,7 +786,7 @@ async def test_gap_stage_skipped_when_every_class_got_an_instance(kb):
         _text_response("done"),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Alice Chen knows SQL.", expand_schema=False)
 
     assert factory.return_value.chat.completions.create.call_count == 6
@@ -798,7 +798,7 @@ async def test_gap_stage_skipped_when_the_entity_stage_resolved_nothing(kb):
     await _resume_schema(kb)
 
     responses = _mock_openai_sequence(*[_text_response("done")] * 4)
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Some unrelated text.", expand_schema=False)
 
     assert factory.return_value.chat.completions.create.call_count == 4
@@ -819,7 +819,7 @@ async def test_attach_entity_class_adds_a_second_class_instead_of_an_entity(kb):
         _text_response("done"),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Alice joined Google as a staff engineer.", expand_schema=False)
 
     entities = kb.match_nodes("test", label="ENTITY")
@@ -844,7 +844,7 @@ async def test_gap_stage_counts_every_class_of_an_entity(kb):
         _text_response("done"),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Alice is a staff engineer.", expand_schema=False)
 
     prompts = [c.kwargs["messages"][0]["content"] for c in factory.return_value.chat.completions.create.call_args_list]
@@ -891,7 +891,7 @@ async def test_ungrounded_span_is_refused_and_creates_nothing(kb):
         _text_response("done"),
         _text_response("done"),   # fact properties
     )
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Alice Chen is a project manager.", expand_schema=False)
 
     assert kb.match_nodes("test", label="LITERAL") == []
@@ -912,7 +912,7 @@ async def test_a_write_without_a_span_is_refused_and_creates_nothing(kb, text_ar
         _text_response("done"),
         _text_response("done"), _text_response("done"), _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Alice Chen is a project manager.", expand_schema=False)
 
     assert kb.match_nodes("test", label="ENTITY") == []
@@ -930,7 +930,7 @@ async def test_a_fact_missing_an_end_is_refused(kb, missing):
         _tool_call_response("add_fact", call),
         _text_response("done"), _text_response("done"), _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Alice joined IBM.", expand_schema=False, related_data_k=0)
 
     assert kb.match_nodes("test", label="FACT") == []
@@ -960,7 +960,7 @@ async def test_grounded_span_survives_case_and_whitespace_differences(kb):
         _text_response("done"),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses):
+    with patch("blue_data_kb_source.llm.AsyncClient", responses):
         await kb.import_text("test", "Alice Chen is a project\nmanager.", expand_schema=False)
 
     assert [n["properties"]["name"] for n in kb.match_nodes("test", label="ENTITY")] == ["Alice Chen"]
@@ -980,7 +980,7 @@ async def test_span_spanning_two_sentences_is_grounded(kb):
         _text_response("done"),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses):
+    with patch("blue_data_kb_source.llm.AsyncClient", responses):
         await kb.import_text("test", text, expand_schema=False)
 
     assert len(kb.match_nodes("test", label="ENTITY")) == 1
@@ -999,7 +999,7 @@ async def test_grounding_check_leaves_lookup_tools_alone(kb):
         _text_response("done"),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Unrelated source text.", expand_schema=False)
 
     replies = _tool_replies(factory)
@@ -1070,7 +1070,7 @@ async def test_entity_property_stage_sees_facts_and_what_the_fact_stage_took(kb)
         _text_response("done"),   # entity properties — prompt captured below
     )
     # The fact id isn't known until add_fact runs, so patch it in at dispatch.
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         engine = kb._extraction
         original = engine._dispatch_tool
 
@@ -1098,7 +1098,7 @@ async def test_fact_property_stage_prompt_carries_entities_and_facts(kb):
         _text_response("done"),   # fact properties
         _text_response("done"),   # entity properties
     )
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Alice joined IBM.", expand_schema=False)
 
     prompt = factory.return_value.chat.completions.create.call_args_list[6].kwargs["messages"][0]["content"]
@@ -1113,7 +1113,7 @@ async def test_single_pass_prompt_carries_no_prior_extraction_block(kb):
     await _alice_at_ibm(kb)
 
     responses = _mock_openai_sequence(*[_text_response("done")] * 4)
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Some text.", expand_schema=False, effort="low")
 
     for call in factory.return_value.chat.completions.create.call_args_list:
@@ -1130,7 +1130,7 @@ async def test_second_pass_inherits_what_the_first_pass_resolved(kb):
         _text_response("done"),   # pass 2 entities — prompt captured below
         _text_response("done"), _text_response("done"), _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Alice joined IBM.", expand_schema=False, effort="medium")
 
     pass2_first = factory.return_value.chat.completions.create.call_args_list[8].kwargs["messages"][0]["content"]
@@ -1147,7 +1147,7 @@ async def test_carried_context_is_per_chunk_not_shared_across_chunks(kb):
     text = "Alice joined IBM.\n\nBob joined ACME."
 
     responses = _mock_openai_endless(_text_response("done"))[0]
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", text, expand_schema=False, max_concurrency=2)
 
     for call in factory.return_value.chat.completions.create.call_args_list:
@@ -1266,7 +1266,7 @@ async def test_gap_stage_does_not_rerun_for_classes_an_earlier_pass_filled(kb):
         _text_response("done"),
         _text_response("done"), _text_response("done"), _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Alice Chen knows SQL.", expand_schema=False, effort="medium")
 
     prompts = [c.kwargs["messages"][0]["content"]
@@ -1294,7 +1294,7 @@ async def test_gap_stage_prompt_lists_entities_from_earlier_passes_too(kb):
         _text_response("done"),
         _text_response("done"), _text_response("done"), _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Alice Chen is a manager.", expand_schema=False, effort="medium")
 
     prompts = [c.kwargs["messages"][0]["content"]
@@ -1322,7 +1322,7 @@ async def test_property_stages_can_find_an_existing_value_before_writing(kb):
         }),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", text, expand_schema=False)
 
     replies = _tool_replies(factory)
@@ -1345,7 +1345,7 @@ async def test_find_literal_reports_no_existing_value(kb):
         }),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Alice joined IBM.", expand_schema=False)
 
     assert json.loads(_tool_replies(factory)[-1]["content"]) == {"id": None}
@@ -1382,7 +1382,7 @@ async def test_add_entity_returns_the_existing_entity_instead_of_forking_it(kb):
         _text_response("done"),   # gap stage (SKILL empty)
         _text_response("done"), _text_response("done"), _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Alice Chen is a manager.", expand_schema=False)
 
     assert len(kb.match_nodes("test", label="ENTITY")) == 1
@@ -1405,7 +1405,7 @@ async def test_deduped_entity_still_records_the_new_text_span(kb):
         _text_response("done"),
         _text_response("done"), _text_response("done"), _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses):
+    with patch("blue_data_kb_source.llm.AsyncClient", responses):
         await kb.import_text("test", "Alice Chen joined Contoso.", expand_schema=False)
 
     after = kb.get_neighbors("test", alice, edge_type="EXTRACTED_FROM", direction="out")
@@ -1422,7 +1422,7 @@ async def test_entity_dedupe_is_case_and_whitespace_insensitive(kb):
         _text_response("done"),
         _text_response("done"), _text_response("done"), _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses):
+    with patch("blue_data_kb_source.llm.AsyncClient", responses):
         await kb.import_text("test", "ibm", expand_schema=False)
 
     assert [n["properties"]["name"] for n in kb.match_nodes("test", label="ENTITY")] == ["IBM"]
@@ -1445,7 +1445,7 @@ async def test_add_fact_collapses_onto_an_existing_fact(kb):
         _text_response("done"),
         _text_response("done"), _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Alice joined IBM.", expand_schema=False)
 
     assert len(kb.match_nodes("test", label="FACT")) == 1
@@ -1469,7 +1469,7 @@ async def test_identical_property_value_is_deduped(kb):
         }),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", text, expand_schema=False)
 
     assert len(kb.match_nodes("test", label="LITERAL")) == 1
@@ -1495,7 +1495,7 @@ async def test_a_second_distinct_value_for_the_same_property_is_kept(kb):
         }),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses):
+    with patch("blue_data_kb_source.llm.AsyncClient", responses):
         await kb.import_text("test", text, expand_schema=False)
 
     values = sorted(str(n["properties"]["value"]) for n in kb.match_nodes("test", label="LITERAL"))
@@ -1527,7 +1527,7 @@ async def test_class_id_given_as_a_name_is_resolved(kb):
         _text_response("done"),
         _text_response("done"), _text_response("done"), _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Alice Chen is a manager.", expand_schema=False)
 
     entities = kb.match_nodes("test", label="ENTITY")
@@ -1601,7 +1601,7 @@ async def test_a_mistyped_id_in_a_tool_call_still_creates_the_fact(kb):
                                          "tail_entity_id": ids["ibm"], "text": "Alice joined IBM"}),
         _text_response("done"), _text_response("done"), _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Alice joined IBM.", expand_schema=False, related_data_k=0)
     assert len(kb.match_nodes("test", label="FACT")) == 1
     reply = json.loads(_tool_replies(factory)[0]["content"])
@@ -1621,7 +1621,7 @@ async def test_the_agent_never_sees_a_node_uuid(kb):
         _tool_call_response("find_entity", {"name": "Alice"}),
         *[_text_response("done")] * 8,
     )
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Alice joined IBM.", expand_schema=False, related_data_k=0)
     for call in factory.return_value.chat.completions.create.call_args_list:
         for m in call.kwargs["messages"]:
@@ -1641,7 +1641,7 @@ async def test_a_handle_in_a_tool_call_writes_to_the_node_it_stands_for(kb):
                                          "tail_entity_id": f" {ibm} ", "text": "Alice joined IBM"}),
         _text_response("done"), _text_response("done"), _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses):
+    with patch("blue_data_kb_source.llm.AsyncClient", responses):
         await kb.import_text("test", "Alice joined IBM.", expand_schema=False, related_data_k=0,
                              on_tool_call=lambda name, args: seen_args.append(args))
     fact = kb.match_nodes("test", label="FACT")[0]
@@ -1662,7 +1662,7 @@ async def test_the_source_text_is_never_rewritten(kb):
     ids = await _alice_at_ibm(kb)
     text = f"Record {ids['alice']}: Alice joined IBM."
     responses = _mock_openai_sequence(*[_text_response("done")] * 4)
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", text, expand_schema=False, related_data_k=0)
     user = factory.return_value.chat.completions.create.call_args_list[0].kwargs["messages"][1]
     assert user["content"] == text
@@ -1678,7 +1678,7 @@ async def _wrong_kind_reply(kb, call):
         _tool_call_response(*call),
         *[_text_response("done")] * 6,
     )
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Alice joined IBM in June 1998.", expand_schema=False, related_data_k=0)
     return json.loads(_tool_replies(factory)[0]["content"])["error"]
 
@@ -1724,7 +1724,7 @@ async def test_relation_id_given_as_a_name_is_resolved(kb):
         _text_response("done"),
         _text_response("done"), _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses):
+    with patch("blue_data_kb_source.llm.AsyncClient", responses):
         await kb.import_text("test", "Alice joined IBM.", expand_schema=False)
 
     facts = kb.match_nodes("test", label="FACT")
@@ -1744,7 +1744,7 @@ async def test_entity_id_given_as_a_name_is_resolved(kb):
             "value": "28", "literal_type": "NUMBER", "text": "Alice joined IBM."}),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses):
+    with patch("blue_data_kb_source.llm.AsyncClient", responses):
         await kb.import_text("test", "Alice joined IBM.", expand_schema=False)
 
     literals = kb.match_nodes("test", label="LITERAL")
@@ -1764,7 +1764,7 @@ async def test_property_id_given_as_a_name_is_resolved(kb):
             "value": "28", "literal_type": "NUMBER", "text": "Alice joined IBM."}),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Alice joined IBM.", expand_schema=False)
 
     assert len(kb.match_nodes("test", label="LITERAL")) == 1
@@ -1793,7 +1793,7 @@ async def test_property_id_prefers_the_property_declared_for_this_owner(kb):
             "value": "28", "literal_type": "NUMBER", "text": "Alice is 28."}),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses):
+    with patch("blue_data_kb_source.llm.AsyncClient", responses):
         await kb.import_text("test", "Alice is 28.", expand_schema=False)
 
     literals = kb.match_nodes("test", label="LITERAL")
@@ -1820,7 +1820,7 @@ async def test_find_fact_with_a_relation_name_finds_the_fact(kb):
         _text_response("done"),
         _text_response("done"), _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Alice joined IBM.", expand_schema=False)
 
     reply = json.loads(_tool_replies(factory)[-1]["content"])
@@ -1837,7 +1837,7 @@ async def test_a_valid_id_is_left_untouched_and_reports_no_coercion(kb):
         _text_response("done"),
         _text_response("done"), _text_response("done"), _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Alice Chen is a manager.", expand_schema=False)
 
     assert "coerced" not in json.loads(_tool_replies(factory)[0]["content"])
@@ -1854,7 +1854,7 @@ async def test_a_name_that_resolves_to_nothing_still_errors(kb):
         _text_response("done"),
         _text_response("done"), _text_response("done"), _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", "Alice Chen is a manager.", expand_schema=False)
 
     assert kb.match_nodes("test", label="ENTITY") == []
@@ -1873,7 +1873,7 @@ async def test_coercion_never_falls_back_to_a_fuzzy_match(kb):
         _text_response("done"),
         _text_response("done"), _text_response("done"), _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses):
+    with patch("blue_data_kb_source.llm.AsyncClient", responses):
         await kb.import_text("test", "Contoso Ltd.", expand_schema=False)
 
     assert kb.match_nodes("test", label="ENTITY") == []
@@ -1900,7 +1900,7 @@ async def test_a_date_re_extracted_in_another_wording_is_still_deduped(kb):
         }),
         _text_response("done"),
     )
-    with patch("openai.AsyncOpenAI", responses) as factory:
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
         await kb.import_text("test", text, expand_schema=False)
 
     assert len(kb.match_nodes("test", label="LITERAL")) == 1
@@ -1994,7 +1994,7 @@ async def test_on_stage_reports_each_stage_in_order(kb):
         _text_response("done"),   # fact properties
         _text_response("done"),   # entity properties
     )
-    with patch("openai.AsyncOpenAI", responses):
+    with patch("blue_data_kb_source.llm.AsyncClient", responses):
         await kb.import_text("test", "Alice Chen knows SQL.", expand_schema=False,
                              on_stage=lambda stage, pass_num: seen.append((stage, pass_num)))
     assert seen == [("entities", 1), ("entity_gaps", 1), ("relations", 1),

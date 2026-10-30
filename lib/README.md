@@ -99,7 +99,7 @@ asyncio.run(main())
 
 ### Querying the knowledge base
 
-`answer`, `validate`, and `enrich` run an LLM agent (via `QueryEngine`) that is given the current schema and a set of read-only graph tools. The agent reasons over the graph, calls tools to gather evidence, and returns a structured result. Requires `openai` and `OPENAI_API_KEY`. Pass `on_tool_call(name, args)` to observe each tool call as it happens (e.g. to drive a progress indicator). `max_turns` (default `25`) caps the number of agent turns; if the agent hasn't finished by then, the loop stops silently and returns an empty/default result rather than raising.
+`answer`, `validate`, and `enrich` run an LLM agent (via `QueryEngine`) that is given the current schema and a set of read-only graph tools. The agent reasons over the graph, calls tools to gather evidence, and returns a structured result. Requires the `llm` extra and the provider's API key (see [LLM provider](#llm-provider)). Pass `on_tool_call(name, args)` to observe each tool call as it happens (e.g. to drive a progress indicator). `max_turns` (default `25`) caps the number of agent turns; if the agent hasn't finished by then, the loop stops silently and returns an empty/default result rather than raising.
 
 ```python
 import os
@@ -121,7 +121,7 @@ async def query(kb):
     for r in related:
         print(r.entity, r.relation, r.distance)
 
-    # All three accept an optional model parameter (default: "gpt-4o")
+    # All three accept an optional model parameter (default: the provider's, gpt-4o for openai)
     answers = await kb.answer("main", "Where did Alice work?", model="gpt-4o-mini")
 
     # Search the schema by keyword (no LLM — direct name/description match)
@@ -169,7 +169,7 @@ async def extract(kb):
         text="Alice joined IBM as a software engineer in June 1998. She later moved to Google in 2005.",
         queries=["Where did Alice work?", "When did she start?"],
         source_id=src,   # id of an existing :SOURCE node (optional)
-        model="gpt-4o",  # default
+        model="gpt-4o",  # default: the provider's, gpt-4o for openai
         # expand_schema=True by default — set False to extract only, against schema
         # already grown by a prior expand_schema() call.
     )
@@ -246,12 +246,33 @@ await kb.import_text("main", text="...", expand_schema=False)  # reuse the schem
 `schema_expansion_target` (any combination of `"text"`/`"queries"`, default both) selects what gets
 concatenated into the `text` passed to the underlying `expand_schema` call.
 
-Install the optional OpenAI extra first (add `mcp` too for `reference="mcp"`):
+Install the optional `llm` extra first (add `mcp` too for `reference="mcp"`):
 
 ```bash
-pip install "blue-data-kb-source[openai]"
-pip install "blue-data-kb-source[openai,mcp]"  # for reference="mcp"
+pip install "blue-data-kb-source[llm]"
+pip install "blue-data-kb-source[llm,mcp]"  # for reference="mcp"
 ```
+
+### LLM provider
+
+Every LLM call — `expand_schema`, `import_text`, `answer`/`validate`/`enrich`, and the judges
+behind `schema_creation_mode="llm"` — goes through [LiteLLM](https://docs.litellm.ai) to the
+provider the family parameter `BLUE_DATA_LLM_PROVIDER` names; blank means `openai`, as in
+blue-data-ops. A `model` argument (or `BLUE_DATA_LLM_MODEL` and the `BLUE_DATA_KB_SOURCE_*_LLM_MODEL`
+variables, where the library reads them) names a model of that provider; with none given, the
+provider's default is used — `gpt-4o` for `openai`, `claude-opus-4-8` for `anthropic`. The key
+comes from the provider's own variable, checked before the first call:
+
+```bash
+export BLUE_DATA_LLM_PROVIDER=anthropic ANTHROPIC_API_KEY=sk-ant-...   # Claude
+export OPENAI_API_KEY=sk-...                                          # or OpenAI, the default
+```
+
+Another LiteLLM provider (`gemini`, say) works when you name a model — there is no default for it
+— and set the key variable LiteLLM reads for it. Embeddings (`{"provider": "openai"}` search
+config) are separate and always OpenAI's. `blue_data_kb_source.llm` holds the resolution
+(`provider()`, `configured_model(function)`, `default_model()`) and `AsyncClient`, the
+OpenAI-shaped client the agents call.
 
 ### Change hooks
 
@@ -482,7 +503,7 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | `await delete_fact_property_value(database, fact_id, property_id)` | `None` | As above, for a fact's property value |
 | `await search_data(database, query, k?, mode?, type_filter?)` | `list[DataSearchResult]` | Search ENTITY/FACT nodes by keyword (BM25) or `mode="semantic"` (embeddings). Falls back to a substring scan when the database was registered without search |
 | `execute_query(query, database?, collection?, optional_properties?)` | `list[dict]` | Run one KB operation described as a structured query dict — the generic `DataSource` entry point (synchronous). Every result is a `list[dict]`, as the `DataSource` contract requires: a write's id comes back as `[{"id": ...}]`, a write that returns nothing as `[]`, a single record (the schema, a node) as a one-row list, search results as one dict per hit. Safe to call from inside a running event loop (it then runs the operation on a worker thread) |
-| `execute_query_nl(query, database?, collection?, schema?, llm_fn?, optional_properties?)` | `list[dict]` | Answer a natural-language question (synchronous wrapper around `answer(..., natural_language=False)`). `llm_fn` is accepted but not used — an agent loop over KB tools can't be driven by a plain prompt→text function; the model is `optional_properties["model"]`, else `BLUE_DATA_KB_SOURCE_QUERY_LLM_MODEL`, `BLUE_DATA_KB_SOURCE_LLM_MODEL`, `BLUE_DATA_LLM_MODEL`, else `gpt-4o` |
+| `execute_query_nl(query, database?, collection?, schema?, llm_fn?, optional_properties?)` | `list[dict]` | Answer a natural-language question (synchronous wrapper around `answer(..., natural_language=False)`). `llm_fn` is accepted but not used — an agent loop over KB tools can't be driven by a plain prompt→text function; the model is `optional_properties["model"]`, else `BLUE_DATA_KB_SOURCE_QUERY_LLM_MODEL`, `BLUE_DATA_KB_SOURCE_LLM_MODEL`, `BLUE_DATA_LLM_MODEL`, else the `BLUE_DATA_LLM_PROVIDER` provider's default (`gpt-4o` for `openai`, `claude-opus-4-8` for `anthropic`) |
 
 ---
 

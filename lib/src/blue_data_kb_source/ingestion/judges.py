@@ -9,13 +9,13 @@ assert) gathers their inputs, so nothing is written when a judge fails.
 from __future__ import annotations
 
 import json
-import os
 from typing import Any
 
 from blue_data_kb_source.types import KBError
+from blue_data_kb_source import llm
 
 _MISSING_KEY_MESSAGE = (
-    "schema_creation_mode='llm' needs a judge call, which requires OPENAI_API_KEY; "
+    "schema_creation_mode='llm' needs a judge call, which requires {env}; "
     "set it, or pass schema_creation_mode='none'."
 )
 
@@ -23,7 +23,7 @@ _MISSING_KEY_MESSAGE = (
 async def judge_property_placement(
     classes: list[dict],
     property_name: str,
-    model: str = "gpt-4o",
+    model: str | None = None,
 ) -> list[str]:
     """Pick which of an entity's classes (and their ancestors) declare a new property.
 
@@ -56,7 +56,7 @@ async def judge_class_name(
     operand_name: str,
     triple_text: str,
     existing_classes: list[dict],
-    model: str = "gpt-4o",
+    model: str | None = None,
 ) -> str:
     """Name the class for an entity: an existing class name to reuse, or a new one.
 
@@ -91,7 +91,7 @@ async def judge_class_name(
 async def judge_description(
     name: str,
     context: str,
-    model: str = "gpt-4o",
+    model: str | None = None,
 ) -> str:
     """Write a one-sentence description for a newly created schema element."""
     result = await _single_shot(
@@ -125,11 +125,10 @@ def _tool(name: str, properties: dict, required: list[str]) -> dict:
 
 
 async def _single_shot(model: str, system: str, user: str, tool: dict) -> dict[str, Any]:
-    if not os.environ.get("OPENAI_API_KEY"):
-        raise KBError(_MISSING_KEY_MESSAGE)
-    import openai
-
-    client = openai.AsyncOpenAI()
+    env = llm.missing_key()
+    if env:
+        raise KBError(_MISSING_KEY_MESSAGE.format(env=env))
+    client = llm.AsyncClient()
     response = await client.chat.completions.create(
         model=model,
         messages=[

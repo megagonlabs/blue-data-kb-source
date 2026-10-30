@@ -203,11 +203,11 @@ async def run_case(kb: KBSource, case: Case, model: str, dedup_mode: str) -> Run
     on_tool_call, on_tool_result, trace = make_trace_callbacks()
     llm_calls: list[LLMCallRecord] = []
 
-    import openai
+    from blue_data_kb_source import llm
 
-    instrumented = functools.partial(InstrumentedOpenAI, real_client_cls=openai.AsyncOpenAI, sink=llm_calls)
+    instrumented = functools.partial(InstrumentedOpenAI, real_client_cls=llm.AsyncClient, sink=llm_calls)
     steps: list[StepResult] = []
-    with patch("openai.AsyncOpenAI", instrumented):
+    with patch("blue_data_kb_source.llm.AsyncClient", instrumented):
         for step in case.steps:
             before = graph_state(kb, DB)
             calls_before = len(trace)

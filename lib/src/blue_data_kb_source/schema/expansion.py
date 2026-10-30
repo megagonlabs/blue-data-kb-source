@@ -10,6 +10,7 @@ from blue_data.source.graph.graph_source import GraphSource
 from blue_data_kb_source._agent_tools import parse_tool_arguments, tool_error, tool_message_content
 from blue_data_kb_source._constants import CLASS, PROPERTY, RELATION
 from blue_data_kb_source.types import SchemaError, SchemaSearchResult
+from blue_data_kb_source import llm
 
 if TYPE_CHECKING:
     from blue_data_kb_source.schema.manager import SchemaManager
@@ -499,7 +500,7 @@ class SchemaExpansionEngine:
         reference: Literal["llm", "mcp"] = "llm",
         mcp_servers: list[dict[str, Any]] | None = None,
         dedup_mode: Literal["search", "llm", "none"] = "search",
-        model: str = "gpt-4o",
+        model: str | None = None,
         on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
         on_tool_result: Callable[[str, dict[str, Any], Any], None] | None = None,
         max_turns: int = 25,
@@ -550,13 +551,6 @@ class SchemaExpansionEngine:
         max_turns: int,
         progress: dict[str, Any],
     ) -> None:
-        try:
-            import openai
-        except ImportError as exc:
-            raise SchemaError(
-                "expand_schema requires the 'openai' package: pip install openai"
-            ) from exc
-
         if reference == "mcp" and not mcp_servers:
             raise SchemaError("reference='mcp' requires at least one entry in mcp_servers")
 
@@ -587,8 +581,8 @@ class SchemaExpansionEngine:
                 tools = tools + mcp_tools
 
             # Built after the MCP handshake, so a dead reference server is reported
-            # as such rather than as a missing OPENAI_API_KEY (#138).
-            client = openai.AsyncOpenAI()
+            # as such rather than as a missing API key (#138).
+            client = llm.AsyncClient()
             turns = 0
             while True:
                 if turns >= max_turns:
@@ -879,8 +873,6 @@ class SchemaExpansionEngine:
         an error explaining the misplacement), or None to proceed. The same-meaning half
         is skipped when dedup_mode="none"; placement is always checked. A missing owner or
         an exact-name redeclaration falls through to declare_*_property, which handles it."""
-        import openai
-
         from blue_data_kb_source._constants import DEFINE_PROPERTY, DOMAIN, RANGE
         from blue_data_kb_source.schema.manager import _canonicalize_schema_name
 
@@ -933,7 +925,7 @@ class SchemaExpansionEngine:
                 },
             },
         }
-        client = openai.AsyncOpenAI()
+        client = llm.AsyncClient()
         response = await client.chat.completions.create(
             model=model,
             messages=[
@@ -994,8 +986,6 @@ class SchemaExpansionEngine:
         Returns a rejection message for the agent, or None to proceed. Malformed pairs
         (missing ids, mixed kinds, self-loops) and already-present edges skip the judge
         and fall through to add_is_subclass_of, which reports or no-ops them itself."""
-        import openai
-
         from blue_data_kb_source._constants import IS_SUBCLASS_OF
 
         child = self._source.get_node(database, child_id)
@@ -1031,7 +1021,7 @@ class SchemaExpansionEngine:
                 },
             },
         }
-        client = openai.AsyncOpenAI()
+        client = llm.AsyncClient()
         response = await client.chat.completions.create(
             model=model,
             messages=[
@@ -1079,8 +1069,6 @@ class SchemaExpansionEngine:
         differently-worded synonyms (e.g. JOIN_DATE vs START_DATE) matters more
         than the cost of an extra model call.
         """
-        import openai
-
         labels = [type_filter] if type_filter else [CLASS, RELATION, PROPERTY]
         candidates: list[SchemaSearchResult] = []
         for label in labels:
@@ -1112,7 +1100,7 @@ class SchemaExpansionEngine:
                 },
             },
         }
-        client = openai.AsyncOpenAI()
+        client = llm.AsyncClient()
         response = await client.chat.completions.create(
             model=model,
             messages=[
