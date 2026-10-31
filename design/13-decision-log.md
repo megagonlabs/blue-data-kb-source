@@ -9,11 +9,11 @@ Architectural decisions are recorded here as they are made, throughout the desig
 **Date:** 2026-07-07
 **Status:** Accepted
 
-**Decision:** Python, minimum version 3.10; the supported range is now 3.12–3.13 (`requires-python = ">=3.12,<3.14"`, #168).
+**Decision:** Python 3.12+; the supported range is 3.12–3.13 (`requires-python = ">=3.12,<3.14"`, #168).
 
 **Rationale:** Python is the dominant language in the AI/ML ecosystem, providing the broadest access to LLM clients, graph database clients, and data tooling relevant to blue-kb.
 
-**Consequences:** All library classes, interfaces, and examples are written in Python. Type hints use features available from 3.10+ (e.g. `X | Y` union syntax).
+**Consequences:** All library classes, interfaces, and examples are written in Python. Type hints use features available from 3.12+ (e.g. `X | Y` union syntax).
 
 ---
 
@@ -193,7 +193,7 @@ Architectural decisions are recorded here as they are made, throughout the desig
 
 **Decision:** Use `pyright` in strict mode for static type checking.
 
-**Rationale:** Pyright has faster incremental analysis, better inference for modern Python 3.10+ syntax, and tighter VS Code integration than mypy. Strict mode enforces complete annotations across the codebase.
+**Rationale:** Pyright has faster incremental analysis, better inference for modern Python 3.12+ syntax, and tighter VS Code integration than mypy. Strict mode enforces complete annotations across the codebase.
 
 **Consequences:** All packages include a `py.typed` marker. `typeCheckingMode = "strict"` set in `pyproject.toml`. Type errors are treated as CI failures.
 

@@ -34,7 +34,7 @@ where = ["src"]
 blue_data_kb_cli = ["*.json"]
 
 [tool.pyright]
-pythonVersion = "3.10"
+pythonVersion = "3.12"
 typeCheckingMode = "strict"
 venvPath = "."
 venv = ".venv"

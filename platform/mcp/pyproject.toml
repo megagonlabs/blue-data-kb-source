@@ -32,7 +32,7 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 
 [tool.pyright]
-pythonVersion = "3.10"
+pythonVersion = "3.12"
 typeCheckingMode = "strict"
 venvPath = "."
 venv = ".venv"
