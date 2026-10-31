@@ -8,12 +8,12 @@ own attributes -- not its edges -- change). Both are ISO-8601 UTC strings.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def now() -> str:
     """Current time as an ISO-8601 UTC string."""
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def stamped(properties: dict) -> dict:

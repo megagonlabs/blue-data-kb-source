@@ -8,6 +8,7 @@ from blue_data.core.schema import DataSchema
 from blue_data.source.graph.graph_source import GraphSource
 from blue_data.source.source import DataSource
 
+from blue_data_kb_source import llm
 from blue_data_kb_source._constants import (
     BOOLEAN,
     CLASS,
@@ -33,7 +34,6 @@ from blue_data_kb_source._constants import (
     STRING,
     TAIL,
 )
-from blue_data_kb_source import llm
 from blue_data_kb_source._sync import run_sync
 from blue_data_kb_source.extraction.engine import ExtractionEngine
 from blue_data_kb_source.ingestion.manager import IngestionManager

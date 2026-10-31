@@ -11,12 +11,10 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
-from typing import Any, Coroutine, TypeVar
-
-T = TypeVar("T")
+from typing import Any, Coroutine
 
 
-def run_sync(coro: Coroutine[Any, Any, T]) -> T:
+def run_sync[T](coro: Coroutine[Any, Any, T]) -> T:
     try:
         asyncio.get_running_loop()
     except RuntimeError:

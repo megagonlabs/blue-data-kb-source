@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING, Any, Callable, Literal
 
 from blue_data.source.graph.graph_source import GraphSource
 
+from blue_data_kb_source import llm
 from blue_data_kb_source._agent_tools import parse_tool_arguments, tool_error, tool_message_content
 from blue_data_kb_source._constants import CLASS, PROPERTY, RELATION
 from blue_data_kb_source.types import SchemaError, SchemaSearchResult
-from blue_data_kb_source import llm
 
 if TYPE_CHECKING:
     from blue_data_kb_source.schema.manager import SchemaManager
@@ -414,14 +414,8 @@ async def _call_mcp_tool(dispatch: dict[str, tuple[Any, str, Any]], name: str, a
     return json.dumps({"content": [str(c) for c in result.content]})
 
 
-try:
-    _BaseExceptionGroup = BaseExceptionGroup  # type: ignore[name-defined]  # 3.11+
-except NameError:  # 3.10: the exceptiongroup backport, a dependency below 3.11
-    from exceptiongroup import BaseExceptionGroup as _BaseExceptionGroup
-
-
 def _leaf_errors(group: BaseException) -> list[BaseException]:
-    if isinstance(group, _BaseExceptionGroup):
+    if isinstance(group, BaseExceptionGroup):
         return [leaf for e in group.exceptions for leaf in _leaf_errors(e)]
     return [group]
 
@@ -439,7 +433,7 @@ async def _unwrapped(coro: Any, progress: dict[str, Any]) -> Any:
     teardown = (anyio.BrokenResourceError, anyio.ClosedResourceError)
     try:
         return await coro
-    except _BaseExceptionGroup as group:
+    except BaseExceptionGroup as group:
         leaves = _leaf_errors(group)
         if progress.get("done") and all(isinstance(e, teardown) for e in leaves):
             return None
@@ -522,7 +516,7 @@ class SchemaExpansionEngine:
             return
         try:
             await asyncio.wait_for(_unwrapped(run, progress), timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             if progress["phase"] == "connecting":
                 raise SchemaError(
                     f"schema expansion timed out after {timeout:g}s while connecting to its "

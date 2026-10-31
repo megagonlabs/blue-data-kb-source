@@ -11,8 +11,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from blue_data_kb_source.types import KBError
 from blue_data_kb_source import llm
+from blue_data_kb_source.types import KBError
 
 _MISSING_KEY_MESSAGE = (
     "schema_creation_mode='llm' needs a judge call, which requires {env}; "

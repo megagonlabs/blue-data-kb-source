@@ -158,15 +158,14 @@ For OSS components having different portions released under different licenses, 
 | 1 | arrow | No | Chris Smith | [link](https://github.com/arrow-py/arrow) | Apache Software License |
 | 2 | chromadb | No | Chroma | [link](https://github.com/chroma-core/chroma) | Apache Software License |
 | 3 | click | No | Pallets | [link](https://github.com/pallets/click) | BSD License |
-| 4 | exceptiongroup | No | Alex Grönholm | [link](https://github.com/agronholm/exceptiongroup) | MIT License |
-| 5 | langchain-mcp-adapters | No | LangChain, Inc. | [link](https://github.com/langchain-ai/langchain-mcp-adapters) | MIT License |
-| 6 | langchain-openai | No | LangChain, Inc. | [link](https://github.com/langchain-ai/langchain) | MIT License |
-| 7 | langgraph | No | LangChain, Inc. | [link](https://github.com/langchain-ai/langgraph) | MIT License |
-| 8 | MCP | No | Anthropic, PBC | [link](https://github.com/modelcontextprotocol/python-sdk) | MIT License |
-| 9 | neo4j | No | Neo4j, Inc. | [link](https://github.com/neo4j/neo4j-python-driver) | Apache Software License |
-| 10 | nltk | No | NLTK Team | [link](https://github.com/nltk/nltk) | Apache Software License |
-| 11 | openai | No | OpenAI | [link](https://github.com/openai/openai-python) | Apache Software License |
-| 12 | pydantic | No | Pydantic Services Inc. and individual contributors | [link](https://github.com/pydantic/pydantic) | MIT License |
-| 13 | rank-bm25 | No | Dorian Brown | [link](https://github.com/dorianbrown/rank_bm25) | Apache Software License |
-| 14 | redis | No | Redis, inc. | [link](https://github.com/redis/redis-py) | MIT License |
-| 15 | rich | No | Will McGugan | [link](https://github.com/Textualize/rich) | MIT License |
+| 4 | langchain-mcp-adapters | No | LangChain, Inc. | [link](https://github.com/langchain-ai/langchain-mcp-adapters) | MIT License |
+| 5 | langchain-openai | No | LangChain, Inc. | [link](https://github.com/langchain-ai/langchain) | MIT License |
+| 6 | langgraph | No | LangChain, Inc. | [link](https://github.com/langchain-ai/langgraph) | MIT License |
+| 7 | MCP | No | Anthropic, PBC | [link](https://github.com/modelcontextprotocol/python-sdk) | MIT License |
+| 8 | neo4j | No | Neo4j, Inc. | [link](https://github.com/neo4j/neo4j-python-driver) | Apache Software License |
+| 9 | nltk | No | NLTK Team | [link](https://github.com/nltk/nltk) | Apache Software License |
+| 10 | openai | No | OpenAI | [link](https://github.com/openai/openai-python) | Apache Software License |
+| 11 | pydantic | No | Pydantic Services Inc. and individual contributors | [link](https://github.com/pydantic/pydantic) | MIT License |
+| 12 | rank-bm25 | No | Dorian Brown | [link](https://github.com/dorianbrown/rank_bm25) | Apache Software License |
+| 13 | redis | No | Redis, inc. | [link](https://github.com/redis/redis-py) | MIT License |
+| 14 | rich | No | Will McGugan | [link](https://github.com/Textualize/rich) | MIT License |
