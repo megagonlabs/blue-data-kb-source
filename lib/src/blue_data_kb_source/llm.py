@@ -61,16 +61,22 @@ def default_model() -> str:
     return DEFAULT_MODELS[name]
 
 
-def configured_model(function: str | None = None) -> str:
-    """The model configured for *function* (QUERY, EXTRACTION, ...): the function's
-    variable, then the KB-wide one, then the family-wide one, then the provider's
-    default. The CLI resolves the same chain from a profile."""
+def model_from_env(function: str | None = None) -> str | None:
+    """The model the environment sets for *function* (QUERY, EXTRACTION, ...): the
+    function's variable, then the KB-wide one, then the family-wide one. None leaves
+    the choice to the provider's default, at the first call that needs a model."""
     names = [f"BLUE_DATA_KB_SOURCE_{function}_LLM_MODEL"] if function else []
     names += ["BLUE_DATA_KB_SOURCE_LLM_MODEL", "BLUE_DATA_LLM_MODEL"]
     for name in names:
         if os.environ.get(name):
             return os.environ[name]
-    return default_model()
+    return None
+
+
+def configured_model(function: str | None = None) -> str:
+    """The model for *function*: `model_from_env`, then the provider's default. The
+    CLI resolves the same chain from a profile."""
+    return model_from_env(function) or default_model()
 
 
 def api_key_env() -> str | None:

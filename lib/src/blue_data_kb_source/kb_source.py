@@ -368,7 +368,7 @@ class KBSource(GraphSource, ABC):
             reference=reference,
             mcp_servers=mcp_servers,
             dedup_mode=dedup_mode,
-            model=model,
+            model=model or llm.model_from_env("SCHEMA_EXPANSION"),
             on_tool_call=on_tool_call,
             on_tool_result=on_tool_result,
             max_turns=max_turns,
@@ -728,7 +728,7 @@ class KBSource(GraphSource, ABC):
         max_turns: int = 25,
     ) -> list[dict] | str | tuple[list[dict] | str, dict]:
         return await self._knowledge.answer(
-            database, question, model, natural_language, include_metadata,
+            database, question, model or llm.model_from_env("QUERY"), natural_language, include_metadata,
             on_tool_call, on_tool_result, max_turns=max_turns,
         )
 
@@ -744,7 +744,7 @@ class KBSource(GraphSource, ABC):
         max_turns: int = 25,
     ) -> ValidationResult | str | tuple[ValidationResult | str, dict]:
         return await self._knowledge.validate(
-            database, statement, model, natural_language, include_metadata,
+            database, statement, model or llm.model_from_env("VALIDATION"), natural_language, include_metadata,
             on_tool_call, on_tool_result, max_turns=max_turns,
         )
 
@@ -759,7 +759,8 @@ class KBSource(GraphSource, ABC):
         max_turns: int = 25,
     ) -> list[EnrichmentResult]:
         return await self._knowledge.enrich(
-            database, query, depth, model, on_tool_call, on_tool_result, max_turns=max_turns
+            database, query, depth, model or llm.model_from_env("ENRICHMENT"),
+            on_tool_call, on_tool_result, max_turns=max_turns,
         )
 
     # ------------------------------------------------------------------ #
@@ -878,7 +879,8 @@ class KBSource(GraphSource, ABC):
         return await self._ingestion.assert_class(
             database, name, description,
             source_id=source_id, confidence=confidence, extraction_type=extraction_type,
-            schema_creation_mode=schema_creation_mode, model=model,
+            schema_creation_mode=schema_creation_mode,
+            model=model or llm.model_from_env("ASSERTION"),
         )
 
     async def assert_relation_type(
@@ -899,7 +901,8 @@ class KBSource(GraphSource, ABC):
         return await self._ingestion.assert_relation_type(
             database, name, domain, range, description, is_symmetric,
             source_id=source_id, confidence=confidence, extraction_type=extraction_type,
-            schema_creation_mode=schema_creation_mode, model=model,
+            schema_creation_mode=schema_creation_mode,
+            model=model or llm.model_from_env("ASSERTION"),
         )
 
     async def assert_class_property(
@@ -918,7 +921,8 @@ class KBSource(GraphSource, ABC):
         return await self._ingestion.assert_class_property(
             database, name, class_name, description,
             source_id=source_id, confidence=confidence, extraction_type=extraction_type,
-            schema_creation_mode=schema_creation_mode, model=model,
+            schema_creation_mode=schema_creation_mode,
+            model=model or llm.model_from_env("ASSERTION"),
         )
 
     async def assert_relation_property(
@@ -937,7 +941,8 @@ class KBSource(GraphSource, ABC):
         return await self._ingestion.assert_relation_property(
             database, name, relation_name, description,
             source_id=source_id, confidence=confidence, extraction_type=extraction_type,
-            schema_creation_mode=schema_creation_mode, model=model,
+            schema_creation_mode=schema_creation_mode,
+            model=model or llm.model_from_env("ASSERTION"),
         )
 
     async def assert_subclass(
@@ -955,7 +960,8 @@ class KBSource(GraphSource, ABC):
         return await self._ingestion.assert_subclass(
             database, child, parent,
             source_id=source_id, confidence=confidence, extraction_type=extraction_type,
-            schema_creation_mode=schema_creation_mode, model=model,
+            schema_creation_mode=schema_creation_mode,
+            model=model or llm.model_from_env("ASSERTION"),
         )
 
     async def assert_subrelation(
@@ -973,7 +979,8 @@ class KBSource(GraphSource, ABC):
         return await self._ingestion.assert_subrelation(
             database, child, parent,
             source_id=source_id, confidence=confidence, extraction_type=extraction_type,
-            schema_creation_mode=schema_creation_mode, model=model,
+            schema_creation_mode=schema_creation_mode,
+            model=model or llm.model_from_env("ASSERTION"),
         )
 
     async def assert_entity(
@@ -992,7 +999,8 @@ class KBSource(GraphSource, ABC):
         return await self._ingestion.assert_entity(
             database, name, class_name, description,
             source_id=source_id, confidence=confidence, extraction_type=extraction_type,
-            schema_creation_mode=schema_creation_mode, model=model,
+            schema_creation_mode=schema_creation_mode,
+            model=model or llm.model_from_env("ASSERTION"),
         )
 
     async def assert_fact(
@@ -1013,7 +1021,8 @@ class KBSource(GraphSource, ABC):
         return await self._ingestion.assert_fact(
             database, head, relation, tail, name, description,
             source_id=source_id, confidence=confidence, extraction_type=extraction_type,
-            schema_creation_mode=schema_creation_mode, model=model,
+            schema_creation_mode=schema_creation_mode,
+            model=model or llm.model_from_env("ASSERTION"),
         )
 
     async def assert_entity_property(
@@ -1033,7 +1042,8 @@ class KBSource(GraphSource, ABC):
         return await self._ingestion.assert_entity_property(
             database, entity, property, value, literal_type,
             source_id=source_id, confidence=confidence, extraction_type=extraction_type,
-            schema_creation_mode=schema_creation_mode, model=model,
+            schema_creation_mode=schema_creation_mode,
+            model=model or llm.model_from_env("ASSERTION"),
         )
 
     async def assert_fact_property(
@@ -1055,7 +1065,8 @@ class KBSource(GraphSource, ABC):
         return await self._ingestion.assert_fact_property(
             database, head, relation, tail, property, value, literal_type,
             source_id=source_id, confidence=confidence, extraction_type=extraction_type,
-            schema_creation_mode=schema_creation_mode, model=model,
+            schema_creation_mode=schema_creation_mode,
+            model=model or llm.model_from_env("ASSERTION"),
         )
 
     async def ingest(
@@ -1072,7 +1083,8 @@ class KBSource(GraphSource, ABC):
         return await self._ingestion.ingest(
             database, payload,
             source_id=source_id, confidence=confidence, extraction_type=extraction_type,
-            schema_creation_mode=schema_creation_mode, model=model,
+            schema_creation_mode=schema_creation_mode,
+            model=model or llm.model_from_env("INGESTION"),
         )
 
     async def update_source(
@@ -1149,6 +1161,7 @@ class KBSource(GraphSource, ABC):
         max_concurrency: int = 1,
         on_stage: Callable[[str, int], None] | None = None,
     ) -> None:
+        model = model or llm.model_from_env("EXTRACTION")
         if expand_schema:
             target = set(schema_expansion_target) if schema_expansion_target else {"text", "queries"}
             parts = []

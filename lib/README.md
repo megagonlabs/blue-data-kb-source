@@ -258,10 +258,12 @@ pip install "blue-data-kb-source[llm,mcp]"  # for reference="mcp"
 Every LLM call — `expand_schema`, `import_text`, `answer`/`validate`/`enrich`, and the judges
 behind `schema_creation_mode="llm"` — goes through [LiteLLM](https://docs.litellm.ai) to the
 provider the family parameter `BLUE_DATA_LLM_PROVIDER` names; blank means `openai`, as in
-blue-data-ops. A `model` argument (or `BLUE_DATA_LLM_MODEL` and the `BLUE_DATA_KB_SOURCE_*_LLM_MODEL`
-variables, where the library reads them) names a model of that provider; with none given, the
-provider's default is used — `gpt-4o` for `openai`, `claude-opus-4-8` for `anthropic`. The key
-comes from the provider's own variable, checked before the first call:
+blue-data-ops. A `model` argument names a model of that provider. A call without one uses, in order, the
+variable for its function (`BLUE_DATA_KB_SOURCE_{FUNCTION}_LLM_MODEL`, with `QUERY` for `answer`,
+`VALIDATION`, `ENRICHMENT`, `SCHEMA_EXPANSION` for `expand_schema`, `EXTRACTION` for `import_text`,
+`ASSERTION` for the `assert_*` methods and `INGESTION` for `ingest`),
+`BLUE_DATA_KB_SOURCE_LLM_MODEL`, `BLUE_DATA_LLM_MODEL`, then the provider's default — `gpt-4o` for
+`openai`, `claude-opus-4-8` for `anthropic`. The key comes from the provider's own variable, checked before the first call:
 
 ```bash
 export BLUE_DATA_LLM_PROVIDER=anthropic ANTHROPIC_API_KEY=sk-ant-...   # Claude

@@ -4,9 +4,13 @@ import logging
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from blue_data_kb_source import llm
+from blue_data_kb_source import MemoryKBSource, llm
 
-_MODEL_VARS = ("BLUE_DATA_KB_SOURCE_QUERY_LLM_MODEL", "BLUE_DATA_KB_SOURCE_LLM_MODEL", "BLUE_DATA_LLM_MODEL")
+_FUNCTIONS = ("QUERY", "VALIDATION", "ENRICHMENT", "SCHEMA_EXPANSION", "EXTRACTION", "ASSERTION", "INGESTION")
+_MODEL_VARS = (
+    *(f"BLUE_DATA_KB_SOURCE_{f}_LLM_MODEL" for f in _FUNCTIONS),
+    "BLUE_DATA_KB_SOURCE_LLM_MODEL", "BLUE_DATA_LLM_MODEL",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -96,3 +100,85 @@ def test_litellm_logs_nothing_below_warning_once_a_call_is_made(monkeypatch):
     with patch("litellm.acompletion", AsyncMock(return_value="response")):
         _create(model="m", messages=[])
     assert logger.level == logging.WARNING
+
+
+def test_the_environment_alone_names_no_model_when_nothing_is_set(monkeypatch):
+    monkeypatch.setenv(llm.PROVIDER_ENV, "gemini")
+    assert llm.model_from_env("QUERY") is None
+
+
+_ENTRY_POINTS = [
+    ("answer", "QUERY", lambda kb: kb.answer("d", "who?")),
+    ("validate", "VALIDATION", lambda kb: kb.validate("d", "x")),
+    ("enrich", "ENRICHMENT", lambda kb: kb.enrich("d", "x")),
+    ("expand_schema", "SCHEMA_EXPANSION", lambda kb: kb.expand_schema("d", "text")),
+    ("import_text", "EXTRACTION", lambda kb: kb.import_text("d", "text", expand_schema=False)),
+    ("assert_class", "ASSERTION", lambda kb: kb.assert_class("d", "PERSON")),
+    ("assert_entity", "ASSERTION", lambda kb: kb.assert_entity("d", "Alice", "PERSON")),
+    ("ingest", "INGESTION", lambda kb: kb.ingest("d", {})),
+]
+
+
+def _sent_model(kb):
+    """The model the engine or manager mock received, positional or by keyword."""
+    for manager in (kb._knowledge, kb._schema, kb._extraction, kb._ingestion):
+        for call in manager.mock_calls:
+            if "model" in call.kwargs:
+                return call.kwargs["model"]
+            sent = [a for a in call.args if isinstance(a, str) and a.endswith("-model")]
+            if sent:
+                return sent[0]
+    return None
+
+
+def _kb_with_mocked_managers():
+    kb = MemoryKBSource("t")
+    kb._knowledge, kb._schema, kb._extraction, kb._ingestion = (
+        AsyncMock(), AsyncMock(), AsyncMock(), AsyncMock(unsafe=True),  # unsafe: assert_* methods
+    )
+    return kb
+
+
+@pytest.mark.parametrize("name, function, call", _ENTRY_POINTS, ids=[e[0] for e in _ENTRY_POINTS])
+def test_a_library_call_without_a_model_uses_the_configured_chain(monkeypatch, name, function, call):
+    """#176: not only execute_query_nl, the CLI and the MCP server."""
+    kb = _kb_with_mocked_managers()
+    monkeypatch.setenv("BLUE_DATA_LLM_MODEL", "family-model")
+    asyncio.run(call(kb))
+    assert _sent_model(kb) == "family-model"
+
+    kb = _kb_with_mocked_managers()
+    monkeypatch.setenv("BLUE_DATA_KB_SOURCE_LLM_MODEL", "kb-model")
+    asyncio.run(call(kb))
+    assert _sent_model(kb) == "kb-model"
+
+    kb = _kb_with_mocked_managers()
+    monkeypatch.setenv(f"BLUE_DATA_KB_SOURCE_{function}_LLM_MODEL", "function-model")
+    asyncio.run(call(kb))
+    assert _sent_model(kb) == "function-model"
+
+
+def test_a_model_argument_beats_the_configured_chain(monkeypatch):
+    monkeypatch.setenv("BLUE_DATA_KB_SOURCE_QUERY_LLM_MODEL", "function-model")
+    kb = _kb_with_mocked_managers()
+    asyncio.run(kb.answer("d", "who?", model="argument-model"))
+    assert _sent_model(kb) == "argument-model"
+
+
+def test_import_text_runs_expansion_and_extraction_on_one_model(monkeypatch):
+    """As the CLI and the MCP server do: expansion here is part of the extraction call."""
+    monkeypatch.setenv("BLUE_DATA_KB_SOURCE_EXTRACTION_LLM_MODEL", "extraction-model")
+    monkeypatch.setenv("BLUE_DATA_KB_SOURCE_SCHEMA_EXPANSION_LLM_MODEL", "expansion-model")
+    kb = _kb_with_mocked_managers()
+    asyncio.run(kb.import_text("d", "text"))
+    assert kb._schema.expand_schema.call_args.kwargs["model"] == "extraction-model"
+    assert kb._extraction.import_text.call_args.args[3] == "extraction-model"
+
+
+def test_an_assert_needing_no_judge_works_without_a_known_default(monkeypatch):
+    """Resolving the model must not fail a call that never reaches an LLM."""
+    monkeypatch.setenv(llm.PROVIDER_ENV, "gemini")
+    kb = MemoryKBSource("t")
+    kb.create_database("d")
+    result = asyncio.run(kb.assert_class("d", "PERSON", "A person", schema_creation_mode="none"))
+    assert result.node_id
