@@ -15,6 +15,7 @@ claude-opus-4-8 / gpt-4o).
 """
 from __future__ import annotations
 
+import logging
 import os
 from types import SimpleNamespace
 from typing import Any
@@ -104,6 +105,10 @@ class AsyncClient:
             raise MissingKeyError(env)
         # LiteLLM otherwise prints its help banner on every failed call.
         litellm.suppress_debug_info = True
+        # Its handler sends records below WARNING to stdout, and it logs every call
+        # at INFO whenever the root logger allows that, as FastMCP's does: on the MCP
+        # server's stdio transport stdout may carry protocol messages only (#173).
+        logging.getLogger("LiteLLM").setLevel(logging.WARNING)
         # Its aiohttp transport leaves SSL connections bound to the caller's event
         # loop; once `asyncio.run` closes that loop they are torn down at exit with
         # an "Event loop is closed" traceback. httpx's transport is not.

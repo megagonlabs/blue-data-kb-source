@@ -1,5 +1,6 @@
 """The agents' LLM calls go through LiteLLM to the BLUE_DATA_LLM_PROVIDER provider (#164, #166)."""
 import asyncio
+import logging
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -85,3 +86,13 @@ def test_the_other_providers_key_is_not_required(monkeypatch):
     monkeypatch.setenv(llm.PROVIDER_ENV, "anthropic")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     assert llm.missing_key() is None
+
+
+def test_litellm_logs_nothing_below_warning_once_a_call_is_made(monkeypatch):
+    """Its handler sends those records to stdout, which MCP's stdio transport owns (#173)."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    logger = logging.getLogger("LiteLLM")
+    monkeypatch.setattr(logger, "level", logging.NOTSET)
+    with patch("litellm.acompletion", AsyncMock(return_value="response")):
+        _create(model="m", messages=[])
+    assert logger.level == logging.WARNING
