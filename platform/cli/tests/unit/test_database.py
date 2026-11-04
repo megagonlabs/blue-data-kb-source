@@ -162,6 +162,22 @@ def test_semantic_search_defaults_to_file_vectors_beside_the_graph(runner, tmp_p
     assert vector["connection"] == {"directory": str(tmp_path / "g")}
 
 
+def test_a_cli_built_directory_syncs_into_a_data_registry(runner, tmp_path):
+    """#175: the CLI's BM25 corpus beside the graph is not a database."""
+    from blue_data.registry.data_registry import DataRegistry
+    from blue_data_kb_source import FileKBSource
+
+    directory = tmp_path / "g"
+    invoke(runner, ["database", "register", "main", "--search", "bm25", "--directory", str(directory)])
+    invoke(runner, ["--database", "main", "schema", "class", "add", "PERSON", "A person"])
+    assert any(f.endswith("_bm25.json") for f in os.listdir(directory))
+
+    registry = DataRegistry()
+    registry.register_source(FileKBSource("kb", properties={"connection": {"directory": str(directory)}}))
+    registry.sync_source("kb")
+    assert [r["name"] for r in registry.list_source_databases("kb")] == ["main"]
+
+
 def test_chromadb_without_a_path_gets_one_beside_the_graph(runner, tmp_path):
     invoke(runner, ["database", "register", "v", "--search", "semantic", "--vector-backend", "chromadb",
                     "--directory", str(tmp_path / "g")])

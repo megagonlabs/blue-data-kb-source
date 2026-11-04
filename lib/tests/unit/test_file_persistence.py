@@ -120,6 +120,42 @@ async def test_lock_file_is_not_listed_as_a_database(tmp_path):
     assert kb.fetch_databases() == ["main"]
 
 
+def _kb_with_sidecars(directory):
+    """A file KB with its BM25 corpus and vector store beside the graph, and a registry file."""
+    kb = _kb(
+        directory, mode="semantic", bm25_index_dir=str(directory),
+        embedding_fn=lambda text: [0.1] * 8, vector_dim=8,
+        vector={"_class": "blue_data.source.vector.file_vector_source.FileVectorSource",
+                "name": "kb_vectors", "connection": {"directory": str(directory)}},
+    )
+    (directory / "registry.json").write_text('{"main": {"graph": "file"}}')
+    return kb
+
+
+async def test_only_files_holding_a_graph_are_databases(tmp_path):
+    """#175: the BM25 corpora, vector stores and CLI registry are *.json too."""
+    kb = _kb_with_sidecars(tmp_path)
+    await _person_with_birth_date(kb)
+    assert len([f for f in os.listdir(tmp_path) if f.endswith(".json")]) > 2
+    assert kb.fetch_databases() == ["main"]
+
+
+async def test_a_directory_with_sidecars_syncs_into_a_registry(tmp_path):
+    from blue_data.registry.data_registry import DataRegistry
+
+    await _person_with_birth_date(_kb_with_sidecars(tmp_path))
+    registry = DataRegistry()
+    registry.register_source(_kb(tmp_path))
+    registry.sync_source("kb", recursive=True)
+    assert [r["name"] for r in registry.list_source_databases("kb")] == ["main"]
+
+
+def test_an_empty_database_is_listed(tmp_path):
+    kb = _kb(tmp_path)
+    kb.create_database("main")
+    assert kb.fetch_databases() == ["main"]
+
+
 def test_file_lock_is_reentrant_within_a_thread(tmp_path):
     from blue_data_kb_source._file_lock import FileLocks
 

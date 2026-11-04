@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from blue_data.core.utils.path_utils import contain
 from blue_data.source.graph.file_graph_source import FileGraphSource
 
@@ -7,6 +9,9 @@ from blue_data_kb_source._file_lock import FileLocks
 from blue_data_kb_source._json_io import write_json_atomic
 from blue_data_kb_source.checks import require_database_name
 from blue_data_kb_source.kb_source import KBSource
+
+# A database file is {"nodes": ..., "edges": ...}, always saved in that order.
+_GRAPH_FILE_START = b'{"nodes"'
 
 
 class FileKBSource(KBSource, FileGraphSource):
@@ -41,6 +46,20 @@ class FileKBSource(KBSource, FileGraphSource):
             self._db_path(database),
             {"nodes": self._nodes[database], "edges": self._edges[database]},
         )
+
+    # The directory also holds "*.json" files that are not databases: BM25 corpora,
+    # vector stores and the CLI's registry. Listed as databases, they broke
+    # DataRegistry.sync_source (#175). The start of a file tells them apart without
+    # parsing a whole database, which the CLI would otherwise do on every command.
+    def fetch_databases(self) -> list[str]:
+        return [name for name in super().fetch_databases() if self._holds_graph(name)]
+
+    def _holds_graph(self, name: str) -> bool:
+        try:
+            with open(os.path.join(self._directory, f"{name}.json"), "rb") as f:
+                return f.read(len(_GRAPH_FILE_START)) == _GRAPH_FILE_START
+        except FileNotFoundError:  # deleted since the directory was listed
+            return False
 
     def _persist_transaction(self, transaction_id: str) -> None:
         txn = self._transactions[transaction_id]
