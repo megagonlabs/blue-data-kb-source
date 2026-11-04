@@ -645,18 +645,15 @@ def _neo4j_flags(uri: str | None, user: str | None, password: str | None) -> dic
         raise click.ClickException(f"--neo4j-uri: {exc}") from None
 
 
-def _redis_connection(
-    host: str | None, port: int | None, db: int | None, scan_prefix: str | None
-) -> dict[str, Any]:
+def _redis_connection(host: str | None, port: int | None, scan_prefix: str | None) -> dict[str, Any]:
     """The Redis vector connection. Always carries a scan_prefix: RedisVectorSource
-    can neither create an index nor build key names without one (#148)."""
+    can neither create an index nor build key names without one (#148). No logical
+    db: RediSearch only indexes db 0, so tenants are separated by the prefix (#177)."""
     conn: dict[str, Any] = {"scan_prefix": scan_prefix or REDIS_SCAN_PREFIX_DEFAULT}
     if host:
         conn["host"] = host
     if port is not None:
         conn["port"] = port
-    if db is not None:
-        conn["db"] = db
     return conn
 
 
@@ -675,7 +672,6 @@ def _redis_connection(
 @click.option("--vector-path",    help="Path for the ChromaDB backend. Default: <graph directory>/chromadb.")
 @click.option("--redis-host",     help="Redis host.")
 @click.option("--redis-port",     type=int, help="Redis port.")
-@click.option("--redis-db",       type=int, help="Redis database number.")
 @click.option("--redis-scan-prefix", help=f"Key prefix for this database's vectors in Redis. Default: {REDIS_SCAN_PREFIX_DEFAULT!r}.")
 @click.option("--embedding-provider", "embedding_provider", type=click.Choice(["openai"]), default="openai", show_default=True)
 @click.option("--embedding-model", help="Embedding model name.")
@@ -693,7 +689,6 @@ def database_register(
     vector_path: str | None,
     redis_host: str | None,
     redis_port: int | None,
-    redis_db: int | None,
     redis_scan_prefix: str | None,
     embedding_provider: str,
     embedding_model: str | None,
@@ -729,7 +724,7 @@ def database_register(
             if vector_backend == "chromadb" and vector_path:
                 vconn["path"] = vector_path
             if vector_backend == "redis":
-                vconn.update(_redis_connection(redis_host, redis_port, redis_db, redis_scan_prefix))
+                vconn.update(_redis_connection(redis_host, redis_port, redis_scan_prefix))
             search_cfg["vector"] = _with_vector_location(
                 _vector_properties(vector_backend, vconn), _bm25_dir_for(connection)
             )
@@ -934,7 +929,6 @@ def database_search_config_show(obj: dict) -> None:
 @click.option("--vector-path",    help="Path for the ChromaDB backend. Default: <graph directory>/chromadb.")
 @click.option("--redis-host",     help="Redis host.")
 @click.option("--redis-port",     type=int, help="Redis port.")
-@click.option("--redis-db",       type=int, help="Redis database number.")
 @click.option("--redis-scan-prefix", help=f"Key prefix for this database's vectors in Redis. Default: {REDIS_SCAN_PREFIX_DEFAULT!r}.")
 @click.option("--embedding-provider", "embedding_provider", type=click.Choice(["openai"]))
 @click.option("--embedding-model", help="Embedding model name.")
@@ -948,7 +942,6 @@ def database_search_config_set(
     vector_path: str | None,
     redis_host: str | None,
     redis_port: int | None,
-    redis_db: int | None,
     redis_scan_prefix: str | None,
     embedding_provider: str | None,
     embedding_model: str | None,
@@ -964,7 +957,7 @@ def database_search_config_set(
         # Turning search on after the fact needs the same corpus directory a
         # fresh `database register` would have given it.
         search_updates["bm25_index_dir"] = _bm25_dir_for(load_db_config(db).get("connection") or {})
-    redis_given = redis_host or redis_port is not None or redis_db is not None or redis_scan_prefix
+    redis_given = redis_host or redis_port is not None or redis_scan_prefix
     if vector_backend or vector_directory or vector_path or redis_given:
         vconn: dict[str, Any] = {}
         if vector_directory:
@@ -981,7 +974,7 @@ def database_search_config_set(
                 "chromadb or redis."
             )
         if backend == "redis":
-            vconn.update(_redis_connection(redis_host, redis_port, redis_db, redis_scan_prefix))
+            vconn.update(_redis_connection(redis_host, redis_port, redis_scan_prefix))
         elif redis_given:
             raise click.ClickException(f"--redis-* options don't apply to --vector-backend {backend}.")
         search_updates["vector"] = _with_vector_location(

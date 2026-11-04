@@ -128,8 +128,7 @@ All configuration is via environment variables — there is no config file, and 
 | `BLUE_DATA_KB_SOURCE_VECTOR_PATH` | `<DATA_DIR>/chromadb` | Directory for the `chromadb` vector backend. |
 | `BLUE_DATA_KB_SOURCE_REDIS_HOST` | `localhost` | Redis host, for `BLUE_DATA_KB_SOURCE_VECTOR_BACKEND=redis`. |
 | `BLUE_DATA_KB_SOURCE_REDIS_PORT` | `6379` | Redis port. |
-| `BLUE_DATA_KB_SOURCE_REDIS_DB` | `0` | Redis database number. |
-| `BLUE_DATA_KB_SOURCE_REDIS_SCAN_PREFIX` | `blue_kb:` | Prefix for every Redis vector key and index, the same default as `blue-kb database register --redis-scan-prefix`. Use a different one to keep KB installations sharing a Redis server apart. |
+| `BLUE_DATA_KB_SOURCE_REDIS_SCAN_PREFIX` | `blue_kb:` | Prefix for every Redis vector key and index, the same default as `blue-kb database register --redis-scan-prefix`. Use a different one to keep KB installations sharing a Redis server apart; RediSearch indexes db 0 alone, so the prefix is the only separation. |
 | `BLUE_DATA_KB_SOURCE_EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model. |
 
 ### LLM tools

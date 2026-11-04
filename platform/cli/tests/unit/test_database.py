@@ -129,8 +129,19 @@ def test_register_redis_takes_a_scan_prefix(runner):
 def test_search_config_set_redis_stores_a_scan_prefix(runner):
     invoke(runner, ["--database", "main", "database", "create", "main"])
     invoke(runner, ["--database", "main", "database", "search", "config", "set", "--search", "semantic",
-                    "--vector-backend", "redis", "--redis-db", "2"])
-    assert _vector_connection(runner, "main") == {"scan_prefix": "blue_kb:", "db": 2}
+                    "--vector-backend", "redis"])
+    assert _vector_connection(runner, "main") == {"scan_prefix": "blue_kb:"}
+
+
+@pytest.mark.parametrize("args", [
+    ["database", "register", "r", "--search", "semantic", "--vector-backend", "redis", "--redis-db", "2"],
+    ["--database", "main", "database", "search", "config", "set", "--redis-db", "2"],
+])
+def test_a_redis_logical_db_is_not_offered(runner, args):
+    """#177: RediSearch only indexes db 0, and blue-data refuses any other."""
+    result = runner.invoke(cli, args)
+    assert result.exit_code == 2
+    assert "No such option" in result.output
 
 
 def test_search_config_set_redis_options_imply_the_redis_backend(runner):

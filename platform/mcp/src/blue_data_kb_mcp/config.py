@@ -137,21 +137,20 @@ REDIS_SCAN_PREFIX_DEFAULT = "blue_kb:"  # same default as `blue-kb database regi
 
 
 def _redis_connection() -> dict[str, Any]:
-    """Redis vector connection from the REDIS_HOST/PORT/DB/SCAN_PREFIX variables.
+    """Redis vector connection from the REDIS_HOST/PORT/SCAN_PREFIX variables.
     Always carries a scan_prefix: RedisVectorSource can neither create an index nor
-    build key names without one (#148)."""
+    build key names without one (#148). No logical db: RediSearch only indexes db 0,
+    so tenants are separated by the prefix (#177)."""
     connection: dict[str, Any] = {
         "scan_prefix": os.environ.get("BLUE_DATA_KB_SOURCE_REDIS_SCAN_PREFIX") or REDIS_SCAN_PREFIX_DEFAULT,
     }
     if host := os.environ.get("BLUE_DATA_KB_SOURCE_REDIS_HOST"):
         connection["host"] = host
-    for key, var in (("port", "BLUE_DATA_KB_SOURCE_REDIS_PORT"), ("db", "BLUE_DATA_KB_SOURCE_REDIS_DB")):
-        raw = os.environ.get(var)
-        if raw:
-            try:
-                connection[key] = int(raw)
-            except ValueError:
-                raise ValueError(f"{var} must be an integer, got {raw!r}") from None
+    if raw := os.environ.get("BLUE_DATA_KB_SOURCE_REDIS_PORT"):
+        try:
+            connection["port"] = int(raw)
+        except ValueError:
+            raise ValueError(f"BLUE_DATA_KB_SOURCE_REDIS_PORT must be an integer, got {raw!r}") from None
     return connection
 
 

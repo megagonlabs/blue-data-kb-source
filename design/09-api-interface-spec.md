@@ -747,7 +747,7 @@ blue-kb database register NAME [--graph-backend file|neo4j] [--directory DIR]
                            [--search none|bm25|semantic] [--bm25-index-dir DIR]
                            [--vector-backend file|chromadb|redis]   (default file)
                            [--vector-directory DIR] [--vector-path PATH]
-                           [--redis-host HOST] [--redis-port PORT] [--redis-db N]
+                           [--redis-host HOST] [--redis-port PORT]
                            [--redis-scan-prefix PREFIX]
                            [--embedding-provider openai] [--embedding-model MODEL]
 blue-kb database create NAME

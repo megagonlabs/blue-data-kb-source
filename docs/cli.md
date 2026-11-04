@@ -397,7 +397,7 @@ Shared `ASSERT_OPTS` on every `assert` command and `blue-kb data ingest`: `[--de
 | `blue-kb profile inspect [NAME] [--format table\|json]` | Show every configuration value and the tier it came from; secrets masked |
 | `blue-kb profile config [PARAM [VALUE]] [--profile NAME]` | Set configuration: no args walks the required parameters, PARAM prompts for one, PARAM VALUE sets it directly. Secrets always prompt |
 | `blue-kb database list [--format table\|json]` | List registered databases with backend and search mode |
-| `blue-kb database register NAME [options]` | Register a new database with graph and search backends. If the backend fails to initialize (missing driver, unreachable server), the registry is left as it was. Redis vector options: `--redis-host`, `--redis-port`, `--redis-db`, `--redis-scan-prefix` (key/index namespace, default `blue_kb:`) |
+| `blue-kb database register NAME [options]` | Register a new database with graph and search backends. If the backend fails to initialize (missing driver, unreachable server), the registry is left as it was. Redis vector options: `--redis-host`, `--redis-port`, `--redis-scan-prefix` (key/index namespace, the only way to separate tenants since RediSearch indexes db 0 alone, default `blue_kb:`) |
 | `blue-kb database create NAME` | Create a database, inheriting the session database's backend and search config |
 | `blue-kb database delete NAME [--yes]` | Delete a database and unregister it |
 | `blue-kb database select NAME` | Set the default target database. A name that is neither registered nor an existing database is accepted with a warning: commands create a file-backed database of that name on first use |

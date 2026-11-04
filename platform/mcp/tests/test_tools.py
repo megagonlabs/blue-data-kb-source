@@ -485,7 +485,6 @@ def test_every_variable_this_server_reads_is_a_name_the_cli_also_uses():
         "BLUE_DATA_KB_SOURCE_VECTOR_PATH",
         "BLUE_DATA_KB_SOURCE_REDIS_HOST",
         "BLUE_DATA_KB_SOURCE_REDIS_PORT",
-        "BLUE_DATA_KB_SOURCE_REDIS_DB",
         "BLUE_DATA_KB_SOURCE_REDIS_SCAN_PREFIX",
         # The CLI takes reference servers per command (`--mcp-server`); only this
         # server needs them as operator config, since its callers mustn't supply them.
@@ -589,14 +588,11 @@ def test_redis_vector_connection_comes_from_the_environment(monkeypatch, tmp_pat
     monkeypatch.setenv("BLUE_DATA_KB_SOURCE_VECTOR_BACKEND", "redis")
     monkeypatch.setenv("BLUE_DATA_KB_SOURCE_REDIS_HOST", "redis.internal")
     monkeypatch.setenv("BLUE_DATA_KB_SOURCE_REDIS_PORT", "6380")
-    monkeypatch.setenv("BLUE_DATA_KB_SOURCE_REDIS_DB", "2")
     monkeypatch.setenv("BLUE_DATA_KB_SOURCE_REDIS_SCAN_PREFIX", "team_a:")
     pytest.importorskip("redis")
     vector = config_module._build_kb().properties["search"]["vector"]
     assert vector["_class"].endswith("RedisVectorSource")
-    assert {k: vector["connection"][k] for k in ("host", "port", "db", "scan_prefix")} == {
-        "host": "redis.internal", "port": 6380, "db": 2, "scan_prefix": "team_a:",
-    }
+    assert vector["connection"] == {"host": "redis.internal", "port": 6380, "scan_prefix": "team_a:"}
 
 
 def _semantic_env(monkeypatch, tmp_path, backend=None):
