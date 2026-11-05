@@ -205,6 +205,58 @@ async def test_search_corpus_keeps_other_processes_entries(tmp_path):
     assert len(corpus) == 42
 
 
+def _write_vectors(directory, tag, n, class_id):
+    import asyncio
+
+    kb = _kb_with_sidecars(directory)
+
+    async def run():
+        for i in range(n):
+            await kb.add_entity("main", f"{tag}person{i}", class_id=class_id)
+
+    asyncio.run(run())
+
+
+def _search_vectors(directory, stop):
+    import asyncio
+
+    kb = _kb_with_sidecars(directory)
+
+    async def run():
+        while not stop.is_set():
+            await kb.search_data("main", "person", k=5, mode="semantic")
+        assert await kb.search_data("main", "person", k=5, mode="semantic")
+
+    asyncio.run(run())
+
+
+async def test_two_processes_lose_no_vectors_and_a_reader_never_fails(tmp_path):
+    """FileVectorSource is the default store for semantic search; blue-data locks and
+    replaces its files (blue-data#272). Writers used to lose vectors and fail after
+    the graph write had gone through, and a reader could meet a half-written file."""
+    import multiprocessing as mp
+
+    kb = _kb_with_sidecars(tmp_path)
+    kb.create_database("main")
+    person = await kb.declare_class("main", "PERSON", "A person")
+    ctx = mp.get_context("spawn")
+    stop = ctx.Event()
+    reader = ctx.Process(target=_search_vectors, args=(tmp_path, stop))
+    writers = [ctx.Process(target=_write_vectors, args=(tmp_path, tag, 20, person)) for tag in "AB"]
+    reader.start()
+    for p in writers:
+        p.start()
+    for p in writers:
+        p.join(timeout=120)
+    stop.set()
+    reader.join(timeout=120)
+    assert [p.exitcode for p in writers] == [0, 0]
+    assert reader.exitcode == 0
+
+    assert len(json.loads((tmp_path / "kb_data_main.json").read_text())) == 40
+    assert len(await kb.search_data("main", "person", k=50, mode="semantic")) == 40
+
+
 # ------------------------------------------------------------------ #
 # Saves keep the file mode (#135)                                      #
 # ------------------------------------------------------------------ #

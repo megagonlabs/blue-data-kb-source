@@ -21,9 +21,11 @@ class FileKBSource(KBSource, FileGraphSource):
     default to ~/.blue-kb): every write holds an exclusive lock on the database
     from loading the file to saving it, so one process's change is never
     overwritten by another's stale copy, and saves are atomic, so a reader never
-    sees a half-written file (#118, #127). The lock covers one graph primitive,
-    not a whole KB operation: two processes adding the same new entity at the
-    same moment can each still create it, as two concurrent extraction chunks can.
+    sees a half-written file (#118, #127). The BM25 corpus works the same way, and
+    so does the default file vector store, in blue-data (#174). The lock covers
+    one graph primitive, not a whole KB operation: two processes adding the same
+    new entity at the same moment can each still create it, as two concurrent
+    extraction chunks can.
     """
 
     def _initialize_connection_properties(self) -> None:
