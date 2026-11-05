@@ -123,6 +123,7 @@ All configuration is via environment variables — there is no config file, and 
 | `BLUE_DATA_KB_SOURCE_VECTOR_BACKEND` | `file` | `file` \| `chromadb` \| `redis` \| `memory`. Used when `BLUE_DATA_KB_SOURCE_SEARCH=semantic`. `memory` keeps embeddings in the server process only, so they are lost on restart. |
 | `BLUE_DATA_KB_SOURCE_VECTOR_DIRECTORY` | `BLUE_DATA_KB_SOURCE_DATA_DIR` | Directory for the `file` vector backend. |
 | `BLUE_DATA_KB_SOURCE_VECTOR_PATH` | `<DATA_DIR>/chromadb` | Directory for the `chromadb` vector backend. |
+| `BLUE_DATA_KB_SOURCE_REDIS_URL` | — | Redis URL, for a server needing a password, a username or TLS: `rediss://user:password@host:6380/0`, always db 0. Wins over the host and port. |
 | `BLUE_DATA_KB_SOURCE_REDIS_HOST` | `localhost` | Redis host, for `BLUE_DATA_KB_SOURCE_VECTOR_BACKEND=redis`. |
 | `BLUE_DATA_KB_SOURCE_REDIS_PORT` | `6379` | Redis port. |
 | `BLUE_DATA_KB_SOURCE_REDIS_SCAN_PREFIX` | `blue_kb:` | Prefix for every Redis vector key and index, the same default as `blue-kb database register --redis-scan-prefix`. Use a different one to keep KB installations sharing a Redis server apart; RediSearch indexes db 0 alone, so the prefix is the only separation. |

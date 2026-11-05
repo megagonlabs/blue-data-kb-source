@@ -110,20 +110,68 @@ def _vector_connection(runner, db):
     return cfg["vector"]["connection"]
 
 
-def test_register_redis_always_stores_a_scan_prefix(runner):
+@pytest.fixture
+def redis_answers(monkeypatch):
+    """`register` pings a Redis vector store; these tests have no server."""
+    redis = pytest.importorskip("redis")  # register builds the vector source
+    monkeypatch.setattr(redis.Redis, "ping", lambda self: True)
+
+
+def test_register_redis_always_stores_a_scan_prefix(runner, redis_answers):
     """#148: without a scan_prefix RedisVectorSource can't create its index, and
     writes go to keys literally prefixed "None"."""
-    pytest.importorskip("redis")  # register builds the vector source
     invoke(runner, ["database", "register", "r", "--search", "semantic", "--vector-backend", "redis",
                     "--redis-host", "127.0.0.1", "--redis-port", "46591"])
     assert _vector_connection(runner, "r") == {"scan_prefix": "blue_kb:", "host": "127.0.0.1", "port": 46591}
 
 
-def test_register_redis_takes_a_scan_prefix(runner):
-    pytest.importorskip("redis")
+def test_register_redis_takes_a_scan_prefix(runner, redis_answers):
     invoke(runner, ["database", "register", "r", "--search", "semantic", "--vector-backend", "redis",
                     "--redis-scan-prefix", "team_a:"])
     assert _vector_connection(runner, "r") == {"scan_prefix": "team_a:"}
+
+
+_REDIS_URL = "rediss://kbuser:s3cret-pw@redis.internal:6380/0"
+_REDIS_REGISTER = ["database", "register", "r", "--search", "semantic", "--vector-backend", "redis"]
+
+
+def test_the_redis_url_reaches_the_connection_but_is_never_stored(runner, redis_answers, monkeypatch, tmp_path):
+    """#181: a URL can carry credentials, so like the Neo4j password it stays in the profile."""
+    from blue_data_kb_cli.config import _data_dir, _make_kb
+
+    monkeypatch.setenv("BLUE_DATA_KB_SOURCE_REDIS_URL", _REDIS_URL)
+    invoke(runner, _REDIS_REGISTER)
+    assert _vector_connection(runner, "r") == {"scan_prefix": "blue_kb:"}
+    shown = invoke(runner, ["--database", "r", "database", "config", "show"]).output
+    assert "redis.internal" not in shown
+    assert not [f for f in Path(_data_dir()).rglob("*") if f.is_file() and b"s3cret-pw" in f.read_bytes()]
+    assert not [f for f in Path(_data_dir()).rglob("*") if f.is_file() and b"redis.internal" in f.read_bytes()]
+
+    vector = _make_kb("r")._search_indexer._vector_source
+    assert vector.properties["connection"]["url"] == _REDIS_URL
+
+
+def test_the_redis_url_leaves_other_vector_backends_alone(runner, monkeypatch):
+    from blue_data_kb_cli.config import _make_kb
+
+    monkeypatch.setenv("BLUE_DATA_KB_SOURCE_REDIS_URL", _REDIS_URL)
+    invoke(runner, ["database", "register", "f", "--search", "semantic"])
+    assert "url" not in _make_kb("f")._search_indexer._vector_source.properties["connection"]
+
+
+@pytest.mark.parametrize("error", ["Authentication required.", "Error 111 connecting to localhost:6379."])
+def test_register_refuses_a_redis_that_does_not_accept_it(runner, monkeypatch, error):
+    redis = pytest.importorskip("redis")
+
+    def refuse(self):
+        raise redis.exceptions.ConnectionError(error)
+
+    monkeypatch.setattr(redis.Redis, "ping", refuse)
+    result = runner.invoke(cli, _REDIS_REGISTER)
+    assert result.exit_code == 1
+    assert error in result.output
+    assert "BLUE_DATA_KB_SOURCE_REDIS_URL" in result.output
+    assert "r" not in [d["name"] for d in invoke_json(runner, ["database", "list", "--format", "json"])]
 
 
 def test_search_config_set_redis_stores_a_scan_prefix(runner):

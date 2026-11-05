@@ -17,6 +17,12 @@
     "required": false,
     "cast": "secret"
   },
+  "BLUE_DATA_KB_SOURCE_REDIS_URL": {
+    "default": null,
+    "prompt": "Redis URL with any credentials, for databases using --vector-backend redis",
+    "required": false,
+    "cast": "secret"
+  },
   "BLUE_DATA_KB_SOURCE_LLM_MODEL": {
     "default": null,
     "prompt": "LLM model for all kb commands (overrides BLUE_DATA_LLM_MODEL)",

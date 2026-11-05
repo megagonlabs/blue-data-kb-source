@@ -85,6 +85,11 @@ blue-kb database register main \
     --vector-backend redis \
     --redis-host localhost \
     --redis-port 6379
+# A Redis with a password, a username or TLS takes a URL instead of --redis-host and
+# --redis-port. It can carry credentials, so like the Neo4j password it is a secret
+# profile parameter, not an option: `blue-kb profile config BLUE_DATA_KB_SOURCE_REDIS_URL`
+# (it prompts; rediss://user:password@host:6380/0, always db 0). It is never stored in
+# the registry, and applies to every database in the profile using the Redis backend.
 # Redis keys and indexes are namespaced by --redis-scan-prefix (default `blue_kb:`);
 # set a different one to keep two KB installations on one Redis server apart.
 # If a vector index can't be created, the write that triggered it fails with the
@@ -181,6 +186,7 @@ $ blue-kb profile config OPENAI_API_KEY
 | `BLUE_DATA_KB_SOURCE_DATA_DIR` | directory | `~/.blue-kb` | ✓ |
 | `BLUE_DATA_KB_SOURCE_DATABASE` | str | `default` | ✓ |
 | `BLUE_DATA_KB_SOURCE_NEO4J_PASSWORD` | secret | — | |
+| `BLUE_DATA_KB_SOURCE_REDIS_URL` | secret | — | |
 | `BLUE_DATA_KB_SOURCE_LLM_MODEL` | str | *inherits* | |
 | `BLUE_DATA_KB_SOURCE_EXTRACTION_LLM_MODEL` | str | *inherits* | |
 | `BLUE_DATA_KB_SOURCE_QUERY_LLM_MODEL` | str | *inherits* | |
@@ -397,7 +403,7 @@ Shared `ASSERT_OPTS` on every `assert` command and `blue-kb data ingest`: `[--de
 | `blue-kb profile inspect [NAME] [--format table\|json]` | Show every configuration value and the tier it came from; secrets masked |
 | `blue-kb profile config [PARAM [VALUE]] [--profile NAME]` | Set configuration: no args walks the required parameters, PARAM prompts for one, PARAM VALUE sets it directly. Secrets always prompt |
 | `blue-kb database list [--format table\|json]` | List registered databases with backend and search mode |
-| `blue-kb database register NAME [options]` | Register a new database with graph and search backends. If the backend fails to initialize (missing driver, unreachable Neo4j server), the registry is left as it was. A Redis vector store isn't contacted here: an unreachable Redis is reported by the first write. Redis vector options: `--redis-host`, `--redis-port`, `--redis-scan-prefix` (key/index namespace, the only way to separate tenants since RediSearch indexes db 0 alone, default `blue_kb:`) |
+| `blue-kb database register NAME [options]` | Register a new database with graph and search backends. If the backend fails to initialize (missing driver, unreachable Neo4j or Redis server, Redis credentials refused), the registry is left as it was. Redis vector options: `--redis-host`, `--redis-port`, `--redis-scan-prefix` (a protected Redis takes `BLUE_DATA_KB_SOURCE_REDIS_URL` instead of the host and port) (key/index namespace, the only way to separate tenants since RediSearch indexes db 0 alone, default `blue_kb:`) |
 | `blue-kb database create NAME` | Create a database, inheriting the session database's backend and search config |
 | `blue-kb database delete NAME [--yes]` | Delete a database and unregister it |
 | `blue-kb database select NAME` | Set the default target database. A name that is neither registered nor an existing database is accepted with a warning: commands create a file-backed database of that name on first use |

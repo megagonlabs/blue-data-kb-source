@@ -595,6 +595,12 @@ def test_redis_vector_connection_comes_from_the_environment(monkeypatch, tmp_pat
     assert vector["connection"] == {"host": "redis.internal", "port": 6380, "scan_prefix": "team_a:"}
 
 
+def test_a_redis_url_comes_from_the_environment(monkeypatch):
+    """#181: the way to a protected Redis, with credentials or rediss:// TLS."""
+    monkeypatch.setenv("BLUE_DATA_KB_SOURCE_REDIS_URL", "rediss://:pw@redis.internal:6380/0")
+    assert config_module._redis_connection()["url"] == "rediss://:pw@redis.internal:6380/0"
+
+
 def _semantic_env(monkeypatch, tmp_path, backend=None):
     monkeypatch.setenv("BLUE_DATA_KB_SOURCE_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("BLUE_DATA_KB_SOURCE_GRAPH_BACKEND", "file")

@@ -46,6 +46,7 @@ from rich.tree import Tree
 
 from blue_data_kb_cli.config import (
     NEO4J_PASSWORD_ENV,
+    REDIS_URL_ENV,
     REDIS_SCAN_PREFIX_DEFAULT,
     _BACKEND_BY_KB_CLASS,
     _FILE_KB_CLASS,
@@ -59,6 +60,7 @@ from blue_data_kb_cli.config import (
     _selected_database_path,
     _vector_properties,
     _with_vector_location,
+    check_redis_connection,
     list_databases,
     load_db_config,
     masked,
@@ -130,6 +132,8 @@ def _user_error(exc: BaseException) -> str:
                         "(`blue-kb database config show`) and that the server is running.")
             return f"Neo4j error: {msg}"
         if _from_package(cur, "redis"):
+            if name == "AuthenticationError":
+                return f"Redis rejected the credentials: set them with `blue-kb profile config {REDIS_URL_ENV}`."
             if name in ("ConnectionError", "TimeoutError"):
                 return (f"cannot connect to Redis: {msg} Check the host and port "
                         "(`blue-kb database search config show`) and that the server is running.")
@@ -736,6 +740,7 @@ def database_register(
     previous = registered_db_config(name)
     try:
         kb = register_database(name, class_path, connection=connection, search=search_cfg)
+        check_redis_connection(kb)
         if name not in kb.fetch_databases():
             kb.create_database(name)
     except Exception as exc:

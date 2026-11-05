@@ -149,8 +149,13 @@ def register_database(
         properties["connection"] = connection
     if search:
         properties["search"] = search
-    kb = DataSource.instantiate(class_path, name, properties=_with_neo4j_password(class_path, properties))
+    kb = DataSource.instantiate(class_path, name, properties=_with_secrets(class_path, properties))
     _get_registry().register_source(kb)  # strips the password from what it saves
+    # A URL only loses its password there. The rest stays out too: left in the record,
+    # it would be shown by `config show` and still win once the profile's URL changes.
+    saved = _get_registry().get_source_properties(name)
+    if _vector_connection(saved).get("url"):
+        _get_registry().register_record(name, "source", "/", properties=_without_redis_url(saved))
     return kb
 
 
@@ -258,6 +263,7 @@ def _with_search_defaults(props: dict[str, Any]) -> dict[str, Any]:
 # ------------------------------------------------------------------ #
 
 NEO4J_PASSWORD_ENV = "BLUE_DATA_KB_SOURCE_NEO4J_PASSWORD"
+REDIS_URL_ENV = "BLUE_DATA_KB_SOURCE_REDIS_URL"
 
 # Keys never shown by `database list`/`config show`, wherever they sit in a record.
 # The registry strips them from what `register` saves, but a record written by an
@@ -289,11 +295,59 @@ def _with_neo4j_password(class_path: str, props: dict[str, Any]) -> dict[str, An
     return {**props, "connection": {**(props.get("connection") or {}), "password": password}}
 
 
+def _vector_connection(props: dict[str, Any]) -> dict[str, Any]:
+    vector = (props.get("search") or {}).get("vector") or {}
+    return vector.get("connection") or {}
+
+
+def _with_vector_connection(props: dict[str, Any], connection: dict[str, Any]) -> dict[str, Any]:
+    search = props["search"]
+    return {**props, "search": {**search, "vector": {**search["vector"], "connection": connection}}}
+
+
+def _without_redis_url(props: dict[str, Any]) -> dict[str, Any]:
+    connection = {k: v for k, v in _vector_connection(props).items() if k != "url"}
+    return _with_vector_connection(props, connection)
+
+
+def _with_redis_url(props: dict[str, Any]) -> dict[str, Any]:
+    """*props* with the profile's Redis URL in the vector connection, if it is a Redis one.
+
+    A URL can carry credentials, so like the Neo4j password it is never a command-line
+    option and never stored: it comes from the profile (or the environment) each time
+    the CLI connects, as it does for the MCP server (#181).
+    """
+    url = os.environ.get(REDIS_URL_ENV)
+    vector = (props.get("search") or {}).get("vector") or {}
+    if not url or not str(vector.get("_class", "")).endswith("RedisVectorSource"):
+        return props
+    return _with_vector_connection(props, {**_vector_connection(props), "url": url})
+
+
+def _with_secrets(class_path: str, props: dict[str, Any]) -> dict[str, Any]:
+    return _with_redis_url(_with_neo4j_password(class_path, props))
+
+
+def check_redis_connection(kb: KBSource) -> None:
+    """Raise unless a Redis vector store answers: it connects lazily, so without this an
+    unreachable or password-protected server only shows at the first write (#181)."""
+    vector = getattr(getattr(kb, "_search_indexer", None), "_vector_source", None)
+    if type(vector).__name__ != "RedisVectorSource":
+        return
+    try:
+        vector.connection.ping()
+    except Exception as exc:
+        raise RuntimeError(
+            f"Redis did not accept the connection: {exc} Check the host and port, or set "
+            f"the URL with `blue-kb profile config {REDIS_URL_ENV}`."
+        ) from exc
+
+
 def _make_kb(database: str) -> KBSource:
     props = _get_registry().get_source_properties(database)
     if props:
         props = _with_search_defaults(props)
-        return DataSource.instantiate(props["_class"], database, properties=_with_neo4j_password(props["_class"], props))
+        return DataSource.instantiate(props["_class"], database, properties=_with_secrets(props["_class"], props))
     # Not registered — default to an unregistered file-backed KB, matching the
     # CLI's long-standing "no explicit `register` required" behavior.
     return DataSource.instantiate(

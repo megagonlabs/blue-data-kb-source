@@ -37,6 +37,8 @@ def test_a_missing_openai_key_is_one_line_naming_the_setting(runner, monkeypatch
      "Neo4j rejected the credentials: set the password with `blue-kb profile config BLUE_DATA_KB_SOURCE_NEO4J_PASSWORD`."),
     (_exc("redis.exceptions", "ConnectionError", "Error 111 connecting to localhost:6379."),
      "cannot connect to Redis: Error 111 connecting to localhost:6379. Check the host and port"),
+    (_exc("redis.exceptions", "AuthenticationError", "Authentication required."),
+     "Redis rejected the credentials: set them with `blue-kb profile config BLUE_DATA_KB_SOURCE_REDIS_URL`."),
     (KBError("could not create vector index 'kb_data_main'"), "could not create vector index 'kb_data_main'"),
 ])
 def test_known_causes_get_a_message_that_names_the_fix(exc, expected):

@@ -86,7 +86,8 @@ A completely separate `BLUE_DATA_KB_SOURCE_*` namespace, since the server owns o
 | `BLUE_DATA_KB_SOURCE_SEARCH` | `none` | `none` \| `bm25` \| `semantic` |
 | `BLUE_DATA_KB_SOURCE_VECTOR_BACKEND` | `file` | `file` \| `chromadb` \| `redis` \| `memory` (per-process: lost on restart), when `SEARCH=semantic` |
 | `BLUE_DATA_KB_SOURCE_VECTOR_DIRECTORY` / `_VECTOR_PATH` | `DATA_DIR` / `DATA_DIR/chromadb` | Where the `file` / `chromadb` vector backends store embeddings (#162) |
-| `BLUE_DATA_KB_SOURCE_REDIS_HOST` / `_PORT` / `_DB` / `_SCAN_PREFIX` | `localhost` / `6379` / `0` / `blue_kb:` | Redis vector connection, when `VECTOR_BACKEND=redis`; every key and index is namespaced by the scan prefix (#148) |
+| `BLUE_DATA_KB_SOURCE_REDIS_URL` | — | Redis URL for a server needing a password, a username or TLS; wins over the host and port, and is never stored in the registry |
+| `BLUE_DATA_KB_SOURCE_REDIS_HOST` / `_PORT` / `_SCAN_PREFIX` | `localhost` / `6379` / `blue_kb:` | Redis vector connection, when `VECTOR_BACKEND=redis`; every key and index is namespaced by the scan prefix (#148) |
 | `BLUE_DATA_KB_SOURCE_EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model, when `SEARCH=semantic` |
 | `BLUE_DATA_LLM_PROVIDER` | blank (`openai`) | The provider every LLM call goes to, through LiteLLM (ADR-038) |
 | `BLUE_DATA_KB_SOURCE_LLM_MODEL` | the provider's default | Default model for `answer`/`validate`/`enrich`/`expand_schema`/`import_text`; falls back to `BLUE_DATA_LLM_MODEL` |
