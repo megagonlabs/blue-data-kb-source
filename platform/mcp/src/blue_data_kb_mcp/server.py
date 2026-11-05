@@ -306,6 +306,9 @@ async def add_entity(
 ) -> str:
     """Add an entity instance to the knowledge base.
 
+    Always creates a new entity, even if one of that name exists: call this once per
+    entity, and use search_data first to find and reuse an existing id.
+
     Args:
         name:        Entity name, e.g. Alice.
         class_id:    Id of the entity's class (optional).

@@ -63,8 +63,8 @@ async def main() -> None:
     queries = [
         "Declare a PERSON class and a COMPANY class, then a WORKED_AT relation "
         "between them (domain PERSON, range COMPANY).",
-        "Add Alice as a PERSON described as a software engineer, add IBM as a "
-        "COMPANY, and record that Alice worked at IBM.",
+        "Add Alice as a PERSON described as a software engineer and add IBM as a "
+        "COMPANY. Once you have their ids, record that Alice worked at IBM.",
         "Search the knowledge base for 'Alice' and tell me what you find.",
         "Using the knowledge base, answer: where does Alice work?",
     ]

@@ -238,6 +238,13 @@ touches entities, facts, or property values. Returns `{"status": "ok"}`.
 `name`, `class_id`, `description`, `text`, `source_id`, `database`. `text` +
 `source_id` record provenance (creates an EXTRACTION node). Returns `{"id": "..."}`.
 
+Always creates a new entity: it doesn't deduplicate, and no MCP tool resolves an
+existing entity by name, so calling it twice for Alice leaves two Alices. Call
+`search_data` first and reuse the id it returns. An agent is most likely to duplicate
+when it sends `add_entity` and `add_fact` in one turn: it has no ids yet, `add_fact`
+fails, and it may retry by adding the entities again. Ask it to record facts once it
+has the ids.
+
 #### `add_fact`
 
 `head_entity_id`, `relation_id`, `tail_entity_id` (all three required), `name`,
