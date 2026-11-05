@@ -118,7 +118,7 @@ result = await kb.validate("main", "Alice worked at IBM")   # .supporting / .cou
 related = await kb.enrich("main", "Alice", depth=2)          # BFS from seed entities
 ```
 
-Add `include_metadata=True` to have the agent also collect `created`/`modified`/provenance for everything it cites, returned as a second `metadata` dict alongside the result — or, with `natural_language=True` too, folded into the prose as a follow-up paragraph. `model` is configurable per call (default `gpt-4o`).
+Add `include_metadata=True` to have the agent also collect `created`/`modified`/provenance for everything it cites, returned as a second `metadata` dict alongside the result — or, with `natural_language=True` too, folded into the prose as a follow-up paragraph. `model` is configurable per call (default: the configured model, else the provider's default, `gpt-4o` for `openai`).
 
 ---
 

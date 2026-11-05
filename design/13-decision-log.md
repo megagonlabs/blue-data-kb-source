@@ -59,7 +59,7 @@ Architectural decisions are recorded here as they are made, throughout the desig
 ## ADR-005 — LLM Integration: OpenAI SDK Directly
 
 **Date:** 2026-07-07
-**Status:** Accepted
+**Status:** Superseded by ADR-038
 
 **Decision:** The Extraction Engine calls the OpenAI API directly via the `openai` Python SDK. No provider-agnostic abstraction layer (e.g. LlamaIndex) is used.
 

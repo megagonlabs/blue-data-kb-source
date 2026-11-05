@@ -52,7 +52,7 @@ pip install build
 
 - Python 3.12 or 3.13. Every package declares `requires-python = ">=3.12,<3.14"`, so pip refuses to install on another version, and the `install.sh` scripts check it before installing anything
 - [`blue-data`](https://github.com/megagon-internal/blue-data) (local sibling dependency — not yet published)
-- An OpenAI API key (`OPENAI_API_KEY`) for any LLM feature: `import_text`/`blue-kb data extract`, `answer`/`validate`/`enrich`, and semantic search embeddings. Nothing else in the library needs it — schema declaration, instance writes, keyword search, and change hooks are all plain Python with no network calls.
+- An API key for any LLM feature (`import_text`/`blue-kb data extract`, `expand_schema`, `answer`/`validate`/`enrich`): the key of the provider `BLUE_DATA_LLM_PROVIDER` names, `OPENAI_API_KEY` by default or `ANTHROPIC_API_KEY` for `anthropic`. Semantic search embeddings always use `OPENAI_API_KEY`. Nothing else in the library needs a key — schema declaration, instance writes, keyword search, and change hooks are all plain Python with no network calls.
 
 None of the three packages are published to PyPI yet — always install from the local checkout as shown above.
 
@@ -114,7 +114,7 @@ pip install -e "lib[dev]" -e "platform/cli[dev]" -e "platform/mcp[dev]"
 
 Each component's `dev` extra is enough to run its suite. Tests that exercise an optional backend — the Neo4j driver (`neo4j`), ChromaDB (`chromadb`), BM25 search (`rank-bm25`, the library's `search` extra), the MCP client (`mcp`) — are skipped when that package isn't installed; install the component's `all` extra (or the library's `all,dev`) to run them too. The tests don't depend on the terminal: they pass whether or not it forces colour (`FORCE_COLOR`, `TTY_COMPATIBLE`).
 
-The library's benchmark suites (`lib/tests/benchmarks/`) are separate from the default test run — see [guide.md](guide.md#benchmarks) and [`lib/README.md`](../lib/README.md#running-tests) for details. They require the `openai` (and, for the querying benchmark, `search`) extras. `pytest tests/benchmarks` only replays the committed VCR cassettes, so it needs no `OPENAI_API_KEY` and makes no network calls: a case with a cassette replays (a placeholder key gets past the library's up-front key check), and a case without one is skipped. Recording (`--record-mode` other than `none`, or `run.py --record`) needs a real key.
+The library's benchmark suites (`lib/tests/benchmarks/`) are separate from the default test run — see [guide.md](guide.md#benchmarks) and [`lib/README.md`](../lib/README.md#running-tests) for details. They require the `llm` extra, which `dev` includes (and, for the querying benchmark, `search`). `pytest tests/benchmarks` only replays the committed VCR cassettes, so it needs no `OPENAI_API_KEY` and makes no network calls: a case with a cassette replays (a placeholder key gets past the library's up-front key check), and a case without one is skipped. Recording (`--record-mode` other than `none`, or `run.py --record`) needs a real key.
 
 ---
 
@@ -133,7 +133,9 @@ Exporting a variable directly still overrides the profile, which is the document
 
 | Variable | Used by | Purpose |
 |---|---|---|
-| `OPENAI_API_KEY` | lib, CLI, MCP | Required for any LLM operation. For the CLI, set it in a profile (`blue-kb profile config OPENAI_API_KEY`) rather than exporting it |
+| `BLUE_DATA_LLM_PROVIDER` | lib, CLI, MCP | The provider LLM calls go to, through LiteLLM. Blank means `openai`; `anthropic` is the other provider with a default model |
+| `OPENAI_API_KEY` | lib, CLI, MCP | Required for LLM operations under the `openai` provider, and for semantic search embeddings under any provider. For the CLI, set it in a profile (`blue-kb profile config OPENAI_API_KEY`) rather than exporting it |
+| `ANTHROPIC_API_KEY` | lib, CLI, MCP | Required for LLM operations under `BLUE_DATA_LLM_PROVIDER=anthropic`. For the CLI, set it in a profile too |
 | `BLUE_DATA_KB_SOURCE_HOME` | CLI | Where the CLI keeps `.profiles`, `.selected.profile` and `.selected.database` (default `~/.blue-kb`). Environment-only — it is where profiles are read from, so it cannot come from one |
 | `BLUE_DATA_KB_SOURCE_DATA_DIR` | CLI | Directory for `registry.json` and file-backed databases (default `~/.blue-kb`) |
 | `BLUE_DATA_KB_SOURCE_DATABASE` | CLI | Default `--database` when not passed explicitly and no `blue-kb database select` has been made |

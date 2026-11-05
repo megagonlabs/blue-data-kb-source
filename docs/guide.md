@@ -162,7 +162,7 @@ Without `enable_search`, both calls still work — they fall back to a keyword m
 
 ## Growing the schema and extracting knowledge from text (LLM)
 
-Two separate OpenAI agents, each requiring the `openai` extra and `OPENAI_API_KEY`:
+Two separate LLM agents, each requiring the `llm` extra and the provider's API key (`OPENAI_API_KEY` by default):
 
 - **`expand_schema`** — grows the schema (`CLASS`/`RELATION`/`PROPERTY`), grounded by a text passage.
   Never touches entities, facts, or property values.
@@ -254,7 +254,7 @@ application"), not just used for provenance wiring.
 
 ## Querying in natural language (LLM)
 
-`answer`, `validate`, and `enrich` each run an LLM agent over the instance graph — no query language required. All three accept an optional `model` (default `gpt-4o`) and `on_tool_call(name, args)` to observe tool calls as they happen.
+`answer`, `validate`, and `enrich` each run an LLM agent over the instance graph — no query language required. All three accept an optional `model` (default: the configured model, else the provider's default, `gpt-4o` for `openai`) and `on_tool_call(name, args)` to observe tool calls as they happen.
 
 ```python
 answers = await kb.answer("main", "Where did Alice work?")

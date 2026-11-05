@@ -588,7 +588,7 @@ async def answer(
 
     Args:
         question:          The question to answer.
-        model:             OpenAI model (default: server's configured default model).
+        model:             LLM model (default: server's configured default model).
         natural_language:  Return a prose answer instead of structured rows.
         include_metadata:  Also collect created/modified/confidence/evidence metadata
                            for cited entities/facts/properties; with natural_language,
@@ -623,7 +623,7 @@ async def validate(
 
     Args:
         statement:         The statement to check.
-        model:             OpenAI model (default: server's configured default model).
+        model:             LLM model (default: server's configured default model).
         natural_language:  Return a prose assessment instead of supporting/counter lists.
         include_metadata:  Also collect created/modified/confidence/evidence metadata
                            for cited facts; with natural_language, folds a provenance
@@ -660,7 +660,7 @@ async def enrich(
     Args:
         query:    Seed query — an LLM agent finds the entities it is about.
         depth:    Maximum hops to walk (default 2, at most 3).
-        model:    OpenAI model (default: server's configured default model).
+        model:    LLM model (default: server's configured default model).
         database: Target database (default 'default').
     """
     try:
@@ -719,7 +719,7 @@ async def expand_schema(
                      new one: 'search' (default, uses the configured search backend),
                      'llm' (asks the model to judge synonyms), or 'none' (disables
                      the check).
-        model:       OpenAI model (default: server's configured default model).
+        model:       LLM model (default: server's configured default model).
         database:    Target database (default 'default').
     """
     try:
@@ -763,7 +763,7 @@ async def import_text(
     Args:
         text:                          Free-text passage to extract from.
         queries:                       Guiding questions to focus extraction (optional).
-        model:                         OpenAI model (default: server's configured default model).
+        model:                         LLM model (default: server's configured default model).
         source_id:                     Id of an existing source node for provenance (optional).
         expand_schema:                 Run schema expansion before extracting (default True).
         schema_expansion_target:       What to ground expansion in: any combination of

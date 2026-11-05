@@ -502,8 +502,8 @@ class SchemaExpansionEngine:
     ) -> None:
         """Run the expansion agent. *timeout* caps the whole run in seconds — every model
         turn, tool call, and judge call — and raises SchemaError on expiry; None (default)
-        means no cap. Without one, a stalled request waits out the OpenAI client's own
-        600 s timeout and its silent retries, which is how a slow reasoning model can sit
+        means no cap. Without one, a stalled request waits out the LLM client's own
+        timeout and its silent retries, which is how a slow reasoning model can sit
         for many minutes with nothing printed. Declarations made before expiry are kept."""
         progress: dict[str, Any] = {"turns": 0, "phase": "model"}
         run = self._expand_schema_run(

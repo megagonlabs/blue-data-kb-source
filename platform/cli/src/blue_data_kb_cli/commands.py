@@ -423,7 +423,7 @@ _ASSERT_OPTIONS = [
     click.option("--schema-creation-mode", "schema_creation_mode",
                  type=click.Choice(["llm", "none"]), default="llm", show_default=True,
                  help="How new schema elements are named and described."),
-    click.option("--model", default=None, help="OpenAI model for judges. Default: the profile's model for this command."),
+    click.option("--model", default=None, help="LLM model for judges. Default: the profile's model for this command."),
 ]
 
 
@@ -530,7 +530,7 @@ def cli(ctx: click.Context, profile_name: str | None, database: str | None) -> N
     profile_store(home).initialize()
 
     # Apply the profile before anything else runs: resolved values are written
-    # into the environment, which is where the library, the OpenAI SDK and the
+    # into the environment, which is where the library, the LLM clients and the
     # remaining `envvar=` options already read their configuration from.
     resolver = resolver_for(home, profile_name)
     resolver.export()
@@ -2385,7 +2385,7 @@ def schema_search(obj: dict, query: str, types: tuple[str, ...], mode: str, top_
         "to judge synonyms (e.g. JOIN_DATE vs START_DATE); 'none' disables the check."
     ),
 )
-@click.option("--model", default=None, help="OpenAI model. Default: the profile's model for this command.")
+@click.option("--model", default=None, help="LLM model. Default: the profile's model for this command.")
 @click.option(
     "--timeout", "timeout", type=float, default=None,
     help="Give up after this many seconds overall (0 = no limit); elements declared before then "
@@ -2488,7 +2488,7 @@ def data_reindex(obj: dict) -> None:
 @click.option("--schema-creation-mode", "schema_creation_mode",
               type=click.Choice(["llm", "none"]), default="llm", show_default=True,
               help="How new schema elements are named and described.")
-@click.option("--model", default=None, help="OpenAI model for judges. Default: the profile's model for this command.")
+@click.option("--model", default=None, help="LLM model for judges. Default: the profile's model for this command.")
 @click.option("--format", "fmt", type=click.Choice(["table", "json"]), default="table",
               show_default=True, help="Report format.")
 @click.pass_obj
@@ -3964,7 +3964,7 @@ def data_import(obj: dict, input_file) -> None:
 @click.option("--query",     "queries",     multiple=True, help="Guiding question (repeatable).")
 @click.option("--source",    "source_name", default=None,  help="Source: its name or the key given to `data source add`.")
 @click.option("--source-id",               default=None,  help="Source node ID (overrides --source).")
-@click.option("--model", default=None, help="OpenAI model. Default: the profile's model for this command.")
+@click.option("--model", default=None, help="LLM model. Default: the profile's model for this command.")
 @click.option(
     "--expand-schema/--no-expand-schema", "expand_schema_flag", default=None,
     help="Run schema expansion (SchemaManager.expand_schema) before extracting. "
@@ -4116,7 +4116,7 @@ def extract_cmd(
     show_default=True,
     help="Output format: table, json, or nl (prose natural-language answer).",
 )
-@click.option("--model", default=None, help="OpenAI model. Default: the profile's model for this command.")
+@click.option("--model", default=None, help="LLM model. Default: the profile's model for this command.")
 @click.option("--include-metadata", "include_metadata", is_flag=True, default=False,
               help="Also collect created/modified/confidence/evidence metadata for cited entities/facts/properties.")
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Show tool call arguments in the status line.")
@@ -4167,7 +4167,7 @@ def answer_cmd(
 @click.argument("statement")
 @click.option("--natural-language", "natural_language", is_flag=True, default=False,
               help="Return a prose assessment instead of supporting/counter lists.")
-@click.option("--model", default=None, help="OpenAI model. Default: the profile's model for this command.")
+@click.option("--model", default=None, help="LLM model. Default: the profile's model for this command.")
 @click.option("--include-metadata", "include_metadata", is_flag=True, default=False,
               help="Also collect created/modified/confidence/evidence metadata for cited entities/facts/properties.")
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Show tool call arguments in the status line.")

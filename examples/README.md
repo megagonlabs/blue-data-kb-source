@@ -11,7 +11,7 @@ From the repo root, with the sibling `blue-data` repository checked out beside t
 bash scripts/install.sh
 ```
 
-This installs the library with every extra (`openai` for the LLM examples, `rank-bm25` for BM25,
+This installs the library with every extra (`llm` for the LLM examples, `rank-bm25` for BM25,
 `neo4j`, `mcp`). The Neo4j, ChromaDB and Redis examples also need their server or driver; each
 example's docstring says which.
 

@@ -6,7 +6,7 @@ The fastest way to see the knowledge base in action is the `blue-kb` CLI — no 
 bash scripts/install.sh
 ```
 
-That installs `blue-data`, the library with every extra (steps 5 and 6 need `openai`; BM25 search needs `rank-bm25`), the CLI and the MCP servers. See [installation.md](installation.md) to install components one at a time.
+That installs `blue-data`, the library with every extra (steps 5 and 6 need `llm`; BM25 search needs `rank-bm25`), the CLI and the MCP servers. See [installation.md](installation.md) to install components one at a time.
 
 ## 1. Create a database
 
@@ -65,7 +65,7 @@ blue-kb data list
 └───────┴───────────┴──────┘
 ```
 
-## 5. Ask questions (needs `OPENAI_API_KEY`)
+## 5. Ask questions (needs an LLM API key)
 
 Store the key in your profile once, rather than exporting it in every shell — it is written to `~/.blue-kb/.profiles` (mode `0600`) and never echoed back:
 
@@ -76,7 +76,7 @@ blue-kb data answer "Where did Alice work?"
 blue-kb data validate "Alice worked at IBM"
 ```
 
-An exported `OPENAI_API_KEY` still works and takes precedence. See [cli.md](cli.md#profiles-and-configuration) for the full parameter list.
+An exported `OPENAI_API_KEY` still works and takes precedence. To use Claude instead, set `BLUE_DATA_LLM_PROVIDER` to `anthropic` and configure `ANTHROPIC_API_KEY` the same way. See [cli.md](cli.md#profiles-and-configuration) for the full parameter list.
 
 `answer`/`validate` run an LLM agent that searches and traverses the graph — no query language to learn. Add `--include-metadata` to also see when each fact was added and what it was extracted from.
 
