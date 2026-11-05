@@ -1,4 +1,5 @@
 id: answer_boolean_is_party_to_agreement
+category: boolean
 description: >
   Legal domain. Boolean yes/no question via `answer`.
 operation: answer

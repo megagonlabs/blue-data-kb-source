@@ -1,4 +1,5 @@
 id: answer_aggregation_avg_order_value
+category: aggregation
 description: >
   Supply-chain domain. Same "no aggregation tool" gap as the loan-count case,
   but with an AVG over a numeric property instead of a COUNT over facts —

@@ -1,4 +1,5 @@
 id: answer_employment_history
+category: lookup
 description: >
   Business domain. Find where an entity worked via search_entities +
   get_entity_facts. Runs under both search_modes since this is the case that

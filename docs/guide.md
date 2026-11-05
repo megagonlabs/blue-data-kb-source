@@ -334,7 +334,7 @@ The CLI exposes the same round trip: `blue-kb schema export`/`blue-kb schema imp
 
 ## Benchmarks
 
-`lib/tests/benchmarks/` scores `import_text` (extraction) and `answer`/`validate`/`enrich` (querying) against gold-standard cases, replayed from committed VCR cassettes in the default `pytest` run and re-recordable live against the real API. Report-only — a metric regression never fails the build, only a harness error does. See [`lib/README.md`](../lib/README.md#running-tests) for the full scoring methodology and how to run a live pass.
+`lib/tests/benchmarks/` scores `import_text` (extraction), `answer`/`validate`/`enrich` (querying) and the ingestion judges against gold-standard cases, replayed from committed VCR cassettes in the default `pytest` run and re-recordable live against the real API. Report-only — a metric regression never fails the build, only a harness error does. Each suite keeps its run history and charts in its `results/README.md`: [extraction](../lib/tests/benchmarks/extraction/results/README.md), [querying](../lib/tests/benchmarks/querying/results/README.md), [judges](../lib/tests/benchmarks/judges/results/README.md). See [`lib/README.md`](../lib/README.md#running-tests) for the full scoring methodology and how to run a live pass.
 
 ---
 

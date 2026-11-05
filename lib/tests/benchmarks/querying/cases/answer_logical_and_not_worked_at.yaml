@@ -1,4 +1,5 @@
 id: answer_logical_and_not_worked_at
+category: logical
 description: >
   Business domain. "A but not B" composition — no boolean-filter tool exists,
   so the agent must fetch each person's WORKED_AT facts and exclude anyone

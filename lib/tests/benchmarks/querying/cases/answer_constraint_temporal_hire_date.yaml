@@ -1,4 +1,5 @@
 id: answer_constraint_temporal_hire_date
+category: constraints
 description: >
   Business domain. Temporal filter ("after 2020") — no filter tool exists, so
   the agent must fetch each employee's START_DATE via get_fact_properties and

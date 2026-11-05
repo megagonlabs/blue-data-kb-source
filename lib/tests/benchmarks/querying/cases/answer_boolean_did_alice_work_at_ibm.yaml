@@ -1,4 +1,5 @@
 id: answer_boolean_did_alice_work_at_ibm
+category: boolean
 description: >
   Business domain. Boolean yes/no question via `answer` (as opposed to
   `validate`'s supporting/counter framing) — tests recognizing a boolean

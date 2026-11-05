@@ -1,4 +1,5 @@
 id: answer_ambiguous_entity_reference
+category: ambiguity
 description: >
   Business domain. Two different people are both named "John" — the question
   is genuinely ambiguous. There's no clarification tool in the product (only

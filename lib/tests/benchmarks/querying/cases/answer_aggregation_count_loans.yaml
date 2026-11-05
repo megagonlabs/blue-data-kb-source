@@ -1,4 +1,5 @@
 id: answer_aggregation_count_loans
+category: aggregation
 description: >
   Finance domain. No aggregation tool exists (get_entity_facts/get_neighbors
   return raw rows) — the agent must retrieve all ISSUED_LOAN_TO facts itself

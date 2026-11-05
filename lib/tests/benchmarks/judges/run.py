@@ -7,6 +7,7 @@ Usage (from `lib/`, with OPENAI_API_KEY set):
     python -m tests.benchmarks.judges.run --model gpt-4o --model gpt-4o-mini
     python -m tests.benchmarks.judges.run --case salary_on_employee
     python -m tests.benchmarks.judges.run --record   # refresh the pytest suite's cassettes
+    python -m tests.benchmarks.judges.run --note "after prompt change X"   # noted in results/history.jsonl
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ import argparse
 import asyncio
 import contextlib
 import sys
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
@@ -22,6 +24,7 @@ from ..common.judge_cases import cassette_filename, load_cases
 from ..common.judge_reporting import render_table, write_json
 from ..common.judge_runner import run_judge_case
 from ..common.judge_scoring import JudgeScore, score_case
+from . import history
 
 CASES_DIR = Path(__file__).parent / "cases"
 REPORTS_DIR = Path(__file__).parent / ".reports"
@@ -38,6 +41,10 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--out", type=Path, default=None,
                         help="Where to write the JSON score report "
                              "(default: .reports/live-<execution timestamp>.json)")
+    parser.add_argument("--note", default="",
+                        help="Note stored with this run in results/history.jsonl")
+    parser.add_argument("--no-history", action="store_true",
+                        help="Don't append this run to results/history.jsonl (full-suite runs do by default)")
     parser.add_argument("--record", action="store_true",
                         help="Also (re)write the cassette files test_judges_benchmark.py replays")
     return parser.parse_args(argv)
@@ -80,6 +87,11 @@ def main(argv: list[str]) -> int:
     out = args.out or REPORTS_DIR / f"live-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
     write_json(scores, out)
     print(f"report: {out}")
+    if args.case_ids or args.no_history:
+        print("Not recorded in results/history.jsonl (partial run or --no-history)")
+    else:
+        history.record(history.summarize([asdict(s) for s in scores], note=args.note))
+        print(f"Appended this run to {history.HISTORY} and regenerated {history.PAGE} — commit both to keep it")
     return 0
 
 

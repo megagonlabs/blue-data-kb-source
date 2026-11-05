@@ -638,7 +638,23 @@ cd lib
 pytest tests/benchmarks -s
 python -m tests.benchmarks.querying.run --model gpt-4o --model gpt-4o-mini
 python -m tests.benchmarks.querying.run --record
+python -m tests.benchmarks.querying.history add .reports/live-<stamp>.json --note "..."   # record a past run in the history
 ```
+
+**Run history.** As for extraction, every full-suite live run appends a summary to `tests/benchmarks/querying/results/history.jsonl` and regenerates `results/README.md`: answer F1, column-name F1 and NL faithfulness, overall, per category (a case's `category:`) and per case, with trends. Commit both; partial runs (`--case`, `--search-mode`) and `--no-history` runs are not recorded.
+
+### Judge benchmark suite
+
+`tests/benchmarks/judges/` scores the three ingestion judges (`placement`, `class_name`, `description`) against the cases in `tests/benchmarks/judges/cases/*.yaml`, each one a single judge call. Checks are deterministic: placement and naming have exact gold answers, and descriptions get guards only, so a person reads their text in the run's table.
+
+```bash
+pytest tests/benchmarks -s
+python -m tests.benchmarks.judges.run --model gpt-4o --model gpt-4o-mini
+python -m tests.benchmarks.judges.run --record
+python -m tests.benchmarks.judges.history add .reports/live-<stamp>.json --note "..."   # record a past run in the history
+```
+
+**Run history.** Every full-suite live run appends a summary to `tests/benchmarks/judges/results/history.jsonl` and regenerates `results/README.md`, with the pass rate overall, per judge and per case. Commit both; partial runs (`--case`) and `--no-history` runs are not recorded.
 
 ## Project structure
 

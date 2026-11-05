@@ -1,4 +1,5 @@
 id: enrich_multi_hop
+category: enrichment
 description: >
   Business domain. Seeds a 2-hop chain (Alice -WORKED_AT-> IBM -HEADQUARTERED_IN->
   New York) and checks enrich traverses past 1 hop with correct distance

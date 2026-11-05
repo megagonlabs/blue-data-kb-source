@@ -31,6 +31,7 @@ class QueryCase:
     id: str
     description: str
     operation: str                                  # "answer" | "validate" | "enrich"
+    category: str = "uncategorized"                  # for per-category reporting
     seed_schema: dict[str, Any] = field(default_factory=dict)
     seed_data: dict[str, Any] = field(default_factory=dict)
     question: str | None = None                      # operation == answer
@@ -54,6 +55,7 @@ def _load_case(path: Path) -> QueryCase:
         id=raw["id"],
         description=raw.get("description", ""),
         operation=operation,
+        category=raw.get("category", "uncategorized"),
         seed_schema=raw.get("seed_schema", {}),
         seed_data=raw.get("seed_data", {}),
         question=raw.get("question"),

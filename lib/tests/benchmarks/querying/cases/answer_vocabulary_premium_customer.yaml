@@ -1,4 +1,5 @@
 id: answer_vocabulary_premium_customer
+category: vocabulary
 description: >
   Finance domain. Business-vocabulary grounding trap — "premium" must map to
   the TIER=Gold property value, not to Silver or any other tier. Extends

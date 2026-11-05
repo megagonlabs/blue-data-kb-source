@@ -7,6 +7,7 @@ Usage (from `lib/`, with OPENAI_API_KEY set):
     python -m tests.benchmarks.querying.run --model gpt-4o --model gpt-4o-mini
     python -m tests.benchmarks.querying.run --case answer_employment_history --search-mode semantic
     python -m tests.benchmarks.querying.run --record   # refresh the pytest suite's cassettes
+    python -m tests.benchmarks.querying.run --note "after prompt change X"   # noted in results/history.jsonl
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import contextlib
 import os
 import sys
 import time
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
@@ -24,6 +26,7 @@ from ..common import query_runner, query_scoring
 from ..common.query_cases import QueryCase, cassette_filename, load_cases
 from ..common.query_reporting import render_query_table, write_detailed_log
 from ..common.reporting import write_json
+from . import history
 
 CASES_DIR = Path(__file__).parent / "cases"
 REPORTS_DIR = Path(__file__).parent / ".reports"
@@ -51,6 +54,10 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--detail-out", type=Path, default=None,
                          help="Where to write the detailed prompt/tool-call log "
                               "(default: .reports/live-<execution timestamp>.detail.jsonl)")
+    parser.add_argument("--note", default="",
+                         help="Note stored with this run in results/history.jsonl")
+    parser.add_argument("--no-history", action="store_true",
+                         help="Don't append this run to results/history.jsonl (full-suite runs do by default)")
     parser.add_argument("--record", action="store_true",
                          help="Also (re)write the cassette files test_querying_benchmark.py replays")
     return parser.parse_args(argv)
@@ -139,6 +146,11 @@ def main(argv: list[str] | None = None) -> int:
     write_detailed_log(results, detail_out_path)
     print(f"Wrote {len(scores)} score(s) to {out_path}")
     print(f"Wrote detailed prompt/tool-call log to {detail_out_path}")
+    if args.case_ids or args.search_modes or args.no_history:
+        print("Not recorded in results/history.jsonl (partial run or --no-history)")
+    else:
+        history.record(history.summarize([asdict(s) for s in scores], judge_model=args.judge_model, note=args.note))
+        print(f"Appended this run to {history.HISTORY} and regenerated {history.PAGE} — commit both to keep it")
     if args.record:
         print(f"Cassettes (re)written under {Path(__file__).parent / 'cassettes'}")
     return 0

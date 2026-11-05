@@ -1,4 +1,5 @@
 id: answer_constraint_categorical_diagnosis
+category: constraints
 description: >
   Healthcare domain. Categorical filter — of several patients each diagnosed
   with a different condition, only the one matching "hypertension" should

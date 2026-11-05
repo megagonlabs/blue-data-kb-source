@@ -1,4 +1,5 @@
 id: answer_multihop_parent_company_affiliates
+category: multi_hop
 description: >
   Legal domain. Multi-hop reasoning via `answer` — resolve Acme Corp's parent
   (reverse PARENT_OF traversal), then that parent's other subsidiaries

@@ -1,4 +1,5 @@
 id: answer_ranking_highest_paid
+category: ranking
 description: >
   Business domain. Max/top-1 ranking over a numeric entity property.
 operation: answer

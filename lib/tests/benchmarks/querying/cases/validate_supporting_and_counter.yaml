@@ -1,4 +1,5 @@
 id: validate_supporting_and_counter
+category: validation
 description: >
   Business domain. Seeds both a supporting fact and a genuine counter-fact for
   the same statement, so the case can't pass by returning empty `counter` —

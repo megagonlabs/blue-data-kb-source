@@ -1,4 +1,5 @@
 id: answer_multihop_manager_reports
+category: multi_hop
 description: >
   Business domain. Multi-hop reasoning via `answer` itself (not `enrich`) —
   the agent must first resolve Alice's manager (reverse MANAGES traversal),

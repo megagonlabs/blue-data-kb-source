@@ -1,4 +1,5 @@
 id: answer_logical_or_conditions
+category: logical
 description: >
   Healthcare domain. "A or B" composition — of three patients each diagnosed
   with a different condition, the two matching hypertension OR diabetes

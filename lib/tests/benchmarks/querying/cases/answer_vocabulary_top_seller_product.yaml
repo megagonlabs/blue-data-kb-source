@@ -1,4 +1,5 @@
 id: answer_vocabulary_top_seller_product
+category: vocabulary
 description: >
   Supply-chain/retail domain. Another vocabulary-grounding trap — "top
   seller" must map to the lowest SALES_RANK value (rank 1 = best), not the

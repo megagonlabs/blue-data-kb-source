@@ -1,4 +1,5 @@
 id: answer_ranking_top_suppliers
+category: ranking
 description: >
   Supply-chain domain. Top-k ranking — no ORDER BY/LIMIT tool exists, so the
   agent must fetch every supplier's ORDER_VOLUME and rank them itself.

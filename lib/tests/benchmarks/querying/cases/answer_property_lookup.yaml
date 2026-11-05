@@ -1,4 +1,5 @@
 id: answer_property_lookup
+category: lookup
 description: >
   Business domain. The question resolves to an entity property value rather
   than a relation — exercises get_entity_properties, not just
