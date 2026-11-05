@@ -163,6 +163,7 @@ All methods on `KBSource` delegate to the appropriate component. See the compone
 | `search_schema(database, query, k?, mode?, type_filter?)` | `list[SchemaSearchResult]` | Search classes, relations, and properties by keyword (`mode="keyword"`, BM25) or semantic similarity (`mode="semantic"`) |
 | `search_data(database, query, k?, mode?, type_filter?)` | `list[DataSearchResult]` | Search entities and facts by keyword or semantic similarity |
 | `reindex(database)` | `None` | Force a full rebuild of the search index from the current graph contents; raises if search was not enabled |
+| `clear_vectors(database)` | `None` | Remove the database's vectors from the vector store, if it has one |
 | `has_semantic_search` | `bool` (property) | Whether a vector backend + embedding function are configured for semantic search |
 
 #### Provenance operations (delegate to `ProvenanceTracker`)

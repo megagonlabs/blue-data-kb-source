@@ -205,6 +205,27 @@ async def test_search_corpus_keeps_other_processes_entries(tmp_path):
     assert len(corpus) == 42
 
 
+async def test_clear_vectors_gives_a_recreated_database_a_clean_search(tmp_path):
+    """A deleted database's vectors filled search's top k with ids a new database of
+    the same name doesn't have, so its real nodes were not found."""
+    kb = _kb_with_sidecars(tmp_path)
+    kb.create_database("main")
+    kb.create_database("other")
+    person = await kb.declare_class("main", "PERSON", "A person")
+    other_person = await kb.declare_class("other", "PERSON", "A person")
+    await kb.add_entity("main", "Alice", class_id=person)
+    await kb.add_entity("other", "Carol", class_id=other_person)
+
+    kb.clear_vectors("main")
+    kb.create_database("main", overwrite=True)
+    person = await kb.declare_class("main", "PERSON", "A person")
+    await kb.add_entity("main", "Bob", class_id=person)
+
+    assert [hit.name for hit in await kb.search_data("main", "x", k=1, mode="semantic")] == ["Bob"]
+    assert "Alice" not in (tmp_path / "kb_data_main.json").read_text()
+    assert "Carol" in (tmp_path / "kb_data_other.json").read_text()
+
+
 def _write_vectors(directory, tag, n, class_id):
     import asyncio
 

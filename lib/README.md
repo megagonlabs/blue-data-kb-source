@@ -528,6 +528,7 @@ All `declare_*` methods are **idempotent**: if a node with the same name already
 | `add_change_hook(database, fn)` | Register *fn* (a sync `def`) to be called after every schema or instance-level write to *database*, after the search index is updated; *fn* receives a single event `dict`. An exception *fn* raises is logged, not raised to the writer, and later hooks still run |
 | `remove_change_hook(database, fn)` | Deregister a previously added hook for *database* (no-op if not found) |
 | `reindex(database)` | Rebuild the search index for *database* from the graph; synchronous. Raises `KBError` when the database was registered without search |
+| `clear_vectors(database)` | Remove *database*'s vectors from the vector store, if it has one; synchronous. Call it when deleting a database, or a new one of the same name inherits them |
 
 ---
 

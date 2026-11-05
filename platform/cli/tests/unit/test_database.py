@@ -3,6 +3,8 @@ import os
 from pathlib import Path
 
 import pytest
+from blue_data.source.vector.file_vector_source import FileVectorSource
+from blue_data_kb_source import KBSource
 
 from blue_data_kb_cli.commands import cli
 
@@ -343,6 +345,40 @@ def test_database_delete_removes_file(runner, tmp_path):
     assert not (tmp_path / "main.json").exists()
 
 
+def _stored_vector(directory, collection):
+    source = FileVectorSource("kb_vectors", directory=str(directory))
+    source.upsert(collection, "n1", {"embedding": [1.0, 0.0], "name": "Alice"})
+    return source
+
+
+def test_database_delete_removes_its_vectors_and_no_others(runner, tmp_path):
+    invoke(runner, ["database", "register", "main", "--search", "semantic"])
+    invoke(runner, ["--database", "main", "database", "create", "main"])
+    data_dir = Path(invoke_json(runner, ["database", "list", "--format", "json"])["main"]["connection"]["directory"])
+    source = _stored_vector(data_dir, "kb_data_main")
+    _stored_vector(data_dir, "kb_schema_main")
+    _stored_vector(data_dir, "kb_data_other")
+
+    invoke(runner, ["database", "delete", "main", "--yes"])
+
+    assert source.list_ids("kb_data_main") == []
+    assert source.list_ids("kb_schema_main") == []
+    assert source.list_ids("kb_data_other") == ["n1"]
+
+
+def test_database_delete_finishes_when_the_vector_store_fails(runner, tmp_path, monkeypatch):
+    invoke(runner, ["--database", "main", "database", "create", "main"])
+
+    def fail(self, database):
+        raise ConnectionError("store unreachable")
+
+    monkeypatch.setattr(KBSource, "clear_vectors", fail)
+    result = invoke(runner, ["database", "delete", "main", "--yes"])
+    assert "could not remove the vectors" in result.output
+    assert "store unreachable" in result.output
+    assert "main" not in invoke_json(runner, ["database", "list", "--format", "json"])
+
+
 def test_database_delete_missing_fails(runner):
     result = runner.invoke(cli, ["database", "delete", "ghost", "--yes"])
     assert result.exit_code != 0
@@ -386,6 +422,13 @@ def test_neo4j_tls_uri_is_dialled_over_tls(runner, monkeypatch):
     _neo4j_db(runner)
     uri, _ = _dial(monkeypatch, "neo")
     assert uri == "neo4j+s://kb.example.com:7687"
+
+
+def test_deleting_a_neo4j_database_keeps_its_vectors(runner, monkeypatch):
+    """The graph stays on the server, so the vectors that index it stay too."""
+    _neo4j_db(runner)
+    monkeypatch.setattr(KBSource, "clear_vectors", lambda self, database: pytest.fail("cleared"))
+    invoke(runner, ["database", "delete", "neo", "--yes"])
 
 
 def test_neo4j_uri_with_an_unknown_scheme_is_refused(runner):

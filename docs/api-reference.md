@@ -119,6 +119,7 @@ Note: `declare_relation_type` wires the initial `DOMAIN`/`RANGE` edges inline (`
 | `await find_literal(database, owner_id, property_id)` | `dict \| None` | The ENTITY/FACT owner's existing `LITERAL` for *property_id* — the property-value counterpart of the two lookups above, so a caller can check before writing |
 | `await search_data(database, query, k?, mode?, type_filter?)` | `list[DataSearchResult]` | Search entities/facts by keyword or semantic similarity |
 | `reindex(database)` | `None` | Rebuild the BM25/vector index from current graph contents; raises `KBError` if search wasn't enabled |
+| `clear_vectors(database)` | `None` | Remove the database's vectors from the vector store, if it has one; call it when deleting a database, or a new one of the same name inherits them |
 | `has_semantic_search` (property) | `bool` | Whether the instance has a vector backend configured |
 
 ### Knowledge operations — LLM querying

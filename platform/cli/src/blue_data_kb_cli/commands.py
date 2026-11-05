@@ -793,6 +793,15 @@ def database_create(obj: dict, name: str) -> None:
     console.print(f"Created database: [bold]{name}[/bold]")
 
 
+def _clear_vectors(name: str) -> None:
+    """Remove the database's vectors. A failure only warns: a vector store that is
+    gone for good must not leave a database that can never be deleted."""
+    try:
+        _make_kb(name).clear_vectors(name)
+    except Exception as exc:
+        console.print(f"[yellow]Warning:[/yellow] could not remove the vectors of '{name}': {exc}")
+
+
 @database_group.command("delete")
 @click.argument("name")
 @click.option("--yes", is_flag=True, help="Skip confirmation prompt.")
@@ -810,6 +819,7 @@ def database_delete(name: str, yes: bool) -> None:
             raise click.ClickException(f"Database '{name}' not found.")
         if not yes:
             click.confirm(f"Delete database '{name}'? This cannot be undone.", abort=True)
+        _clear_vectors(name)
         path.unlink()
     else:
         if not yes:

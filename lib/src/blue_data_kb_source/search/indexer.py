@@ -198,6 +198,19 @@ class KBSearchIndexer:
             self._delete_bm25(database, collection, node_id)
             self._delete_vector(database, collection, node_id)
 
+    def clear_vectors(self, database: str) -> None:
+        """Remove every vector of `database`. Vectors outlive the graph otherwise:
+        a new database of the same name would inherit them, and they would take
+        search's top k from its real nodes."""
+        if self._vector_source is None:
+            return
+        for collection in (_DATA_COLL, _SCHEMA_COLL):
+            self._vector_source.execute_query({
+                "op": "VECTOR.DELETE_BY_PREFIX",
+                "collection": self._vector_coll_name(database, collection),
+                "prefix": "",
+            })
+
     def reindex_all(self, database: str) -> None:
         """Bulk rebuild: iterate every node in the graph and re-index it."""
         self._suppress_auto_save = True

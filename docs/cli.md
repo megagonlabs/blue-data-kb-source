@@ -405,7 +405,7 @@ Shared `ASSERT_OPTS` on every `assert` command and `blue-kb data ingest`: `[--de
 | `blue-kb database list [--format table\|json]` | List registered databases with backend and search mode |
 | `blue-kb database register NAME [options]` | Register a new database with graph and search backends. If the backend fails to initialize (missing driver, unreachable Neo4j or Redis server, Redis credentials refused), the registry is left as it was. Redis vector options: `--redis-host`, `--redis-port`, `--redis-scan-prefix` (a protected Redis takes `BLUE_DATA_KB_SOURCE_REDIS_URL` instead of the host and port) (key/index namespace, the only way to separate tenants since RediSearch indexes db 0 alone, default `blue_kb:`) |
 | `blue-kb database create NAME` | Create a database, inheriting the session database's backend and search config |
-| `blue-kb database delete NAME [--yes]` | Delete a database and unregister it |
+| `blue-kb database delete NAME [--yes]` | Delete a database, its search index and vectors, and unregister it. On a Neo4j database, only unregister it: the graph and its vectors stay |
 | `blue-kb database select NAME` | Set the default target database. A name that is neither registered nor an existing database is accepted with a warning: commands create a file-backed database of that name on first use |
 | `blue-kb database config show` | Print graph backend config for the current database |
 | `blue-kb database config set [--graph-backend …] [--directory …] [--neo4j-uri …] …` | Update graph backend config |

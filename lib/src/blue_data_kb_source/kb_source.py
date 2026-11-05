@@ -493,6 +493,11 @@ class KBSource(GraphSource, ABC):
             raise KBError("reindex requires enable_search=True or vector_source at init")
         self._search_indexer.reindex_all(database)
 
+    def clear_vectors(self, database: str) -> None:
+        """Remove `database`'s vectors from the vector store, if it has one."""
+        if self._search_indexer is not None:
+            self._search_indexer.clear_vectors(database)
+
     @property
     def has_semantic_search(self) -> bool:
         return self._search_indexer is not None and self._search_indexer.has_semantic
