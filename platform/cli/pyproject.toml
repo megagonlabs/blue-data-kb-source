@@ -18,7 +18,7 @@ dependencies = [
 blue-kb = "blue_data_kb_cli.commands:cli"
 
 [project.optional-dependencies]
-dev    = ["pytest", "pytest-asyncio"]
+dev    = ["pytest", "pytest-asyncio", "litellm>=1.102,<1.106"]
 neo4j  = ["neo4j>=5.0"]
 chromadb = ["chromadb>=0.4"]
 redis  = ["redis>=5.0"]

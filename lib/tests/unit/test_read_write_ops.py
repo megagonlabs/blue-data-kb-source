@@ -9,7 +9,6 @@ from blue_data.registry.data_registry import DataRegistry
 from blue_data.source.graph.graph_source import GraphSource
 
 from blue_data_kb_source import FileKBSource, KBSource, MemoryKBSource
-from blue_data_kb_source.neo4j.neo4j_kb_source import NEO4JKBSource
 
 _OP_LITERAL = re.compile(r'op == "((?:KB|GRAPH)\.[A-Z_]+)"')
 
@@ -32,11 +31,22 @@ def test_every_served_op_is_declared_in_exactly_one_set():
     assert declared - served <= GraphSource._WRITE_OPS, sorted(declared - served)
 
 
-@pytest.mark.parametrize("cls", [MemoryKBSource, FileKBSource, NEO4JKBSource])
-def test_backends_inherit_the_kb_declarations(cls):
+def _assert_inherits_the_kb_declarations(cls):
     assert cls._READ_OPS == KBSource._READ_OPS
     assert cls._WRITE_OPS == KBSource._WRITE_OPS
     assert GraphSource._WRITE_OPS <= cls._WRITE_OPS
+
+
+@pytest.mark.parametrize("cls", [MemoryKBSource, FileKBSource])
+def test_backends_inherit_the_kb_declarations(cls):
+    _assert_inherits_the_kb_declarations(cls)
+
+
+def test_the_neo4j_backend_inherits_the_kb_declarations():
+    pytest.importorskip("neo4j")
+    from blue_data_kb_source.neo4j.neo4j_kb_source import NEO4JKBSource
+
+    _assert_inherits_the_kb_declarations(NEO4JKBSource)
 
 
 def _query(op: str) -> dict:

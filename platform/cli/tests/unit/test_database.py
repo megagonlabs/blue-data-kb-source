@@ -190,6 +190,7 @@ def test_a_cli_built_directory_syncs_into_a_data_registry(runner, tmp_path):
 
 
 def test_chromadb_without_a_path_gets_one_beside_the_graph(runner, tmp_path):
+    pytest.importorskip("chromadb")
     invoke(runner, ["database", "register", "v", "--search", "semantic", "--vector-backend", "chromadb",
                     "--directory", str(tmp_path / "g")])
     assert _search_cfg(runner, "v")["vector"]["connection"] == {"path": str(tmp_path / "g" / "chromadb")}

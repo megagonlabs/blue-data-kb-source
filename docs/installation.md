@@ -112,7 +112,7 @@ Install with the `dev` extra first:
 pip install -e "lib[dev]" -e "platform/cli[dev]" -e "platform/mcp[dev]"
 ```
 
-Each component's `dev` extra is enough to run its suite. Tests that exercise an optional backend — the Neo4j driver (`neo4j`), BM25 search (`rank-bm25`, the library's `search` extra), the MCP client (`mcp`) — are skipped when that package isn't installed; install the component's `all` extra (or the library's `all,dev`) to run them too. The tests don't depend on the terminal: they pass whether or not it forces colour (`FORCE_COLOR`, `TTY_COMPATIBLE`).
+Each component's `dev` extra is enough to run its suite. Tests that exercise an optional backend — the Neo4j driver (`neo4j`), ChromaDB (`chromadb`), BM25 search (`rank-bm25`, the library's `search` extra), the MCP client (`mcp`) — are skipped when that package isn't installed; install the component's `all` extra (or the library's `all,dev`) to run them too. The tests don't depend on the terminal: they pass whether or not it forces colour (`FORCE_COLOR`, `TTY_COMPATIBLE`).
 
 The library's benchmark suites (`lib/tests/benchmarks/`) are separate from the default test run — see [guide.md](guide.md#benchmarks) and [`lib/README.md`](../lib/README.md#running-tests) for details. They require the `openai` (and, for the querying benchmark, `search`) extras. `pytest tests/benchmarks` only replays the committed VCR cassettes, so it needs no `OPENAI_API_KEY` and makes no network calls: a case with a cassette replays (a placeholder key gets past the library's up-front key check), and a case without one is skipped. Recording (`--record-mode` other than `none`, or `run.py --record`) needs a real key.
 
