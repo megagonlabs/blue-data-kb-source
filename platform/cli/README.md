@@ -5,7 +5,7 @@ Command-line interface for the Blue Data Knowledge-Base. A thin adapter over the
 ## Requirements
 
 - Python 3.12 or 3.13
-- [`blue-data`](https://github.com/megagon-internal/blue-data/tree/1.0/lib) (local dependency)
+- [`blue-data`](https://github.com/megagonlabs/blue-data/tree/1.0/lib) (local dependency)
 - [`blue-data-kb-source`](../../lib) (local dependency)
 
 ## Installation

@@ -2,7 +2,7 @@
 
 ## Components
 
-`blue-data-kb-source` is organized into a core library (`lib/`) and platform components (`platform/`). Install `lib` first — every platform component depends on it, and `lib` itself depends on the sibling [`blue-data`](https://github.com/megagon-internal/blue-data) repository's `lib/` for the underlying `GraphSource`/`VectorSource` abstractions.
+`blue-data-kb-source` is organized into a core library (`lib/`) and platform components (`platform/`). Install `lib` first — every platform component depends on it, and `lib` itself depends on the sibling [`blue-data`](https://github.com/megagonlabs/blue-data) repository's `lib/` for the underlying `GraphSource`/`VectorSource` abstractions.
 
 ```
 blue-data-kb-source/
@@ -51,7 +51,7 @@ pip install build
 ## Requirements
 
 - Python 3.12 or 3.13. Every package declares `requires-python = ">=3.12,<3.14"`, so pip refuses to install on another version, and the `install.sh` scripts check it before installing anything
-- [`blue-data`](https://github.com/megagon-internal/blue-data) (local sibling dependency — not yet published)
+- [`blue-data`](https://github.com/megagonlabs/blue-data) (local sibling dependency — not yet published)
 - An API key for any LLM feature (`import_text`/`blue-kb data extract`, `expand_schema`, `answer`/`validate`/`enrich`): the key of the provider `BLUE_DATA_LLM_PROVIDER` names, `OPENAI_API_KEY` by default or `ANTHROPIC_API_KEY` for `anthropic`. Semantic search embeddings always use `OPENAI_API_KEY`. Nothing else in the library needs a key — schema declaration, instance writes, keyword search, and change hooks are all plain Python with no network calls.
 
 None of the three packages are published to PyPI yet — always install from the local checkout as shown above.

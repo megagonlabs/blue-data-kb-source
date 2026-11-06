@@ -1,7 +1,7 @@
 # blue-data-kb-source Examples
 
 This directory contains runnable examples organized by purpose, mirroring the sibling
-[`blue-data/examples/`](https://github.com/megagon-internal/blue-data/tree/1.0/examples) layout.
+[`blue-data/examples/`](https://github.com/megagonlabs/blue-data/tree/1.0/examples) layout.
 
 ## Quick start
 

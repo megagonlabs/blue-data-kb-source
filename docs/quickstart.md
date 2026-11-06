@@ -1,6 +1,6 @@
 # Quick Start
 
-The fastest way to see the knowledge base in action is the `blue-kb` CLI — no Python code required. Install everything from the repo root, with the sibling [`blue-data`](https://github.com/megagon-internal/blue-data) repository checked out beside this one (`../blue-data`):
+The fastest way to see the knowledge base in action is the `blue-kb` CLI — no Python code required. Install everything from the repo root, with the sibling [`blue-data`](https://github.com/megagonlabs/blue-data) repository checked out beside this one (`../blue-data`):
 
 ```bash
 bash scripts/install.sh
