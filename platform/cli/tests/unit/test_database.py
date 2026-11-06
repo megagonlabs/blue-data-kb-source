@@ -379,6 +379,20 @@ def test_database_delete_finishes_when_the_vector_store_fails(runner, tmp_path, 
     assert "main" not in invoke_json(runner, ["database", "list", "--format", "json"])
 
 
+def test_database_delete_keeps_the_corpus_of_a_database_with_a_longer_name(runner, tmp_path):
+    """#184: `main_*_bm25.json` also matched `main_x_data_bm25.json`."""
+    invoke(runner, ["database", "register", "main", "--search", "bm25"])
+    invoke(runner, ["database", "register", "main_x", "--search", "bm25"])
+    for name in ("main", "main_x"):
+        invoke(runner, ["--database", name, "schema", "class", "add", "PERSON", "A person"])
+    data_dir = Path(invoke_json(runner, ["database", "list", "--format", "json"])["main"]["connection"]["directory"])
+
+    invoke(runner, ["database", "delete", "main", "--yes"])
+
+    assert not (data_dir / "main_schema_bm25.json").exists()
+    assert (data_dir / "main_x_schema_bm25.json").exists()
+
+
 def test_database_delete_refuses_the_registry(runner, tmp_path):
     invoke(runner, ["database", "register", "main"])
     invoke(runner, ["database", "register", "other"])

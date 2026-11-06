@@ -848,13 +848,13 @@ def database_delete(name: str, yes: bool) -> None:
                 abort=True,
             )
 
-    # Remove BM25 index files if present
+    # Remove BM25 index files if present. By exact name: `main_*_bm25.json` would also
+    # match the corpora of a database called `main_x` (#184).
     bm25_dir = (cfg.get("search") or {}).get("bm25_index_dir")
     if bm25_dir:
-        import glob
-        for f in glob.glob(str(Path(bm25_dir).expanduser() / f"{name}_*_bm25.json")):
+        for collection in ("data", "schema"):
             try:
-                Path(f).unlink()
+                (Path(bm25_dir).expanduser() / f"{name}_{collection}_bm25.json").unlink(missing_ok=True)
             except OSError:
                 pass
 

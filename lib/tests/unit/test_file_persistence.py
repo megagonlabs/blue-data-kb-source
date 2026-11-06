@@ -2,6 +2,8 @@
 import datetime
 import json
 import os
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
@@ -234,6 +236,92 @@ async def test_clear_vectors_gives_a_recreated_database_a_clean_search(tmp_path)
     assert [hit.name for hit in await kb.search_data("main", "x", k=1, mode="semantic")] == ["Bob"]
     assert "Alice" not in (tmp_path / "kb_data_main.json").read_text()
     assert "Carol" in (tmp_path / "kb_data_other.json").read_text()
+
+
+async def _overwrite_with_bob(kb):
+    person = await kb.declare_class("main", "PERSON", "A person")
+    for i in range(5):
+        await kb.add_entity("main", f"zebra old{i}", class_id=person)
+    kb.create_database("main", overwrite=True)
+    person = await kb.declare_class("main", "PERSON", "A person")
+    await kb.add_entity("main", "zebra Bob", class_id=person)
+
+
+@pytest.mark.parametrize("mode", ["bm25", "semantic"])
+async def test_overwriting_a_database_empties_its_search_index(tmp_path, mode):
+    """#184: stale entries took search's top k, so real nodes weren't found."""
+    kb = _kb_with_sidecars(tmp_path)
+    kb.create_database("main")
+    await _overwrite_with_bob(kb)
+
+    assert [hit.name for hit in await kb.search_data("main", "zebra", k=1, mode=mode)] == ["zebra Bob"]
+    assert "old" not in (tmp_path / "kb_data_main.json").read_text()
+    assert "old" not in (tmp_path / "main_data_bm25.json").read_text()
+
+
+async def test_overwriting_a_database_leaves_other_databases_indexed(tmp_path):
+    kb = _kb_with_sidecars(tmp_path)
+    kb.create_database("main")
+    kb.create_database("other")
+    person = await kb.declare_class("other", "PERSON", "A person")
+    await kb.add_entity("other", "zebra Carol", class_id=person)
+    await _overwrite_with_bob(kb)
+
+    for mode in ("bm25", "semantic"):
+        assert [hit.name for hit in await kb.search_data("other", "zebra", k=1, mode=mode)] == ["zebra Carol"]
+
+
+async def test_an_overwrite_reaches_another_process_index(tmp_path):
+    """A second KB on the directory, like a running MCP server, kept its copy of the
+    corpus when the file went away."""
+    kb, server = _kb_with_sidecars(tmp_path), _kb_with_sidecars(tmp_path)
+    kb.create_database("main")
+    person = await kb.declare_class("main", "PERSON", "A person")
+    await kb.add_entity("main", "zebra Alice", class_id=person)
+    assert await server.search_data("main", "zebra", k=1, mode="bm25")
+
+    kb.create_database("main", overwrite=True)
+
+    assert server._search_indexer._get_corpus("main", "data") == {}
+
+
+async def test_overwriting_a_memory_database_empties_its_search_index():
+    kb = MemoryKBSource("kb", properties={"search": {"mode": "bm25"}})
+    kb.create_database("main")
+    await _overwrite_with_bob(kb)
+    assert [hit.name for hit in await kb.search_data("main", "zebra", k=1, mode="bm25")] == ["zebra Bob"]
+
+
+def test_overwriting_a_neo4j_database_empties_its_search_index_first():
+    pytest.importorskip("neo4j")
+    from blue_data_kb_source.neo4j.neo4j_kb_source import NEO4JKBSource
+    from blue_data.source.graph.neo4j.neo4j_graph_source import NEO4JSource
+
+    calls = []
+    kb = NEO4JKBSource.__new__(NEO4JKBSource)
+    kb._schema_ready = True
+    kb._search_indexer = SimpleNamespace(clear=lambda database: calls.append(("clear", database)))
+    kb._q = lambda query, database, *args, **kwargs: calls.append(("delete", database))
+    with patch.object(NEO4JSource, "create_database", return_value={"status": "skipped"}):
+        kb.create_database("main", overwrite=True)
+    assert calls == [("clear", "main"), ("delete", "main")]
+
+
+async def test_a_vector_store_failure_stops_an_overwrite_before_the_graph(tmp_path):
+    """Nothing is lost: the overwrite can simply be run again."""
+    kb = _kb_with_sidecars(tmp_path)
+    kb.create_database("main")
+    person = await kb.declare_class("main", "PERSON", "A person")
+    await kb.add_entity("main", "Alice", class_id=person)
+
+    def fail(database):
+        raise ConnectionError("store unreachable")
+
+    kb._search_indexer.clear_vectors = fail
+    with pytest.raises(ConnectionError):
+        kb.create_database("main", overwrite=True)
+    assert "Alice" in (tmp_path / "main.json").read_text()
+    assert "Alice" in (tmp_path / "main_data_bm25.json").read_text()
 
 
 def _write_vectors(directory, tag, n, class_id):

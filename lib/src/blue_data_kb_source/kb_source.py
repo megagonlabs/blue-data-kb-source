@@ -493,6 +493,16 @@ class KBSource(GraphSource, ABC):
             raise KBError("reindex requires enable_search=True or vector_source at init")
         self._search_indexer.reindex_all(database)
 
+    def create_database(self, database, properties=None, overwrite=False):
+        """Create `database`; `overwrite` empties its graph and its search index."""
+        if overwrite:
+            self._clear_search_index(database)
+        return super().create_database(database, properties=properties, overwrite=overwrite)
+
+    def _clear_search_index(self, database: str) -> None:
+        if self._search_indexer is not None:
+            self._search_indexer.clear(database)
+
     def clear_vectors(self, database: str) -> None:
         """Remove `database`'s vectors from the vector store, if it has one."""
         if self._search_indexer is not None:

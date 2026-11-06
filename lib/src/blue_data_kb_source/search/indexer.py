@@ -198,10 +198,20 @@ class KBSearchIndexer:
             self._delete_bm25(database, collection, node_id)
             self._delete_vector(database, collection, node_id)
 
+    def clear(self, database: str) -> None:
+        """Empty `database`'s search index, vectors first: only they can fail on a
+        store that is down. The index outlives the graph otherwise: a new database of
+        the same name would inherit it, and stale entries would take search's top k
+        from its real nodes."""
+        self.clear_vectors(database)
+        for collection in (_DATA_COLL, _SCHEMA_COLL):
+            with self._corpus_lock(database, collection):
+                self._forget_corpus(database, collection)
+                if self._corpus_dir:
+                    self._corpus_file_path(database, collection).unlink(missing_ok=True)
+
     def clear_vectors(self, database: str) -> None:
-        """Remove every vector of `database`. Vectors outlive the graph otherwise:
-        a new database of the same name would inherit them, and they would take
-        search's top k from its real nodes."""
+        """Remove every vector of `database`."""
         if self._vector_source is None:
             return
         for collection in (_DATA_COLL, _SCHEMA_COLL):
@@ -447,11 +457,17 @@ class KBSearchIndexer:
         self._corpus_stamp[(database, collection)] = self._file_stamp(database, collection)
         path = self._corpus_file_path(database, collection)
         if not path.exists():
+            # Another process may have cleared it: this copy must not outlive the file.
+            self._forget_corpus(database, collection)
             return
         with open(path) as f:
             data = json.load(f)
         self._corpus.setdefault(database, {})[collection] = data.get("corpus", {})
         self._meta.setdefault(database, {})[collection] = data.get("meta", {})
+
+    def _forget_corpus(self, database: str, collection: str) -> None:
+        self._corpus.get(database, {}).pop(collection, None)
+        self._meta.get(database, {}).pop(collection, None)
 
     def _corpus_lock(self, database: str, collection: str):
         """Held from re-reading the corpus file to saving it, so a change another

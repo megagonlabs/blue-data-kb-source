@@ -175,11 +175,12 @@ class NEO4JKBSource(KBSource, NEO4JSource):
         `_override_database` that names the shared physical database, which on
         Enterprise would drop every logical KB database in it, not just *database*
         (#137). Here the physical database is never dropped; overwriting deletes only
-        the nodes tagged with *database*.
+        the nodes tagged with *database*, and the search index goes with them (#184).
         """
         result = super().create_database(database, properties=properties, overwrite=False)
         self._ensure_schema()
         if overwrite:
+            self._clear_search_index(database)
             self._q(f"MATCH (n {{{_DB}: $db}}) DETACH DELETE n", database, {}, read=False, transaction_id=None)
             return {"status": "success"}
         return result
