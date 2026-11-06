@@ -743,6 +743,12 @@ nouns — `SKILL`, a language, a material, a condition — were never even propo
 `find_entity` call was ever made for them. Rendering the checklist also removes the `search_schema`
 round-trip for classes that are already in the prompt verbatim.
 
+The sweep has an opposite blind spot: the subject of the sentences. In a text like "Alice prefers
+remote work", the classes catch the nouns while Alice is only who the sentences are about, and with no
+subject every fact is refused. Both entity stages are told to account for that subject first, and
+any entity already in the KB whose whole name appears in the text joins the list handed to the later
+stages, without an LLM call, unless an entity of that name was already resolved (#189).
+
 **Entity gap recovery:** a conditional stage between entities and relations. After the entity stage,
 any CLASS with zero resolved instances is re-swept once, on its own, with the resolved entities
 shown as context. It runs only when the entity stage resolved *something* — selective blindness

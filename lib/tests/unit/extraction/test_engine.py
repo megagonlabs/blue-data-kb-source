@@ -468,6 +468,56 @@ async def test_relation_stage_prompt_lists_entities_resolved_by_entity_stage(kb)
     assert "IBM (COMPANY)" in stage2_prompt
 
 
+async def test_relation_stage_gets_an_existing_entity_the_entity_stage_skipped(kb):
+    """#189: the model filed the nouns and made no call for the person, so every fact
+    about them had no subject."""
+    person = await kb.declare_class("test", "PERSON", "")
+    await kb.add_entity("test", "Alice Johnson", class_id=person)
+    await kb.add_entity("test", "Bob", class_id=person)
+    await kb.add_entity("test", "Al", class_id=person)
+
+    responses = _mock_openai_sequence(*[_text_response("done")] * 6)
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
+        await kb.import_text("test", "alice  johnson prefers remote work.", expand_schema=False)
+
+    stage_prompts = [c.kwargs["messages"][0]["content"] for c in factory.return_value.chat.completions.create.call_args_list]
+    relation_prompt = next(p for p in stage_prompts if "Stage: relation extraction" in p)
+    listed = relation_prompt.split("Entities already resolved for this text")[1].split("For each relationship")[0]
+    assert "Alice Johnson (PERSON)" in listed
+    assert "Bob" not in listed
+    assert "Al (PERSON)" not in listed
+
+
+async def test_a_resolved_entity_settles_which_same_named_entity_the_text_means(kb):
+    fruit = await kb.declare_class("test", "FRUIT", "")
+    company = await kb.declare_class("test", "COMPANY", "")
+    await kb.add_entity("test", "Apple", class_id=company)
+    responses = _mock_openai_sequence(
+        _tool_call_response("add_entity", {"name": "Apple", "class_id": fruit, "text": "Apple is sweet."}),
+        _text_response("done"),
+        _text_response("done"),
+        _text_response("done"),
+        _text_response("done"),
+        _text_response("done"),
+    )
+    with patch("blue_data_kb_source.llm.AsyncClient", responses) as factory:
+        await kb.import_text("test", "Apple is sweet.", expand_schema=False)
+
+    relation_prompt = next(
+        c.kwargs["messages"][0]["content"] for c in factory.return_value.chat.completions.create.call_args_list
+        if "Stage: relation extraction" in c.kwargs["messages"][0]["content"]
+    )
+    assert "Apple (FRUIT)" in relation_prompt
+    assert "Apple (COMPANY)" not in relation_prompt
+
+
+def test_entity_stages_look_for_what_the_text_is_about_first():
+    from blue_data_kb_source.extraction.engine import STAGE_ENTITIES, STAGE_ENTITY_GAPS, _STAGE_WORKFLOWS
+
+    assert "what the text is *about*" in _STAGE_WORKFLOWS[STAGE_ENTITIES]
+    assert "who or what the sentences are about" in _STAGE_WORKFLOWS[STAGE_ENTITY_GAPS]
+
+
 async def test_staged_pipeline_creates_fact_from_stage1_resolved_entity_ids(kb):
     """End-to-end: the relation stage never calls find_entity/add_entity — it
     uses the ids the entity stage already resolved, exactly as the prompt

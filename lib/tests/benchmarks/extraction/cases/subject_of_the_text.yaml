@@ -1,0 +1,38 @@
+id: subject_of_the_text
+category: subject_self
+description: >
+  The #189 failure: the classes describe the nouns, and the person is only the subject
+  of the sentences. The class-by-class scan filed the nouns and skipped Alice, so every
+  fact about her had no subject and was refused.
+seed_schema:
+  classes:
+    - {name: PERSON, description: "A human individual"}
+    - {name: WORK_PREFERENCE, description: "A preference about work conditions"}
+    - {name: WORK_EQUIPMENT, description: "Equipment used for work"}
+  relations:
+    - name: PREFERS
+      description: "A person prefers or values a work condition"
+      domain: PERSON
+      range: WORK_PREFERENCE
+    - name: USES
+      description: "A person uses a piece of equipment"
+      domain: PERSON
+      range: WORK_EQUIPMENT
+expand_schema: false
+input_text: >
+  The following question and answer are about Alice, the user this knowledge base
+  describes.
+
+  Alice strongly prefers remote work. She values asynchronous communication and
+  uses a standing desk.
+dedup_modes: [search]
+expected:
+  entities:
+    - {name: Alice, class: PERSON}
+    - {name: remote work, class: WORK_PREFERENCE}
+    - {name: asynchronous communication, class: WORK_PREFERENCE}
+    - {name: standing desk, class: WORK_EQUIPMENT}
+  facts:
+    - {head: Alice, relation: PREFERS, tail: remote work}
+    - {head: Alice, relation: PREFERS, tail: asynchronous communication}
+    - {head: Alice, relation: USES, tail: standing desk}

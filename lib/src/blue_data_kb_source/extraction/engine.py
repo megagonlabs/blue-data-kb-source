@@ -402,6 +402,13 @@ whose instances are ordinary words — skills, languages, tools, materials,
 conditions. A bare list item, a comma-separated run, or a noun buried in a
 sentence is an entity whenever a class covers it.
 
+The same scan can miss the opposite way: what the text is *about*. In "Alice
+prefers remote work. She values quiet." the classes for preferences catch the
+nouns, but Alice is the one who prefers and values, and every relationship in
+the text hangs on her. Start there: find who or what the sentences are about,
+including anyone a line introducing the text names, and handle them first under
+the class that fits them. Without them no relationship can be recorded at all.
+
 This is the complete list of classes; account for every one of them:
 
 {classes}
@@ -444,6 +451,10 @@ class whose instances are ordinary nouns rather than names gets skipped, so
 re-read the text once more for these classes and nothing else:
 
 {missing_classes}
+
+Check first for who or what the sentences are about. If the text is about a
+person or thing that fits one of these classes and the list of resolved entities
+above doesn't have it, that is the gap that matters most: relationships need it.
 
 For each class above, find any instance the earlier pass missed — a genuine
 member of the class as its description defines it, never a mention of some
@@ -1069,6 +1080,9 @@ class ExtractionEngine:
             # Re-resolved from both stages' calls rather than merged, so an entity
             # the gap stage attached another class to carries its current classes.
             entities = self._resolved_entities(database, entity_calls + gap_calls)
+        # An entity the KB already has can be missed by both stages above, and the
+        # stages below only see what is listed, so its facts would be lost (#189).
+        entities = _merge_entities(entities, self._entities_named_in(database, text, entities))
         carried.extend("entities", entities)
 
         relation_calls = await self._run_stage(
@@ -1248,13 +1262,30 @@ class ExtractionEngine:
             node = self._source.get_node(database, eid)
             if node is None or node.get("label") != ENTITY:
                 continue
-            classes = entity_classes(self._source, database, eid)
-            resolved.append({
-                "id": eid,
-                "name": node_name(node),
-                "class_names": [node_name(c) for c in classes],
-            })
+            resolved.append(self._entity_summary(database, node))
         return resolved
+
+    def _entity_summary(self, database: str, node: dict[str, Any]) -> dict[str, Any]:
+        classes = entity_classes(self._source, database, node["id"])
+        return {
+            "id": node["id"],
+            "name": node_name(node),
+            "class_names": [node_name(c) for c in classes],
+        }
+
+    def _entities_named_in(
+        self, database: str, text: str, resolved: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Entities in the KB whose whole name appears in `text`, leaving out any name
+        already in `resolved`: a resolved "Apple" settles which Apple the text means."""
+        words = f" {' '.join(_span_tokens(text))} "
+        taken = {" ".join(_span_tokens(e["name"])) for e in resolved}
+        named = []
+        for node in self._source.match_nodes(database, label=ENTITY):
+            name = " ".join(_span_tokens(node_name(node)))
+            if name and name not in taken and f" {name} " in words:
+                named.append(self._entity_summary(database, node))
+        return named
 
     def _resolved_facts(
         self, database: str, calls: list[tuple[str, dict[str, Any], Any]]
