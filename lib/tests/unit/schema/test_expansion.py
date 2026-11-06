@@ -67,6 +67,7 @@ async def test_expand_schema_declares_class(kb):
     factory, _ = _mock_openai_sequence(
         _tool_call_response("declare_class", {"name": "PERSON", "description": "A human individual"}),
         _text_response("done"),
+        _text_response("done"),
     )
     with patch("blue_data_kb_source.llm.AsyncClient", factory):
         await kb.expand_schema("test", "Alice is a person.", dedup_mode="none")
@@ -215,6 +216,45 @@ async def test_expand_schema_add_subclass_of_links_hierarchy(kb):
         r["name"] == "IS_SUBCLASS_OF" and r["source"] == "EMPLOYEE" and r["target"] == "PERSON"
         for r in schema.relations.values()
     )
+
+
+async def test_expand_schema_add_subclass_of_takes_names(kb):
+    """#190: models pass the name as often as the id, and the class stayed unlinked."""
+    await kb.declare_class("test", "SKILL", "An ability")
+    language = await kb.declare_class("test", "PROGRAMMING_LANGUAGE", "A programming language")
+
+    calls = []
+    factory, _ = _mock_openai_sequence(
+        _tool_call_response("add_subclass_of", {"child_id": "programming language", "parent_id": "SKILL"}),
+        _tool_call_response("return_verdict", {"is_subtype": True, "reason": "Fits."}),
+        _text_response("done"),
+    )
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
+        await kb.expand_schema(
+            "test", "Alice knows Python.", dedup_mode="none",
+            on_tool_result=lambda name, args, result: calls.append(result),
+        )
+
+    assert calls == [{}]
+    parents = kb.get_neighbors("test", language, edge_type="IS_SUBCLASS_OF", direction="out")
+    assert [nb["node"]["properties"]["name"] for nb in parents] == ["SKILL"]
+
+
+async def test_expand_schema_add_subclass_of_reports_an_unknown_name(kb):
+    await kb.declare_class("test", "SKILL", "An ability")
+
+    calls = []
+    factory, _ = _mock_openai_sequence(
+        _tool_call_response("add_subclass_of", {"child_id": "NO_SUCH_CLASS", "parent_id": "SKILL"}),
+        _text_response("done"),
+    )
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
+        await kb.expand_schema(
+            "test", "Some text.", dedup_mode="none",
+            on_tool_result=lambda name, args, result: calls.append(result),
+        )
+
+    assert "NO_SUCH_CLASS" in calls[0]["error"]
 
 
 async def test_expand_schema_add_subclass_of_rejects_implausible_link(kb):
@@ -370,6 +410,7 @@ async def test_expand_schema_search_dedup_ignores_keyword_overlap():
              "domain": "PERSON", "range": "UNIVERSITY"},
         ),
         _text_response("done"),
+        _text_response("done"),
     )
     with patch("blue_data_kb_source.llm.AsyncClient", factory):
         await kb.expand_schema(
@@ -442,6 +483,7 @@ async def test_expand_schema_semantic_dedup_applies_score_cutoff(kb, score, reus
     factory, _ = _mock_openai_sequence(
         _tool_call_response("declare_class", {"name": "FIRM", "description": "A business"}),
         _text_response("done"),
+        _text_response("done"),
     )
     with patch("blue_data_kb_source.llm.AsyncClient", factory):
         await kb.expand_schema(
@@ -451,6 +493,93 @@ async def test_expand_schema_semantic_dedup_applies_score_cutoff(kb, score, reus
 
     assert (calls[0][1]["id"] == company) is reused
     assert ("reused_existing" in calls[0][1]) is reused
+
+
+# ------------------------------------------------------------------ #
+# classes no relation can reach (#190)                                 #
+# ------------------------------------------------------------------ #
+
+async def _seed_skills(kb):
+    await kb.declare_class("test", "PERSON", "A human individual")
+    await kb.declare_class("test", "SKILL", "An ability")
+    await kb.declare_relation_type("test", "PROFICIENT_IN", "Is good at", domain="PERSON", range="SKILL")
+
+
+def _sent_notes(client):
+    """The follow-up user messages, after the text the run started from."""
+    messages = client.chat.completions.create.call_args.kwargs["messages"]
+    return [m["content"] for m in messages if m["role"] == "user"][1:]
+
+
+async def test_a_class_no_relation_can_reach_goes_back_to_the_model(kb):
+    await _seed_skills(kb)
+    factory, client = _mock_openai_sequence(
+        _tool_call_response("declare_class", {"name": "PROGRAMMING_LANGUAGE", "description": "A language"}),
+        _text_response("done"),
+        _tool_call_response("add_subclass_of", {"child_id": "PROGRAMMING_LANGUAGE", "parent_id": "SKILL"}),
+        _tool_call_response("return_verdict", {"is_subtype": True, "reason": "Fits."}),
+        _text_response("done"),
+    )
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
+        await kb.expand_schema("test", "Alice is proficient in Python.", dedup_mode="none")
+
+    (note,) = _sent_notes(client)
+    assert "PROGRAMMING_LANGUAGE" in note
+    assert "add_subclass_of" in note and "declare_relation_type" in note
+    assert client.chat.completions.create.await_count == 5
+
+
+async def test_a_class_is_sent_back_only_once(kb):
+    """Nothing may be connectable, and the text may state no relationship at all."""
+    await _seed_skills(kb)
+    factory, client = _mock_openai_sequence(
+        _tool_call_response("declare_class", {"name": "HOBBY", "description": "A pastime"}),
+        _text_response("nothing to connect"),
+        _text_response("still nothing"),
+    )
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
+        await kb.expand_schema("test", "Alice has a hobby.", dedup_mode="none")
+
+    assert len(_sent_notes(client)) == 1
+    assert client.chat.completions.create.await_count == 3
+
+
+async def test_a_class_a_relation_uses_is_not_sent_back(kb):
+    await _seed_skills(kb)
+    factory, client = _mock_openai_sequence(
+        _tool_call_response("declare_class", {"name": "HOBBY", "description": "A pastime"}),
+        _tool_call_response("declare_relation_type", {
+            "name": "ENJOYS", "description": "Likes doing", "domain": "PERSON", "range": "HOBBY",
+        }),
+        _text_response("done"),
+    )
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
+        await kb.expand_schema("test", "Alice enjoys chess.", dedup_mode="none")
+
+    assert _sent_notes(client) == []
+
+
+async def test_a_new_parent_of_a_class_a_relation_uses_is_not_sent_back(kb):
+    await _seed_skills(kb)
+    factory, client = _mock_openai_sequence(
+        _tool_call_response("declare_class", {"name": "ABILITY", "description": "Anything one can do"}),
+        _tool_call_response("add_subclass_of", {"child_id": "SKILL", "parent_id": "ABILITY"}),
+        _tool_call_response("return_verdict", {"is_subtype": True, "reason": "Fits."}),
+        _text_response("done"),
+    )
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
+        await kb.expand_schema("test", "Alice can do things.", dedup_mode="none")
+
+    assert _sent_notes(client) == []
+
+
+async def test_a_class_that_was_already_there_is_not_sent_back(kb):
+    await kb.declare_class("test", "ORPHAN", "Nothing uses this")
+    factory, client = _mock_openai_sequence(_text_response("done"))
+    with patch("blue_data_kb_source.llm.AsyncClient", factory):
+        await kb.expand_schema("test", "Some text.", dedup_mode="none")
+
+    assert client.chat.completions.create.await_count == 1
 
 
 # ------------------------------------------------------------------ #
@@ -733,7 +862,7 @@ def _fake_reference_server():
 async def _expand_scripted(kb, steps, reference="mcp"):
     """Run expand_schema with a scripted model; return {call_id: tool result}."""
     results = {}
-    responses = [_tool_call_response(n, a, call_id=f"c{i}") for i, (n, a) in enumerate(steps)] + [_text_response("done")]
+    responses = [_tool_call_response(n, a, call_id=f"c{i}") for i, (n, a) in enumerate(steps)] + [_text_response("done")] * 2
     mock_client = MagicMock()
     mock_client.chat.completions.create = AsyncMock(side_effect=responses)
     connect, call = _fake_reference_server()

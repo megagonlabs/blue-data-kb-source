@@ -9,7 +9,7 @@ from blue_data.source.graph.graph_source import GraphSource
 
 from blue_data_kb_source import llm
 from blue_data_kb_source._agent_tools import parse_tool_arguments, tool_error, tool_message_content
-from blue_data_kb_source._constants import CLASS, PROPERTY, RELATION
+from blue_data_kb_source._constants import CLASS, DOMAIN, PROPERTY, RANGE, RELATION
 from blue_data_kb_source.types import SchemaError, SchemaSearchResult
 
 if TYPE_CHECKING:
@@ -143,14 +143,15 @@ _SCHEMA_TOOLS: list[dict[str, Any]] = [
                 "Link an existing CLASS or RELATION as a subtype of a more general existing one "
                 "of the same kind — e.g. EMPLOYEE (child) add_subclass_of PERSON (parent). Use "
                 "this for any is-a/type-of/kind-of relationship between two concepts; never "
-                "declare_relation_type for that purpose. Both ids must come from a prior "
-                "declare_class/declare_relation_type/search_schema/get_schema result. Returns {}."
+                "declare_relation_type for that purpose. Each side is the id from a prior "
+                "declare_class/declare_relation_type/search_schema result, or the element's "
+                "name. Returns {}."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "child_id": {"type": "string", "description": "id of the more specific CLASS or RELATION"},
-                    "parent_id": {"type": "string", "description": "id of the more general CLASS or RELATION"},
+                    "child_id": {"type": "string", "description": "id or name of the more specific CLASS or RELATION"},
+                    "parent_id": {"type": "string", "description": "id or name of the more general CLASS or RELATION"},
                 },
                 "required": ["child_id", "parent_id"],
             },
@@ -297,6 +298,18 @@ Current schema:
 {schema}
 
 Work through the text systematically and stop calling tools when you are done.\
+"""
+
+# Sent once, when the model stops with classes no relation can reach (#190).
+_UNREACHABLE_CLASSES_NOTE = """\
+No relation can reach these classes you declared: {classes}. A fact about one of
+their entities will be refused, because a fact's head and tail must each be in the
+relation's domain and range, directly or through an ancestor class.
+
+For each one the text states a relationship for, connect it: add_subclass_of under
+a class the relation already uses, if every member really is one, or otherwise
+declare_relation_type with this class as its domain or range. If the text states no
+relationship for a class, leave it alone. Stop calling tools when you are done.\
 """
 
 _MCP_NOTE = """
@@ -563,6 +576,9 @@ class SchemaExpansionEngine:
             {"role": "user", "content": text},
         ]
 
+        classes_before = {node["id"] for node in self._source.match_nodes(database, label=CLASS)}
+        reachability_checked = False
+
         async with AsyncExitStack() as stack:
             tools = list(base_tools)
             mcp_dispatch: dict[str, tuple[Any, str, Any]] = {}
@@ -603,7 +619,18 @@ class SchemaExpansionEngine:
                 messages.append(msg_dict)
 
                 if not msg.tool_calls:
-                    break
+                    unreachable = (
+                        [] if reachability_checked
+                        else await self._unreachable_classes(database, classes_before)
+                    )
+                    if not unreachable:
+                        break
+                    reachability_checked = True
+                    messages.append({
+                        "role": "user",
+                        "content": _UNREACHABLE_CLASSES_NOTE.format(classes=", ".join(unreachable)),
+                    })
+                    continue
 
                 for tc in msg.tool_calls:
                     args, bad_args = parse_tool_arguments(tc.function.arguments)
@@ -637,6 +664,39 @@ class SchemaExpansionEngine:
                         "content": tool_message_content(content_str),
                     })
             progress["done"] = True  # the model loop finished; only teardown is left
+
+    async def _unreachable_classes(self, database: str, classes_before: set[str]) -> list[str]:
+        """Names of the classes this run added that no relation can reach: neither the
+        class nor anything in its lineage is a relation's domain or range. A new parent
+        of a class a relation uses counts as reachable, since it is there as hierarchy."""
+        ends = {
+            nb["node"]["id"]
+            for relation in self._source.match_nodes(database, label=RELATION)
+            for edge in (DOMAIN, RANGE)
+            for nb in self._source.get_neighbors(database, relation["id"], edge_type=edge, direction="out")
+        }
+        unreachable = []
+        for node in self._source.match_nodes(database, label=CLASS):
+            if node["id"] in classes_before:
+                continue
+            lineage = {node["id"]}
+            for walk in (self._schema.get_class_ancestors, self._schema.get_class_descendants):
+                lineage.update(n["id"] for n in await walk(database, node["id"], max_hops=None))
+            if not lineage & ends:
+                unreachable.append(node.get("properties", {}).get("name", ""))
+        return sorted(unreachable)
+
+    async def _schema_element_id(self, database: str, reference: str) -> str:
+        """The id for *reference*, an id or a CLASS or RELATION name. Models often pass
+        the name, and the class stayed unlinked when that failed (#190). Anything else
+        comes back as it is, for add_is_subclass_of to report."""
+        from blue_data_kb_source.schema.manager import _canonicalize_schema_name
+
+        if self._source.get_node(database, reference):
+            return reference
+        name = _canonicalize_schema_name(reference)
+        found = await self._schema.find_class(database, name) or await self._schema.find_relation_type(database, name)
+        return found["id"] if found else reference
 
     async def _lookup_first(
         self,
@@ -762,10 +822,12 @@ class SchemaExpansionEngine:
             return {"id": pid}
 
         if fn == "add_subclass_of":
-            rejection = await self._judge_subclass(database, args["child_id"], args["parent_id"], model)
+            child_id = await self._schema_element_id(database, args["child_id"])
+            parent_id = await self._schema_element_id(database, args["parent_id"])
+            rejection = await self._judge_subclass(database, child_id, parent_id, model)
             if rejection:
                 return {"error": rejection}
-            await self._schema.add_is_subclass_of(database, args["child_id"], args["parent_id"])
+            await self._schema.add_is_subclass_of(database, child_id, parent_id)
             return {}
 
         if fn == "attach_property":
@@ -867,7 +929,7 @@ class SchemaExpansionEngine:
         an error explaining the misplacement), or None to proceed. The same-meaning half
         is skipped when dedup_mode="none"; placement is always checked. A missing owner or
         an exact-name redeclaration falls through to declare_*_property, which handles it."""
-        from blue_data_kb_source._constants import DEFINE_PROPERTY, DOMAIN, RANGE
+        from blue_data_kb_source._constants import DEFINE_PROPERTY
         from blue_data_kb_source.schema.manager import _canonicalize_schema_name
 
         owner = self._source.get_node(database, owner_id)
