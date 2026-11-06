@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,7 @@ from blue_data_kb_source._constants import (
     SOURCE,
     TAIL,
 )
+from blue_data_kb_source.file_kb_source import holds_graph
 from blue_data_kb_source.types import KBError
 from rich.console import Console
 from rich.table import Table
@@ -621,6 +623,18 @@ def database_list(fmt: str) -> None:
     console.print(t)
 
 
+# The other "*.json" files a database directory holds: the registry, BM25 corpora and
+# file vector stores. A database with one of these names would share that file (#183).
+_RESERVED_DATABASE_NAME = re.compile(r"registry|.+_(data|schema)_bm25|kb_(data|schema)_.+")
+
+
+def _refuse_reserved_name(name: str) -> None:
+    if _RESERVED_DATABASE_NAME.fullmatch(name):
+        raise click.ClickException(
+            f"'{name}' can't be a database name: blue-kb uses that name for its own files."
+        )
+
+
 def _bm25_dir_for(connection: dict[str, Any]) -> str:
     """Where a database's BM25 corpus files live.
 
@@ -698,6 +712,7 @@ def database_register(
     embedding_model: str | None,
 ) -> None:
     """Register a database with explicit configuration."""
+    _refuse_reserved_name(name)
     class_path = _KB_CLASS_BY_BACKEND[graph_backend]
 
     if graph_backend == "neo4j":
@@ -764,6 +779,7 @@ def database_create(obj: dict, name: str) -> None:
     file-backed one with search silently off. Use `database register` to
     configure a database differently from the session's.
     """
+    _refuse_reserved_name(name)
     kb: KBSource = obj["kb"]
     try:
         kb.create_database(name)
@@ -817,6 +833,9 @@ def database_delete(name: str, yes: bool) -> None:
         if not path.exists():
             # Not in registry or file not found
             raise click.ClickException(f"Database '{name}' not found.")
+        if not holds_graph(path):
+            # The registry, a BM25 corpus or a vector store (#183).
+            raise click.ClickException(f"'{name}' is not a database: {path} doesn't hold a graph.")
         if not yes:
             click.confirm(f"Delete database '{name}'? This cannot be undone.", abort=True)
         _clear_vectors(name)

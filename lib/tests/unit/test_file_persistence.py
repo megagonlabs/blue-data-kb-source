@@ -150,6 +150,16 @@ async def test_a_directory_with_sidecars_syncs_into_a_registry(tmp_path):
     assert [r["name"] for r in registry.list_source_databases("kb")] == ["main"]
 
 
+def test_a_reformatted_graph_file_is_still_a_database(tmp_path):
+    """#187: json.dump(indent=2), jq or an editor can change the start of the file."""
+    kb = _kb(tmp_path)
+    kb.create_database("main")
+    graph = {"nodes": {}, "edges": {}}
+    (tmp_path / "pretty.json").write_text(json.dumps(graph, indent=2))
+    (tmp_path / "edgesfirst.json").write_text(json.dumps({"edges": {}, "nodes": {}}))
+    assert sorted(kb.fetch_databases()) == ["edgesfirst", "main", "pretty"]
+
+
 def test_an_empty_database_is_listed(tmp_path):
     kb = _kb(tmp_path)
     kb.create_database("main")

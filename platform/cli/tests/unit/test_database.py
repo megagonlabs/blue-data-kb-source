@@ -379,6 +379,52 @@ def test_database_delete_finishes_when_the_vector_store_fails(runner, tmp_path, 
     assert "main" not in invoke_json(runner, ["database", "list", "--format", "json"])
 
 
+def test_database_delete_refuses_the_registry(runner, tmp_path):
+    invoke(runner, ["database", "register", "main"])
+    invoke(runner, ["database", "register", "other"])
+    result = runner.invoke(cli, ["database", "delete", "registry", "--yes"])
+    assert result.exit_code != 0
+    assert "not a database" in result.output
+    assert set(invoke_json(runner, ["database", "list", "--format", "json"])) == {"main", "other"}
+
+
+def test_database_delete_refuses_a_search_index(runner, tmp_path):
+    invoke(runner, ["database", "register", "main", "--search", "bm25"])
+    invoke(runner, ["--database", "main", "schema", "class", "add", "PERSON", "A person"])
+    data_dir = Path(invoke_json(runner, ["database", "list", "--format", "json"])["main"]["connection"]["directory"])
+    corpus = data_dir / "main_schema_bm25.json"
+    assert corpus.exists()
+    result = runner.invoke(cli, ["database", "delete", "main_schema_bm25", "--yes"])
+    assert result.exit_code != 0
+    assert corpus.exists()
+
+
+def test_database_delete_removes_a_reformatted_database(runner, tmp_path):
+    invoke(runner, ["database", "register", "main"])
+    data_dir = Path(invoke_json(runner, ["database", "list", "--format", "json"])["main"]["connection"]["directory"])
+    path = data_dir / "main.json"
+    path.write_text(json.dumps({"edges": {}, "nodes": {}}, indent=2))
+    invoke(runner, ["database", "delete", "main", "--yes"])
+    assert not path.exists()
+
+
+@pytest.mark.parametrize("command", ["register", "create"])
+@pytest.mark.parametrize(
+    "name", ["registry", "main_data_bm25", "main_schema_bm25", "kb_data_main", "kb_schema_main"]
+)
+def test_a_database_cant_take_the_name_of_a_blue_kb_file(runner, command, name):
+    result = runner.invoke(cli, ["database", command, name])
+    assert result.exit_code != 0
+    assert "can't be a database name" in result.output
+    assert name not in invoke_json(runner, ["database", "list", "--format", "json"])
+
+
+@pytest.mark.parametrize("name", ["registry2", "my_registry", "kb_data", "main_bm25", "kb_notes"])
+def test_a_name_that_only_resembles_a_blue_kb_file_is_accepted(runner, name):
+    invoke(runner, ["database", "register", name])
+    assert name in invoke_json(runner, ["database", "list", "--format", "json"])
+
+
 def test_database_delete_missing_fails(runner):
     result = runner.invoke(cli, ["database", "delete", "ghost", "--yes"])
     assert result.exit_code != 0
