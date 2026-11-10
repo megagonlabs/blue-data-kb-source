@@ -16,8 +16,8 @@ KNN hits can't currently be resolved back to KB nodes through
 KBSource.search_data(mode="semantic")/search_schema(mode="semantic"). This
 demo shows the correct wiring and proves the write path works (the document
 really is in Redis, indexed), then shows the read-path gap explicitly rather
-than silently swallowing it. Filed as
-https://github.com/megagon-internal/blue-data/issues/56 — BM25 keyword
+than silently swallowing it. This is a known limitation of blue-data's
+RedisVectorSource (its index schema omits node_id/type/name) — BM25 keyword
 search is unaffected (it never touches the vector backend at all).
 """
 import asyncio
@@ -125,7 +125,8 @@ async def main():
                   [(h.name, round(h.score, 3) if h.score is not None else None) for h in sem_hits])
         except (KeyError, KBError) as e:
             print(f"search_data(mode='semantic') did not return usable results: {type(e).__name__}: {e}")
-            print("This is https://github.com/megagon-internal/blue-data/issues/56, not a")
+            print("This is a known blue-data RedisVectorSource limitation (its index schema")
+            print("omits node_id/type/name, so hits can't map back to documents), not a")
             print("blue-data-kb-source issue — the write path above proves the KBSource-side")
             print("wiring (index creation, embedding, upsert) is correct.")
     finally:
